@@ -15,8 +15,10 @@
 // Modified by The go-remotesigner Authors, 2026: translated from Java to Go and adapted for QRL.
 // Derived from Web3Signer
 // slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbSlashingProtection.java,
-// slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/BlockValidator.java and
-// slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/AttestationValidator.java
+// slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/RegisteredValidators.java,
+// slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/BlockValidator.java,
+// slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/AttestationValidator.java and
+// slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/GenesisValidatorRootValidator.java
 // at commit 30af06dc975ba5b8ed0e17e53cba8683ca50ec02.
 
 package slashing

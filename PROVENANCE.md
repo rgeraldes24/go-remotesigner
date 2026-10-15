@@ -140,7 +140,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/network/registry.go` | new | | | |
 | `internal/randao/onion/onion.go` | new | | | |
 | `internal/randao/onion/onion_test.go` | new | | | |
-| `internal/slashing/engine.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbSlashingProtection.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/BlockValidator.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/AttestationValidator.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/engine.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbSlashingProtection.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/RegisteredValidators.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/BlockValidator.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/AttestationValidator.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/GenesisValidatorRootValidator.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/slashing/engine_test.go` | new |  |  |  |
 | `internal/slashing/engine_w3s_test.go` | w3s-derived | Web3Signer | `slashing-protection/src/test/java/tech/pegasys/web3signer/slashingprotection/DbSlashingProtectionTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/slashing/memstore/memstore.go` | new |  |  |  |
