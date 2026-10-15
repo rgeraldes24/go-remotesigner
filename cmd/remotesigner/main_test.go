@@ -37,6 +37,30 @@ func TestRun(t *testing.T) {
 			wantStdout: []string{"USAGE:", binaryName},
 		},
 		{
+			name:       "help prints help",
+			args:       []string{"help"},
+			wantCode:   exitOK,
+			wantStdout: []string{"USAGE:", binaryName},
+		},
+		{
+			name:       "long help flag",
+			args:       []string{"--help"},
+			wantCode:   exitOK,
+			wantStdout: []string{"USAGE:"},
+		},
+		{
+			name:       "unknown command is a usage error",
+			args:       []string{"consensus"},
+			wantCode:   exitUsage,
+			wantStderr: []string{"usage error", `unknown command "consensus"`},
+		},
+		{
+			name:       "extra argument after help is a usage error",
+			args:       []string{"help", "foo"},
+			wantCode:   exitUsage,
+			wantStderr: []string{"usage error", "help takes no arguments"},
+		},
+		{
 			name:       "unknown flag is a usage error",
 			args:       []string{"--no-such-flag"},
 			wantCode:   exitUsage,

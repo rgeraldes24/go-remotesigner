@@ -18,7 +18,7 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-// Exit codes (DESIGN §3.9): 2 for usage errors, 1 for startup failures.
+// Exit codes: 2 for usage errors, 1 for startup failures.
 const (
 	exitOK      = 0
 	exitStartup = 1
@@ -63,11 +63,27 @@ func newApp(stdout, stderr io.Writer) *cli.App {
 		Writer:          stdout,
 		ErrWriter:       stderr,
 		HideHelpCommand: true,
+		Action:          rootAction,
 		OnUsageError: func(_ *cli.Context, err error, _ bool) error {
 			return cli.Exit(fmt.Sprintf("usage error: %v", err), exitUsage)
 		},
 		// run maps errors to exit codes; keep urfave/cli from calling os.Exit.
 		ExitErrHandler: func(*cli.Context, error) {},
+	}
+}
+
+// rootAction runs when no subcommand matches. It prints the help for a bare
+// invocation or "help", and reports anything else as a usage error instead
+// of urfave/cli's default "No help topic" exit 3.
+func rootAction(c *cli.Context) error {
+	first := c.Args().First()
+	switch {
+	case !c.Args().Present(), first == "help" && c.NArg() == 1:
+		return cli.ShowAppHelp(c)
+	case first == "help":
+		return cli.Exit(fmt.Sprintf("usage error: help takes no arguments; run '%s --help' for usage", c.App.Name), exitUsage)
+	default:
+		return cli.Exit(fmt.Sprintf("usage error: unknown command %q; run '%s --help' for usage", first, c.App.Name), exitUsage)
 	}
 }
 
