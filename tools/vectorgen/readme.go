@@ -40,12 +40,16 @@ in its own tests, and the signer's tests read them; neither copies the other's c
 
 ## Generator
 
-Format version {{FORMAT}}. Every JSON file carries a ` + "`generator`" + ` object naming the module versions below, which
-are pinned in ` + "`tools/vectorgen/go.mod`" + `:
+Format version {{FORMAT}}. The files were generated with these module versions, pinned in
+` + "`tools/vectorgen/go.mod`" + `:
 
 | Module | Version used |
 |---|---|
 {{MODULES}}
+
+Every JSON file carries them in a ` + "`generator`" + ` object, and its CC0 dedication in ` + "`description`" + `. The
+exception is the keystore files of ` + "`keystores/`" + `, which keep their native keystore format; ` + "`keystores/index.json`" + `
+and this README carry their dedication and generator record.
 
 ## Layout
 

@@ -14,8 +14,8 @@ in its own tests, and the signer's tests read them; neither copies the other's c
 
 ## Generator
 
-Format version 1. Every JSON file carries a `generator` object naming the module versions below, which
-are pinned in `tools/vectorgen/go.mod`:
+Format version 1. The files were generated with these module versions, pinned in
+`tools/vectorgen/go.mod`:
 
 | Module | Version used |
 |---|---|
@@ -23,6 +23,10 @@ are pinned in `tools/vectorgen/go.mod`:
 | `github.com/theQRL/go-qrl` | `github.com/cyyber/go-qrl@v0.3.2-0.20260918165407-a9f196d809aa` |
 | `github.com/theQRL/go-qrllib` | `github.com/theQRL/go-qrllib@v0.10.0` |
 | `github.com/prysmaticlabs/fastssz` | `github.com/prysmaticlabs/fastssz@v0.0.0-20260421202104-7a6eb71e6e45` |
+
+Every JSON file carries them in a `generator` object, and its CC0 dedication in `description`. The
+exception is the keystore files of `keystores/`, which keep their native keystore format; `keystores/index.json`
+and this README carry their dedication and generator record.
 
 ## Layout
 

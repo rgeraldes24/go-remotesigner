@@ -87,7 +87,9 @@ RANDAO onion, the interop genesis, `ConfigToYaml`, and the keystore encoders.
 - **Its output.** The generated files are program output, not program text (GPL FAQ, "Is there some way that I can
   GPL the output people get from use of my program?"), and none reproduces qrysm source. They are dedicated to the
   public domain under CC0-1.0, as `testdata/vectors/README.md` and every file's `description` state, and each file
-  records the module versions that generated it. JSON files outside `deploy/` carry no header row; the generated
+  records the module versions that generated it in its `generator` object. The exception is the keystore files of
+  `testdata/vectors/keystores/`, which keep their native keystore format; `keystores/index.json` and the README carry
+  their CC0 dedication and generator record. JSON files outside `deploy/` carry no header row; the generated
   YAMLs carry the class `new` header.
 - **The consumers.** The signer's `golden_test.go` files and `internal/vectors` read the data only. The seed
   expansion of the random-root sets is implemented twice, independently, from its description in
