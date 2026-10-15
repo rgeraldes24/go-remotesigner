@@ -92,6 +92,7 @@ func TestStartupRefusals(t *testing.T) {
 		t.Fatal(err)
 	}
 	remote := []string{"--http-listen-host=0.0.0.0", "--Xallow-plaintext-token-auth", "--http-host-allowlist=signer.internal"}
+	sharedToken := filepath.Join(t.TempDir(), "token")
 	tests := []struct {
 		name string
 		o    options
@@ -112,6 +113,8 @@ func TestStartupRefusals(t *testing.T) {
 		{"unknown network", options{consensus: []string{"--network=no-such-network"}}, 1, "unknown network"},
 		{"missing --network", options{env: []string{"REMOTESIGNER_CONSENSUS_NETWORK="}, consensus: []string{"--network="}}, 2, "--network is required"},
 		{"unknown flag", options{consensus: []string{"--nope"}}, 2, "usage error"},
+		{"one token file for both scopes", options{global: []string{"--http-auth-token-file=" + sharedToken, "--http-admin-token-file=" + sharedToken}}, 1,
+			"the sign and admin tokens must differ"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

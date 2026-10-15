@@ -75,7 +75,8 @@ On first start the signer creates, under `--data-path`:
 
 Neither token implies the other. Give the validator client the sign token only
 (`--validators-external-signer-auth-token-file=/var/lib/remotesigner/auth-token`); keep the admin token for
-operators. Use `--http-auth-token-file` and `--http-admin-token-file` to place them elsewhere.
+operators. Use `--http-auth-token-file` and `--http-admin-token-file` to place them elsewhere. The two tokens must
+differ: the signer refuses to start, and a SIGHUP reload keeps the previous tokens, when they are the same.
 
 The signer listens at once and loads keys in the background; `/upcheck` answers `503 LOADING` until the keys are
 loaded and the store is open, then `200 OK`.

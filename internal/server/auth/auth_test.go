@@ -192,6 +192,22 @@ func TestReload(t *testing.T) {
 		t.Fatal("a failed reload dropped the previous token")
 	}
 
+	// A reload that would make the admin token equal the sign token is
+	// refused; the previous tokens stay in force.
+	writeToken(t, dir, "sign", otherTok)
+	adminFile := writeToken(t, dir, "admin", adminTok)
+	b, err := New(Config{Mode: ModeToken, SignTokenFile: signFile, AdminTokenFile: adminFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeToken(t, dir, "admin", otherTok)
+	if err := b.Reload(); !errors.Is(err, ErrSameTokens) {
+		t.Fatalf("Reload with equal tokens = %v, want ErrSameTokens", err)
+	}
+	if !b.Allows(request(adminTok), ScopeAdmin) || b.Allows(request(otherTok), ScopeAdmin) {
+		t.Fatal("a refused reload changed the admin token")
+	}
+
 	// Deleting the file and reloading generates a new one.
 	if err := os.Remove(signFile); err != nil {
 		t.Fatal(err)
@@ -214,6 +230,8 @@ func TestNewErrors(t *testing.T) {
 		{"token mode without a file", Config{Mode: ModeToken}, ErrNoSignToken},
 		{"invalid token", Config{Mode: ModeToken, SignTokenFile: writeToken(t, dir, "bad", "secret")}, ErrInvalidToken},
 		{"invalid admin token", Config{Mode: ModeNone, AdminTokenFile: writeToken(t, dir, "bad2", "0x12")}, ErrInvalidToken},
+		{"one file for both scopes", Config{Mode: ModeToken, SignTokenFile: writeToken(t, dir, "both", signTok), AdminTokenFile: filepath.Join(dir, "both")}, ErrSameTokens},
+		{"same token in two files", Config{Mode: ModeToken, SignTokenFile: writeToken(t, dir, "s", signTok), AdminTokenFile: writeToken(t, dir, "a", signTok+"\n")}, ErrSameTokens},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

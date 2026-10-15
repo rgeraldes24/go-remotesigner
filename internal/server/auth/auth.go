@@ -79,6 +79,7 @@ const fileMode fs.FileMode = 0o600
 var (
 	ErrInvalidToken = errors.New("auth: token must be 0x followed by at least 64 hex characters")
 	ErrNoSignToken  = errors.New("auth: token mode needs a sign token file")
+	ErrSameTokens   = errors.New("auth: the sign and admin tokens must differ, or the sign token would grant the admin scope")
 )
 
 // Config configures an Authenticator.
@@ -128,8 +129,9 @@ func (a *Authenticator) HasAdmin() bool { return a.cfg.AdminTokenFile != "" }
 // Mode returns the auth mode.
 func (a *Authenticator) Mode() Mode { return a.cfg.Mode }
 
-// Reload re-reads the token files, generating any that is missing. On error
-// the previous tokens stay in force.
+// Reload re-reads the token files, generating any that is missing. The sign
+// and admin tokens must differ (ErrSameTokens). On error the previous tokens
+// stay in force.
 func (a *Authenticator) Reload() error {
 	var sign, admin *[sha256.Size]byte
 	if a.cfg.SignTokenFile != "" {
@@ -145,6 +147,9 @@ func (a *Authenticator) Reload() error {
 			return err
 		}
 		admin = &d
+	}
+	if sign != nil && admin != nil && *sign == *admin {
+		return ErrSameTokens
 	}
 	a.mu.Lock()
 	a.sign, a.admin = sign, admin

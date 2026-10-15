@@ -150,6 +150,8 @@ Response bodies:
     `DELETE …/randao_state/…` and the keymanager.
 - `admin` does not imply `sign`, and `sign` does not imply `admin`. A sign token on an admin route gets 403
   `FORBIDDEN_SCOPE`; an admin token on a sign route gets 401 `UNAUTHENTICATED`.
+- The two tokens must differ: identical sign and admin tokens are refused at startup, and on SIGHUP the previous
+  tokens stay in force.
 - A client certificate (optional mTLS) grants the `sign` scope only, never `admin`. Admin routes always need the
   admin bearer token, whatever `--http-auth-mode` says.
 
