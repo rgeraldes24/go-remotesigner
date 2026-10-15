@@ -46,13 +46,7 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 
 // hostCheck refuses a Host outside the allowlist with 403 HOST_NOT_ALLOWED.
 func (s *Server) hostCheck(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.hosts.allows(r.Host) {
-			WriteError(w, s.log, r, apierr.New(apierr.HostNotAllowed, "Host not in the allowlist"))
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	return RequireAllowedHost(s.cfg.HostAllowlist, s.log, next)
 }
 
 // originCheck refuses any request that carries an Origin header with 403

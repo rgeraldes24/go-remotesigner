@@ -23,8 +23,13 @@ package server
 import (
 	"errors"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/sirupsen/logrus"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/api/apierr"
 )
 
 // AllowAllHosts is the host-allowlist entry that admits every Host header.
@@ -72,10 +77,24 @@ func ParseHostAllowlist(in []string) ([]string, error) {
 	return out, nil
 }
 
-// hostAllowlist is the DNS-rebinding defence: a request is served only when
-// its Host header, without the port, is in the list (case-insensitively), or
-// the list contains "*". A request without a Host is refused unless "*" is
-// listed.
+// RequireAllowedHost is the DNS-rebinding defence: it serves a request only
+// when its Host header, without the port, is in allowlist
+// (case-insensitively), or allowlist contains "*", and refuses any other
+// with 403 HOST_NOT_ALLOWED. A request without a Host is refused unless "*"
+// is listed. The API listener runs it with --http-host-allowlist and the
+// metrics listener with --metrics-host-allowlist.
+func RequireAllowedHost(allowlist []string, log logrus.FieldLogger, next http.Handler) http.Handler {
+	hosts := newHostAllowlist(allowlist)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !hosts.allows(r.Host) {
+			WriteError(w, log, r, apierr.New(apierr.HostNotAllowed, "Host not in the allowlist"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// hostAllowlist is a parsed allowlist; see RequireAllowedHost.
 type hostAllowlist struct {
 	any   bool
 	hosts map[string]struct{}

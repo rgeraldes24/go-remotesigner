@@ -77,8 +77,7 @@ type Config struct {
 	AccessLogs bool
 	// Log receives failures and access logs.
 	Log *logrus.Logger
-	// Registerer receives the connection metrics; nil leaves them
-	// unregistered.
+	// Registerer receives the HTTP metrics; nil leaves them unregistered.
 	Registerer prometheus.Registerer
 }
 
@@ -86,10 +85,9 @@ type Config struct {
 type Server struct {
 	cfg     Config
 	log     logrus.FieldLogger
-	hosts   hostAllowlist
 	gate    *bodyGate
 	handler http.Handler
-	metrics *connMetrics
+	metrics *httpMetrics
 
 	http     *http.Server
 	listener net.Listener
@@ -122,14 +120,13 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Log == nil {
 		cfg.Log = logrus.New()
 	}
-	m, err := newConnMetrics(cfg.Registerer)
+	m, err := newHTTPMetrics(cfg.Registerer)
 	if err != nil {
 		return nil, fmt.Errorf("server: register metrics: %w", err)
 	}
 	s := &Server{
 		cfg:     cfg,
 		log:     cfg.Log,
-		hosts:   newHostAllowlist(cfg.HostAllowlist),
 		gate:    newBodyGate(cfg.LargeBodySlots),
 		metrics: m,
 
@@ -139,7 +136,7 @@ func New(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.handler = s.track(s.accessLog(s.hostCheck(s.originCheck(mux))))
+	s.handler = s.track(m.observe(s.accessLog(s.hostCheck(s.originCheck(mux)))))
 
 	errWriter := cfg.Log.WriterLevel(logrus.DebugLevel)
 	s.errLog = errWriter
@@ -190,12 +187,16 @@ func (s *Server) Serve() error {
 // in-flight requests to complete. Connections still active then are closed,
 // and Shutdown waits up to HandlerDrainTimeout more for their handlers to
 // return, since closing a connection does not stop its handler. If some are
-// still running, the error wraps ErrHandlersRunning.
+// still running, the error wraps ErrHandlersRunning. It also releases a
+// socket that was bound but never served.
 func (s *Server) Shutdown(ctx context.Context) error {
 	defer func() { _ = s.errLog.Close() }()
 	err := s.http.Shutdown(ctx)
 	if err != nil {
 		_ = s.http.Close()
+	}
+	if s.listener != nil {
+		_ = s.listener.Close() // already closed when it was served
 	}
 	if !s.drain(s.drainTimeout) {
 		err = errors.Join(err, ErrHandlersRunning)

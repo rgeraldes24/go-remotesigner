@@ -154,6 +154,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/flavour_full.go` | new | | | |
 | `cmd/remotesigner/main.go` | new | | | |
 | `cmd/remotesigner/main_test.go` | new | | | |
+| `deploy/prometheus/alerts.yml` | new | | | |
 | `internal/api/apierr/apierr.go` | new | | | |
 | `internal/api/apierr/apierr_test.go` | new | | | |
 | `internal/api/apierr/messages.go` | new | | | |
@@ -211,6 +212,9 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/logging/logging.go` | new | | | |
 | `internal/logging/logging_test.go` | new | | | |
 | `internal/logging/secret.go` | new | | | |
+| `internal/metrics/listener.go` | new | | | |
+| `internal/metrics/metrics.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/metrics/HttpApiMetrics.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/metrics/SlashingProtectionMetrics.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/metrics/metrics_test.go` | new | | | |
 | `internal/network/config.go` | new | | | |
 | `internal/network/config_test.go` | new | | | |
 | `internal/network/embedded/end-to-end-mainnet.yaml` | new | | | |
@@ -233,6 +237,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/server/errors.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/JsonErrorHandler.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/server/hostallow.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/HostAllowListHandler.java`<br>`commandline/src/main/java/tech/pegasys/web3signer/commandline/config/AllowListHostsProperty.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/server/listener.go` | new | | | |
+| `internal/server/metrics.go` | new | | | |
 | `internal/server/middleware.go` | new | | | |
 | `internal/server/ports.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/server/router.go` | new | | | |
