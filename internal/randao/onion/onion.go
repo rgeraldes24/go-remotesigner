@@ -20,24 +20,28 @@ import (
 // Size is the length in bytes of every onion layer, commitment and reveal.
 const Size = sha256.Size
 
-// DefaultLayers is the default onion length L = 2^20. Interop genesis uses it.
-const DefaultLayers uint64 = 1 << 20
+// DefaultLength is the onion length L = 2^20 used when none is configured,
+// and the length interop genesis builds its commitments with.
+const DefaultLength uint64 = 1 << 20
 
-// domainTag separates onion derivation from every other use of the seed.
-const domainTag = "qrl-randao-onion-v1"
+// onionTag is prefixed to the seed when hashing layer 0. It keeps layer 0
+// distinct from other hashes of the seed, such as the SHA-256(seed) that the
+// ML-DSA-87 key generator consumes.
+const onionTag = "qrl-randao-onion-v1"
 
 // Base returns layer 0, SHA-256(tag ‖ seed). The signer always passes the
 // validator's 48-byte wallet seed; the derivation itself accepts any length.
 func Base(seed []byte) [Size]byte {
-	buf := make([]byte, 0, len(domainTag)+len(seed))
-	buf = append(buf, domainTag...)
+	buf := make([]byte, 0, len(onionTag)+len(seed))
+	buf = append(buf, onionTag...)
 	buf = append(buf, seed...)
 	x := sha256.Sum256(buf)
-	clear(buf)
+	clear(buf) // buf holds a copy of the seed
 	return x
 }
 
-// Step returns the layer above x, SHA-256(x).
+// Step hashes the layer x once, giving the next layer towards the
+// commitment.
 func Step(x [Size]byte) [Size]byte {
 	return sha256.Sum256(x[:])
 }

@@ -76,16 +76,16 @@ func TestV3DefaultLength(t *testing.T) {
 	if testing.Short() {
 		t.Skip("2^20 hashes")
 	}
-	below := Top(seed0, DefaultLayers-1)
+	below := Top(seed0, DefaultLength-1)
 	if below != v3Below {
 		t.Fatalf("x_{2^20-1} = %x, want %x", below, v3Below)
 	}
 	if top := Step(below); top != v3Top {
 		t.Fatalf("x_{2^20} = %x, want %x", top, v3Top)
 	}
-	j, reveal, ok := Find(seed0, v3Top, DefaultLayers)
-	if !ok || j != DefaultLayers || reveal != v3Below {
-		t.Fatalf("Find(commitment) = (%d, %x, %v), want (%d, %x, true)", j, reveal, ok, DefaultLayers, v3Below)
+	j, reveal, ok := Find(seed0, v3Top, DefaultLength)
+	if !ok || j != DefaultLength || reveal != v3Below {
+		t.Fatalf("Find(commitment) = (%d, %x, %v), want (%d, %x, true)", j, reveal, ok, DefaultLength, v3Below)
 	}
 }
 
@@ -155,7 +155,9 @@ func TestBaseDoesNotModifySeed(t *testing.T) {
 // TestExportedNames keeps the API shape apart from qrysm's GPL onion package,
 // whose exported names this package must not reuse (docs/spec/randao-onion.md).
 func TestExportedNames(t *testing.T) {
-	forbidden := map[string]bool{"Origin": true, "Next": true, "Verify": true, "Commitment": true}
+	forbidden := map[string]bool{
+		"Origin": true, "Next": true, "Verify": true, "Commitment": true, "DefaultLayers": true,
+	}
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
@@ -211,9 +213,9 @@ func BenchmarkStep(b *testing.B) {
 
 // BenchmarkFindDefault is the stateless first-use scan at L = 2^20.
 func BenchmarkFindDefault(b *testing.B) {
-	c := Top(seed0, DefaultLayers)
+	c := Top(seed0, DefaultLength)
 	for b.Loop() {
-		if _, _, ok := Find(seed0, c, DefaultLayers); !ok {
+		if _, _, ok := Find(seed0, c, DefaultLength); !ok {
 			b.Fatal("not found")
 		}
 	}
