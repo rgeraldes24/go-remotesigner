@@ -428,3 +428,15 @@ func TestWipe(t *testing.T) {
 	}
 	Wipe(nil)
 }
+
+func TestPublicKeyLogID(t *testing.T) {
+	var pk PublicKey
+	for i := range pk {
+		pk[i] = byte(i)
+	}
+	id := pk.ID()
+	want := "0x0001020304…" + hex.EncodeToString(id[:4])
+	if got := pk.LogID(); got != want {
+		t.Fatalf("LogID = %q, want %q", got, want)
+	}
+}

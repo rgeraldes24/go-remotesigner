@@ -50,9 +50,9 @@ func TestRun(t *testing.T) {
 		},
 		{
 			name:       "unknown command is a usage error",
-			args:       []string{"consensus"},
+			args:       []string{"execution"},
 			wantCode:   exitUsage,
-			wantStderr: []string{"usage error", `unknown command "consensus"`},
+			wantStderr: []string{"usage error", `unknown command "execution"`},
 		},
 		{
 			name:       "extra argument after help is a usage error",
@@ -70,7 +70,7 @@ func TestRun(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := run(append([]string{binaryName}, tt.args...), &stdout, &stderr)
+			code := runWith(append([]string{binaryName}, tt.args...), &stdout, &stderr, noRun)
 			if code != tt.wantCode {
 				t.Fatalf("exit code = %d, want %d (stdout %q, stderr %q)", code, tt.wantCode, stdout.String(), stderr.String())
 			}

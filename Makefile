@@ -94,9 +94,8 @@ TOKEN_FILE ?=
 vectors-verify:
 	cd tools/vectorgen && $(GO) run . verify -signer $(SIGNER) $(if $(TOKEN_FILE),-token-file $(abspath $(TOKEN_FILE)))
 
-## docs: regenerate docs/reference/flags.md with tools/flagdoc (milestone S5a)
+## docs: regenerate docs/reference/flags.md with tools/flagdoc
 docs:
-	@test -d tools/flagdoc || { echo "docs: tools/flagdoc does not exist yet (milestone S5a)" >&2; exit 1; }
 	$(GO) run ./tools/flagdoc
 
 clean:

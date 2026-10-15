@@ -92,3 +92,23 @@ func TestReasonOf(t *testing.T) {
 		t.Errorf("status %d", s)
 	}
 }
+
+// Every reason has a fixed message, and the messages carry nothing request-
+// or process-specific.
+func TestEveryReasonHasAMessage(t *testing.T) {
+	for _, r := range Reasons() {
+		m, ok := messages[r]
+		if !ok || m == "" {
+			t.Errorf("%s has no message", r)
+		}
+		if strings.ContainsAny(m, "/%{}") {
+			t.Errorf("%s message %q looks templated or carries a path", r, m)
+		}
+	}
+	if len(messages) != len(statuses) {
+		t.Errorf("%d messages for %d reasons", len(messages), len(statuses))
+	}
+	if got := Reason("NOPE").Message(); got != "internal error" {
+		t.Errorf("unknown reason message = %q", got)
+	}
+}

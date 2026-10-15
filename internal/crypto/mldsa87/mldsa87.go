@@ -18,6 +18,7 @@ package mldsa87
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"runtime"
@@ -105,6 +106,13 @@ func ParsePublicKey(b []byte) (PublicKey, error) {
 // ID returns the key id, SHA-256 of the packed public key.
 func (pk *PublicKey) ID() [IDSize]byte {
 	return sha256.Sum256(pk[:])
+}
+
+// LogID returns the form of the key that logs print: 0x, the first 10 hex
+// characters of the key, "…", and the first 8 hex characters of its id.
+func (pk *PublicKey) LogID() string {
+	id := pk.ID()
+	return "0x" + hex.EncodeToString(pk[:5]) + "…" + hex.EncodeToString(id[:4])
 }
 
 // Verify reports whether sig is a valid consensus signature over message
