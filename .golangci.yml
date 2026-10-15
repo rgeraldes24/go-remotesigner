@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # golangci-lint v2 configuration. The depguard rules carry the licence policy
-# of DESIGN §3.1 and §3.3; go-licenses check in CI is the second gate.
+# in CONTRIBUTING.md ("What you may and may not bring in"); go-licenses check
+# in CI is the second gate.
 version: "2"
 
 run:
@@ -21,25 +22,34 @@ linters:
             - $all
           deny:
             - pkg: github.com/theQRL/qrysm
-              desc: qrysm is GPL-3.0; re-implement from the specs or use tools/vectorgen (DESIGN §3.3)
+              desc: qrysm is GPL-3.0; re-implement from the specs or use tools/vectorgen (see CONTRIBUTING.md)
+        # Allowed only in the top-level internal/execution; see the exclusion
+        # rule below. A files glob cannot do this: it matches absolute paths,
+        # so it would also exempt any nested internal/execution directory.
         go-qrl-only-in-execution:
           files:
             - $all
-            - "!**/internal/execution/**"
           deny:
             # "$" makes the first entry an exact match, so go-qrllib (MIT) is not caught.
             - pkg: github.com/theQRL/go-qrl$
-              desc: go-qrl is LGPL-3.0; import it only under internal/execution (DESIGN §3.1)
+              desc: go-qrl is LGPL-3.0; import it only under internal/execution (see CONTRIBUTING.md)
             - pkg: github.com/theQRL/go-qrl/
-              desc: go-qrl is LGPL-3.0; import it only under internal/execution (DESIGN §3.1)
+              desc: go-qrl is LGPL-3.0; import it only under internal/execution (see CONTRIBUTING.md)
         no-go-qrl-gpl:
           files:
             - $all
           deny:
             - pkg: github.com/theQRL/go-qrl/cmd
-              desc: go-qrl cmd/** is GPL-3.0 (DESIGN §3.3)
+              desc: go-qrl cmd/** is GPL-3.0 and may not be imported anywhere (see CONTRIBUTING.md)
             - pkg: github.com/theQRL/go-qrl/internal
-              desc: go-qrl internal/** is GPL-3.0 (DESIGN §3.3)
+              desc: go-qrl internal/** is GPL-3.0 and may not be imported anywhere (see CONTRIBUTING.md)
+  exclusions:
+    rules:
+      # Paths are relative to this file, i.e. the module root.
+      - path: ^internal/execution/
+        linters:
+          - depguard
+        text: "from list 'go-qrl-only-in-execution'"
 
 formatters:
   enable:
