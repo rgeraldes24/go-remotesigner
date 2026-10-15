@@ -92,7 +92,10 @@ func Load(ctx context.Context, dir string) ([]FileResult, error) {
 }
 
 // configFiles lists the non-hidden *.yaml and *.yml regular files directly in
-// dir, sorted.
+// dir, sorted. An entry that cannot be stat'ed (a dangling symlink, a secret
+// mount being swapped) is listed too, so that loading it fails and its
+// source keeps its previous keys: a load error is never a removal. Only
+// entries that stat as something other than a regular file are skipped.
 func configFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -106,8 +109,7 @@ func configFiles(dir string) ([]string, error) {
 			continue
 		}
 		p := filepath.Join(dir, name)
-		fi, err := os.Stat(p) // follows symlinks
-		if err != nil || !fi.Mode().IsRegular() {
+		if fi, err := os.Stat(p); err == nil && !fi.Mode().IsRegular() { // Stat follows symlinks
 			continue
 		}
 		out = append(out, p)

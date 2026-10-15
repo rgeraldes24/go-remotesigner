@@ -103,6 +103,9 @@ func TestLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	write("sub.yaml/c.yaml", "type: file-raw\nprivateKey: "+seedHex(4)+"\n")
+	if err := os.Symlink(filepath.Join(dir, "gone.yaml"), filepath.Join(dir, "dangling.yaml")); err != nil {
+		t.Fatal(err)
+	}
 
 	res, err := Load(context.Background(), dir)
 	if err != nil {
@@ -112,8 +115,12 @@ func TestLoad(t *testing.T) {
 	for _, r := range res {
 		names = append(names, filepath.Base(r.Path))
 	}
-	if got := strings.Join(names, ","); got != "a.YML,b.yaml,bad.yaml" {
+	if got := strings.Join(names, ","); got != "a.YML,b.yaml,bad.yaml,dangling.yaml" {
 		t.Fatalf("loaded files %s", got)
+	}
+	// A file that cannot be stat'ed is a load error, not a removal.
+	if res[3].Err == nil || len(res[3].Keys) != 0 {
+		t.Errorf("dangling.yaml: %+v", res[3])
 	}
 	if res[0].Err != nil || len(res[0].Keys) != 1 || res[0].Keys[0].PublicKey() != pubkeyOf(t, 1) {
 		t.Errorf("a.YML: %+v", res[0])
