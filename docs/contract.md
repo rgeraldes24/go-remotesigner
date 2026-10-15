@@ -616,6 +616,8 @@ show on this contract:
 | X23 (metric names) | [section 18](#18-metric-label-values) |
 | X24 (no `DEPOSIT`), X27 (no raw-signing endpoints) | [section 8](#8-artifact-types) |
 | X29 (reload never disables keys) | [section 17](#17-supporting-endpoints) |
+| X36 (`/upcheck` 503 while loading), X37 (healthcheck detail needs the sign scope), X44 (fixed reload messages) | [sections 5](#5-endpoints) and [17](#17-supporting-endpoints) |
+| X45 (every POST needs `application/json`) | [section 6](#6-authentication-and-scopes) |
 
 ## 22. Worked examples
 

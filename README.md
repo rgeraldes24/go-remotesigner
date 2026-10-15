@@ -10,11 +10,13 @@ Consensys.
 
 ## Status
 
-Pre-release. This tree holds the project bootstrap (licence and provenance files, CI, and a `remotesigner` binary
-that only reports its version) and the HTTP contract with the qrysm validator client:
-[`docs/contract.md`](docs/contract.md) and [`api/openapi/consensus.yaml`](api/openapi/consensus.yaml), with the
-protocol facts it relies on in [`docs/spec/`](docs/spec/README.md). The signing API, slashing protection and key
-loading follow in later milestones.
+Pre-release. The HTTP contract with the qrysm validator client is [`docs/contract.md`](docs/contract.md) and
+[`api/openapi/consensus.yaml`](api/openapi/consensus.yaml), with the protocol facts it relies on in
+[`docs/spec/`](docs/spec/README.md). `remotesigner consensus` runs the API server: token authentication, the
+request guards and limits, `file-raw` key loading, `publicKeys`, `capabilities`, `/upcheck`, `/healthcheck` and
+`/reload`, with the bbolt slashing-protection store opened at startup. The signing and RANDAO endpoints follow in the
+next milestone. To try it, see [`docs/operations/quickstart.md`](docs/operations/quickstart.md); every flag is in
+[`docs/reference/flags.md`](docs/reference/flags.md).
 
 ## Building
 
@@ -26,6 +28,7 @@ make build-consensus   # bin/remotesigner-consensus, consensus only (-tags noexe
 make test              # go test -race, both flavours
 make contract          # OpenAPI lint, example validation, docs/contract.md consistency
 make lint              # go vet, golangci-lint, headercheck, LICENSE hash
+make docs              # regenerate docs/reference/flags.md from the flag definitions
 ```
 
 Both flavours are static (`CGO_ENABLED=0`). The consensus-only flavour, `remotesigner-consensus`, never links go-qrl
@@ -45,7 +48,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Commits need a DCO sign-off, and no GPL 
 go-remotesigner is licensed under the Apache License 2.0 (see [LICENSE](LICENSE)). It is a derivative of Consensys
 Web3Signer (Apache-2.0); see [NOTICE](NOTICE) and [PROVENANCE.md](PROVENANCE.md). Behaviour that differs from
 Web3Signer is listed in [DEVIATIONS.md](DEVIATIONS.md). Current builds link this project's Apache-2.0 code and
-dependencies under Apache-2.0, MIT and BSD-2-Clause (see [NOTICE](NOTICE)); new dependencies must carry a licence
+dependencies under Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause (see [NOTICE](NOTICE)); new dependencies must carry a licence
 from the allowlist in [CONTRIBUTING.md](CONTRIBUTING.md). The licence texts are in [LICENSES/](LICENSES), and release
 archives will also ship a `third_party_licenses/` directory.
 
