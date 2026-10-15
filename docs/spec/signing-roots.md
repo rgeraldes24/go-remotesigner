@@ -84,18 +84,18 @@ for another QRL network).
 The mainnet DEPOSIT domain `03000000f5a5fd42…31a9` is also Ethereum mainnet's, a well-known value that anchors the
 whole chain of functions.
 
-Worked example (end-to-end network, GVR
-`0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809` as in the OpenAPI examples), an
-`AGGREGATION_SLOT` request for slot 61:
+Worked example (end-to-end network, whose GVR is that of qrysm's 256-validator interop genesis,
+`0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f`), an `AGGREGATION_SLOT` request for slot 61:
 
 | Step | Value |
 |---|---|
 | object root `HTR(uint64 61)` | `3d00000000000000000000000000000000000000000000000000000000000000` |
-| domain `compute_domain(0x05000000, 0x000000fd, GVR)` | `05000000b8e25631e1df7e6cbf073dcd2459a5baa6a3649d070d4be0de51066e` |
-| signing root | `489e15e8bcf803c483b1efdff3bf2832f9ee2dbd4154e0f5257168d2a14b3284` |
+| domain `compute_domain(0x05000000, 0x000000fd, GVR)` | `050000008c1aff3fdcfe3621c09fa44f3bdb984ba7413f07efdb1b553c21988c` |
+| signing root | `41dd375d6bbb81df40c80a09c866d34a453a3735482407e04db80cc5af5bd1de` |
 
-The `AGGREGATION_SLOT` example in `api/openapi/consensus.yaml` carries this signing root, and a contract test
-recomputes it.
+This is the `AGGREGATION_SLOT` example in `api/openapi/consensus.yaml` and the `spec_example` case of
+`testdata/vectors/signing/minimal/aggregation_slot.json`, computed by qrysm; a contract test recomputes it from the
+consensus-spec formulas.
 
 ## 5. The signature over the root
 

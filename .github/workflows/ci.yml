@@ -88,6 +88,28 @@ jobs:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: --build-tags noexecution
 
+  vectors:
+    # tools/vectorgen links qrysm (GPL-3.0); it runs here and is never shipped.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: |
+            go.sum
+            tools/vectorgen/go.sum
+      - name: vectorgen vet and tests (includes the go-qrl replace check)
+        run: make vectors-test
+      - name: Regenerate the golden vectors and embedded networks
+        run: make vectors
+      - name: Fail on any difference
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+      - name: The signer module links no qrysm package
+        run: make nogpl
+
   compliance:
     runs-on: ubuntu-24.04
     steps:

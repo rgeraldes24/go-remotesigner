@@ -16,9 +16,9 @@ any existing implementation.
   reason.
 - The test vectors were computed independently, with Python's `hashlib`, directly from the facts below. They are
   data, not code. V2 reuses the seed and length of qrysm's own onion test, so the S3 cross-check also covers qrysm's
-  test case; its expected value was still computed here from the facts. Milestone S3 regenerates them with
-  `tools/vectorgen` against the pinned qrysm commit and replaces this table if anything differs; until then they are
-  marked "preliminary".
+  test case; its expected value was still computed here from the facts. Milestone S3 regenerated them with
+  `tools/vectorgen` from qrysm's `crypto/randao` at the pinned commit (`testdata/vectors/randao/onion.json`), and
+  every value matched; the signer's tests check the package against the generated file.
 - If QRL publishes the construction under a permissive licence, this note will cite it instead (design open question:
   "would QRL publish the RANDAO hash-onion construction under CC0 or a permissive licence").
 
@@ -60,7 +60,7 @@ These follow from the facts; they are stated here so the implementation needs no
 - The reveal for a commitment at index `j` is the value one step before it, so a scan from `x_0` that keeps the
   previous value finds both the index and the reveal in one pass.
 
-## Test vectors (preliminary)
+## Test vectors
 
 `seed0` is the 48 bytes `0x00, 0x01, …, 0x2f`. All values are hex.
 
@@ -84,8 +84,9 @@ contract and its tests need around that package.
   The onion lengths used by qrysm's deposit tooling, interop genesis and unit-test helpers (below) were likewise
   read from qrysm's GPL code. Only these facts were taken. The V4 and V5 values were computed independently with
   Python's `hashlib` from the facts in this note.
-- V4 and V5 are preliminary in the same way as V1-V3: milestone S3 regenerates and checks them with
-  `tools/vectorgen`.
+- Milestone S3 regenerated V4 and V5 with `tools/vectorgen` (`testdata/vectors/randao/interop.json` and
+  `requests.json`): the V4 values matched, and each commitment equals the one qrysm's interop genesis stores for
+  its validator.
 
 ### Onion length in practice
 
