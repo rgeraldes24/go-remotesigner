@@ -28,7 +28,7 @@ env:
 
 jobs:
   test:
-    name: test (go ${{ matrix.go }}, ${{ matrix.arch }})
+    name: test (go ${{ matrix.go }}, ${{ matrix.arch }}${{ matrix.arch == 'arm64' && github.event.repository.private && ', cross' || '' }})
     strategy:
       fail-fast: false
       matrix:
@@ -39,9 +39,14 @@ jobs:
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+    # The free ubuntu-24.04-arm runner may not be offered to private
+    # repositories. While the repository is private, the arm64 legs run on
+    # amd64: they cross-build and vet for arm64 and skip the native steps.
+    runs-on: ${{ matrix.arch == 'arm64' && github.event.repository.private && 'ubuntu-24.04' || matrix.runner }}
     env:
       CGO_ENABLED: "0"
+      GOARCH: ${{ matrix.arch }}
+      CROSS: ${{ matrix.arch == 'arm64' && github.event.repository.private }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -50,6 +55,7 @@ jobs:
       - name: Build both flavours (static)
         run: make build build-consensus
       - name: Print version
+        if: env.CROSS != 'true'
         run: |
           ./bin/remotesigner --version
           ./bin/remotesigner-consensus --version
@@ -58,6 +64,7 @@ jobs:
           go vet ./...
           go vet -tags noexecution ./...
       - name: go test -race
+        if: env.CROSS != 'true'
         # The race detector needs cgo; everything else in this job builds with CGO_ENABLED=0.
         run: make test
 
@@ -88,7 +95,7 @@ jobs:
       - name: LICENSE is the verbatim Apache-2.0 text
         run: make license-hash
       - name: NOTICE has no LGPL paragraph
-        # The consensus flavour never links go-qrl; its NOTICE must not claim it does (DESIGN §6.1).
+        # The consensus flavour never links go-qrl; its NOTICE must not claim it does.
         run: |
           if grep -nEi 'LGPL|Lesser General Public' NOTICE; then
             echo "NOTICE must not carry the go-qrl LGPL paragraph" >&2
