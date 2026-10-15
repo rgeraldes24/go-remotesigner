@@ -97,7 +97,10 @@ type Store interface {
 	RegisterValidators(ctx context.Context, pubkeys [][]byte) error
 	// ValidatorStatus returns a key's registration state; an unknown key is neither registered nor enabled.
 	ValidatorStatus(ctx context.Context, id KeyID) (ValidatorStatus, error)
-	// SetValidatorEnabled sets a registered key's enabled flag.
+	// SetValidatorEnabled sets a registered key's enabled flag. It is serialised with UpdateBlocks and
+	// UpdateAttestations for the same validator: it takes the validator's block lock and then its attestation lock
+	// (the fixed order block, attestation, RANDAO that every multi-lock operation uses), so a check-and-record that
+	// read the old flag has committed before it returns, and one that starts afterwards reads the new flag.
 	SetValidatorEnabled(ctx context.Context, id KeyID, enabled bool) error
 
 	// UpdateBlocks runs fn in a block transaction for one validator.
