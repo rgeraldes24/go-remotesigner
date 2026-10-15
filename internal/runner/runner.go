@@ -53,12 +53,11 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	if err != nil {
 		return err
 	}
-	logNetwork(log, n)
-
 	store, err := openStore(cfg, n, pol, log)
 	if err != nil {
 		return err
 	}
+	logNetwork(log, n, pol)
 	closeStore := func() {
 		if err := store.Close(); err != nil {
 			log.WithError(err).Error("Closing the slashing-protection store failed")
@@ -262,21 +261,21 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 		SelectionProofMode:    mldsa87.Deterministic.String(),
 		SlashingProtection:    protection,
 	}
-	checks := []ops.Check{
-		{ID: ops.CheckDefault, Run: func(context.Context) (bool, map[string]any) { return true, nil }},
-		{ID: ops.CheckSlashingProtection, Run: func(ctx context.Context) (bool, map[string]any) {
-			if !cfg.Consensus.SlashingProtectionEnabled {
-				return false, map[string]any{"enabled": false}
-			}
+	checks := []ops.Check{{ID: ops.CheckDefault, Run: func(context.Context) (bool, map[string]any) { return true, nil }}}
+	// Like Web3Signer, the store check exists only when there is a store:
+	// with protection disabled (loopback only) it is left out rather than
+	// reported DOWN, which would fail /healthcheck forever.
+	if cfg.Consensus.SlashingProtectionEnabled {
+		checks = append(checks, ops.Check{ID: ops.CheckSlashingProtection, Run: func(ctx context.Context) (bool, map[string]any) {
 			_, err := store.SchemaVersion(ctx)
 			return err == nil, nil
-		}},
-		{ID: ops.CheckConfigFilesLoading, Run: func(context.Context) (bool, map[string]any) {
-			errs := loads.errors.Load()
-			up := loads.done.Load() && !loads.failed.Load() && errs == 0
-			return up, map[string]any{"keys-loaded": keys.Len(), "error-count": errs}
-		}},
+		}})
 	}
+	checks = append(checks, ops.Check{ID: ops.CheckConfigFilesLoading, Run: func(context.Context) (bool, map[string]any) {
+		errs := loads.errors.Load()
+		up := loads.done.Load() && !loads.failed.Load() && errs == 0
+		return up, map[string]any{"keys-loaded": keys.Len(), "error-count": errs}
+	}})
 
 	rs := []server.Route{
 		{Method: http.MethodGet, Pattern: "/upcheck", Scope: auth.ScopeNone, Handler: ops.Upcheck(ready)},
@@ -295,8 +294,9 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 	return rs
 }
 
-// logNetwork records the chain binding at startup.
-func logNetwork(log *logrus.Logger, n *network.Network) {
+// logNetwork records the chain binding at startup, once the store has had
+// its say on the GVR, and warns about what is not bound yet.
+func logNetwork(log *logrus.Logger, n *network.Network, pol *policy.Policy) {
 	// DEPOSIT and the builder's registration domain use the genesis fork
 	// version and a zero GVR, so they are fixed by the configuration alone.
 	v := signingroot.Version(n.Config.GenesisForkVersion)
@@ -310,8 +310,9 @@ func logNetwork(log *logrus.Logger, n *network.Network) {
 		"deposit-domain":       hexRoot(deposit),
 		"builder-domain":       hexRoot(builder),
 	}
-	if n.GVRKnown() {
-		f["genesis-validators-root"] = hexRoot(n.GenesisValidatorsRoot)
+	gvr, pinned := pol.GenesisValidatorsRoot()
+	if pinned {
+		f["genesis-validators-root"] = hexRoot(gvr)
 	} else {
 		f["genesis-validators-root"] = "pending pin (trust on first use)"
 	}
@@ -321,6 +322,10 @@ func logNetwork(log *logrus.Logger, n *network.Network) {
 		f["genesis-time"] = "unknown"
 	}
 	log.WithFields(f).Info("Network bound")
+	if !pinned {
+		log.Warn("The genesis validators root is not configured: it will be pinned from the first signing request " +
+			"(trust on first use); set --network-genesis-validators-root or --network-genesis-state to bind it now")
+	}
 	if !n.GenesisTimeKnown() {
 		log.Warn("Genesis time is unknown: signing wall-clock bounds are off and no RANDAO layer can be released; " +
 			"set --network-genesis-time or --network-genesis-state")

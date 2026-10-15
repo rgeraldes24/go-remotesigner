@@ -24,6 +24,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
+	"github.com/rgeraldes24/go-remotesigner/internal/consensus/policy"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/server"
@@ -372,8 +373,10 @@ func TestRunProtectionDisabled(t *testing.T) {
 	if code != 200 || !strings.Contains(string(body), `"slashing_protection":"disabled"`) {
 		t.Fatalf("capabilities: %d %s", code, body)
 	}
+	// Like Web3Signer, there is no store check without a store, so the
+	// healthcheck stays UP.
 	code, body = r.do(t, http.MethodGet, "/healthcheck", "")
-	if code != 503 || !strings.Contains(string(body), `{"id":"slashing-protection-db-health-check","status":"DOWN"`) {
+	if code != 200 || !strings.Contains(string(body), `"status":"UP"`) || strings.Contains(string(body), "slashing-protection-db-health-check") {
 		t.Fatalf("healthcheck: %d %s", code, body)
 	}
 	if _, err := os.Stat(cfg.SlashingProtectionDB()); !errors.Is(err, os.ErrNotExist) {
@@ -499,24 +502,55 @@ func writeNewerSchema(t *testing.T, path string) {
 }
 
 // Startup logs the binding, including the DEPOSIT and builder domains, and
-// warns when genesis time is unknown.
+// warns when genesis time is unknown and when the GVR waits for its
+// first-use pin.
 func TestLogNetwork(t *testing.T) {
-	n, err := network.Load(network.Sources{Network: fileNetwork})
-	if err != nil {
-		t.Fatal(err)
+	bind := func(src network.Sources) (*network.Network, *policy.Policy) {
+		t.Helper()
+		n, err := network.Load(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pol, err := policy.New(policy.Config{Network: n, ClockSkewSlots: policy.DefaultClockSkewSlots})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n, pol
 	}
 	var buf strings.Builder
 	log := logrus.New()
 	log.SetOutput(&buf)
-	logNetwork(log, n)
+	n, pol := bind(network.Sources{Network: fileNetwork})
+	logNetwork(log, n, pol)
 	out := buf.String()
 	for _, want := range []string{
 		"deposit-domain=0x030000002c3c06ef", "builder-domain=0x000000012c3c06ef",
 		`genesis-validators-root="pending pin (trust on first use)"`, "genesis-time=unknown",
-		"level=warning",
+		`level=warning msg="Genesis time is unknown`,
+		`level=warning msg="The genesis validators root is not configured: it will be pinned from the first signing request`,
+		"--network-genesis-validators-root or --network-genesis-state",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("startup log lacks %q:\n%s", want, out)
 		}
+	}
+
+	// A configured GVR, or one the store has pinned, is logged and not
+	// warned about.
+	gvr := [32]byte{1}
+	buf.Reset()
+	n, pol = bind(network.Sources{Network: fileNetwork, GenesisValidatorsRoot: &gvr})
+	logNetwork(log, n, pol)
+	if out := buf.String(); strings.Contains(out, "trust on first use") || !strings.Contains(out, "genesis-validators-root=0x01") {
+		t.Errorf("startup log with a configured GVR:\n%s", out)
+	}
+	n, pol = bind(network.Sources{Network: fileNetwork})
+	if err := pol.PinGenesisValidatorsRoot(gvr); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	logNetwork(log, n, pol)
+	if out := buf.String(); strings.Contains(out, "trust on first use") || !strings.Contains(out, "genesis-validators-root=0x01") {
+		t.Errorf("startup log with a store-pinned GVR:\n%s", out)
 	}
 }

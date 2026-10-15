@@ -539,7 +539,8 @@ golden fixture for each check.
   so two VCs must never share it. Use `--validators-external-signer-key-file` per VC instead.
 - **`/upcheck`**: plain `OK` (not JSON), or 503 `LOADING` before the first key load and store open finish.
 - **`/healthcheck`**: the Web3Signer shape `{status, outcome, checks[{id, status, data?}]}` with the check ids
-  `default-check`, `slashing-protection-db-health-check`, `keys-check/config-files-loading`,
+  `default-check`, `slashing-protection-db-health-check` (only when slashing protection is enabled, as in
+  Web3Signer), `keys-check/config-files-loading`,
   `keys-check/keystores-bulk-loading` and `keys-check/randao` (degraded when keys cannot reveal or fewer than 1,024
   layers remain). Unauthenticated callers see only `status` and `outcome`.
 - **`/reload`**: `POST` (admin) starts an asynchronous reload and returns 202, or 409 while one runs; `GET` (sign)
