@@ -80,7 +80,9 @@ qrysm's Go source while writing them. The facts, with their sources, are recorde
 reduced to the hash-tree-root methods (the regeneration steps are in that file). It is the test-only oracle of the
 differential fuzz in `fastssz_test.go`. fastssz is a test-only dependency: no package that ships imports it, so it is
 in no binary and outside `go-licenses check`. The generated file is classed `new`: it is generator output over our
-declarations, not fastssz source.
+declarations, not fastssz source. Its method bodies and doc comments are instantiated from fastssz's MIT-licensed
+templates, so the file carries fastssz's notice, "Copyright (c) 2020 Ferran Borreguero" under the MIT License, in an
+attribution line below our header.
 
 ## Header classes
 
