@@ -70,9 +70,14 @@ vuln:
 	$(GOVULNCHECK) ./...
 
 ## nogpl: the signer module links no qrysm package, in either flavour (only tools/vectorgen may)
+## The dependency list is captured first, so a failing go list fails the gate instead of feeding grep nothing.
 nogpl:
-	@! $(GO) list -deps ./... | grep '^github.com/theQRL/qrysm'
-	@! $(GO) list -deps -tags noexecution ./... | grep '^github.com/theQRL/qrysm'
+	@for tags in '' noexecution; do \
+		deps=$$($(GO) list -deps -tags "$$tags" ./...) || exit 1; \
+		if printf '%s\n' "$$deps" | grep '^github.com/theQRL/qrysm'; then \
+			echo "nogpl: qrysm is in the signer's dependencies (tags '$$tags')" >&2; exit 1; \
+		fi; \
+	done
 
 ## vectors: regenerate testdata/vectors and internal/network/embedded with the nested tools/vectorgen module.
 ## The built tool links qrysm (GPL-3.0) and is never shipped; see tools/vectorgen/README.md.
