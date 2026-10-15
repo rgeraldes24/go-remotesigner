@@ -237,7 +237,7 @@ func loadOnce(ctx context.Context, dir string, keys *provider.Provider, store sl
 			batches = append(batches, provider.Batch{Source: r.Path, Keys: r.Keys, Err: r.Err})
 		}
 	}
-	d, err := keys.Apply(batches, func(pks [][]byte) error { return store.RegisterValidators(ctx, pks) })
+	d, err := keys.Apply(batches, func(pks [][]byte) error { return store.RegisterValidators(ctx, pks) }, nil)
 	if err != nil {
 		return d.Errors, fmt.Errorf("register keys in slashing protection: %w", err)
 	}

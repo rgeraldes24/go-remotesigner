@@ -54,7 +54,7 @@ func TestApplyAndLookup(t *testing.T) {
 	d, err := p.Apply([]Batch{{Source: "a", Keys: ks[:2]}, {Source: "b", Keys: ks[2:]}}, func(pks [][]byte) error {
 		registered = append(registered, pks...)
 		return nil
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestApplyAndLookup(t *testing.T) {
 func TestReloadSemantics(t *testing.T) {
 	p := New(quiet())
 	first := keys(t, 1, 2, 3)
-	if _, err := p.Apply([]Batch{{Source: "a", Keys: first[:1]}, {Source: "b", Keys: first[1:2]}, {Source: "c", Keys: first[2:]}}, nil); err != nil {
+	if _, err := p.Apply([]Batch{{Source: "a", Keys: first[:1]}, {Source: "b", Keys: first[1:2]}, {Source: "c", Keys: first[2:]}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -91,7 +91,7 @@ func TestReloadSemantics(t *testing.T) {
 		{Source: "a", Keys: again[:1]},
 		{Source: "b", Err: errors.New("unreadable")},
 		{Source: "d", Keys: again[1:]},
-	}, func(pks [][]byte) error { registered += len(pks); return nil })
+	}, func(pks [][]byte) error { registered += len(pks); return nil }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,10 +115,37 @@ func TestReloadSemantics(t *testing.T) {
 	}
 }
 
+// A key that renew names is replaced by the copy just derived, without
+// registering it again; the old object is zeroized. Others keep theirs.
+func TestApplyRenews(t *testing.T) {
+	p := New(quiet())
+	first := keys(t, 1, 2)
+	if _, err := p.Apply([]Batch{{Source: "a", Keys: first}}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	again := keys(t, 1, 2)
+	registered := 0
+	d, err := p.Apply([]Batch{{Source: "a", Keys: again}},
+		func(pks [][]byte) error { registered += len(pks); return nil },
+		func(id ID) bool { return id == first[0].ID() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d != (Delta{Renewed: 1}) || registered != 0 {
+		t.Fatalf("delta %+v, registered %d", d, registered)
+	}
+	if k, _ := p.Get(first[0].ID()); k != again[0] || k.Zeroized() || !first[0].Zeroized() {
+		t.Fatal("the renewed key was not replaced by its fresh copy")
+	}
+	if k, _ := p.Get(first[1].ID()); k != first[1] || !again[1].Zeroized() {
+		t.Fatal("a key renew did not name lost its object")
+	}
+}
+
 func TestDuplicateKeepsFirst(t *testing.T) {
 	p := New(quiet())
 	a, b := keys(t, 7), keys(t, 7)
-	d, err := p.Apply([]Batch{{Source: "a", Keys: a}, {Source: "b", Keys: b}}, nil)
+	d, err := p.Apply([]Batch{{Source: "a", Keys: a}, {Source: "b", Keys: b}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,12 +160,12 @@ func TestDuplicateKeepsFirst(t *testing.T) {
 func TestRegisterFailureChangesNothing(t *testing.T) {
 	p := New(quiet())
 	old := keys(t, 1)
-	if _, err := p.Apply([]Batch{{Source: "a", Keys: old}}, nil); err != nil {
+	if _, err := p.Apply([]Batch{{Source: "a", Keys: old}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	fresh := keys(t, 2)
 	boom := errors.New("store down")
-	if _, err := p.Apply([]Batch{{Source: "b", Keys: fresh}}, func([][]byte) error { return boom }); !errors.Is(err, boom) {
+	if _, err := p.Apply([]Batch{{Source: "b", Keys: fresh}}, func([][]byte) error { return boom }, nil); !errors.Is(err, boom) {
 		t.Fatalf("Apply = %v", err)
 	}
 	if k, ok := p.Get(old[0].ID()); !ok || k.Zeroized() {
@@ -152,7 +179,7 @@ func TestRegisterFailureChangesNothing(t *testing.T) {
 func TestCloseZeroizes(t *testing.T) {
 	p := New(quiet())
 	ks := keys(t, 1, 2)
-	if _, err := p.Apply([]Batch{{Source: "a", Keys: ks}}, nil); err != nil {
+	if _, err := p.Apply([]Batch{{Source: "a", Keys: ks}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	p.Close()
@@ -160,7 +187,7 @@ func TestCloseZeroizes(t *testing.T) {
 		t.Fatal("Close left keys loaded or unzeroized")
 	}
 	late := keys(t, 3)
-	if _, err := p.Apply([]Batch{{Source: "a", Keys: late}}, nil); !errors.Is(err, ErrClosed) || !late[0].Zeroized() {
+	if _, err := p.Apply([]Batch{{Source: "a", Keys: late}}, nil, nil); !errors.Is(err, ErrClosed) || !late[0].Zeroized() {
 		t.Fatalf("Apply after Close = %v", err)
 	}
 }
@@ -168,7 +195,7 @@ func TestCloseZeroizes(t *testing.T) {
 // Readers see one snapshot or the other while reloads run.
 func TestConcurrentReadsDuringApply(t *testing.T) {
 	p := New(quiet())
-	if _, err := p.Apply([]Batch{{Source: "a", Keys: keys(t, 1, 2)}}, nil); err != nil {
+	if _, err := p.Apply([]Batch{{Source: "a", Keys: keys(t, 1, 2)}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
@@ -196,7 +223,7 @@ func TestConcurrentReadsDuringApply(t *testing.T) {
 		if i%2 == 0 {
 			seeds = append(seeds, 3)
 		}
-		if _, err := p.Apply([]Batch{{Source: "a", Keys: keys(t, seeds...)}}, nil); err != nil {
+		if _, err := p.Apply([]Batch{{Source: "a", Keys: keys(t, seeds...)}}, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
