@@ -557,7 +557,7 @@ part of the contract. A change needs the evaluator changed in lockstep.
 
 | Metric | Labels and values |
 |---|---|
-| `consensus_randao_reveals_total{result}` | `first_use`, `new_layer`, `gap_advanced`, `re_reveal`, `refused` (any 412, 422 or 429), `error` (500) |
+| `consensus_randao_reveals_total{result}` | `first_use`, `new_layer`, `gap_advanced`, `re_reveal`, `refused` (any 412, 422 or 429), `error` (5xx, including 503 `KEY_QUARANTINED`) |
 | `consensus_randao_new_layer_rate_limited_total` | no labels |
 | `consensus_slashingprotection_prevented_signings_total{reason}` | the 412 `SLASHING_*` and `VALIDATOR_DISABLED` reasons, lower-cased (for example `slashing_double_vote`) |
 | `signing_verify_failures_total` | no labels |
