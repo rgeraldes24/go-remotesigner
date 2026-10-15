@@ -51,3 +51,4 @@ links that section where one exists.
 | X32 | Connection limits | none | `--http-max-connections` 1024; unknown-length bodies count as large | Fix | G4 C6 |
 | X33 | Text log format | log4j pattern | logrus `TextFormatter` | Go-native | CO §7 |
 | X34 | High watermark before the network is pinned | `UPDATE metadata` silently changes nothing when no genesis validators root is stored | Refused with an error (`ErrNoGenesisValidatorsRoot`) | Fix | SP §8, §18.2 |
+| X35 | Validator registrations | Signed for the key the path names, whatever `pubkey` and `fee_recipient` say | `pubkey` must be the identified key (400 `PUBKEY_MISMATCH`, [contract §8](docs/contract.md#8-artifact-types)); an optional per-key fee-recipient pin refuses any other `fee_recipient` (403 `ARTIFACT_TYPE_DISABLED`, [docs/reference/registration-fee-recipient-file.md](docs/reference/registration-fee-recipient-file.md)) | Fix | G4 N10, C13 |

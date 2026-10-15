@@ -39,3 +39,29 @@ All runs were on an Apple M2 (8 cores, darwin/arm64, go-qrllib v0.11.0) shared w
 A p99.99 over 20,000 samples is the third-slowest call, so on a loaded machine it measures scheduler pauses from the
 other load rather than signing. The shared-key B4 figure is bounded by the per-key lock (one signature at a time per
 key), so it tracks single-call latency and falls with load; the distinct-keys figure is the parallel throughput.
+
+## Hash-tree-root and strict decoding (B5, B6, `internal/consensus/types`)
+
+**Status: met on the development machine, with wide margins** (at least 4x below every threshold). Still to be
+re-run on the reference VMs before v1.0, like every row measured elsewhere.
+
+```
+go test -run '^$' -bench 'SigningRoot|DecodeContribution' -benchtime 2s -count 10 \
+    ./internal/consensus/types/ | tee b5-b6.txt && benchstat b5-b6.txt
+```
+
+B5 measures the object's hash-tree-root plus the signing root, the work step 5 of the validation pipeline does per
+request. B6 decodes the largest valid sign request through `DecodeSignRequest`, including the JSON validity and
+duplicate-key pre-scan: a mainnet-preset contribution with 128 signatures, 1,194,934 bytes, within 100 bytes of the
+1,195,027-byte maximum in `docs/contract.md` section 13.
+
+| ID | Benchmark | Threshold | Development-machine results | Verdict |
+|---|---|---|---|---|
+| B5 | `BenchmarkSigningRootContributionAndProof` (128 signatures) | ≤ 10 ms | 1.65-1.85 ms, 0.98 MB and 262 allocations per op | met on dev machine |
+| B5 | `BenchmarkSigningRootAggregateAndProof` (32 signatures) | ≤ 3 ms | 0.42-0.59 ms, 0.25 MB per op | met on dev machine |
+| B5 | `BenchmarkSigningRootAttestationData` | ≤ 50 µs | 1.06-1.09 µs, one allocation | met on dev machine |
+| B6 | `BenchmarkDecodeContribution` (1.2 MB) | ≤ 20 ms; ≤ 6 MB allocated | 3.5-3.9 ms (306-339 MB/s), 0.61 MB and 59 allocations per op | met on dev machine |
+
+Run D, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), three runs of 2 s per benchmark, load average 7-9
+from other work. The decoder reads the body in place: besides the decoded signatures (128 x 4,627 bytes) it
+allocates only small bookkeeping, which is why B6 stays far under its memory bound.
