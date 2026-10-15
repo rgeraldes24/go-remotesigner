@@ -248,16 +248,18 @@ func TestIntegrationEveryRequestType(t *testing.T) {
 
 // vectorgen verify against the built binary (PLAN S5b). The signer runs
 // with the interop keys on each end-to-end network bound to the fixture
-// GVR, with protection disabled (loopback only) so that no fixture is
-// refused as a repeat, in two configurations that between them leave no
-// fixture unchecked:
+// GVR, in two configurations that between them leave no fixture
+// unchecked:
 //
-//   - without genesis time, so that no clock bound refuses the fixtures
-//     at the slot and epoch limits, and with exits enabled: every sign and
-//     negative fixture except the exits-disabled one; RANDAO is skipped;
-//   - with genesis time and exits disabled: the RANDAO fixtures, the
-//     exits-disabled fixture, and the rest again (those at the limits are
-//     skipped by the clock bound).
+//   - protection disabled (loopback only), so that no fixture is refused
+//     as a repeat, and no genesis time, so that no clock bound refuses the
+//     fixtures at the slot and epoch limits, with exits enabled: every sign
+//     and negative fixture except the exits-disabled one; RANDAO is
+//     skipped;
+//   - protection on (bbolt) with genesis time and exits disabled: the
+//     RANDAO fixtures against the persisted frontier, the exits-disabled
+//     fixture, and the rest again (those at the limits are skipped by the
+//     clock bound, repeats by slashing protection).
 //
 // It builds tools/vectorgen, which links qrysm, so it runs only when
 // REMOTESIGNER_VECTORS_VERIFY is set (make vectors-verify-binary).
@@ -266,14 +268,17 @@ func TestVectorgenVerify(t *testing.T) {
 		t.Skip("set REMOTESIGNER_VECTORS_VERIFY=1 to build tools/vectorgen and verify the binary")
 	}
 	runs := []struct {
-		name      string
-		consensus []string
-		maySkip   []string // the skips the other run covers
+		name       string
+		consensus  []string
+		protection string   // the capabilities' slashing_protection
+		maySkip    []string // the skips the other run covers
 	}{
-		{"no genesis time", []string{"--voluntary-exit-signing-enabled"},
+		{"protection disabled, no genesis time",
+			[]string{"--slashing-protection-enabled=false", "--voluntary-exit-signing-enabled"}, "disabled",
 			[]string{"RANDAO: the signer reports", "needs voluntary exits enabled=false"}},
-		{"genesis time", []string{"--network-genesis-time=" + strconv.Itoa(harnessGenesis)},
-			[]string{"refused by the signer's clock bound", "needs voluntary exits enabled=true"}},
+		{"protection on, genesis time",
+			[]string{"--network-genesis-time=" + strconv.Itoa(harnessGenesis)}, "bolt",
+			[]string{"refused by the signer's clock bound", "refused by slashing protection", "needs voluntary exits enabled=true"}},
 	}
 	for _, preset := range vectors.Presets {
 		for _, run := range runs {
@@ -286,8 +291,7 @@ func TestVectorgenVerify(t *testing.T) {
 				}
 				keysDir := t.TempDir()
 				writeInteropKeys(t, keysDir)
-				args := append([]string{"--network=" + name, "--network-genesis-validators-root=" + gvr,
-					"--slashing-protection-enabled=false"}, run.consensus...)
+				args := append([]string{"--network=" + name, "--network-genesis-validators-root=" + gvr}, run.consensus...)
 				s := start(t, options{keys: keysDir, noNetwork: true, consensus: args})
 				s.waitReady()
 				verify := exec.Command("go", "run", ".", "verify", "-signer", s.base,
@@ -297,6 +301,9 @@ func TestVectorgenVerify(t *testing.T) {
 				t.Logf("vectorgen verify:\n%s", out)
 				if err != nil {
 					t.Fatalf("vectorgen verify: %v", err)
+				}
+				if !strings.Contains(string(out), ", protection "+run.protection+"\n") {
+					t.Errorf("the signer does not report slashing protection %s", run.protection)
 				}
 				for line := range strings.SplitSeq(string(out), "\n") {
 					if !strings.HasPrefix(line, "skip:") {
