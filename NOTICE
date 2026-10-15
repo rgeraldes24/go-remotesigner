@@ -1,0 +1,28 @@
+go-remotesigner
+Copyright 2026 The go-remotesigner Authors
+
+This product is a Go port of Consensys Web3Signer
+(https://github.com/Consensys/web3signer), originally developed by ConsenSys AG /
+Consensys Software Inc. and licensed under the Apache License, Version 2.0.
+Web3Signer source files carry the notice "Copyright <year> ConsenSys AG."
+(2018-2026). Ported files retain those notices and are marked as modified.
+Port baseline: Web3Signer commit 30af06dc975ba5b8ed0e17e53cba8683ca50ec02
+(26.9.0+4), October 2026. See PROVENANCE.md.
+
+go-remotesigner is not affiliated with, endorsed by, or sponsored by Consensys.
+"Web3Signer" and "Consensys" are trademarks or product names of their
+respective owners.
+
+This product includes go-qrllib (https://github.com/theQRL/go-qrllib),
+Copyright (c) 2022 The Quantum Resistant Ledger, licensed under the MIT License.
+
+This product includes the QRL keystore v1 implementation
+(go-qrl-wallet-encryptor-keystore, from https://github.com/theQRL/qrysm),
+Copyright (c) 2023 The Quantum Resistant Ledger, licensed under the MIT License.
+See third_party/qrl-keystore/ and LICENSES/MIT.txt.
+
+The QRL keystore v1 implementation includes code derived from
+go-eth2-wallet-encryptor-keystorev4
+(https://github.com/wealdtech/go-eth2-wallet-encryptor-keystorev4),
+Copyright © 2019 - 2023 Weald Technology Trading, licensed under the
+Apache License, Version 2.0. See LICENSES/Apache-2.0.txt.
