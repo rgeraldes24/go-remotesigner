@@ -74,6 +74,10 @@ func fixture(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	modSum, err := fileSHA256(filepath.Join(dir, "third_party", "ks", "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	writeFile(t, filepath.Join(dir, "PROVENANCE.md"), table(
 		"| `cmd/app/main.go` | new | | | |",
 		"| `internal/slashing/engine.go` | w3s-derived | Web3Signer | `"+w3sUpstream+"` | `"+w3sCommit+"` |",
@@ -83,7 +87,7 @@ func fixture(t *testing.T) string {
 		"| `deploy/Dockerfile` | new | | | |",
 		"| `deploy/grafana/dashboard.json` | w3s-derived | Web3Signer | `dashboard/web3signer.json` | `"+w3sCommit+"` |",
 		"| `.github/workflows/ci.yml` | new | | | |",
-		"| `third_party/ks/go.mod` | new | | | |",
+		"| `third_party/ks/go.mod` | new | | | sha256 `"+modSum+"` |",
 		"| `third_party/ks/pkg/` | vendored | qrysm | `pkg/ks` | tree `"+tree+"` |",
 	), 0o644)
 	return dir
@@ -99,6 +103,27 @@ func TestCheckFixturePasses(t *testing.T) {
 	}
 	if res.files != 8 || res.trees != 1 {
 		t.Fatalf("checked %d files and %d trees, want 8 and 1", res.files, res.trees)
+	}
+}
+
+func TestCheckIgnoresEditorAndOSFiles(t *testing.T) {
+	dir := fixture(t)
+	for _, p := range []string{
+		".DS_Store",
+		"third_party/ks/.DS_Store",
+		"third_party/ks/pkg/.DS_Store",
+		"third_party/ks/pkg/.x.go.swp",
+		"third_party/ks/pkg/.idea/workspace.xml",
+		"internal/slashing/.engine.go.swp",
+	} {
+		writeFile(t, filepath.Join(dir, filepath.FromSlash(p)), "junk\n", 0o644)
+	}
+	res, err := check(dir, "PROVENANCE.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.problems) != 0 {
+		t.Fatalf("editor and OS files caused problems:\n%s", strings.Join(res.problems, "\n"))
 	}
 }
 
@@ -144,6 +169,27 @@ func TestCheckFailures(t *testing.T) {
 				}
 			},
 			want: []string{"third_party/ks/pkg/: vendored tree is"},
+		},
+		{
+			name: "edited project file under third_party",
+			mutate: func(t *testing.T, dir string) {
+				writeFile(t, filepath.Join(dir, "third_party/ks/go.mod"), "module x\n\nrequire github.com/theQRL/qrysm v0.2.2\n", 0o644)
+			},
+			want: []string{"third_party/ks/go.mod: content sha256 is"},
+		},
+		{
+			name: "third_party file recorded without a sha256",
+			mutate: func(t *testing.T, dir string) {
+				writeFile(t, filepath.Join(dir, "third_party/ks/NOTES.md"), "notes\n", 0o644)
+				prov := filepath.Join(dir, "PROVENANCE.md")
+				data, err := os.ReadFile(prov)
+				if err != nil {
+					t.Fatal(err)
+				}
+				doc := strings.Replace(string(data), endMarker, "| `third_party/ks/NOTES.md` | new | | | |\n"+endMarker, 1)
+				writeFile(t, prov, doc, 0o644)
+			},
+			want: []string{`third_party/ks/NOTES.md: files under third_party/ outside a vendored tree need the revision "sha256 <hex>"`},
 		},
 		{
 			name: "unrecorded file under third_party",

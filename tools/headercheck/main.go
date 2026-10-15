@@ -1,7 +1,8 @@
 // Copyright 2026 The go-remotesigner Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-// Command headercheck enforces the licence-header policy of DESIGN §6.2.
+// Command headercheck enforces the licence-header policy recorded in
+// PROVENANCE.md ("Header classes").
 //
 // It reads the machine-readable file table in PROVENANCE.md and checks every
 // .go, .sql, .yaml, .yml, .sh, Dockerfile* and deploy/**/*.json file against
@@ -14,9 +15,14 @@
 //   - vendored: the directory must hash to the recorded git tree id, i.e. be
 //     byte-identical to upstream.
 //
+// A row whose revision is "sha256 <hex>" pins the file's content; every file
+// under third_party/ outside a vendored tree must be pinned that way, so no
+// file there changes without a matching PROVENANCE.md update.
+//
 // A checked file without a row, a row whose path is missing on disk, and any
 // unrecorded file under third_party/ fail the run. JSON files carry their
-// notice in a top-level "description" field.
+// notice in a top-level "description" field. Editor and OS files that
+// .gitignore excludes (.DS_Store, *.swp, .idea/, .vscode/) are ignored.
 //
 // Usage:
 //

@@ -1,3 +1,6 @@
+// Copyright 2026 The go-remotesigner Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 // The directories below this file are pristine reference copies of upstream
 // code. This go.mod only keeps them out of the main module's ./... pattern so
 // they are never compiled, vetted or linted as part of go-remotesigner.

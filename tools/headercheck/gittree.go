@@ -19,7 +19,8 @@ const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 // gitTreeHash returns the object id git would assign to the directory dir,
 // as printed by `git rev-parse <commit>:<path>`. Empty subdirectories are
-// ignored, as git does not record them.
+// ignored, as git does not record them, and so are editor and OS files
+// (isJunk), which .gitignore keeps out of git.
 func gitTreeHash(dir string) (string, error) {
 	id, err := treeID(dir)
 	if err != nil {
@@ -43,6 +44,9 @@ func treeID(dir string) ([]byte, error) {
 	}
 	var list []entry
 	for _, e := range entries {
+		if isJunk(e.Name()) {
+			continue
+		}
 		p := filepath.Join(dir, e.Name())
 		info, err := e.Info()
 		if err != nil {

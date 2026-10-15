@@ -51,7 +51,8 @@ Signed-off-by: Jane Doe <jane@example.org>
 - go-qrl (LGPL-3.0) may be imported only under `internal/execution/`, and never its `cmd/` or `internal/` packages.
 - New dependencies must carry one of: Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0. CI runs
   `go-licenses check` against that list.
-- Do not edit anything under `third_party/`. It holds pristine upstream copies whose git tree ids are verified.
+- Do not edit anything under `third_party/`. It holds pristine upstream copies whose git tree ids are verified, and
+  the few project files beside them are pinned by sha256 in `PROVENANCE.md`.
 
 ## File headers and PROVENANCE.md
 
@@ -72,6 +73,10 @@ the file table of `PROVENANCE.md` and the header of its class (see "Header class
   30af06dc975ba5b8ed0e17e53cba8683ca50ec02."
 
 If your change behaves differently from Web3Signer, add a row to `DEVIATIONS.md`.
+
+`headercheck` reads the working tree, not the git index. It ignores the editor and OS files that `.gitignore`
+excludes (`.DS_Store`, `*.swp`, `.idea/`, `.vscode/`), but other untracked files of a checked kind need a row too,
+so remove or commit them before running it.
 
 ## Checks
 

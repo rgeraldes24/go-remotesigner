@@ -75,12 +75,20 @@ qrysm's Go source while writing them.
 `headercheck` checks `.go`, `.sql`, `.yaml`/`.yml`, `.sh`, `Dockerfile*` and `deploy/**/*.json` files (JSON files carry
 the notice in a top-level `description` field). Every such file needs a row, as does every file under
 `third_party/` and every derived file of any type. Markdown, the Makefile, `go.mod`/`go.sum`, `renovate.json` and
-the licence texts are project files that need no row unless they are derived from upstream.
+the licence texts are project files that need no row unless they are derived from upstream or live under
+`third_party/`. For a row of a kind `headercheck` does not read (such as Markdown), the row records origin only and
+no header is required.
+
+Every file under `third_party/` outside a vendored tree records `sha256 <hex>` of its content as its revision, and
+`headercheck` verifies it, so nothing under `third_party/` changes without a reviewed `PROVENANCE.md` update. Editor
+and OS files that `.gitignore` excludes (`.DS_Store`, `*.swp`, `.idea/`, `.vscode/`) are ignored everywhere,
+including when a vendored tree id is computed.
 
 ## File table
 
 Columns: path (directories end in `/`), class, upstream repository, upstream path(s) separated by `<br>`, and
-revision (upstream commit, or `tree <id>` for vendored directories).
+revision: the upstream commit (7-40 hex digits, required for derived rows), `tree <id>` for vendored directories, or
+`sha256 <hex>` pinning a file's content (required for files under `third_party/` outside a vendored tree).
 
 <!-- headercheck:begin -->
 | Path | Class | Upstream repository | Upstream path(s) | Revision |
@@ -91,8 +99,8 @@ revision (upstream commit, or `tree <id>` for vendored directories).
 | `cmd/remotesigner/flavour_full.go` | new | | | |
 | `cmd/remotesigner/main.go` | new | | | |
 | `cmd/remotesigner/main_test.go` | new | | | |
-| `third_party/qrl-keystore/README.md` | new | | | |
-| `third_party/qrl-keystore/go.mod` | new | | | |
+| `third_party/qrl-keystore/README.md` | new | | | sha256 `b62799d6df0bdbbb39c3110d2f4ffe98e9e4508cc6f45ea618f943d29184b19c` |
+| `third_party/qrl-keystore/go.mod` | new | | | sha256 `8794f04b43301ccdaa0e3a1b5bb6a68affe585340a058657f12e7b6a28375d47` |
 | `third_party/qrl-keystore/go-qrl-wallet-encryptor-keystore/` | vendored | `cyyber/qrysm` (= `theQRL/qrysm` `e07a6007`) | `pkg/go-qrl-wallet-encryptor-keystore` | tree `6c97bfffa7d145c2be452fa4435c81b6c7532554` |
 | `tools/headercheck/check.go` | new | | | |
 | `tools/headercheck/check_test.go` | new | | | |

@@ -4,6 +4,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -24,6 +26,18 @@ type result struct {
 
 // skipRootDirs are build and release outputs that are never committed.
 var skipRootDirs = map[string]bool{"bin": true, "dist": true, "third_party_licenses": true}
+
+// isJunk reports whether name is an editor or OS file that .gitignore keeps
+// out of the repository ("Editors and OS files"). Such files are skipped
+// everywhere, including inside vendored trees, so that a stray .DS_Store does
+// not fail a local run although nothing tracked has changed.
+func isJunk(name string) bool {
+	switch name {
+	case ".DS_Store", ".idea", ".vscode":
+		return true
+	}
+	return strings.HasSuffix(name, ".swp")
+}
 
 const thirdParty = "third_party/"
 
@@ -70,6 +84,12 @@ func check(root, prov string) (result, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
+		if rel != "." && isJunk(d.Name()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if d.IsDir() {
 			if rel == "." {
 				return nil
@@ -96,13 +116,29 @@ func check(root, prov string) (result, error) {
 		if listed {
 			seen[rel] = true
 		}
+		inThirdParty := strings.HasPrefix(rel, thirdParty)
+		switch {
+		case inThirdParty && !listed:
+			problemf("%s: not recorded in PROVENANCE.md (everything under third_party/ must be)", rel)
+		case inThirdParty && r.contentHash() == "":
+			problemf("%s: files under third_party/ outside a vendored tree need the revision \"sha256 <hex>\" in PROVENANCE.md", rel)
+		}
+		if listed && r.contentHash() != "" {
+			got, err := fileSHA256(p)
+			if err != nil {
+				return err
+			}
+			if got != r.contentHash() {
+				problemf("%s: content sha256 is %s, PROVENANCE.md records %s: update the row in the same reviewed change", rel, got, r.contentHash())
+			}
+		}
 		k := kindOf(rel)
 		switch {
-		case k == "" && strings.HasPrefix(rel, thirdParty) && !listed:
-			problemf("%s: not recorded in PROVENANCE.md (everything under third_party/ must be)", rel)
 		case k == "":
 		case !listed:
-			problemf("%s: no PROVENANCE.md row", rel)
+			if !inThirdParty {
+				problemf("%s: no PROVENANCE.md row", rel)
+			}
 		default:
 			res.files++
 			lines, err := headerOf(p, k)
@@ -127,6 +163,16 @@ func check(root, prov string) (result, error) {
 	}
 	sort.Strings(res.problems)
 	return res, nil
+}
+
+// fileSHA256 returns the hex sha256 of the file at p.
+func fileSHA256(p string) (string, error) {
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // kindOf returns the comment prefix used for the header of the file at rel,
@@ -218,9 +264,7 @@ func checkHeader(r row, lines []string) []string {
 		for _, u := range r.upstream {
 			need(strings.Contains(joined, u), fmt.Sprintf("header does not name upstream path %s", u))
 		}
-		if r.revision != "" {
-			need(strings.Contains(joined, r.revision), fmt.Sprintf("header does not name upstream commit %s", r.revision))
-		}
+		need(strings.Contains(joined, r.revision), fmt.Sprintf("header does not name upstream commit %s", r.revision))
 	case classMIT:
 		need(has(mitCopyright.MatchString), `missing the original "Copyright (c) <year> ..." MIT line`)
 		need(has(equals(spdxMIT)), "missing "+spdxMIT)

@@ -17,11 +17,13 @@ func table(rows ...string) string {
 
 func TestParseProvenance(t *testing.T) {
 	const tree = "6c97bfffa7d145c2be452fa4435c81b6c7532554"
+	sum := strings.Repeat("ab", 32)
 	got, err := parseProvenance(strings.NewReader(table(
 		"| `cmd/app/main.go` | new | | | |",
 		"| `internal/a.go` | w3s-derived | Web3Signer | `x/A.java`<br>`x/B.java` | `30af06dc` |",
 		"| `internal/k.go` | mit-derived | qrysm | `pkg/k/k.go` | `0b9cdf25` |",
 		"| `third_party/k/` | vendored | qrysm | `pkg/k` | tree `"+tree+"` |",
+		"| `third_party/go.mod` | new | | | sha256 `"+sum+"` |",
 	)))
 	if err != nil {
 		t.Fatal(err)
@@ -31,12 +33,16 @@ func TestParseProvenance(t *testing.T) {
 		{path: "internal/a.go", class: classW3S, upstream: []string{"x/A.java", "x/B.java"}, revision: "30af06dc", line: 9},
 		{path: "internal/k.go", class: classMIT, upstream: []string{"pkg/k/k.go"}, revision: "0b9cdf25", line: 10},
 		{path: "third_party/k/", class: classVendored, upstream: []string{"pkg/k"}, revision: "tree " + tree, line: 11},
+		{path: "third_party/go.mod", class: classNew, revision: "sha256 " + sum, line: 12},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseProvenance:\n got %+v\nwant %+v", got, want)
 	}
 	if id := got[3].treeID(); id != tree {
 		t.Fatalf("treeID = %q, want %q", id, tree)
+	}
+	if h := got[4].contentHash(); h != sum {
+		t.Fatalf("contentHash = %q, want %q", h, sum)
 	}
 }
 
@@ -50,6 +56,11 @@ func TestParseProvenanceErrors(t *testing.T) {
 		{"duplicate path", table("| a.go | new | | | |", "| a.go | new | | | |"), "already listed"},
 		{"derived without upstream", table("| a.go | w3s-derived | Web3Signer | | 30af06dc |"), "needs an upstream path"},
 		{"mit without upstream", table("| a.go | mit-derived | qrysm | | |"), "needs an upstream path"},
+		{"derived without revision", table("| a.go | w3s-derived | Web3Signer | x/A.java | |"), "needs the upstream commit"},
+		{"mit without revision", table("| a.go | mit-derived | qrysm | pkg/k/k.go | |"), "needs the upstream commit"},
+		{"derived with a non-hex revision", table("| a.go | w3s-derived | Web3Signer | x/A.java | main |"), "needs the upstream commit"},
+		{"derived with a short revision", table("| a.go | w3s-derived | Web3Signer | x/A.java | 30af06 |"), "needs the upstream commit"},
+		{"new with a commit revision", table("| a.go | new | | | 30af06dc |"), "sha256 <64-hex>"},
 		{"vendored without tree", table("| third_party/k/ | vendored | qrysm | pkg/k | 0b9cdf25 |"), "tree <40-hex id>"},
 		{"vendored file", table("| third_party/k.go | vendored | qrysm | pkg/k | tree " + strings.Repeat("a", 40) + " |"), "trailing /"},
 		{"directory for a new row", table("| internal/ | new | | | |"), "only vendored rows"},

@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// class is the provenance class of a file (DESIGN §6.2).
+// class is the provenance class of a file (PROVENANCE.md, "Header classes").
 type class string
 
 const (
@@ -34,15 +34,27 @@ type row struct {
 	path     string   // slash-separated, relative to the root; vendored rows end in "/"
 	class    class    // header class
 	upstream []string // upstream paths ("Derived from" targets)
-	revision string   // upstream commit, or "tree <id>" for vendored rows
+	revision string   // upstream commit, "tree <id>" for vendored rows, or "sha256 <hex>" pinning a file's content
 	line     int      // line number in PROVENANCE.md
 }
 
-var treeRevision = regexp.MustCompile(`^tree ([0-9a-f]{40})$`)
+var (
+	treeRevision   = regexp.MustCompile(`^tree ([0-9a-f]{40})$`)
+	sha256Revision = regexp.MustCompile(`^sha256 ([0-9a-f]{64})$`)
+	commitRevision = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+)
 
 // treeID returns the git tree id recorded for a vendored row.
 func (r row) treeID() string {
 	if m := treeRevision.FindStringSubmatch(r.revision); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// contentHash returns the sha256 recorded for a file row, if any.
+func (r row) contentHash() string {
+	if m := sha256Revision.FindStringSubmatch(r.revision); m != nil {
 		return m[1]
 	}
 	return ""
@@ -118,9 +130,15 @@ func parseRow(line string, n int) (row, error) {
 	}
 	switch r.class {
 	case classNew:
+		if r.revision != "" && r.contentHash() == "" {
+			return row{}, fmt.Errorf("line %d: %s: a new row's revision is empty or \"sha256 <64-hex>\"", n, r.path)
+		}
 	case classW3S, classMIT:
 		if len(r.upstream) == 0 {
 			return row{}, fmt.Errorf("line %d: %s: class %s needs an upstream path", n, r.path, r.class)
+		}
+		if !commitRevision.MatchString(r.revision) {
+			return row{}, fmt.Errorf("line %d: %s: class %s needs the upstream commit (7-40 hex digits) as its revision", n, r.path, r.class)
 		}
 	case classVendored:
 		if !strings.HasSuffix(r.path, "/") || r.treeID() == "" {

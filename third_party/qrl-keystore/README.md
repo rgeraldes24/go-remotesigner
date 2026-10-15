@@ -20,4 +20,5 @@ To update it, replace the directory with a newer upstream tree and record the ne
 `PROVENANCE.md`.
 
 The `go.mod` next to this file only keeps the copy out of the main module, so it is never compiled, vetted or linted
-(its tests import qrysm paths). It is not part of the upstream tree.
+(its tests import qrysm paths). It is not part of the upstream tree. This README and that `go.mod` are project files;
+`PROVENANCE.md` pins their sha256, so they too change only together with their rows there.
