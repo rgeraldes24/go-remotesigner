@@ -67,11 +67,6 @@ type Sign struct {
 	Log     logrus.FieldLogger
 }
 
-// signResponse is the JSON success body.
-type signResponse struct {
-	Signature string `json:"signature"`
-}
-
 // ServeHTTP signs one request.
 func (h *Sign) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	x := &exchange{h: h, w: w, r: r}

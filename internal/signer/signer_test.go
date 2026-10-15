@@ -123,10 +123,10 @@ func TestSignModes(t *testing.T) {
 		}
 		return sig
 	}
-	if sign(signingroot.AggregationSlot) != sign(signingroot.AggregationSlot) {
+	if first, second := sign(signingroot.AggregationSlot), sign(signingroot.AggregationSlot); first != second {
 		t.Error("deterministic selection proofs differ")
 	}
-	if sign(signingroot.Attestation) == sign(signingroot.Attestation) {
+	if first, second := sign(signingroot.Attestation), sign(signingroot.Attestation); first == second {
 		t.Error("hedged attestations are identical")
 	}
 }
