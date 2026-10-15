@@ -21,8 +21,10 @@
 // interface the signing path calls, and the Store interface that the bbolt, Postgres and in-memory backends
 // implement.
 //
-// A refusal is reported as a Decision with Allowed false and a Reason (HTTP 412 at the API); an infrastructure
-// failure is reported as an error (HTTP 500). Only BLOCK_V2 and ATTESTATION requests are subject to these rules.
+// A refusal is reported as a Decision with Allowed false and a Reason (HTTP 412 at the API). A request that the
+// server should have rejected as malformed is reported as ErrGenesisValidatorsRootMismatch or ErrSourceAfterTarget
+// (HTTP 400); any other error is an infrastructure failure (HTTP 500). Only BLOCK_V2 and ATTESTATION requests are
+// subject to these rules.
 package slashing
 
 import (
@@ -48,7 +50,8 @@ func KeyIDOf(pubkey []byte) KeyID { return sha256.Sum256(pubkey) }
 // String returns a short, log-safe form of the id: "0x" and its first 8 bytes in hex.
 func (k KeyID) String() string { return "0x" + hex.EncodeToString(k[:8]) }
 
-// Reason says why a request was refused. The values are the API's error reasons.
+// Reason says why a request was refused. The values are the API's 412 error reasons, and the only values of the
+// prevented-signings metric label.
 type Reason string
 
 // Refusal reasons.
@@ -68,11 +71,6 @@ const (
 	ReasonAboveHighWatermark Reason = "SLASHING_ABOVE_HIGH_WATERMARK"
 	// ReasonValidatorDisabled: the validator is disabled in the store.
 	ReasonValidatorDisabled Reason = "VALIDATOR_DISABLED"
-	// ReasonGenesisValidatorsRootMismatch: the request's genesis validators root differs from the store's.
-	ReasonGenesisValidatorsRootMismatch Reason = "FORK_INFO_MISMATCH"
-	// ReasonSourceAfterTarget: the source epoch is greater than the target epoch. The server refuses such a
-	// request with 400 before it reaches the engine; the engine refuses it as well.
-	ReasonSourceAfterTarget Reason = "INVARIANT_VIOLATION"
 )
 
 // Decision is the outcome of a check-and-record call.
@@ -132,6 +130,13 @@ var (
 	ErrWatermarkConflict = errors.New("slashing: low watermarks must stay at or below the high watermark")
 	// ErrNoGenesisValidatorsRoot: a high watermark was set before the store was pinned to a network.
 	ErrNoGenesisValidatorsRoot = errors.New("slashing: the store has no genesis validators root yet")
+
+	// ErrGenesisValidatorsRootMismatch: the request's genesis validators root differs from the store's. The server
+	// rejects such a request earlier with 400 FORK_INFO_MISMATCH; if the engine sees one, it maps to the same 400.
+	ErrGenesisValidatorsRootMismatch = errors.New("slashing: genesis validators root does not match the store's")
+	// ErrSourceAfterTarget: the attestation's source epoch is greater than its target epoch. The server rejects such
+	// a request earlier with 400 INVARIANT_VIOLATION; if the engine sees one, it maps to the same 400.
+	ErrSourceAfterTarget = errors.New("slashing: source epoch is greater than target epoch")
 )
 
 // CheckPublicKey returns ErrInvalidPublicKey unless pubkey is PublicKeyLength bytes long.

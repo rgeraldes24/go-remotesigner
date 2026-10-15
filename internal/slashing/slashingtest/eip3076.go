@@ -5,6 +5,7 @@ package slashingtest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -40,6 +41,7 @@ type outcome struct {
 	allowed bool
 	repeat  bool
 	reason  slashing.Reason
+	err     error // a rejection the server maps to 400, not a 412 refusal
 }
 
 var (
@@ -48,6 +50,8 @@ var (
 )
 
 func refused(r slashing.Reason) outcome { return outcome{reason: r} }
+
+func rejected(err error) outcome { return outcome{err: err} }
 
 type step struct {
 	op             opKind
@@ -204,8 +208,8 @@ var eip3076Scenarios = []scenario{
 	}},
 	{"block: genesis validators root is pinned by the first request", []step{
 		block(0, 10, 1, allowed),
-		blockUnder(otherGVR, 0, 11, 1, refused(slashing.ReasonGenesisValidatorsRootMismatch)),
-		blockUnder(otherGVR, 1, 11, 1, refused(slashing.ReasonGenesisValidatorsRootMismatch)),
+		blockUnder(otherGVR, 0, 11, 1, rejected(slashing.ErrGenesisValidatorsRootMismatch)),
+		blockUnder(otherGVR, 1, 11, 1, rejected(slashing.ErrGenesisValidatorsRootMismatch)),
 		block(0, 11, 1, allowed),
 	}},
 
@@ -254,7 +258,7 @@ var eip3076Scenarios = []scenario{
 		att(0, 2, 12, 1, refused(slashing.ReasonSurroundedVote)),
 	}},
 	{"attestation: source after target", []step{
-		att(0, 6, 5, 1, refused(slashing.ReasonSourceAfterTarget)),
+		att(0, 6, 5, 1, rejected(slashing.ErrSourceAfterTarget)),
 		att(0, 5, 6, 1, allowed),
 	}},
 	{"attestation: validators are independent", []step{
@@ -348,10 +352,7 @@ func runStep(ctx context.Context, s slashing.Store, e *slashing.Engine, st step)
 		d, err := e.CheckAndRecordBlock(ctx, slashing.BlockRequest{
 			PublicKey: Key(st.key), GenesisValidatorsRoot: gvr, Slot: st.slot, SigningRoot: RootOf(st.root),
 		})
-		if err != nil {
-			return fmt.Errorf("block(key %d, slot %d): %w", st.key, st.slot, err)
-		}
-		if err := checkOutcome(d, st.want); err != nil {
+		if err := checkOutcome(d, err, st.want); err != nil {
 			return fmt.Errorf("block(key %d, slot %d, root %d): %w", st.key, st.slot, st.root, err)
 		}
 		after, err := blockAt(ctx, s, st.key, st.slot)
@@ -368,10 +369,7 @@ func runStep(ctx context.Context, s slashing.Store, e *slashing.Engine, st step)
 			PublicKey: Key(st.key), GenesisValidatorsRoot: gvr,
 			SourceEpoch: st.source, TargetEpoch: st.target, SigningRoot: RootOf(st.root),
 		})
-		if err != nil {
-			return fmt.Errorf("attestation(key %d, %d→%d): %w", st.key, st.source, st.target, err)
-		}
-		if err := checkOutcome(d, st.want); err != nil {
+		if err := checkOutcome(d, err, st.want); err != nil {
 			return fmt.Errorf("attestation(key %d, %d→%d, root %d): %w", st.key, st.source, st.target, st.root, err)
 		}
 		after, err := attestationAt(ctx, s, st.key, st.target)
@@ -405,7 +403,15 @@ func runStep(ctx context.Context, s slashing.Store, e *slashing.Engine, st step)
 	return fmt.Errorf("unknown step kind %d", st.op)
 }
 
-func checkOutcome(d slashing.Decision, want outcome) error {
+// checkOutcome compares a check-and-record result with want. An error matches only a want.err it wraps, and then
+// the decision must be the zero value.
+func checkOutcome(d slashing.Decision, err error, want outcome) error {
+	if err != nil || want.err != nil {
+		if want.err == nil || !errors.Is(err, want.err) || d != (slashing.Decision{}) {
+			return fmt.Errorf("decision %+v, error %v; want %+v", d, err, want)
+		}
+		return nil
+	}
 	got := outcome{allowed: d.Allowed, repeat: d.Repeat, reason: d.Reason}
 	if got != want {
 		return fmt.Errorf("decision %+v, want %+v", got, want)

@@ -119,25 +119,33 @@ func (f *fixture) disable() {
 
 func (f *fixture) block(s uint64) slashing.Decision {
 	f.t.Helper()
-	d, err := f.engine.CheckAndRecordBlock(ctx, slashing.BlockRequest{
-		PublicKey: slashingtest.Key(0), GenesisValidatorsRoot: slashingtest.GVR, Slot: s, SigningRoot: signingRoot,
-	})
+	d, err := f.tryBlock(s)
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	return d
 }
 
+func (f *fixture) tryBlock(s uint64) (slashing.Decision, error) {
+	return f.engine.CheckAndRecordBlock(ctx, slashing.BlockRequest{
+		PublicKey: slashingtest.Key(0), GenesisValidatorsRoot: slashingtest.GVR, Slot: s, SigningRoot: signingRoot,
+	})
+}
+
 func (f *fixture) attestation(source, target uint64) slashing.Decision {
 	f.t.Helper()
-	d, err := f.engine.CheckAndRecordAttestation(ctx, slashing.AttestationRequest{
-		PublicKey: slashingtest.Key(0), GenesisValidatorsRoot: slashingtest.GVR,
-		SourceEpoch: source, TargetEpoch: target, SigningRoot: signingRoot,
-	})
+	d, err := f.tryAttestation(source, target)
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	return d
+}
+
+func (f *fixture) tryAttestation(source, target uint64) (slashing.Decision, error) {
+	return f.engine.CheckAndRecordAttestation(ctx, slashing.AttestationRequest{
+		PublicKey: slashingtest.Key(0), GenesisValidatorsRoot: slashingtest.GVR,
+		SourceEpoch: source, TargetEpoch: target, SigningRoot: signingRoot,
+	})
 }
 
 func (f *fixture) wantInserts(blocks, atts int) {
@@ -151,6 +159,14 @@ func want(t *testing.T, got slashing.Decision, wantAllowed bool, wantReason slas
 	t.Helper()
 	if got.Allowed != wantAllowed || got.Reason != wantReason {
 		t.Errorf("decision %+v, want allowed %v reason %q", got, wantAllowed, wantReason)
+	}
+}
+
+// wantErr checks that a request was rejected with err rather than refused with a 412 reason.
+func wantErr(t *testing.T, d slashing.Decision, got, err error) {
+	t.Helper()
+	if !errors.Is(got, err) || d != (slashing.Decision{}) {
+		t.Errorf("decision %+v, error %v; want the zero decision and %v", d, got, err)
 	}
 }
 
@@ -323,7 +339,8 @@ func TestAttestationCannotSignWhenNoRegisteredValidator(t *testing.T) {
 
 func TestAttestationCannotSignWhenSourceEpochGreaterThanTargetEpoch(t *testing.T) {
 	f := newFixture(t)
-	want(t, f.attestation(targetEpoch+1, targetEpoch), false, slashing.ReasonSourceAfterTarget)
+	d, err := f.tryAttestation(targetEpoch+1, targetEpoch)
+	wantErr(t, d, err, slashing.ErrSourceAfterTarget)
 	if f.spy.attQueries != 0 {
 		t.Errorf("%d attestation-history queries, want none", f.spy.attQueries)
 	}
@@ -430,7 +447,8 @@ func TestSlashingProtectionEnactedIfAttestationWithInvalidGvr(t *testing.T) {
 	if _, err := f.mem.PinGenesisValidatorsRoot(ctx, other); err != nil {
 		t.Fatal(err)
 	}
-	want(t, f.attestation(sourceEpoch, targetEpoch), false, slashing.ReasonGenesisValidatorsRootMismatch)
+	d, err := f.tryAttestation(sourceEpoch, targetEpoch)
+	wantErr(t, d, err, slashing.ErrGenesisValidatorsRootMismatch)
 	f.wantInserts(0, 0)
 	wantPinned(t, f.mem, other)
 }
@@ -441,7 +459,8 @@ func TestSlashingProtectionEnactedIfBlockWithInvalidGvr(t *testing.T) {
 	if _, err := f.mem.PinGenesisValidatorsRoot(ctx, other); err != nil {
 		t.Fatal(err)
 	}
-	want(t, f.block(slot), false, slashing.ReasonGenesisValidatorsRootMismatch)
+	d, err := f.tryBlock(slot)
+	wantErr(t, d, err, slashing.ErrGenesisValidatorsRootMismatch)
 	f.wantInserts(0, 0)
 	wantPinned(t, f.mem, other)
 }

@@ -101,8 +101,8 @@ func (e *Engine) CheckAndRecordBlock(ctx context.Context, req BlockRequest) (Dec
 	if err != nil {
 		return Decision{}, err
 	}
-	if d, err := e.checkGenesisValidatorsRoot(ctx, req.GenesisValidatorsRoot); err != nil || !d.Allowed {
-		return d, err
+	if err := e.checkGenesisValidatorsRoot(ctx, req.GenesisValidatorsRoot); err != nil {
+		return Decision{}, err
 	}
 	var d Decision
 	err = e.store.UpdateBlocks(ctx, id, func(tx BlockTx) error {
@@ -123,8 +123,8 @@ func (e *Engine) CheckAndRecordAttestation(ctx context.Context, req AttestationR
 	if err != nil {
 		return Decision{}, err
 	}
-	if d, err := e.checkGenesisValidatorsRoot(ctx, req.GenesisValidatorsRoot); err != nil || !d.Allowed {
-		return d, err
+	if err := e.checkGenesisValidatorsRoot(ctx, req.GenesisValidatorsRoot); err != nil {
+		return Decision{}, err
 	}
 	var d Decision
 	err = e.store.UpdateAttestations(ctx, id, func(tx AttestationTx) error {
@@ -152,21 +152,22 @@ func (e *Engine) lookup(pubkey []byte) (KeyID, error) {
 	return id, nil
 }
 
-// checkGenesisValidatorsRoot compares gvr with the store's root, pinning gvr when the store has none yet.
-func (e *Engine) checkGenesisValidatorsRoot(ctx context.Context, gvr Root) (Decision, error) {
+// checkGenesisValidatorsRoot compares gvr with the store's root, pinning gvr when the store has none yet. It returns
+// ErrGenesisValidatorsRootMismatch when they differ.
+func (e *Engine) checkGenesisValidatorsRoot(ctx context.Context, gvr Root) error {
 	pinned := e.gvr.Load()
 	if pinned == nil {
 		root, err := e.store.PinGenesisValidatorsRoot(ctx, gvr)
 		if err != nil {
-			return Decision{}, err
+			return err
 		}
 		pinned = &root
 		e.gvr.Store(pinned)
 	}
 	if *pinned != gvr {
-		return refuse(ReasonGenesisValidatorsRootMismatch), nil
+		return ErrGenesisValidatorsRootMismatch
 	}
-	return allow(), nil
+	return nil
 }
 
 // checkBlock applies, in order: the enabled flag, the high watermark, the low watermark, the recorded block at the
@@ -214,17 +215,17 @@ func checkBlock(tx BlockTx, slot uint64, root Root) (Decision, error) {
 	return allow(), nil
 }
 
-// checkAttestation applies, in order: the enabled flag, source ≤ target, the high watermark, the low watermarks,
-// the recorded attestation at the target (double vote), surround votes in both directions, repeat signing, and the
-// literal EIP-3076 condition at the low-watermark target. A repeat that a recorded attestation surrounds, or that
-// surrounds one, is refused: that is only possible with imported history. An allowed attestation is recorded, and
-// the first one sets the low-watermark epochs.
+// checkAttestation applies, in order: the enabled flag, source ≤ target (ErrSourceAfterTarget otherwise), the high
+// watermark, the low watermarks, the recorded attestation at the target (double vote), surround votes in both
+// directions, repeat signing, and the literal EIP-3076 condition at the low-watermark target. A repeat that a
+// recorded attestation surrounds, or that surrounds one, is refused: that is only possible with imported history. An
+// allowed attestation is recorded, and the first one sets the low-watermark epochs.
 func checkAttestation(tx AttestationTx, source, target uint64, root Root) (Decision, error) {
 	if d, err := checkEnabled(tx); err != nil || !d.Allowed {
 		return d, err
 	}
 	if source > target {
-		return refuse(ReasonSourceAfterTarget), nil
+		return Decision{}, ErrSourceAfterTarget
 	}
 	high, err := tx.HighWatermark()
 	if err != nil {
