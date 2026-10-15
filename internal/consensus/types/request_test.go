@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -302,6 +303,47 @@ func TestStrictDecoding(t *testing.T) {
 			}
 			if e.Reason != tt.r || e.Field != tt.field {
 				t.Fatalf("got %s at %q, want %s at %q (%v)", e.Reason, e.Field, tt.r, tt.field, e)
+			}
+		})
+	}
+}
+
+// A `signatures` array of tiny elements must not size the allocation by its
+// count: a body near the 2 MiB sign-route limit holding a million zeros is
+// refused at its first element after allocating a few MB, not 4.6 GB.
+func TestSignaturesAllocationBound(t *testing.T) {
+	const bodySize = 2 << 20
+	bodies := validBodies()
+	tests := []struct {
+		name, body, list, field string
+		p                       Params
+	}{
+		{"aggregate", bodies[signingroot.AggregateAndProof], `["` + sigHex(1) + `","` + sigHex(2) + `"]`,
+			"aggregate_and_proof.aggregate.signatures[0]", minimal},
+		{"contribution", bodies[signingroot.SyncCommitteeContributionAndProof], `["` + sigHex(5) + `","` + sigHex(6) + `"]`,
+			"contribution_and_proof.contribution.signatures[0]", minimal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !strings.Contains(tt.body, tt.list) {
+				t.Fatal("signatures not in body")
+			}
+			n := (bodySize - len(tt.body)) / 2
+			zeros := "[" + strings.Repeat("0,", n-1) + "0]"
+			body := []byte(strings.Replace(tt.body, tt.list, zeros, 1))
+
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			_, err := DecodeSignRequest(body, tt.p)
+			runtime.ReadMemStats(&after)
+
+			var e *apierr.Error
+			if !errors.As(err, &e) || e.Reason != apierr.BadField || e.Field != tt.field {
+				t.Fatalf("got %v, want BAD_FIELD at %s", err, tt.field)
+			}
+			if alloc := after.TotalAlloc - before.TotalAlloc; alloc > 4<<20 {
+				t.Errorf("decoding a %d-byte body of %d tiny signatures allocated %d bytes", len(body), n, alloc)
 			}
 		})
 	}

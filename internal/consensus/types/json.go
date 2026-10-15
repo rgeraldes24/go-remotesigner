@@ -121,14 +121,23 @@ func (r *ValidatorRegistrationV1) fields(*Params) []jsonutil.Field {
 // the policy, not here.
 type signatureList struct{ list *[]Signature }
 
+// minSignatureElem is the shortest a valid element of b can be: a quoted
+// "0x" and 2*SignatureLength hex digits, plus the comma that separates it
+// from the next. Escapes only make an element longer.
+const minSignatureElem = 2*SignatureLength + 5
+
 // UnmarshalJSON counts the elements first, so the list is allocated once.
+// The capacity is also bounded by how many valid signatures fit in b: a
+// count of tiny elements must not size the allocation, or a 2 MiB body of
+// `[0,0,...]` would allocate gigabytes before its first element is refused.
 func (l signatureList) UnmarshalJSON(b []byte) error {
 	n, err := jsonutil.DecodeArray(b, nil)
 	if err != nil {
 		return err
 	}
-	sigs := make([]Signature, n)
+	sigs := make([]Signature, 0, min(n, len(b)/minSignatureElem+1))
 	if _, err := jsonutil.DecodeArray(b, func(i int, raw []byte) error {
+		sigs = append(sigs, Signature{})
 		return jsonutil.HexBytesN(sigs[i][:]).UnmarshalJSON(raw)
 	}); err != nil {
 		return err
