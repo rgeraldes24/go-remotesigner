@@ -1,0 +1,10 @@
+# Copyright 2026 The go-remotesigner Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Hand-filled with qrysm's configuration values (data only) until milestone
+# S3 regenerates this file with tools/vectorgen (params.ConfigToYaml at the
+# pinned qrysm commit). Keys not listed here inherit from PRESET_BASE.
+
+CONFIG_NAME: 'interop'
+PRESET_BASE: 'mainnet'
+GENESIS_FORK_VERSION: 0x000000eb

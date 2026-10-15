@@ -16,6 +16,11 @@ respective owners.
 This product includes go-qrllib (https://github.com/theQRL/go-qrllib),
 Copyright (c) 2022 The Quantum Resistant Ledger, licensed under the MIT License.
 
+This product includes go-yaml v3 (https://github.com/go-yaml/yaml),
+Copyright 2011-2016 Canonical Ltd., licensed under the Apache License,
+Version 2.0, with parts ported from libyaml, Copyright (c) 2006-2011 Kirill
+Simonov, licensed under the MIT License.
+
 This product includes the QRL keystore v1 implementation
 (go-qrl-wallet-encryptor-keystore, from https://github.com/theQRL/qrysm),
 Copyright (c) 2023 The Quantum Resistant Ledger, licensed under the MIT License.
