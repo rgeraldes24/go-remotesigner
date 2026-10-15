@@ -20,3 +20,9 @@ This product includes the QRL keystore v1 implementation
 (go-qrl-wallet-encryptor-keystore, from https://github.com/theQRL/qrysm),
 Copyright (c) 2023 The Quantum Resistant Ledger, licensed under the MIT License.
 See third_party/qrl-keystore/ and LICENSES/MIT.txt.
+
+The QRL keystore v1 implementation includes code derived from
+go-eth2-wallet-encryptor-keystorev4
+(https://github.com/wealdtech/go-eth2-wallet-encryptor-keystorev4),
+Copyright © 2019 - 2023 Weald Technology Trading, licensed under the
+Apache License, Version 2.0. See LICENSES/Apache-2.0.txt.

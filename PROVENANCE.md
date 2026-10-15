@@ -25,8 +25,14 @@ No GPL code from qrysm (`github.com/theQRL/qrysm`, GPL-3.0) is copied into or im
 denies every `github.com/theQRL/qrysm/**` import, and `go-licenses check` gates the dependency graph. Only the nested,
 never-shipped module `tools/vectorgen` may link qrysm, to generate test data.
 
-The only qrysm content in the repository is its MIT-licensed keystore v1 implementation, an island with its own
-`LICENSE` ("Copyright (c) 2023 The Quantum Resistant Ledger"):
+The only qrysm content in the repository is its keystore v1 implementation, an island with its own MIT `LICENSE`
+("Copyright (c) 2023 The Quantum Resistant Ledger"). That code is itself derived from Weald Technology's Apache-2.0
+keystore v4 encryptor, whose copyright and licence notices were removed in the QRL copy: `norm.go` matches Weald's
+`norm.go` line for line apart from the removed header, the package name and one added error check, and `encryptor.go`
+and `decrypt.go` keep Weald's structure, function names, error strings and doc comments with "V4" renamed to "V1".
+The QRL origin repository, `go-zond-wallet-encryptor-keystore` (history read from the `rgeraldes24` fork), was MIT
+from its first commit (`5448561`, 2023-08-24); the implementation arrived in `a3587b0` (2023-08-29) without a Weald
+notice.
 
 | Item | Value |
 |---|---|
@@ -34,9 +40,14 @@ The only qrysm content in the repository is its MIT-licensed keystore v1 impleme
 | Source commit | `cyyber/qrysm` `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` (2026-10-12), identical to `rgeraldes24/qrysm` main |
 | Tree id | `6c97bfffa7d145c2be452fa4435c81b6c7532554` (the same tree in `theQRL/qrysm` main `e07a6007`) |
 | Copy | `third_party/qrl-keystore/go-qrl-wallet-encryptor-keystore/`, pristine; `headercheck` verifies the tree id |
+| Upstream of upstream | `wealdtech/go-eth2-wallet-encryptor-keystorev4` (https://github.com/wealdtech/go-eth2-wallet-encryptor-keystorev4), Apache-2.0, "Copyright © 2019 - 2023 Weald Technology Trading" (per-file years 2019-2023); compared against `v1.4.1` (`1067d369`, 2023-07-29), released a month before the QRL copy. Notices stripped in the QRL copy. |
+
+The copy under `third_party/` stays pristine, so the Weald lineage is recorded here, in `NOTICE` and in
+`third_party/qrl-keystore/README.md` instead of in its files.
 
 The hardened copy that is compiled into the signer will live in `internal/keys/keystore/qrlv1/` and is recorded as
-`mit-derived`.
+`mit-derived`. Because it modifies Apache-2.0 code, its headers must restore Weald's copyright line and the Apache
+notice next to the QRL MIT line (Apache-2.0 §4(c)), and `LICENSES/Apache-2.0.txt` covers that part.
 
 ## Written from facts
 
@@ -58,7 +69,7 @@ qrysm's Go source while writing them.
 |---|---|---|
 | `new` | Written for this project | `Copyright <year> The go-remotesigner Authors.` and `SPDX-License-Identifier: Apache-2.0`; no ConsenSys line |
 | `w3s-derived` | Written while consulting a specific Web3Signer file, including ported tests | The original `Copyright <year> ConsenSys AG.` line(s), our copyright line, the Apache short notice, `SPDX-License-Identifier: Apache-2.0`, and "Modified by The go-remotesigner Authors, <year>: translated from Java to Go and adapted for QRL. Derived from `<upstream path>` at commit `<commit>`." |
-| `mit-derived` | Modified copies of MIT code | The original MIT copyright line, `SPDX-License-Identifier: MIT`, and a "Modified by" line |
+| `mit-derived` | Modified copies of MIT code | The original MIT copyright line, `SPDX-License-Identifier: MIT`, and a "Modified by" line; for the keystore, also Weald's copyright line and the Apache notice (see "QRL code") |
 | `vendored` | Pristine upstream trees under `third_party/` | No added header; the directory must hash to the recorded git tree id |
 
 `headercheck` checks `.go`, `.sql`, `.yaml`/`.yml`, `.sh`, `Dockerfile*` and `deploy/**/*.json` files (JSON files carry
