@@ -8,9 +8,11 @@
 
 # Go tooling
 *.test
-*.out
-coverage.*
 *.prof
+# Coverage profiles and other outputs written in the repository root only, so
+# source files such as internal/x/coverage.go are never ignored.
+/*.out
+/coverage.html
 
 # Editors and OS files
 .idea/
