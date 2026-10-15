@@ -1,0 +1,14 @@
+# Copyright 2026 The go-remotesigner Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Hand-filled with qrysm's configuration values (data only) until milestone
+# S3 regenerates this file with tools/vectorgen (params.ConfigToYaml at the
+# pinned qrysm commit). Keys not listed here inherit from PRESET_BASE.
+
+CONFIG_NAME: 'end-to-end'
+PRESET_BASE: 'minimal'
+GENESIS_FORK_VERSION: 0x000000fd
+SECONDS_PER_SLOT: 10
+SLOTS_PER_EPOCH: 6
+DEPOSIT_CHAIN_ID: 1337
+DEPOSIT_NETWORK_ID: 1337
