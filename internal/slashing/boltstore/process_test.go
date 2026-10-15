@@ -28,7 +28,8 @@ const (
 	envPath   = "BOLTSTORE_TEST_PATH"
 
 	exitLocked    = 10 // the helper's Open failed with ErrLocked
-	exitNotLocked = 11 // the helper's Open did something else
+	exitNotLocked = 11 // the helper's Open failed with another error
+	exitOpened    = 12 // the helper's Open succeeded
 )
 
 var (
@@ -57,8 +58,12 @@ func TestHelperProcess(t *testing.T) {
 	}
 	path := os.Getenv(envPath)
 	if mode == "open" {
-		_, err := Open(path, Options{LockTimeout: 200 * time.Millisecond})
-		if errors.Is(err, ErrLocked) {
+		s, err := Open(path, Options{LockTimeout: 200 * time.Millisecond})
+		switch {
+		case err == nil:
+			_ = s.Close()
+			os.Exit(exitOpened)
+		case errors.Is(err, ErrLocked):
 			os.Exit(exitLocked)
 		}
 		fmt.Fprintln(os.Stderr, "helper open:", err)
@@ -121,8 +126,8 @@ func TestSecondProcessCannotOpen(t *testing.T) {
 		t.Fatalf("second process exit code %d, want %d (ErrLocked)", st.ExitCode(), exitLocked)
 	}
 	mustNil(t, s.Close())
-	if st := runHelper(t, "open", path); st.ExitCode() != exitNotLocked {
-		t.Fatalf("after Close the second process got exit code %d, want %d (opened)", st.ExitCode(), exitNotLocked)
+	if st := runHelper(t, "open", path); st.ExitCode() != exitOpened {
+		t.Fatalf("after Close the second process got exit code %d, want %d (opened)", st.ExitCode(), exitOpened)
 	}
 }
 
