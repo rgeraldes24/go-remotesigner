@@ -497,3 +497,26 @@ func writeNewerSchema(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 }
+
+// Startup logs the binding, including the DEPOSIT and builder domains, and
+// warns when genesis time is unknown.
+func TestLogNetwork(t *testing.T) {
+	n, err := network.Load(network.Sources{Network: fileNetwork})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf strings.Builder
+	log := logrus.New()
+	log.SetOutput(&buf)
+	logNetwork(log, n)
+	out := buf.String()
+	for _, want := range []string{
+		"deposit-domain=0x030000002c3c06ef", "builder-domain=0x000000012c3c06ef",
+		`genesis-validators-root="pending pin (trust on first use)"`, "genesis-time=unknown",
+		"level=warning",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("startup log lacks %q:\n%s", want, out)
+		}
+	}
+}

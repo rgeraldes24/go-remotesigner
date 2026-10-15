@@ -22,6 +22,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/api/ops"
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/policy"
+	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keyconfig"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
@@ -288,11 +289,18 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 
 // logNetwork records the chain binding at startup.
 func logNetwork(log *logrus.Logger, n *network.Network) {
+	// DEPOSIT and the builder's registration domain use the genesis fork
+	// version and a zero GVR, so they are fixed by the configuration alone.
+	v := signingroot.Version(n.Config.GenesisForkVersion)
+	deposit := signingroot.ComputeDomain(signingroot.DomainDeposit, v, [32]byte{})
+	builder := signingroot.ComputeDomain(signingroot.DomainApplicationBuilder, v, [32]byte{})
 	f := logrus.Fields{
 		"network":              n.Name,
 		"genesis-fork-version": "0x" + hex.EncodeToString(n.Config.GenesisForkVersion[:]),
 		"seconds-per-slot":     n.Config.SecondsPerSlot,
 		"slots-per-epoch":      n.Config.SlotsPerEpoch,
+		"deposit-domain":       hexRoot(deposit),
+		"builder-domain":       hexRoot(builder),
 	}
 	if n.GVRKnown() {
 		f["genesis-validators-root"] = hexRoot(n.GenesisValidatorsRoot)
