@@ -10,8 +10,11 @@ Consensys.
 
 ## Status
 
-Pre-release. This tree holds the project bootstrap: licence and provenance files, CI, and a `remotesigner` binary
-that only reports its version. The signing API, slashing protection and key loading follow in later milestones.
+Pre-release. This tree holds the project bootstrap (licence and provenance files, CI, and a `remotesigner` binary
+that only reports its version) and the HTTP contract with the qrysm validator client:
+[`docs/contract.md`](docs/contract.md) and [`api/openapi/consensus.yaml`](api/openapi/consensus.yaml), with the
+protocol facts it relies on in [`docs/spec/`](docs/spec/README.md). The signing API, slashing protection and key
+loading follow in later milestones.
 
 ## Building
 
@@ -21,6 +24,7 @@ Go 1.26.5 or later is required (the module's toolchain line selects go1.26.9).
 make build             # bin/remotesigner, the default flavour
 make build-consensus   # bin/remotesigner-consensus, consensus only (-tags noexecution)
 make test              # go test -race, both flavours
+make contract          # OpenAPI lint, example validation, docs/contract.md consistency
 make lint              # go vet, golangci-lint, headercheck, LICENSE hash
 ```
 

@@ -19,6 +19,13 @@ CI when a header does not match its class (see "Header classes").
 Web3Signer files carry the notice `Copyright <year> ConsenSys AG.` (2018-2026). Every go-remotesigner file
 translated or adapted from a Web3Signer file keeps that line verbatim and adds a modification notice.
 
+Web3Signer's OpenAPI files (`openapi-specs/**`) carry no per-file notice; their only licence statement is the
+Apache-2.0 block in `info.license`. `api/openapi/consensus.yaml`, which adapts them, keeps that block and names
+ConsenSys AG, the upstream project's copyright holder, in a `Copyright 2020 ConsenSys AG.` header line (2020 is the
+year on the notices of Web3Signer's eth2 signing, public-key and upcheck handlers, which serve these paths), so that
+the attribution survives and `headercheck` can check the file as `w3s-derived`. Its signing schemas also follow
+`ethereum/remote-signing-api` v1.4.0 (CC0-1.0), which Web3Signer's signing schemas reproduce.
+
 ## QRL code
 
 No GPL code from qrysm (`github.com/theQRL/qrysm`, GPL-3.0) is copied into or imported by this module. `depguard`
@@ -96,6 +103,11 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 |---|---|---|---|---|
 | `.github/workflows/ci.yml` | new | | | |
 | `.golangci.yml` | new | | | |
+| `api/openapi/consensus.yaml` | w3s-derived | `Consensys/web3signer` | `openapi-specs/eth2/web3signer.yaml`<br>`openapi-specs/eth2/signing/schemas.yaml`<br>`openapi-specs/eth2/signing/paths/sign.yaml`<br>`openapi-specs/eth2/signing/paths/public_keys.yaml`<br>`openapi-specs/eth2/signing/paths/high_watermark.yaml`<br>`openapi-specs/eth2/signing/paths/upcheck.yaml`<br>`openapi-specs/eth2/signing/paths/healthcheck.yaml`<br>`openapi-specs/eth2/signing/paths/reload.yaml`<br>`openapi-specs/eth2/keymanager/schemas.yaml`<br>`openapi-specs/eth2/keymanager/paths/keystores.yaml` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `api/openapi/docs_test.go` | new | | | |
+| `api/openapi/encoding_test.go` | new | | | |
+| `api/openapi/examples_test.go` | new | | | |
+| `api/openapi/spec_test.go` | new | | | |
 | `cmd/remotesigner/flavour_consensus.go` | new | | | |
 | `cmd/remotesigner/flavour_full.go` | new | | | |
 | `cmd/remotesigner/main.go` | new | | | |

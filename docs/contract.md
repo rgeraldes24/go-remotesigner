@@ -1,0 +1,667 @@
+# Consensus HTTP contract, version 1.0.0
+
+This is the contract between the qrysm validator client (VC), through its `remote-web3signer` keymanager, and
+go-remotesigner (binary `remotesigner`, subcommand `consensus`). The machine-readable form is
+[`api/openapi/consensus.yaml`](../api/openapi/consensus.yaml) (OpenAPI 3.0.3). This page is the prose form: the
+rules a schema cannot express, the error catalogue, the RANDAO frontier rule, the capabilities handshake and the
+metric label values the qrysm end-to-end test reads.
+
+The two files are checked against each other by the contract tests in `api/openapi/` (`make contract`): the
+endpoint table and the error catalogue below are parsed and compared with the spec, every example in the spec is
+validated against its schema, and the strict encoding rules are pinned as test tables.
+
+Background facts the contract relies on are written down, with their sources, in [`docs/spec/`](spec/README.md):
+SSZ containers and sizes, signing roots and domains, the RANDAO hash onion, and the network configuration.
+
+## Contents
+
+1. [Status and ownership](#1-status-and-ownership)
+2. [Transport](#2-transport)
+3. [Identifiers](#3-identifiers)
+4. [Encoding rules](#4-encoding-rules)
+5. [Endpoints](#5-endpoints)
+6. [Authentication and scopes](#6-authentication-and-scopes)
+7. [Request envelope and validation pipeline](#7-request-envelope-and-validation-pipeline)
+8. [Artifact types](#8-artifact-types)
+9. [Signing context and signature format](#9-signing-context-and-signature-format)
+10. [Responses and content negotiation](#10-responses-and-content-negotiation)
+11. [Errors](#11-errors)
+12. [Wall-clock bounds](#12-wall-clock-bounds)
+13. [Size limits and timeouts](#13-size-limits-and-timeouts)
+14. [RANDAO reveal](#14-randao-reveal)
+15. [Selection proofs and signing modes](#15-selection-proofs-and-signing-modes)
+16. [Capabilities and `api_version`](#16-capabilities-and-api_version)
+17. [Supporting endpoints](#17-supporting-endpoints)
+18. [Metric label values](#18-metric-label-values)
+19. [How the qrysm client maps its requests](#19-how-the-qrysm-client-maps-its-requests)
+20. [Versioning and change control](#20-versioning-and-change-control)
+21. [Deviations from Web3Signer](#21-deviations-from-web3signer)
+22. [Worked examples](#22-worked-examples)
+
+## 1. Status and ownership
+
+- `info.version` is `1.0.0`, and the contract is frozen at that version once the qrysm side has co-reviewed it.
+  From then on any change follows [section 20](#20-versioning-and-change-control).
+- The contract lives in this repository. qrysm vendors the generated golden vectors (CC0 data under
+  `testdata/vectors/`, from milestone S3) in its own tests; it never copies code from here, and this repository
+  never copies code from qrysm.
+- Until S3, the examples in the spec are schema-valid but are not golden vectors: public keys and signatures are
+  fixed byte patterns and the signing roots are not recomputed from the objects. The RANDAO example is real (interop
+  key 0, [`docs/spec/randao-onion.md`](spec/randao-onion.md) vector V4).
+
+## 2. Transport
+
+| Item | Value |
+|---|---|
+| Base path | `/api/v1/consensus/`. The qrysm client hard-codes `/api/v1/consensus/sign/`, and the e2e reads `/api/v1/consensus/publicKeys`. There is no `eth2` alias. |
+| Ops paths | `/upcheck`, `/healthcheck`, `/reload` on the API listener; `/metrics` on the separate metrics listener |
+| Subcommand | `remotesigner [global flags] consensus [flags]` |
+| Default listeners | API `127.0.0.1:9000`; metrics `127.0.0.1:9001`, only with `--metrics-enabled` |
+| HTTP | HTTP/1.1, plus h2 over TLS. `MaxHeaderBytes` 64 KiB, because a request line with a canonical identifier is about 5,225 bytes. |
+| Flags the qrysm e2e passes verbatim | global `--key-store-path` (alias of `--key-config-path`), `--data-path`, `--http-listen-port`, `--logging`, `--metrics-enabled`, `--metrics-port`; `consensus` `--network`, `--network-genesis-time` |
+
+## 3. Identifiers
+
+The `{identifier}` path segment names a loaded key in one of two forms, told apart by length:
+
+| Form | Grammar | Use |
+|---|---|---|
+| Canonical | `0x` + 5,184 hex characters: the raw 2,592-byte ML-DSA-87 public key. Either case on input; normalised to lowercase. | What the qrysm client sends (`hexutil.Encode(pubkey)`). `publicKeys` returns this form. |
+| Short alias | `0x` + 64 hex characters: `sha256(pubkey)` | Operators, curl, logs, proxies with 4-8 KB request-line limits |
+
+- Length and character set are checked **before** any decoding. Any other length, a missing `0x` or a non-hex
+  character returns 400 `BAD_IDENTIFIER`.
+- Lookup is by `sha256(pubkey)` in both cases.
+- Logs print `0x` + the first 10 hex characters of the key + `…` + the first 8 hex characters of its sha256.
+- The qrysm client keeps sending the canonical form in v1.
+
+## 4. Encoding rules
+
+Both ends are new code, so every request and response body is strict JSON:
+
+| Kind | Rule | On violation |
+|---|---|---|
+| uint64 (slot, epoch, index, gas_limit, timestamp, …) | Decimal string from `"0"` to `"18446744073709551615"`. No sign, no leading zeros except `"0"`, not empty. | JSON number or out of range → 400 `BAD_FIELD` |
+| Fixed-size bytes (Bytes4, Bytes32, pubkey 2,592, signature 4,627) | `0x` + hex of the exact length. Either case on input; lowercase on output. | 400 `BAD_FIELD` |
+| `Attestation.aggregation_bits` (SSZ `Bitlist[32]`) | `0x` + the SSZ bytes **including the delimiter bit**: 1-5 bytes, last byte non-zero, bit length ≤ 32 (a 5-byte value therefore ends in `01`) | 400 `BAD_FIELD` |
+| `SyncCommitteeContribution.aggregation_bits` (SSZ `Bitvector`) | `0x` + exactly `SYNC_COMMITTEE_SIZE / SYNC_COMMITTEE_SUBNET_COUNT / 8` bytes for the configured preset: **2 on minimal** (the qrysm e2e), 16 on mainnet | 400 `BAD_FIELD` |
+| Signature lists | Key `signatures`: a JSON array of signatures. Attestation 0-32 entries, contribution 1-128. `len(signatures) == popcount(aggregation_bits)`. A singular `signature` key is an unknown field. | 400 `INVARIANT_VIOLATION` / `UNKNOWN_FIELD` |
+| 64-byte address (`fee_recipient`) | `Q` + 128 hex, either case after the `Q`. The QIP-55 checksum is **not** enforced, matching go-qrl's own JSON decoder. | `0x` or any other prefix → 400 `BAD_FIELD` |
+| `type` | Upper-case enum, exact match | 400 `UNKNOWN_TYPE` |
+| Signing root key | `signing_root` is canonical. `signingRoot` (the remote-signing-api spelling) is accepted as an alias. Both present → 400. | 400 `MALFORMED_JSON` |
+| Unknown JSON fields | Rejected at every level | 400 `UNKNOWN_FIELD` |
+| Duplicate JSON keys | Rejected (a pre-scan in the decoder) | 400 `MALFORMED_JSON` |
+
+The schema enforces every rule above except duplicate keys, the popcount invariant and the preset's bitvector
+length, which only the server can check. Responses follow the same rules, so an added response field is a breaking
+change too ([section 20](#20-versioning-and-change-control)).
+
+## 5. Endpoints
+
+<!-- contract:endpoints:begin -->
+| Endpoint | Scope | 2xx | Errors |
+|---|---|---|---|
+| `POST /api/v1/consensus/sign/{identifier}` | sign | 200 | 400, 401, 403, 404, 412, 413, 415, 500, 503 |
+| `POST /api/v1/consensus/randao_reveal/{identifier}` | sign | 200 | 400, 401, 403, 404, 412, 413, 415, 422, 429, 500, 503 |
+| `DELETE /api/v1/consensus/randao_state/{identifier}` | admin | 200 | 400, 401, 403, 404, 500 |
+| `GET /api/v1/consensus/publicKeys` | sign | 200 | 401, 503 |
+| `GET /api/v1/consensus/capabilities` | sign | 200 | 401, 503 |
+| `GET /api/v1/consensus/highWatermark` | sign | 200 | 401, 404 |
+| `GET /upcheck` | none | 200 | 503 |
+| `GET /healthcheck` | none, sign | 200 | 503 |
+| `GET /reload` | sign | 200 | 401 |
+| `POST /reload` | admin | 202 | 401, 403, 409 |
+| `GET /qrl/v1/keystores` | admin | 200 | 401, 403 |
+| `POST /qrl/v1/keystores` | admin | 200 | 400, 401, 403, 413, 415 |
+| `DELETE /qrl/v1/keystores` | admin | 200 | 400, 401, 403, 413, 415 |
+<!-- contract:endpoints:end -->
+
+Response bodies:
+
+| Endpoint | 2xx body |
+|---|---|
+| `POST …/sign/{identifier}` | `{"signature":"0x<9254 hex>"}` ([section 10](#10-responses-and-content-negotiation)) |
+| `POST …/randao_reveal/{identifier}` | `{"randao_reveal":"0x<64 hex>"}` |
+| `DELETE …/randao_state/{identifier}` | `{"code":200,"message":"randao state cleared"}`, also when no state existed. 404 when the key is unknown (`UNKNOWN_KEY`) or protection is disabled (`PROTECTION_DISABLED`). |
+| `GET …/publicKeys` | `["0x<5184 hex>", …]`, sorted, streamed, gzip when asked |
+| `GET …/capabilities` | [section 16](#16-capabilities-and-api_version) |
+| `GET …/highWatermark` | `{"epoch":"…","slot":"…"}`, or `{}` when none is set; 404 `PROTECTION_DISABLED` when protection is off |
+| `GET /upcheck` | `text/plain` `OK`; **503 `LOADING` until the first key load and store open finish** |
+| `GET /healthcheck` | 200/503, Web3Signer JSON shape ([section 17](#17-supporting-endpoints)) |
+| `GET /reload` | `{"status":"idle\|running\|completed\|completed_with_errors\|failed","lastOperationTime"?,"lastError"?}` |
+| `POST /reload` | 202 `{"code":202,"message":"reload started"}`; 409 `RELOAD_IN_PROGRESS` while one runs |
+| `/qrl/v1/keystores` | the keymanager API subset ([section 17](#17-supporting-endpoints)) |
+
+- The keymanager routes exist only with `--key-manager-api-enabled`. The path matches the qrysm VC's own keymanager
+  API.
+- Admin routes (`POST /reload`, `DELETE …/randao_state/…`, the keymanager) are registered only when an admin token
+  file is configured or generated.
+- `GET /metrics` is served by the metrics listener (only with `--metrics-enabled`), behind its own host allowlist. It
+  is not part of the OpenAPI document; its label values are in [section 18](#18-metric-label-values).
+
+## 6. Authentication and scopes
+
+- Bearer tokens: `Authorization: Bearer <0x + at least 64 hex>`, compared in constant time. Two scopes, each with
+  its own token file, generated 0600 when missing and re-read on SIGHUP:
+  - `sign` (`--http-auth-token-file`, default `<data-path>/auth-token`): the duty routes, `publicKeys`,
+    `capabilities`, `highWatermark`, `GET /reload` and the healthcheck detail;
+  - `admin` (`--http-admin-token-file`, default `<data-path>/admin-token`): `POST /reload`,
+    `DELETE …/randao_state/…` and the keymanager.
+- `admin` does not imply `sign`, and `sign` does not imply `admin`. A sign token on an admin route gets 403
+  `FORBIDDEN_SCOPE`; an admin token on a sign route gets 401 `UNAUTHENTICATED`.
+- A client certificate (optional mTLS) grants the `sign` scope only, never `admin`. Admin routes always need the
+  admin bearer token, whatever `--http-auth-mode` says.
+
+| `--http-auth-mode` | Sign scope | Admin scope |
+|---|---|---|
+| `token` (default) | sign token | admin token |
+| `mtls` | client certificate | admin token, over the mTLS connection |
+| `token+mtls` | client certificate **and** sign token | client certificate **and** admin token |
+| `none` (loopback listeners only) | open | admin token |
+
+Before authentication the server refuses any request carrying an `Origin` header (403 `ORIGIN_NOT_ALLOWED`) and any
+`Host` outside the host allowlist (403 `HOST_NOT_ALLOWED`). The qrysm e2e reads the generated
+`<data-path>/auth-token` and passes it to the VC, so authentication is exercised from the first e2e run.
+
+## 7. Request envelope and validation pipeline
+
+Every sign request except `VALIDATOR_REGISTRATION` has this envelope:
+
+```json
+{
+  "type": "<ARTIFACT_TYPE>",
+  "fork_info": {
+    "fork": { "previous_version": "0x000000fd", "current_version": "0x000000fd", "epoch": "0" },
+    "genesis_validators_root": "0x<64 hex>"
+  },
+  "signing_root": "0x<64 hex>",
+  "<payload key>": { }
+}
+```
+
+- `fork_info` is **required**: 400 `MISSING_FORK_INFO` if absent.
+- `fork_info.fork.previous_version` and `current_version` must both equal the network's `GENESIS_FORK_VERSION`, and
+  `epoch` must be `"0"`: qrysm has a single fork, so its `MapForkInfo` always sends exactly this. Otherwise 400
+  `FORK_INFO_MISMATCH`.
+- `fork_info.genesis_validators_root` must equal the bound GVR (or set the trust-on-first-use pin, see
+  [`docs/spec/network-config.md`](spec/network-config.md)), else 400 `FORK_INFO_MISMATCH`.
+- `signing_root` is optional. The qrysm client always sends it. If present and different from the recomputed root:
+  400 `SIGNING_ROOT_MISMATCH`.
+- The signer computes every domain from **its own** network configuration. The fork-selection rule
+  (`previous_version` if `epoch < fork.epoch`) runs over the configured schedule, never over client data. The
+  client's 32-byte `signature_domain` is not sent.
+
+Server pipeline, in order:
+
+1. Access log, host allowlist (403), `Origin` refusal (403), authentication (401/403), content type
+   `application/json` (415), body limit (413).
+2. Identifier precheck (400). Strict decode (400).
+3. Type allowlist and policy: 403 `ARTIFACT_TYPE_DISABLED`, for example exits while disabled.
+4. Semantic invariants: popcount, list bounds, `source.epoch ≤ target.epoch`, `subcommittee_index` range,
+   registration `pubkey` equal to the identified key (400).
+5. Recompute the object root, domain and signing root; compare with `signing_root` (400).
+6. Network check of `fork_info` (400).
+7. Wall-clock bound (412 `CLOCK_BOUND`, [section 12](#12-wall-clock-bounds)).
+8. Key lookup (404). A quarantined key returns 503 `KEY_QUARANTINED`.
+9. Response-cache lookup (repeats of the same request, [section 15](#15-selection-proofs-and-signing-modes)).
+10. Slashing check-and-record for `BLOCK_V2` and `ATTESTATION`, in one store transaction under the per-validator lock
+    (412).
+11. Sign under the per-key mutex, deterministic or hedged by type.
+12. Verify before release. On failure: 500 `SIGNATURE_FAULT`, and the key is quarantined.
+13. Respond.
+
+A refused request never reaches step 11: nothing is signed before every check has passed and the slashing record is
+committed.
+
+## 8. Artifact types
+
+General rules (details and anchors in [`docs/spec/signing-roots.md`](spec/signing-roots.md) and
+[`docs/spec/ssz-containers.md`](spec/ssz-containers.md)):
+
+- `epoch(s) = s / SLOTS_PER_EPOCH` (128 on mainnet, 8 on minimal, 6 on end-to-end).
+- `domain(t, e) = t ‖ HTR(ForkData{v(e), GVR})[0:28]`, with `v(e) = previous_version if e < fork.epoch else
+  current_version`.
+- `signing_root = HTR(SigningData{object_root, domain}) = sha256(object_root ‖ domain)`.
+
+| Type | Payload key | Object hashed | Domain | Epoch for the fork version | Protected by | Clock bound | Mode | qrysm oneof |
+|---|---|---|---|---|---|---|---|---|
+| `BLOCK_V2` | `beacon_block` (`version: "ZOND"`, `block_header`) | `BeaconBlockHeader` | `0x00000000` | `epoch(slot)` | block rule on `slot` | `slot ≤ now_slot + skew` | hedged | 110, 111 |
+| `ATTESTATION` | `attestation` | `AttestationData` | `0x01000000` | `target.epoch` | attestation rules on `(source.epoch, target.epoch)` | `target.epoch ≤ now_epoch + 1` | hedged | 101 |
+| `AGGREGATION_SLOT` | `aggregation_slot` | `uint64 slot` | `0x05000000` | `epoch(slot)` | — | `slot ≤ now_slot + skew` | deterministic | 104 |
+| `AGGREGATE_AND_PROOF` | `aggregate_and_proof` | `AggregateAttestationAndProof` | `0x06000000` | `epoch(aggregate.data.slot)` | — | `aggregate.data.slot ≤ now_slot + skew` | hedged | 102 |
+| `VOLUNTARY_EXIT` | `voluntary_exit` | `VoluntaryExit` | `0x04000000` | `exit.epoch` (no EIP-7044 pin) | off unless `--voluntary-exit-signing-enabled` (else 403 `ARTIFACT_TYPE_DISABLED`) | `epoch ≤ now_epoch + 1` | hedged | 103 |
+| `SYNC_COMMITTEE_MESSAGE` | `sync_committee_message` | `Bytes32 beacon_block_root` | `0x07000000` | `epoch(slot)` | — | `slot ≤ now_slot + skew` | hedged | 108 |
+| `SYNC_COMMITTEE_SELECTION_PROOF` | `sync_aggregator_selection_data` | `SyncAggregatorSelectionData` | `0x08000000` | `epoch(slot)` | — | `slot ≤ now_slot + skew` | deterministic | 106 |
+| `SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF` | `contribution_and_proof` | `ContributionAndProof` | `0x09000000` | `epoch(contribution.slot)` | — | `contribution.slot ≤ now_slot + skew` | hedged | 107 |
+| `VALIDATOR_REGISTRATION` | `validator_registration` (no `fork_info`) | `ValidatorRegistrationV1` | `0x00000001` | none: `GENESIS_FORK_VERSION` and a zero GVR | optional fee-recipient pin (`--registration-fee-recipient-file`) | `timestamp ≤ now + SECONDS_PER_SLOT` | hedged | 109 |
+
+Per-type notes:
+
+- **`BLOCK_V2`.** Only the header is sent. `HTR(header) == HTR(BeaconBlockZond) == HTR(BlindedBeaconBlockZond)` for
+  the same block, so one shape covers both oneofs. `version` must be `"ZOND"`; a full `block` object is an unknown
+  field.
+- **`ATTESTATION`.** The proto field `committee_index` is `index` on the wire.
+- **`AGGREGATION_SLOT`.** The object is the slot as an SSZ `uint64` (8 bytes little-endian, right-padded to 32). The
+  qrysm VC signs it only for its current duty slot, so no honest request is ahead of the current slot.
+- **`AGGREGATE_AND_PROOF`.** SSZ order is `aggregator_index, aggregate, selection_proof`. Only this bare shape is
+  accepted; the remote-signing-api `AGGREGATE_AND_PROOF_V2` wrapper (`{version, data}`) is not. Bodies reach about
+  306 KB.
+- **`VOLUNTARY_EXIT`.** Plain `get_domain(fork, exit.epoch)`; Web3Signer's EIP-7044 exit domain is not used. The
+  qrysm e2e signs its exits with local interop keys, so it needs no exit flag.
+- **`SYNC_COMMITTEE_MESSAGE`.** The signed object is the 32-byte root itself. The qrysm oneof carries only the root,
+  so the client sets `slot` to its signing slot.
+- **`SYNC_COMMITTEE_SELECTION_PROOF`.** `subcommittee_index < SYNC_COMMITTEE_SUBNET_COUNT`, which is 1 today, so it is
+  always `"0"`.
+- **`SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF`.** SSZ order of `ContributionAndProof` is `aggregator_index,
+  contribution, selection_proof`, independent of JSON key order. The proto field `block_root` is `beacon_block_root`
+  on the wire. Bodies reach about 1.2 MB.
+- **`VALIDATOR_REGISTRATION`.** A `fork_info` key is an unknown field. `pubkey` must equal the identified key (400
+  `PUBKEY_MISMATCH`). With `--registration-fee-recipient-file`, a `fee_recipient` different from the key's pinned
+  address is refused.
+- **Not accepted.** The legacy `epoch` oneof (105) and any `RANDAO_REVEAL` signing type: RANDAO is a hash-onion
+  pre-image, served by [its own endpoint](#14-randao-reveal). `DEPOSIT` is not in v1.
+
+## 9. Signing context and signature format
+
+- Every signature is ML-DSA-87 through the go-qrllib **wallet** API, which applies the FIPS 204 context
+  `"ZOND" ‖ 0x01 ‖ descriptor`: the bytes `5a 4f 4e 44 01 01 00 00` for descriptor `0x010000`. A signature made
+  through the raw `crypto/ml_dsa_87` API with an empty context is rejected by qrysm.
+- The message is the 32-byte signing root, unhashed.
+- A signature is 4,627 bytes, written as `0x` + 9,254 hex characters.
+
+## 10. Responses and content negotiation
+
+- Sign success: `200 application/json; charset=utf-8` `{"signature":"0x<9254 hex>"}` (9,272 bytes).
+- `text/plain` (`0x<9254 hex>`) is returned only when `Accept` lists `text/plain` and not `application/json`. The
+  qrysm client sends `Accept: application/json` and decodes only JSON.
+- RANDAO, capabilities and error responses are always JSON.
+- `GET …/publicKeys` is gzip-encoded when the client sends `Accept-Encoding: gzip` (21 MB at 4,096 keys).
+
+## 11. Errors
+
+Every 4xx and 5xx body has this shape (the Web3Signer error shape plus a machine-readable `reason`):
+
+```json
+{ "code": 412, "message": "slashing protection refused the request", "reason": "SLASHING_DOUBLE_VOTE" }
+```
+
+`code` is the HTTP status. `message` is a fixed string with no internal paths or exception text. `reason` is one of
+the values below; each has exactly one status code. 401 responses carry `WWW-Authenticate: Bearer`, and 429 and 503
+responses carry `Retry-After` where a retry makes sense.
+
+<!-- contract:reasons:begin -->
+| Reason | Status | When | qrysm client |
+|---|---|---|---|
+| `BAD_IDENTIFIER` | 400 | The identifier has the wrong length, no `0x` prefix or a non-hex character | error, logged once with the reason |
+| `MALFORMED_JSON` | 400 | The body is not JSON, has duplicate keys, or carries both `signing_root` and `signingRoot` | error, logged once with the reason |
+| `UNKNOWN_FIELD` | 400 | A field the schema does not define, at any level (including a singular `signature`, or `fork_info` on a registration) | error, logged once with the reason |
+| `BAD_FIELD` | 400 | A field has the wrong JSON type, length, prefix or range (for example a JSON number for a uint64) | error, logged once with the reason |
+| `UNKNOWN_TYPE` | 400 | `type` is not one of the nine artifact types, compared case-sensitively | error, logged once with the reason |
+| `MISSING_FORK_INFO` | 400 | A type other than `VALIDATOR_REGISTRATION` arrived without `fork_info` | error, logged once with the reason |
+| `FORK_INFO_MISMATCH` | 400 | `fork_info` versions, epoch or GVR differ from the signer's network | error, logged once with the reason |
+| `SIGNING_ROOT_MISMATCH` | 400 | The supplied `signing_root` differs from the root the signer recomputed | error, logged once with the reason |
+| `INVARIANT_VIOLATION` | 400 | A semantic check failed: popcount, list bounds, `source.epoch > target.epoch`, `subcommittee_index` range | error, logged once with the reason |
+| `PUBKEY_MISMATCH` | 400 | A registration's `pubkey` is not the key named by the identifier | error, logged once with the reason |
+| `UNAUTHENTICATED` | 401 | Missing or wrong bearer token or client certificate, including an admin token on a sign route | "remote signer rejected credentials" |
+| `FORBIDDEN_SCOPE` | 403 | The credentials do not grant the route's scope (a sign token or a client certificate on an admin route) | error |
+| `HOST_NOT_ALLOWED` | 403 | The `Host` header is not in the host allowlist | error |
+| `ORIGIN_NOT_ALLOWED` | 403 | The request carries an `Origin` header | error |
+| `ARTIFACT_TYPE_DISABLED` | 403 | The type is disabled by policy (exits without `--voluntary-exit-signing-enabled`) | error |
+| `UNKNOWN_KEY` | 404 | No loaded key matches the identifier | "public key not found" |
+| `PROTECTION_DISABLED` | 404 | `highWatermark` or a RANDAO state reset was requested while slashing protection is disabled | error |
+| `RELOAD_IN_PROGRESS` | 409 | `POST /reload` while a reload is running | not called by the client |
+| `SLASHING_DOUBLE_PROPOSAL` | 412 | A different block for an already signed slot | slashing-protection error, logged at WARN |
+| `SLASHING_DOUBLE_VOTE` | 412 | A different attestation for an already signed target epoch | slashing-protection error, logged at WARN |
+| `SLASHING_SURROUNDING_VOTE` | 412 | The attestation surrounds a signed one | slashing-protection error, logged at WARN |
+| `SLASHING_SURROUNDED_VOTE` | 412 | The attestation is surrounded by a signed one | slashing-protection error, logged at WARN |
+| `SLASHING_BELOW_WATERMARK` | 412 | The slot or epochs are at or below the key's low watermark | slashing-protection error, logged at WARN |
+| `SLASHING_ABOVE_HIGH_WATERMARK` | 412 | The slot or epoch is at or above the configured high watermark | slashing-protection error, logged at WARN |
+| `VALIDATOR_DISABLED` | 412 | The key is disabled in slashing protection | slashing-protection error, logged at WARN |
+| `CLOCK_BOUND` | 412 | The request is outside its wall-clock bound ([section 12](#12-wall-clock-bounds)) | slashing-protection error, logged at WARN |
+| `RANDAO_SLOT_NOT_INCREASING` | 412 | A frontier-moving reveal for a slot not after the last one | slashing-protection error, logged at WARN |
+| `RANDAO_SLOT_OUT_OF_WINDOW` | 412 | A frontier-moving reveal outside `[now_slot - 1, now_slot + skew]`, or genesis time unknown | slashing-protection error, logged at WARN |
+| `RANDAO_NEW_LAYER_RATE_LIMITED` | 412 | The key's new-layer token bucket is empty | logged at WARN |
+| `BODY_TOO_LARGE` | 413 | The body exceeds the route's limit ([section 13](#13-size-limits-and-timeouts)) | error |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | A POST without `Content-Type: application/json` | error |
+| `RANDAO_UNKNOWN_COMMITMENT` | 422 | The commitment is not in this key's onion (within `--randao-max-layers`) | descriptive error |
+| `RANDAO_ONION_EXHAUSTED` | 422 | The commitment is `x_0`; no deeper layer exists | descriptive error |
+| `RANDAO_UNSUPPORTED_FOR_KEY` | 422 | The key holds no 48-byte seed (a future KMS key) | `keymanager.ErrRandaoRevealUnsupported` |
+| `RANDAO_SCAN_RATE_LIMITED` | 429 | The key's slow-path scan budget is used up; retry after `Retry-After` | one retry after `Retry-After`, inside the slot |
+| `INTERNAL` | 500 | Unexpected server fault | error |
+| `SIGNATURE_FAULT` | 500 | Verify-before-release failed; the bytes were discarded and the key quarantined | error |
+| `STORE_UNAVAILABLE` | 500 | The slashing-protection store could not complete the transaction in time | error |
+| `NOT_READY` | 503 | Keys or the store are still loading | error; retry is the VC's duty logic |
+| `OVERLOADED` | 503 | The signing queue is full | error; retry is the VC's duty logic |
+| `KEY_QUARANTINED` | 503 | The key is quarantined after a signature fault, until the next reload | error |
+<!-- contract:reasons:end -->
+
+A RANDAO reveal is never released without a committed state write, and no 5xx response carries partial results.
+The qrysm client logs 412 refusals at WARN, never ERROR.
+
+## 12. Wall-clock bounds
+
+- `now_slot = (unix_now - genesis_time) / SECONDS_PER_SLOT`, `now_epoch = now_slot / SLOTS_PER_EPOCH`, and
+  `skew = --signing-clock-skew-slots` (default 1). Each type's bound is in [section 8](#8-artifact-types). A
+  violation returns 412 `CLOCK_BOUND`, logged at WARN. The bounds stop far-future requests from poisoning the
+  slashing database, which would freeze a validator permanently.
+- Genesis time comes from the named network, `--network-genesis-time` or `--network-genesis-state`
+  ([`docs/spec/network-config.md`](spec/network-config.md)). When sources disagree, the signer refuses to start.
+- When genesis time is unknown, signing bounds are off, with a startup WARN; on a non-loopback listener the signer
+  then refuses to start unless `--Xallow-unknown-genesis-time` is set.
+- New RANDAO layers always require genesis time ([section 14](#14-randao-reveal)).
+- A wrong genesis time silently shifts every bound, so the VC compares the signer's `genesis_time`,
+  `seconds_per_slot` and `slots_per_epoch` with its own chain at startup ([section 16](#16-capabilities-and-api_version)).
+
+## 13. Size limits and timeouts
+
+| Item | Limit |
+|---|---|
+| `POST …/sign` body | 2 MiB (the largest valid body is 1,195,027 bytes: a 128-signature contribution) |
+| `POST …/randao_reveal` body | 4 KiB |
+| `/qrl/v1/keystores` body | 32 MiB |
+| `/reload` and GET bodies | 4 KiB |
+| `MaxHeaderBytes` | 64 KiB |
+| `ReadHeaderTimeout` / `ReadTimeout` / `WriteTimeout` | 5 s / max(5 s, slot/4) / max(5 s, slot/3); `publicKeys` 120 s and the keymanager 10 min |
+| `IdleTimeout` | 120 s, above the Go client's 90 s `IdleConnTimeout` |
+| Signing concurrency | 32 in flight, queue 512, then 503 `OVERLOADED` |
+| Large-body reads in flight | 8. A request is large when `Content-Length > 64 KiB` or the length is unknown (chunked, or h2 without `content-length`), or once 64 KiB of its body have been read. |
+| Open connections | `--http-max-connections` 1024 |
+| RANDAO reveal concurrency | `max(1, GOMAXPROCS/2)` |
+
+## 14. RANDAO reveal
+
+### 14.1 Why a dedicated endpoint
+
+On the target stack RANDAO is a hash onion, not a signature ([`docs/spec/randao-onion.md`](spec/randao-onion.md)):
+`x_0 = SHA-256("qrl-randao-onion-v1" ‖ seed48)`, `x_{j+1} = SHA-256(x_j)`, commitment `x_L` with `L = 2^20` by
+default. A proposal reveals the pre-image of the validator's current commitment, which then rotates to that
+pre-image. The signer holds the 48-byte seed, the same secret it signs with; a key without one returns 422
+`RANDAO_UNSUPPORTED_FOR_KEY`. The value is not a signature, qrysm's client parses every `/sign` response as one,
+and a reveal needs "check, persist, then release", so it has its own route.
+
+### 14.2 Request and response
+
+```
+POST /api/v1/consensus/randao_reveal/{identifier}
+Content-Type: application/json
+Authorization: Bearer <sign token>
+
+{ "slot": "123456",
+  "randao_commitment": "0x<64 hex>",
+  "fork_info": { "fork": {…}, "genesis_validators_root": "0x<64 hex>" } }
+
+200 application/json
+{ "randao_reveal": "0x<64 hex>" }        // SHA-256(randao_reveal) == randao_commitment
+```
+
+- `slot`: the proposal slot. Required.
+- `randao_commitment`: the validator's `randao_commitment` as the VC read it from the beacon node's head state.
+- `fork_info`: required and validated as in [section 7](#7-request-envelope-and-validation-pipeline). The GVR scopes
+  the stored state, because a key reused on two networks has the same onion.
+- The client must check `SHA-256(reveal) == commitment` before it calls `GetBeaconBlock`.
+
+### 14.3 The frontier rule
+
+**Threat.** From the public commitment `x_j`, one call yields `x_{j-1}`, the validator's next RANDAO contribution.
+Feeding it back walks the onion, and nothing can rotate a commitment, so a walked onion stays walked. A malicious
+beacon node behind an honest VC controls both the proposer duties and the commitment the VC reads, so the rule never
+assumes the commitment is current; it bounds what a caller can extract per key and per unit of time.
+
+**State**, per key and per GVR, in the slashing-protection store:
+- `m`: the deepest index released, counted from `x_0`;
+- `R = x_m`: the released value at that index;
+- `last`: the slot of the last release that moved the frontier.
+
+**Window.** `W_s = [now_slot - 1, now_slot + skew]`, with `skew` 1 by default.
+
+**New-layer conditions (N).** Every release that moves the frontier to `x_{j-1}` must satisfy, in this order:
+1. Genesis time is known, and `slot ∈ W_s`. Else 412 `RANDAO_SLOT_OUT_OF_WINDOW`.
+2. `slot > last` (skipped on first use). Else 412 `RANDAO_SLOT_NOT_INCREASING`.
+3. The key's new-layer bucket holds a token. Else 412 `RANDAO_NEW_LAYER_RATE_LIMITED`.
+4. `j ≥ 1`. Else 422 `RANDAO_ONION_EXHAUSTED`.
+5. The validator is enabled. Else 412 `VALIDATOR_DISABLED`.
+
+Then compare-and-set `(m, R, last) → (j-1, x_{j-1}, slot)`, commit (bbolt fsync or Postgres `COMMIT`), take the
+token, and only then respond.
+
+| Request commitment `c = x_j` | Class (metric `result`) | Action | State write |
+|---|---|---|---|
+| No state for this key (first use: after a migration, an import, a reset or a memstore restart) | `first_use` | Slow-path scan from `x_0` (at most `--randao-max-layers` hashes). Not found → 422 `RANDAO_UNKNOWN_COMMITMENT`. Found at `j` → conditions N → release `x_{j-1}`. | `(j-1, x_{j-1}, slot)` |
+| `c = Step^k(R)` with `1 ≤ k ≤ W` (`W = --randao-reorg-window`, default 1024): orphaned block, missed proposal, retry, reorg | `re_reveal` | Release `Step^(k-1)(R)`. Nothing new leaks. | none |
+| `c == R` (exactly one layer deeper) | `new_layer` | Conditions N → release `x_{m-1}` | CAS `m → m-1` |
+| `c = x_j` with `j < m` (deeper than anything this signer released) | `gap_advanced` | Slow-path scan from `x_0` finds `j`. Conditions N, exactly as for a new layer → release `x_{j-1}`. WARN with the short key id, `m` and `j`. | CAS `m → j-1` |
+| `c` more than `W` layers above `R` | `re_reveal` | Slow path: walk forward from `R`. If found, a deep-reorg re-reveal. | none |
+| Not in this onion | (`refused`) | 422 `RANDAO_UNKNOWN_COMMITMENT`, negative-cached | none |
+
+A deeper commitment advances the frontier instead of being refused. Values below `m` were never released by this
+signer, so a caller presenting one has read it on chain or holds a leak; releasing `x_{j-1}` is one new layer under
+the same slot, window and bucket rules, so walking is no faster than through the normal path. This also heals a
+stale first-use frontier (for example one seeded with the public deposit commitment `x_L`) on the next honest
+proposal, and needs no override after a migration, an import or a restored backup.
+
+The window is two-sided because with only `slot > last` and an upper bound, a validator whose last proposal was long
+ago could be walked by submitting slots `last+1, …, now+1`. The lower edge limits a burst to at most `skew + 2`
+layers, then one per real slot. A legitimate proposal is requested inside its own slot, so the window refuses no
+honest request.
+
+**Per-key new-layer bucket.** `--randao-new-layer-burst` tokens (default 3), refilled at one token per
+`--randao-new-layer-refill-epochs` epochs (default 1; `0` turns the bucket off). Charged by `first_use`,
+`new_layer` and `gap_advanced`; re-reveals are free. Kept in memory, keyed by `sha256(pk)`; a restart refills the
+buckets. With Postgres HA each replica has its own bucket, while the one-per-slot rule stays global because `last`
+lives in the shared row. A refusal returns 412 `RANDAO_NEW_LAYER_RATE_LIMITED`, logs a WARN with the short key id,
+and increments the unlabelled counter `consensus_randao_new_layer_rate_limited_total`. Networks with fewer than about
+`4 × SLOTS_PER_EPOCH` active validators must raise the burst or turn the bucket off; the startup log states the
+effective rate.
+
+**Consequences.** Genesis time is required for new layers: without it the endpoint serves only re-reveals and
+returns 412 `RANDAO_SLOT_OUT_OF_WINDOW` for anything that would move the frontier, and `capabilities` reports
+`randao_reveal: false`, so the qrysm VC refuses to start instead of missing proposals.
+
+### 14.4 Persistence, reset and cost
+
+- State is persisted before release: bbolt by default (one process per file), or the Postgres row under an advisory
+  lock with compare-and-set. A lost response turns the retry into an idempotent re-reveal.
+- Never stored: the seed, checkpoints or the precomputed next value, which are future reveals.
+- With slashing protection disabled (loopback only) the same rule runs in memory for the process lifetime, with a
+  WARN; `--randao-protection-required` refuses to start instead.
+- The state is not exported in EIP-3076 in v1; first use on a new signer is safe.
+- Reset, for operational cleanup only: `DELETE /api/v1/consensus/randao_state/{identifier}` with the admin token
+  (online, both backends), or `remotesigner consensus randao-state reset --key <id>` (offline with bbolt). A reset
+  key's next request is a first use, subject to conditions N.
+- No onions are built at startup, and `/upcheck` never waits for them. The first reveal per key per process is a scan
+  from `x_0` (at most 2^20 SHA-256 calls, 0.04-0.26 s); the signer then precomputes `x_{m-1}` in the background. The
+  slow path runs at most once per key per `--randao-full-scan-min-interval` (default `SECONDS_PER_SLOT`), otherwise
+  429 `RANDAO_SCAN_RATE_LIMITED`.
+
+## 15. Selection proofs and signing modes
+
+- Selection proofs are still signed on the target stack, and verified by the beacon node.
+- Deterministic signing (`Wallet.SignDeterministic`) is the default for `AGGREGATION_SLOT` and
+  `SYNC_COMMITTEE_SELECTION_PROOF`, mirroring the qrysm local keymanager; every other type is hedged
+  (`Wallet.Sign`). Verifiers accept either mode. `--selection-proof-signing=hedged` switches selection proofs to
+  hedged signing.
+- Deterministic signing is allowed only with verify-before-release forced on, the per-key mutex and the startup
+  self-test.
+- A bounded response cache (4,096 entries, two epochs, keyed by key, type and signing root) returns the same bytes
+  for a repeated request, so client retries are idempotent.
+
+## 16. Capabilities and `api_version`
+
+`GET /api/v1/consensus/capabilities` (sign scope) is the VC's startup handshake:
+
+```json
+{ "api_version": "1.0.0",
+  "types": ["BLOCK_V2", "ATTESTATION", "AGGREGATION_SLOT", "AGGREGATE_AND_PROOF", "SYNC_COMMITTEE_MESSAGE",
+            "SYNC_COMMITTEE_SELECTION_PROOF", "SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF", "VALIDATOR_REGISTRATION"],
+  "randao_reveal": true,
+  "selection_proof_mode": "deterministic",
+  "slashing_protection": "bolt",
+  "network": { "config_name": "end-to-end", "genesis_fork_version": "0x000000fd",
+               "genesis_validators_root": "0x…", "genesis_time": "1760000000",
+               "seconds_per_slot": "10", "slots_per_epoch": "6" } }
+```
+
+| Field | Meaning |
+|---|---|
+| `api_version` | The contract version, equal to `info.version` of the spec (`1.0.0`) |
+| `types` | The **enabled** artifact types; a disabled type (exits by default) is absent |
+| `randao_reveal` | `false` when the signer cannot release new layers: genesis time unknown, or `--randao-reveal-enabled=false` |
+| `selection_proof_mode` | `deterministic` or `hedged` |
+| `slashing_protection` | `bolt`, `postgres` or `disabled` |
+| `network.config_name`, `genesis_fork_version` | From the network configuration |
+| `network.genesis_validators_root` | `null` while a trust-on-first-use pin is pending (file networks on loopback only); the client logs a WARN |
+| `network.genesis_time` | `null` when unknown; the client treats `null` as a mismatch |
+| `network.seconds_per_slot`, `slots_per_epoch` | From the network configuration |
+
+The qrysm client calls it once its own chain parameters are known (after `WaitForChainStart`, where it learns the
+GVR) and fails initialisation on any of:
+
+- a `genesis_fork_version` or GVR mismatch;
+- `genesis_time`, `seconds_per_slot` or `slots_per_epoch` different from its own chain, or `genesis_time: null`;
+- `randao_reveal: false`;
+- an `api_version` whose major it does not support.
+
+A misconfiguration is then a startup error instead of missed duties. Golden negative fixtures for each check arrive
+with the vectors (milestone S3).
+
+## 17. Supporting endpoints
+
+- **`publicKeys`**: a streamed, sorted JSON array of canonical keys. The VC calls it once at start when given the URL
+  form (`--validators-external-signer-public-keys=<url>`); every VC using that form validates **all** returned keys,
+  so two VCs must never share it. Use `--validators-external-signer-key-file` per VC instead.
+- **`/upcheck`**: plain `OK` (not JSON), or 503 `LOADING` before the first key load and store open finish.
+- **`/healthcheck`**: the Web3Signer shape `{status, outcome, checks[{id, status, data?}]}` with the check ids
+  `default-check`, `slashing-protection-db-health-check`, `keys-check/config-files-loading`,
+  `keys-check/keystores-bulk-loading` and `keys-check/randao` (degraded when keys cannot reveal or fewer than 1,024
+  layers remain). Unauthenticated callers see only `status` and `outcome`.
+- **`/reload`**: `POST` (admin) starts an asynchronous reload and returns 202, or 409 while one runs; `GET` (sign)
+  reports its status. Keys absent from the new load are evicted from memory only; their slashing-protection `enabled`
+  flag is never changed by a reload. A source that fails to load keeps its previous signers.
+- **`/qrl/v1/keystores`** (admin, only with `--key-manager-api-enabled`): list, import (at most 64 keystores, KDF
+  parameters bounded before decryption, derived public key compared with the keystore's) and delete (persists
+  `enabled=false` and returns an EIP-3076 v5 export that always carries the GVR). Bodies are never logged.
+
+## 18. Metric label values
+
+The qrysm e2e evaluator (`RemoteSignerHealthy`) scrapes the metrics listener, so these names and label values are
+part of the contract. A change needs the evaluator changed in lockstep.
+
+| Metric | Labels and values |
+|---|---|
+| `consensus_randao_reveals_total{result}` | `first_use`, `new_layer`, `gap_advanced`, `re_reveal`, `refused` (any 412, 422 or 429), `error` (500) |
+| `consensus_randao_new_layer_rate_limited_total` | no labels |
+| `consensus_slashingprotection_prevented_signings_total{reason}` | the 412 `SLASHING_*` and `VALIDATOR_DISABLED` reasons, lower-cased (for example `slashing_double_vote`) |
+| `signing_verify_failures_total` | no labels |
+| `signing_requests_total{type,result}` | `type`: the artifact type; `result`: `ok`, `refused`, `bad_request`, `error` |
+| `http_request_duration_seconds{route,code}` | `route`: the route pattern; `code`: the numeric status as a string |
+| `http_connections_open`, `http_connections_limit_reached_total` | no labels |
+
+No metric carries a public key or URL label. The e2e asserts first-use plus new-layer reveals > 0, reveal errors ==
+0, prevented signings == 0, verify failures == 0, new-layer rate limits == 0, and no 5xx.
+
+## 19. How the qrysm client maps its requests
+
+| `SignRequest` oneof (field number) | Contract type | Payload built by the client | Signing slot / fork epoch |
+|---|---|---|---|
+| `block_zond` (110), `blinded_block_zond` (111) | `BLOCK_V2`, `version: "ZOND"` | The block's header (`body_root = HTR(body)`) | slot |
+| `attestation_data` (101) | `ATTESTATION` | `committee_index` → `index` | slot |
+| `aggregate_attestation_and_proof` (102) | `AGGREGATE_AND_PROOF` | `aggregation_bits` = SSZ bitlist bytes; `signatures`; `selection_proof` | slot |
+| `slot` (104) | `AGGREGATION_SLOT` | `{slot}` | slot |
+| `exit` (103) | `VOLUNTARY_EXIT` | `{epoch, validator_index}` | start of `exit.epoch` |
+| `sync_message_block_root` (108) | `SYNC_COMMITTEE_MESSAGE` | `{beacon_block_root, slot}` with `slot` = the signing slot | slot |
+| `sync_aggregator_selection_data` (106) | `SYNC_COMMITTEE_SELECTION_PROOF` | `{slot, subcommittee_index}` | slot |
+| `contribution_and_proof` (107) | `SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF` | `block_root` → `beacon_block_root`; bitvector bytes; `signatures` | slot |
+| `registration` (109) | `VALIDATOR_REGISTRATION` | `fee_recipient` in `Q` form; no `fork_info` | unset |
+| `epoch` (105) | — | error: RANDAO is a hash-onion reveal | — |
+| `RandaoReveal(pubkey, commitment, slot)` | `POST …/randao_reveal/{pubkey}` | `{slot, randao_commitment, fork_info}` | slot |
+
+Every request except the registration carries `fork_info` built for the signing slot, which under qrysm's single
+fork is always `{G, G, "0"}` with `G = GENESIS_FORK_VERSION`, and every request carries `signing_root`.
+
+RANDAO path in the VC: propose for a slot → read the head commitment → `RandaoReveal(pubkey, commitment, slot)` → POST
+→ check `SHA-256(reveal) == commitment` → `GetBeaconBlock`.
+
+## 20. Versioning and change control
+
+- The contract is `1.0.0`. Breaking changes need a new path segment (`/api/v2/consensus/…`).
+- Because both ends decode strictly, **adding** a request or response field is breaking too: it needs a capabilities
+  flag that the client checks, or a version bump.
+- The client checks the `api_version` major from `capabilities`.
+- Every contract change, in the same PR: bumps `info.version` (and `frozenVersion` in the contract tests), updates
+  this page, regenerates the golden vectors (from S3), and lands together with the matching qrysm client and fixture
+  test change.
+- Metric names and label values in [section 18](#18-metric-label-values) change only together with the qrysm e2e
+  evaluator.
+
+## 21. Deviations from Web3Signer
+
+[`DEVIATIONS.md`](../DEVIATIONS.md) is the register of every behaviour that differs from Web3Signer. The rows that
+show on this contract:
+
+| Row | Where in this contract |
+|---|---|
+| X1 (check and record before signing), X3 (verify before release) | [section 7](#7-request-envelope-and-validation-pipeline) |
+| X2 (deterministic selection proofs) | [section 15](#15-selection-proofs-and-signing-modes) |
+| X4 (missing `fork_info` is 400), X5 (`fork_info` validated for every type) | [section 7](#7-request-envelope-and-validation-pipeline) |
+| X6 (authentication and scopes), X7 (content type and `Origin`) | [section 6](#6-authentication-and-scopes) |
+| X9 (per-route body limits), X10 (idle timeout), X32 (connection cap) | [section 13](#13-size-limits-and-timeouts) |
+| X11 (strict JSON) | [section 4](#4-encoding-rules) |
+| X12 (JSON unless `text/plain` is preferred) | [section 10](#10-responses-and-content-negotiation) |
+| X20 (exits off by default), X21 (clock bounds) | [sections 8](#8-artifact-types) and [12](#12-wall-clock-bounds) |
+| X22 (RANDAO reveal endpoint) | [section 14](#14-randao-reveal) |
+| X23 (metric names) | [section 18](#18-metric-label-values) |
+| X24 (no `DEPOSIT`), X27 (no raw-signing endpoints) | [section 8](#8-artifact-types) |
+| X29 (reload never disables keys) | [section 17](#17-supporting-endpoints) |
+
+## 22. Worked examples
+
+The qrysm e2e runs the `end-to-end` network (minimal preset): `GENESIS_FORK_VERSION 0x000000fd`, 10 s slots, 6 slots
+per epoch, 256 validators, 2-byte contribution bitvectors.
+
+```http
+POST /api/v1/consensus/sign/0x<5184 hex> HTTP/1.1
+Host: localhost:9000
+Authorization: Bearer 0x<64 hex>
+Content-Type: application/json
+Accept: application/json
+
+{"type":"SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF",
+ "fork_info":{"fork":{"previous_version":"0x000000fd","current_version":"0x000000fd","epoch":"0"},
+              "genesis_validators_root":"0x<64 hex>"},
+ "signing_root":"0x<64 hex>",
+ "contribution_and_proof":{"aggregator_index":"7","selection_proof":"0x<9254 hex>",
+   "contribution":{"slot":"61","beacon_block_root":"0x<64 hex>","subcommittee_index":"0",
+                   "aggregation_bits":"0x0500","signatures":["0x<9254 hex>","0x<9254 hex>"]}}}
+
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+
+{"signature":"0x<9254 hex>"}
+```
+
+```http
+POST /api/v1/consensus/randao_reveal/0x<5184 hex> HTTP/1.1
+Authorization: Bearer 0x<64 hex>
+Content-Type: application/json
+
+{"slot":"62","randao_commitment":"0x<64 hex>",
+ "fork_info":{"fork":{"previous_version":"0x000000fd","current_version":"0x000000fd","epoch":"0"},
+              "genesis_validators_root":"0x<64 hex>"}}
+
+HTTP/1.1 200 OK
+{"randao_reveal":"0x<64 hex>"}
+```
+
+What follows from that reveal:
+
+- Repeating the same request for slot 62 after a missed proposal returns 200 with the same reveal (a re-reveal).
+- Submitting the returned reveal as the commitment, still in slot 62, returns 412 `RANDAO_SLOT_NOT_INCREASING` (a
+  walking attempt).
+- Submitting it with slot 63 while the wall clock is at slot 62 is allowed: that is the `+1` skew, and it releases
+  one more layer.
+- Submitting it with slot 500 returns 412 `RANDAO_SLOT_OUT_OF_WINDOW`.
+- Submitting a commitment several layers deeper than anything this signer released (for example one an old local VC
+  revealed on chain) with slot 63 releases exactly one layer and logs a WARN (`result="gap_advanced"`). A second such
+  request in slot 63 returns 412 `RANDAO_SLOT_NOT_INCREASING`.
+- A fourth frontier-moving release for the same key within one epoch returns 412 `RANDAO_NEW_LAYER_RATE_LIMITED`
+  (default burst 3).
