@@ -50,3 +50,4 @@ links that section where one exists.
 | X31 | Disabling slashing protection | Allowed anywhere | Allowed only when every listener is loopback, no override | Fix | G4 C3, T26 |
 | X32 | Connection limits | none | `--http-max-connections` 1024; unknown-length bodies count as large | Fix | G4 C6 |
 | X33 | Text log format | log4j pattern | logrus `TextFormatter` | Go-native | CO §7 |
+| X34 | High watermark before the network is pinned | `UPDATE metadata` silently changes nothing when no genesis validators root is stored | Refused with an error (`ErrNoGenesisValidatorsRoot`) | Fix | SP §8, §18.2 |
