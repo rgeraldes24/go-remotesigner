@@ -183,6 +183,8 @@ func TestEveryTypeAccepted(t *testing.T) {
 	}
 }
 
+// S32 (exit gate): VOLUNTARY_EXIT is refused with ARTIFACT_TYPE_DISABLED
+// unless exits are enabled, and unknown types are never enabled.
 func TestTypePolicy(t *testing.T) {
 	exit := sign(&types.VoluntaryExit{Epoch: 1})
 	off := newPolicy(t, Config{})

@@ -89,8 +89,9 @@ func TestLoadFeeRecipientPins(t *testing.T) {
 	}
 }
 
-// S32: a registration whose fee_recipient differs from the key's pin is
-// refused; a matching one and one for an unpinned key pass.
+// Fee-recipient pinning (G4 C13): a registration whose fee_recipient
+// differs from the key's pin is refused; a matching one and one for an
+// unpinned key pass.
 func TestFeeRecipientPin(t *testing.T) {
 	pins, err := ParseFeeRecipientPins([]byte(entry(canonicalID, qAddr(1))))
 	if err != nil {
