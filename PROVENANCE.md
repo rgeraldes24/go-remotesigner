@@ -141,6 +141,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `api/openapi/docs_test.go` | new | | | |
 | `api/openapi/encoding_test.go` | new | | | |
 | `api/openapi/examples_test.go` | new | | | |
+| `api/openapi/golden_test.go` | new | | | |
 | `api/openapi/spec_test.go` | new | | | |
 | `cmd/remotesigner/flavour_consensus.go` | new | | | |
 | `cmd/remotesigner/flavour_full.go` | new | | | |

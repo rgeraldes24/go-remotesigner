@@ -52,11 +52,12 @@ info:
     Signing context: every signature is ML-DSA-87 over the 32-byte signing root via the go-qrllib wallet API,
     with FIPS 204 context "ZOND" || 0x01 || descriptor (5a4f4e4401010000).
 
-    Examples are schema-valid but are not golden vectors: public keys and signatures are fixed byte patterns
-    (0xa5 and 0x5a repeated), and signing roots are placeholders, not recomputed from the objects, except in the
-    AGGREGATION_SLOT example, whose root is the worked example of docs/spec/signing-roots.md section 4. The
-    RANDAO example uses interop key 0's real commitment and first reveal (docs/spec/randao-onion.md, vector V4).
-    Milestone S3 replaces the signing examples with generated golden vectors.
+    The signing examples are golden vectors (testdata/vectors, case spec_example of the minimal preset), computed
+    by qrysm's own code: interop key 0 on the end-to-end network, whose genesis validators root is that of qrysm's
+    256-validator interop genesis. Every signing root is real, and the signature example is key 0's deterministic
+    signature of the AGGREGATION_SLOT example; the other examples reuse its bytes for their selection proofs and
+    participant signatures. The RANDAO example is interop key 0's commitment and first reveal (vector V4). The
+    contract tests check the examples against the vectors.
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
@@ -134,103 +135,103 @@ paths:
               schema:
                 $ref: '#/components/schemas/SignatureResponse'
               example:
-                signature: &signature "0x5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
-                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+                signature: &signature "0xbeca369c010573dae714c6e5d2ab93878fbfd2b503436edfd2d213ef937eda9a1dd0f8650dafa0b591a1718e6066fd8d\
+                  6d8a7770c3b21af11cf8f848bdf384f61e281be32651e9303cb04a329836b32ebd0ae3d9851e8a5ae21f4a8f19c2fe73\
+                  ad804552379744c5942b0ddbe90eb127b24de5db87aacdb2568746b1f3ee7a912838095e15b51c9318df13214cbd4f26\
+                  0ca9edb428010d8c1d2d586d8c3e55e7bc56124bc7eb84661b0cfe44544f3fb219a47d3bc04dc5aaa27ac2d97dead0b0\
+                  5eff98c8b6452b680d42c5d66a2623f4162f94d9a29b874c4f00958fbb8a8e626de706b4298e4b61dab7f810e31292aa\
+                  e39e9f3c6ec833f46c0d134fb56b7321c8ee170e574c054a4e3cf358d1335aeaaea38468aeebcd745d65625f62bdb96d\
+                  a34d8bad906d8e17d23ee21167956c6bbd543238866eed5c8585308de4146300d91434ed3db3008f2b600b6186ded441\
+                  9d3dbdd18651048f005eaca1c7c4e3fc41e71d53a94e1d3a03215590fbfc842dd90182888f172b6fea9bddecc9226d15\
+                  c6a59357a48230b1f03f67868ec81ee542910031a5f13b5a0ed7ae04492a049c09eccb60b9ca92505aa56e0032184741\
+                  7e760c90a10e6888d119a77c88a8aa527da9f346653f6f9b9ba269200e39cba539a982cba8f1fa4e0ee24fff6e63c1f7\
+                  f33bdb2679d6e37ae34193e7f7583a01ca1c8403c1d33aedf98e96cd05d4e0e321f1248702bb8c8d730229a7915bbf3c\
+                  5a5d51c95b2f3e49f9f000eae0d944751a0d0308e255b6fec78265656717c32990b2f9857b6821348982f4ff6e58a324\
+                  9fc38128e605874d229a83f7df96d60506c00530871fc44902821fa5578f147da569b6d01b686b093d2c235173ad45d2\
+                  7dcfde2b57c3d69fd116f9cb1104d7c070f661aa190777180ef6adaa11e258562bc07e68a7d48babd0c675dc09bd4fb3\
+                  513ee1746688217be114fa9246d137c66a8ac72e8c3e79d603b6fc3e676a7f80268c6cedb7e2061dfcc4cfd6e67a53f4\
+                  11680c5e0d2df4a051b769162ad3200dfaea2c377a9b13f87a800c542c00bd4a11581be2bed78a740ff9996097a3f353\
+                  1d259e37a4f2b5108e11467e28782fcfc3cbd6bbb299622143e65062687a32b1e580a6f2d5941acc81c577c30b796061\
+                  aa3ef69d87c7a317500c7a81b6d2dabc27abb596ec7a8b045451e11348d67d787df3e8591539009ce63d55b0266018c9\
+                  d4e6fabdc699d392100f7a07d74fb7aba9f0e0b35af54283dd49fc0d6c880684291830d0ef8d77700498129771cbc1b0\
+                  400f80d6b18cb4008a3759fae4935b2547ba488d748d82136a8a10a351d4b472d951925db0245adcd8174a60b6b0b10c\
+                  e7fed0145c36edc8b6eff6887915e5965183909c5bb2239835c1ee37b23d80fb9940df12fcd48bdb19fd4f87eb5e2ea3\
+                  8a2e29a527b6550d9dcc29142dcee610d11df3f1ac7f256b2d44fd5774664412a9d459338d36bf4916db7eea5c490046\
+                  b22102aabe534af2b9566db4d0b786486b589c108b209968d42d6a402c0cc07fcf60907fbb57ac51f6dffcceaedf191b\
+                  71168328f57b91d43ee8d6b0958587d4d0fa239ad1947e190171d05e54ba96dd24f54d52e9cf87b1b765b8cb2e301b7f\
+                  e2abfd128735a33b21ba3d93fe128481b3bb347aa43f3e244bb5e873842928da62e72a487c20dc5a9127537993d96a2a\
+                  303e28f15272be10e252ccf6588c4449a3b7090c37c29a945c16ddb965b4728d000407b2c4af80bac57616b519bcfbb5\
+                  c74bd12c8292223979c569eeb77136457324fa43d33fc6a7c84796883ebda2ea873aef94b27e2e6e33c4229e0f8cf883\
+                  af9ff79c05fbaf7c24c7ea3ed144139bc47151692de70f215969047ca01e60f1c5047f2d6f0a11c95c54b85cd3929308\
+                  84d7bdab23de312069ee4f6fb90d2a7288e700bb580ec691b17d916411e7adedfa77c82a9cfc4ecff22f6674a7515270\
+                  fe53b04c030373895ebdfd47d6e3b28249693d152af4fcea5a94889527206e59b30bd6384918bef7e92416a9412e1873\
+                  5e8d7bfd03b0355608f8966474aefae2df2c21572f821fab485872e4865bd6d764aa6c63e16192d24b575bf2f2065773\
+                  3d29bbb658bf981345e21b287be87f2cc810b04eea875a858e2a9bb917b9e5c684e733b4b6f6a2cbb6df4cc01843a760\
+                  c5dce80d6979784fe88a966617e0f7e88457749f9bf7f5f4407295d37a5af87ad267604d218113ad4c1f1a39fb2bf934\
+                  00bb47fa18b89ccbae84389610ffaede69610d171ccccd6b345d7abcbe4bfadc8b5faa65b9fde6c59198d941ea4166d0\
+                  71198cc2b2f48ad8d42619cce51d872a860696d0d19177bf121d8a760c53f59d86aade2393b2a03a5871dc18e9e1aee0\
+                  b03b24cd6e070f82a23a8353f9c9bb2a5339ba8302ff3b4b73c60a60985ee382cc1069c4ae6372c8bd1ac89b413710b0\
+                  ee3d577242cdf8c4e298f8b4d3ccfd4c8ae6713bfcb342169033d2e94be32747e5b75375a6d2c15e7ee9badd402c2645\
+                  a9a86542b43dd45dea2c98d4346119b6eba7ff12c1010748619ee01bb33b1aec56911186772960ec046776e1748a10e2\
+                  c0b4c4de32bcda74b88069904fbea677439ce2a91d226563075a2003f3587b2ab845ed9d38a8f1cc9ae2530f2872983d\
+                  3044741e8ab3866c79d18668f865cf80b6d74858181bde84b1ab5a3d9466528ef585a23328602a180211d57936839f3e\
+                  6d972e911c3766826bc303ccad9d57d500d39117fe0639a908865bc2c06f5bba2dca3f48f6a4c0af7209304cd348187b\
+                  f05d06ec8352cbd165fd7c5407d655388cfc064e9193fab5838b4ba5387be51637117676a034272c7c58453a3a52dfff\
+                  4994bc26573bf27230168778a46f35d97b716c43194c3ac7c3b29b90f1b1a57d303364816a48b4969a9a990b3ab420bb\
+                  c3a25b60bd2440b459930ee792daa6c9c5333ff9bee4288aa7d10e2a42bd115ce4e994847fbbbd378a54640cd4799d85\
+                  f74a888dfababc3f59457d9f50701ccd82998b4ed0c6fbcd825ada3fba738ecac8ff3b294b4e83adfa5ddb83713daf3b\
+                  3cca4d6e84114b6fc4e33335d9d1661752c9fd98073ba07a18cea1617b9bb4be059313300534c792785bf1a03c27b10e\
+                  b39cf2110635a3efaf10487f557e01b9eeaabcac0188005f1678cbd78e36018d7c216dcf6a7f3ab3103cb3b8ff142244\
+                  337e4c52dffb0105163c9b5fda92f2760866506768752ea4a447838be7880e06198561b855767a5da7f3ad3cdfcc8e54\
+                  6abf2cf2d3ae507132214a95382bebf6440daf1abed1637a0b7006a5729e6adf0b619948a98362454d4bacee0e69bee0\
+                  f61b8949b26f960bfab9208284a0964cbd4e9d077c13b23b0ffde04f685267775eacc7038196afd626dbb4048bdb30dc\
+                  723881e9b8e8d7f31f8a369df765c8839c5c5ae50249f5c1c6855508d49fff83655ef05d4b612126b28bb10271509e1d\
+                  cc47fbcd2e47d83b9f09fbd0e4a30ec508d91369379333e40da5375e852d3de7bc3d33d86dab5bfd00e1cab03daa3f5e\
+                  54a3d57c105208296bdd8f13d6ae86b9ccdcabec6b2cbf449bf5a5ad63729658f5bfc0cd75d9e9c3bb9cc10025aee6ba\
+                  63e03ae9167f6ddccd95e3b521d46d9bf268eb367b23a8c0ea1f6af589791f45f5f1c55e37169e356234e7db506bb005\
+                  c02a95a2189444c4327f800a890a64ab6bf12541a683af08f09a006ec6b12eeaae1d18b9c0fe4fdd70ae7b027d08c227\
+                  b2f9819a533ea9f17ea2f378634bf03cf55b78c953019ae271db4b595127426a5e97be1a24957b71480ad78384c707a8\
+                  7c734d1d806724c0f61d98c3f0cbf312f329754744df81d8e8d2023b44f716c67bf8b40917b176dce7bdbdec75f757df\
+                  df3ee66d73059a7f0ba216cd06dc9e237ed21fb08ae1ab0f66134c3c92e6942c377a499cb13137d99440a581bc431410\
+                  3a2822b8fc35e47abc6b45bebea39c37e6a6018cf30e0fbdf550284b44e9ac1701d52c208b723ad9c16f46d435a794f8\
+                  205732943f3b9d064b0ef868c6c221324e8ab7f90133ca29ed168f0948309501198c7647eb37bc95b673e35a55535eb0\
+                  a3efbf4c04f993296f3119683fcb1220c7ddde1a557b0eebbac7da034534b5b7aa6c37cb1c7555a4bcddee99f1613d3d\
+                  35ae1bb3245b74a6eeb3e509273f04c16f667c2fb7affe4c08c6a0cea817f0d40e22ebd40a797fdc1463e9141fad425e\
+                  9e1ce4b5babe5889787bc01611852cdcf0d2bd07f785352993613e047959dd133cd517236315c0d8ee20005cb80c3bf1\
+                  a40f92eb9512647d2fe08d71d2253c0cb10272c4ed47ed2e6183107e2a0bfbf4fddcbf3f329fab4e6a63d64f8134f7b2\
+                  3e136596d79d43af77c04478820def4c80eabf894553d012b215cd2d1fc3a3885fd0dbb726d39cdb03c6445e7bfef6ad\
+                  d64468099c983a77a97d918288d133d3ed36efa3c002b62a174ac4b961bc54e0b03af932875b77a55216275a68b11ed6\
+                  31fcd435e43587d481d6ad7c02a5cc01af67ed7229d6cd3fc5290389a95879aaa9ab2d12a1c66a45f94bafd32edaf6d4\
+                  d351d500acd61e2d89c4a0cbcf739b238fca3af57f000db4926e65baecf8c8f4b7afe987501bee31f0eb82c48d0739dd\
+                  3b16057f80978128630f2bfb709e3eaa8ea2268dfa93f691fb20a7ad7ab164c361784120dce0916e5d16d0c791a3f0c5\
+                  6d58857026940e260ed2c8a36db5cc5566f999d7200e79037a8a8bba82c04810d0af640d1a7b0770186b64181bc6ccf4\
+                  08ac07dcc0293f67a3f305bed39be866cd881f855281459c7e5678cefb2303472378497ee03eca996eac7321a2bc14c5\
+                  547226b841a00c9ee0aecb4a8e7dffe35ab3bb786e117dcdb258936cacff3c1c91c856cf0c816431194adb3f7a4a628b\
+                  a041979f469ace85e93e12ae1445f09b5259c516d119c64d7c5d9e7c01928f579d4fc9c609d434af1fc97db8c62f801f\
+                  985df427ae5c52554fe0701e83b884910a51b5ca989ab9044599029bded5520b352ccc2a6a68336c6b62e1e6167d2460\
+                  eb834b9fa6b0e9ff07a522f6cade9ede958e8825eac72821f93070d6e63da41647c69fb5e1a01a36f17e684faf0c46d7\
+                  bc63e7e0536b3bac62aefc7d10c2475e8ed30eb2dce06662cf1cd4768a290bc2547f2a30074864f13758c55837010fb2\
+                  a92a5f603de2b15a0780a238b7b7c4f4bc614e1988e6679cf91873e409f7ed063b87af841df61af1da2bfb5c1c4e0525\
+                  d2ddaa92d025f95233da0ccf47198bc7410d44262996a2b779af90de42a9b1f5fc86648e9b368c8f2abadad90fb2e95d\
+                  49340b54a2f3f71ad8624a951d10d612f14b51ba98650db971f2041129169b87541e8c0b6fee36959d06edcd1c9932cf\
+                  fc91c98ea91836a1a5e9c2ec3a7b8eaef15893e548b25003ddb86b073f26a8ec2906d86172dac2146e8b1010985176ab\
+                  b9e8f2aac9e68c9f3409109aad90cdea1929f9350ec9a0bee0428a222288ce5f05d105568491d2547e68cd5ac196958d\
+                  146919c9d377c937f4599354a60ccb2221da4e2cf7fe67e526390181f43a35735c8de311e9c3d85a9e5bd15b5b3ec892\
+                  8dfb019d151572fda2c4bccbaa531ecefceb67682b0062021169d158ca6f803f50f6ffd7a7503121605c1894754e82da\
+                  4d06bd6cc1da6ca2a24c59747a3552d8e558e225ea2d0f21b8518124f6da49f97d832c43c0e3e752a2b63e5a08fee757\
+                  2228a236fdb11fba48dbbce3efd8c935e4ae8a3630b9123700d9817f0c9ba459b1170ad1210c4b93ab79b0adb52eb219\
+                  76199a2029d479012ad05033e77b53b10b4d2cf61145072526fe92c047b48bd7ca9541b4b302bcf7d38efc0fd8059c6a\
+                  f794fd17e9e976db1db96e1b2126a8f486988af93cc176d989357a5a9673ef2ef89e294503a3fc2626cca3a483b586c5\
+                  4561b383d949de0c89b7b9dc6a8a31b73845d28db8c2996827a0f062862eaa69275eb4ded829e2a9a5e9b56dd89ef929\
+                  11c8887f6b326b1a3ead93e8a0ffacc63af7ca024604b3c35b86f613044964acb6476c6e629574cd06a51569b96301fb\
+                  2cb63e93680467341edbeff7bc1d9ef3cc77ffe43f3848ceb03bfaebf1d964dd545c5f57cd9a085a384f3b8cb4f916b9\
+                  41ef1ce151dcf4fd3cdb330a1f7b302ffe816a34961e5bba798ff21396e97768dd4c21ac59ca2c3b6f5f8fa33f7edb92\
+                  c532da2fc83c5405390003772dee5aa9fc37335fd08cf806a8e8a43ed16cf4963aaf7178a71522b9ad807b89f7761185\
+                  e98ee71b655dba8a02bfdcb1df1585211cb208651ed6c9c03eedaddc4d1fc04af578fa342ad9e40431bfca19a0f0241e\
+                  5206c22fdc453c5101d8156b34e25ae9ed368ec51460f764466f41ef22533c31eaa1abe7203c60d727910341bde85b8d\
+                  63db668da68d7ab7f0fb60472d17b6a49f72c8266344fad2ddf5aedc06cc7b496ba705186f8f9c9dd1dfe4008097b4b6\
+                  c26474a5b7e2fd2e4b5076bbbfdd0d0ebccdd71d21242a4d7cced7f10369777cb2b3b6c4edfd00000000000000000000\
+                  0000000000000000000000020b11171e232c36"
             text/plain:
               schema:
                 $ref: '#/components/schemas/Signature'
@@ -298,7 +299,7 @@ paths:
                   previous_version: "0x000000fd"
                   current_version: "0x000000fd"
                   epoch: "0"
-                genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+                genesis_validators_root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
       responses:
         '200':
           description: Reveal released (first use, new layer, gap advance or re-reveal)
@@ -386,61 +387,60 @@ paths:
                 items:
                   $ref: '#/components/schemas/Pubkey'
               example:
-                - &pubkey "0xa5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
-                  a5"
+                - &pubkey "0x2e3bcd95f5e30d0b7c5577b66c6373c567a6151ea39a75e477fb9b979276efac8952fcab3b1e671c1903063c08de679a\
+                  e4fdda1e3f2cf675364a0f9fa5cebb7a6d69dfd6fd5b060dce52f19c3d95337ed388b53ea8d9340860cdfe449187d617\
+                  e072979f84d7c9bc1a7169706b6fbe01e51c6c8117be3d61e79c046827d095a6f88d4c452da251910d34c7e77e773d66\
+                  7db344535b71998d33920d21d03f16c8b60d27448d24dbe239771bb312be22ef881e919a8bb2cf63108d6122f1ccdd3d\
+                  ce3ccc39a4bf06bfc8acdfeac9261cb061b64e1210dbd70d1da94145fb46e114fd61111c7e28f96a8023b4b3d2b705e3\
+                  47d9d5f629e0c64a533eaf0a84095ccb609196b768d1212db3d957fbf5df67fc8a14c72fba9659ae677647c24dd9d121\
+                  094ac1cac39f14fbbe5e8624808f004e970b3530c5118cfbb1f041308eba8c8a5bec6ac20805790eb793c21eed3908c0\
+                  ee74075ebe0f8367d46341f548326a9dfe96dc237a7e103010c5810472d071dc86a3f12936e8f3181eb8de498719acaf\
+                  e20cd59f8291b0313fa70f9843fa65a49712e92516accbb9d2c30c341b5341d618db57299937b7bbd7d51ee9b5e1329c\
+                  fd725988ad4d8f01389497bfcfe904bbebfd69e9adaf1afa15136f2fe355d4e54aa4c21a4c41bf1a9172535504058d7a\
+                  aceb9776f16e5c209204b755de6a978cc9952d4bf45b24718cab949e198fef31bc14a09f8474ee0037b758bfb952f5bf\
+                  0a5f2231c02dcded4c85600a447b80ffd39d6a07c9dedd7efdd45b9c855d9a9b6a88f1f14f405a7608c1f64cd815df31\
+                  6a3ad8442b75df79aade1a9156eb917ad18251406a277cf38f9870a7902b4422931d73406f87e0802e96965773935d26\
+                  39a649863198d83946425c40a84413d2b1bca109573dc6298584b8c589373be2ca7732478b220b1a214182f96a26c5a1\
+                  b45dda66d2385346301d167d30202b4fa6167cfb87ecf0377d33a7cac6f38b29ff384481c4531e47a94197334e8ff9f7\
+                  7eb868813f9d5ba5249d9006a2317397cafdd206375d9654eceff93115a530e84ae55a7a25d02d44d737f42da58486c7\
+                  dc3e92f3312ca80dfe2a9e87a52c6cfd852fb23767a9e551455ce7f2629855cc28c56e83cd6f2e1d4e3f05058b6a748f\
+                  cdce270decc01149d96a9ab1f4f8ac1c72742f4fb0f602144e018697134d9ed2a5771bba1a8702ce94fc173229908061\
+                  6348bb6eeaf7ed985e881f0a2a407b22e3a8426d4a4e2ceb257d4e635cb12c1706edc0fc77043652f3ccf3afa7d2b97c\
+                  3b60bd0078d7220de39fd1e822e37c6827b870d1ce431015b03b1c8e2e88283bd8d7c6ca88673f7141d88c702d4f2bb3\
+                  5aa8f953249f429d7f80a67ed4352d5b2b79694f545f89d23e7e4a96c98647236c55bfe2d02f1fcfa254f9089baef4a5\
+                  c8b9ecf5936cd6102500d67993ed92143dfca9c60caf49b25096c79bb9661839032507f99e8770702fa74babffe16da6\
+                  b4c66fdf47e9fa03321ec973582dc4492c3025254037f55bfd47bed448105445ff7d9f0b2fbb84d798151c6d1255982d\
+                  ceda6abe534c1a487b9f0a2669faddce68840651c57daa54664e2dc11084867d98687a17758ddacbf0b2088e46f1c87d\
+                  eda65a904020c187e26fb22053aaa4daea57caaf9df6119909e727447d483492c961f72918e4dd8a7e543aa490b39c1f\
+                  45e05b22f3e9023bbcadf0f91b3fdab1ac16aae2d6f13729219d5ae70b2ba8b552f23a25e56bad561d06c3c33a6578a9\
+                  66b9a9e8971c6008ad5791cd87ab2da27690b3f2868191a65abb6add5f72613a6ba333b1cbdea995cad79007eacc9310\
+                  61cb6c107b55973a87d15bc9c95d2d9e4dec237ddf91672251a05853dc97fe3ed27196814cb6e84f1e28954693475d38\
+                  2b6ec7ddb594613325d2c82a7dd9bb6a429ee0037cd8af2f129d871eef4da33966edecd011f0d271e527fb694430833b\
+                  d7acc3b2944599ba3e13aae3a1213bf265dccd53123b8b285d9158d072699fc8c68d461550abe4794ff7397d1fc1adde\
+                  7502be6e93399cc5ca0963d38be6923b033c6873b9ce8d05c0de899fb116ffd20822d8d956d1dcdc823f5b3682cb1249\
+                  1d462c1d98600f2b48ad02ba7090e2833c8b8f374229074d21f13b3d9c0923f78624e8fe2caa8ec57d7b321494d796f7\
+                  42e93c9e049cb416b05a17eeba52799113cb42274ea07fa7fb8405f5ea726eebcf15da0173c344f7f85da412589dd30c\
+                  9a9b858e1cb3d36fdf3bbe988ff83ecbcaae06a40a7cde8225b5e02edd615a0c89126bead1380a4c8843ad313cb94b04\
+                  0dbda8a354dd11e2725584d500fb61adb7f785f253e153998838e5b87374f1c759e48da79f1d3e44c3c0c0ac3b13473a\
+                  bad9cfdf60f5b572387c7bebaa4a419d8a0cd26e73ec58ea92f80de3f9aca31f1faedf94d82b2b35f2520d4f6167c6e8\
+                  86f84620d79d7d8859f8562bff408f7fb3bea11c3ffdd8074748e10b22ed1bb5955daf6122c8daeafa5541364845f149\
+                  c67ff83a0f8517fc6727b4c997d637c3c46bf80c76e9e8858ea041cbfee49fc135fe8ef082fab0dcb9c795f81add8e0d\
+                  7386bb2cee496948b9c8bd22d3230d400b0beb119297097a73e41760df8ae3f22ab40d0402238833c5e12d90fecb1ce9\
+                  c88c68f281baaef15cdadcdad4670ab0dec84b14adb9c0325fc63a05bc66fbff3bdf45a114f42c232ff53d8bfb3a474c\
+                  e5c4f71841ee198336d4eeec82d52df5c4098f25bcc88f894a091cfc63203d3d50b5d456143467018da3795ee9d84508\
+                  027a503550a813be30a3151bc1ca3768307d381e9184df8a3d00b20cedde0d82a728e2e714d1461deefa6acc067397ce\
+                  836500289b57ac535aa19317dcf27c20460803ba777e55b8e29b9a678b67c6d6ef7abb82fdf976ef56eff535664dc28e\
+                  c94b8b78193843be5ff58c2180b9559fb14749e9b7139d83fe2cf9fb375f134dc51e79831d932aefac40aeb83e006679\
+                  952f95820882de19027172822cd6365be331fc7a54bfea837277410c0f81362518967dbafab318c820212ec5515b4e73\
+                  54d15815c080a52f31553a5e9081bfc38ce19ef227fde8e05d042146b2dfe0bd4cfcf927b73cf3472ea8718d7d4c6275\
+                  3353ce24e64f7cb330257498a44260d92e64968e3d89a55c33a93dbe1df6220abbdf6f675febc8bba04e3145fb61ad6f\
+                  766625535826681ae969635b55f12220339d5fb644dbd9ba8b00d0a4c28b58ccb7df5eec10b93472ed0fe31f1d22be48\
+                  48ef8b0e70c636a19ff2770fe5e7ee691fbc44820b71cc826a5a4d3995015a26f31ce0d0e2512d29705ff15a1faf7d88\
+                  c45c7d67c10f5d38672ac69c2442cdb602de3f8553b077c07e39a3fa09a4588667b766133b402da1a77bcaf6eb2df58c\
+                  d9b445e9eb1537654aff9e8c882e2a1a3e5ed46efb782515c0500056c422994cf8f18edd8c4422944a7fe16c1a59c2e0\
+                  98cdd7afc965af691f582142470953c0fc2e3a9ff2b8c87e483d1c811ce3a92a20341e7c1ead94448cbd49121d96258c\
+                  657add51d9bfbf10b28710ec4d263da0e1d9b3ae8f09c462b9868e08097be87853408245ebcb6ca11fd2a3a088a50b55\
+                  83f6938268ac37bb295edc096048eb5631b6a6b40dff8cb7fc21b76839aba5b869689fb6bf0cc19957962ac2d494eb03"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '503':
@@ -482,7 +482,7 @@ paths:
                     network:
                       config_name: end-to-end
                       genesis_fork_version: "0x000000fd"
-                      genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+                      genesis_validators_root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
                       genesis_time: "1760000000"
                       seconds_per_slot: "10"
                       slots_per_epoch: "6"
@@ -703,7 +703,7 @@ paths:
             example:
               keystores: ["{\"version\":1,\"crypto\":{…},\"pubkey\":\"…\",\"uuid\":\"…\",\"path\":\"\",\"description\":\"\"}"]
               passwords: ["correct horse battery staple"]
-              slashing_protection: "{\"metadata\":{\"interchange_format_version\":\"5\",\"genesis_validators_root\":\"0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809\"},\"data\":[]}"
+              slashing_protection: "{\"metadata\":{\"interchange_format_version\":\"5\",\"genesis_validators_root\":\"0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f\"},\"data\":[]}"
       responses:
         '200':
           description: Per-keystore result, in request order
@@ -750,7 +750,7 @@ paths:
                 data:
                   - status: deleted
                     message: ""
-                slashing_protection: "{\"metadata\":{\"interchange_format_version\":\"5\",\"genesis_validators_root\":\"0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809\"},\"data\":[]}"
+                slashing_protection: "{\"metadata\":{\"interchange_format_version\":\"5\",\"genesis_validators_root\":\"0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f\"},\"data\":[]}"
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -800,7 +800,7 @@ components:
           value: *pubkey
         short:
           summary: sha256 of the canonical example
-          value: "0x6a0520f46e95a03d3957eb79b5756ac5c57a29c57c4344c0ba4c2b19dd6fa73c"
+          value: "0x9e7e647fffc2c484f3a36dc6450ccfa78eec68528fa00628b4e7e05854431e1b"
 
   schemas:
     Uint64:
@@ -829,7 +829,7 @@ components:
       type: string
       pattern: '^0x[0-9a-fA-F]{64}$'
       description: sha256 of a 2,592-byte public key, `0x` + 64 hex characters
-      example: "0x6a0520f46e95a03d3957eb79b5756ac5c57a29c57c4344c0ba4c2b19dd6fa73c"
+      example: "0x9e7e647fffc2c484f3a36dc6450ccfa78eec68528fa00628b4e7e05854431e1b"
     Identifier:
       description: A canonical public key or its sha256 alias, told apart by length
       anyOf:
@@ -1749,8 +1749,8 @@ components:
         type: BLOCK_V2
         fork_info:
           fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
-          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
-        signing_root: "0x5f1b2a3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8"
+          genesis_validators_root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
+        signing_root: "0xe0e6512e43c776013239c426468a316e6b385d76c69587ae4a71e50f7e68ff42"
         beacon_block:
           version: ZOND
           block_header:
@@ -1765,8 +1765,8 @@ components:
         type: ATTESTATION
         fork_info:
           fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
-          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
-        signing_root: "0x6a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+          genesis_validators_root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
+        signing_root: "0x09fb4fe953940b859259dbcf6d9ce38054e67607a47982e65ce1d41d10c87eae"
         attestation:
           slot: "61"
           index: "0"
@@ -1779,8 +1779,8 @@ components:
         type: AGGREGATION_SLOT
         fork_info:
           fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
-          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
-        signing_root: "0x489e15e8bcf803c483b1efdff3bf2832f9ee2dbd4154e0f5257168d2a14b3284"
+          genesis_validators_root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
+        signing_root: "0x41dd375d6bbb81df40c80a09c866d34a453a3735482407e04db80cc5af5bd1de"
         aggregation_slot: {slot: "61"}
     AggregateAndProof:
       summary: AGGREGATE_AND_PROOF (4 participants; 0x1f = 4 bits + delimiter)
@@ -1788,8 +1788,8 @@ components:
         type: AGGREGATE_AND_PROOF
         fork_info:
           fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
-          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
-        signing_root: "0x8c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b"
+          genesis_validators_root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
+        signing_root: "0x4fbd2e0060e3469aee07775d9e97ff499b61348fcf548f178bb2458678257e2b"
         aggregate_and_proof:
           aggregator_index: "17"
           aggregate:
@@ -1808,8 +1808,8 @@ components:
         type: VOLUNTARY_EXIT
         fork_info:
           fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
-          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
-        signing_root: "0x9d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c"
+          genesis_validators_root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
+        signing_root: "0x6fcc91359724c7648c6b126506d692e3cb5112a2790275462e4bbbd4b05f16a9"
         voluntary_exit: {epoch: "10", validator_index: "42"}
     SyncCommitteeMessage:
       summary: SYNC_COMMITTEE_MESSAGE
@@ -1817,8 +1817,8 @@ components:
         type: SYNC_COMMITTEE_MESSAGE
         fork_info:
           fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
-          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
-        signing_root: "0xae6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
+          genesis_validators_root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
+        signing_root: "0x58ef945f45172db2a6d5a9fb80f828a8f2bbe72824eb60097595d0603323c049"
         sync_committee_message:
           beacon_block_root: "0x44dd55ee66ff778899001122334455667788990011aabbccddeeff0011223344"
           slot: "61"
@@ -1828,8 +1828,8 @@ components:
         type: SYNC_COMMITTEE_SELECTION_PROOF
         fork_info:
           fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
-          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
-        signing_root: "0xbf708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e"
+          genesis_validators_root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
+        signing_root: "0x9fb9c4eb8f9d9c58a3b43245f5fd32e75e80ca77758cc80a022749e2fcc8d9f6"
         sync_aggregator_selection_data: {slot: "61", subcommittee_index: "0"}
     SyncCommitteeContributionAndProof:
       summary: SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF (minimal preset, 2-byte bitvector, 2 participants)
@@ -1837,8 +1837,8 @@ components:
         type: SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF
         fork_info:
           fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
-          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
-        signing_root: "0xc08192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f"
+          genesis_validators_root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
+        signing_root: "0x0a31eb9c8d8665c527a938d8272cc8084857a6f4574840c2e2bb814107eb4234"
         contribution_and_proof:
           aggregator_index: "7"
           selection_proof: *signature
@@ -1852,7 +1852,7 @@ components:
       summary: VALIDATOR_REGISTRATION (no fork_info; builder domain with genesis version and zero GVR)
       value:
         type: VALIDATOR_REGISTRATION
-        signing_root: "0xd192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70"
+        signing_root: "0x0c0b0154f61b1ea587d95cbfd9ec4441e412906099e972727c705a264f14fe9b"
         validator_registration:
           fee_recipient: "Q2b3f5c7d9e1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4"
           gas_limit: "30000000"

@@ -67,8 +67,9 @@ func specExamples(t *testing.T) (sign map[string][]byte, randao []byte) {
 }
 
 // Every example in the frozen contract decodes, re-encodes canonically and
-// decodes to the same request. The AGGREGATION_SLOT example carries a real
-// signing root (docs/spec/signing-roots.md section 4).
+// decodes to the same request. The examples are golden vectors
+// (api/openapi/golden_test.go checks them); this test recomputes the AGGREGATION_SLOT
+// signing root, the worked example of docs/spec/signing-roots.md section 4.
 func TestSpecExamples(t *testing.T) {
 	sign, randao := specExamples(t)
 	if len(sign) != 9 {

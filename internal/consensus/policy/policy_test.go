@@ -18,6 +18,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/types"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
+	"github.com/rgeraldes24/go-remotesigner/internal/vectors"
 )
 
 // The end-to-end network: GENESIS_FORK_VERSION 0x000000fd, 10 s slots,
@@ -371,9 +372,9 @@ func TestTrustOnFirstUse(t *testing.T) {
 	}
 }
 
-// The contract examples run through the decoder and the policy. Only the
-// AGGREGATION_SLOT example carries a real signing root; the others are
-// placeholders and fail at step 5.
+// The contract examples run through the decoder and the policy, with the
+// clock at a time when all of them are current. They are golden vectors on
+// the end-to-end network bound to the interop GVR, so every one passes.
 func TestContractExamples(t *testing.T) {
 	raw, err := os.ReadFile("../../../api/openapi/consensus.yaml")
 	if err != nil {
@@ -389,8 +390,7 @@ func TestContractExamples(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &spec); err != nil {
 		t.Fatal(err)
 	}
-	g := [32]byte{0x7a, 0x1e, 0x2c, 0x4d, 0x5b, 0x6f, 0x70, 0x81, 0x92, 0xa3, 0xb4, 0xc5, 0xd6, 0xe7, 0xf8, 0x09,
-		0x1a, 0x2b, 0x3c, 0x4d, 0x5e, 0x6f, 0x70, 0x81, 0x92, 0xa3, 0xb4, 0xc5, 0xd6, 0xe7, 0xf8, 0x09}
+	g := vectors.Hex32(t, vectors.NetworkByConfigName(t, "end-to-end").InteropGenesisValidatorsRoot)
 	gt := uint64(1_759_999_000) // slot 61 is at 1,759,999,610
 	n, err := network.Load(network.Sources{Network: "e2e", GenesisValidatorsRoot: &g, GenesisTime: &gt})
 	if err != nil {
@@ -410,13 +410,8 @@ func TestContractExamples(t *testing.T) {
 		if reg, ok := req.Payload.(*types.ValidatorRegistrationV1); ok {
 			keyID = types.KeyID(&reg.Pubkey)
 		}
-		_, err = p.Check(req, keyID)
-		want := apierr.SigningRootMismatch
-		if name == "AggregationSlot" {
-			want = ""
-		}
-		if r := reason(t, err); r != want {
-			t.Errorf("%s: reason %q, want %q (%v)", name, r, want, err)
+		if _, err := p.Check(req, keyID); err != nil {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
 }
