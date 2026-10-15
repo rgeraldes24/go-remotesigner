@@ -74,6 +74,8 @@ revision (upstream commit, or `tree <id>` for vendored directories).
 <!-- headercheck:begin -->
 | Path | Class | Upstream repository | Upstream path(s) | Revision |
 |---|---|---|---|---|
+| `.github/workflows/ci.yml` | new | | | |
+| `.golangci.yml` | new | | | |
 | `cmd/remotesigner/flavour_consensus.go` | new | | | |
 | `cmd/remotesigner/flavour_full.go` | new | | | |
 | `cmd/remotesigner/main.go` | new | | | |

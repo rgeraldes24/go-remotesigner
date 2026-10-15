@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Dependency updates with digest pins (DESIGN §3.1, PLAN S0). third_party/ is a pristine upstream copy and is never updated by Renovate."
+  ],
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigestsToSemver",
+    "docker:pinDigests"
+  ],
+  "postUpdateOptions": [
+    "gomodTidy"
+  ],
+  "ignorePaths": [
+    "third_party/**"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": [
+        "Tool versions pinned in workflow env, marked with a '# renovate:' comment."
+      ],
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+\\w+: (?<currentValue>\\S+)"
+      ]
+    }
+  ]
+}
