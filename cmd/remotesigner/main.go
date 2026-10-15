@@ -3,8 +3,10 @@
 
 // Command remotesigner is a remote signing service for QRL validator clients.
 //
-// This is the bootstrap skeleton: it only reports its version. The consensus
-// subcommand and its flags arrive with the server milestones.
+// Usage: remotesigner [global flags] consensus [consensus flags]. The flags are
+// defined in package flags and documented in docs/reference/flags.md. Exit
+// codes: 0 after a clean shutdown, 2 for usage errors (including a missing
+// --network and an invalid --config-file), 1 for startup failures.
 package main
 
 import (
@@ -16,6 +18,8 @@ import (
 	"runtime/debug"
 
 	"github.com/urfave/cli/v2"
+
+	"github.com/rgeraldes24/go-remotesigner/cmd/remotesigner/flags"
 )
 
 // Exit codes: 2 for usage errors, 1 for startup failures.
@@ -43,7 +47,12 @@ func main() {
 
 // run executes the CLI and maps its outcome to a process exit code.
 func run(args []string, stdout, stderr io.Writer) int {
-	err := newApp(stdout, stderr).Run(args)
+	return runWith(args, stdout, stderr, defaultRun)
+}
+
+// runWith is run with the signer's run function injected, for tests.
+func runWith(args []string, stdout, stderr io.Writer, runSigner runFunc) int {
+	err := newApp(stdout, stderr, runSigner).Run(args)
 	if err == nil {
 		return exitOK
 	}
@@ -55,7 +64,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return exitStartup
 }
 
-func newApp(stdout, stderr io.Writer) *cli.App {
+func newApp(stdout, stderr io.Writer, runSigner runFunc) *cli.App {
 	return &cli.App{
 		Name:            binaryName,
 		Usage:           "remote signer for QRL validator clients",
@@ -63,6 +72,10 @@ func newApp(stdout, stderr io.Writer) *cli.App {
 		Writer:          stdout,
 		ErrWriter:       stderr,
 		HideHelpCommand: true,
+		Flags:           flags.Global(),
+		Metadata:        map[string]any{},
+		Before:          loadConfigFile,
+		Commands:        []*cli.Command{consensusCommand(runSigner, stderr)},
 		Action:          rootAction,
 		OnUsageError: func(_ *cli.Context, err error, _ bool) error {
 			return cli.Exit(fmt.Sprintf("usage error: %v", err), exitUsage)

@@ -19,7 +19,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test fuzz contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify docs clean
+.PHONY: all build build-consensus test fuzz contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify docs acceptance b19 clean
 
 all: build build-consensus
 
@@ -94,10 +94,18 @@ TOKEN_FILE ?=
 vectors-verify:
 	cd tools/vectorgen && $(GO) run . verify -signer $(SIGNER) $(if $(TOKEN_FILE),-token-file $(abspath $(TOKEN_FILE)))
 
-## docs: regenerate docs/reference/flags.md with tools/flagdoc (milestone S5a)
+## docs: regenerate docs/reference/flags.md with tools/flagdoc
 docs:
-	@test -d tools/flagdoc || { echo "docs: tools/flagdoc does not exist yet (milestone S5a)" >&2; exit 1; }
 	$(GO) run ./tools/flagdoc
+
+## acceptance: the built-binary acceptance tests (also part of `make test`)
+acceptance:
+	$(GO) test -count=1 ./test/acceptance/
+
+## b19: the nightly idle-connection race (benchmark B19), B19_DURATION long
+B19_DURATION ?= 1h
+b19:
+	REMOTESIGNER_B19_DURATION=$(B19_DURATION) $(GO) test -count=1 -run '^TestB19IdleConnectionRace$$' -timeout 90m -v ./test/acceptance/
 
 clean:
 	rm -rf $(BIN_DIR)

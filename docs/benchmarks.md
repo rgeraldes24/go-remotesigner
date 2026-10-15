@@ -65,3 +65,29 @@ duplicate-key pre-scan: a mainnet-preset contribution with 128 signatures, 1,194
 Run D, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), three runs of 2 s per benchmark, load average 7-9
 from other work. The decoder reads the body in place: besides the decoded signatures (128 x 4,627 bytes) it
 allocates only small bookkeeping, which is why B6 stays far under its memory bound.
+
+## Public keys and idle connections (B15, B19, the API server)
+
+**B15: met on the development machine.** **B19: implemented as a nightly job; no 1 h run recorded yet** (a 40 s
+smoke run and a 5 min run passed with 0 errors). B19 is met only once a 1 h run, nightly or local, is recorded
+below.
+
+```
+go test -run '^$' -bench PublicKeys10k -benchtime 10x -count 10 ./internal/api/consensus/ | tee b15.txt && benchstat b15.txt
+make b19 B19_DURATION=1h     # nightly: .github/workflows/nightly.yml
+```
+
+B15 serves `GET /api/v1/consensus/publicKeys` for 10,000 random 2,592-byte keys through the handler, writing to a
+discarding response writer, so it measures rendering and compression, not the network. The handler streams key by
+key through a 64 KiB buffer and never holds the 51.9 MB array; gzip uses `BestSpeed`, since hex public keys compress
+about 2:1 at any level. B19 runs the built binary and two clients with Go's default transport (90 s
+`IdleConnTimeout`), one POSTing every 25-35 s and one every 85-95 s, and counts transport errors.
+
+| ID | Benchmark | Threshold | Development-machine results | Verdict |
+|---|---|---|---|---|
+| B15 | `BenchmarkPublicKeys10k/plain` | ≤ 2 s on a LAN; transient allocation ≤ 64 MB | 20.7-21.0 ms, 71.6 KB and 12 allocations per request | met on dev machine |
+| B15 | `BenchmarkPublicKeys10k/gzip` | as above | 526-551 ms, 1.28 MB and 32 allocations per request | met on dev machine |
+| B19 | `TestB19IdleConnectionRace` (`make b19`) | 0 "server closed idle connection" or EOF errors over 1 h with `IdleTimeout` 120 s | 40 s smoke run: 0 errors; 5 min run (2026-10-15): 14 POSTs, 0 errors | pending: first 1 h run |
+
+Run E, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), 10 runs of 10 requests each, load average 4-5 from
+other work.

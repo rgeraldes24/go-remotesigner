@@ -138,6 +138,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | Path | Class | Upstream repository | Upstream path(s) | Revision |
 |---|---|---|---|---|
 | `.github/workflows/ci.yml` | new | | | |
+| `.github/workflows/nightly.yml` | new | | | |
 | `.golangci.yml` | new | | | |
 | `api/openapi/consensus.yaml` | w3s-derived | `Consensys/web3signer` | `openapi-specs/eth2/web3signer.yaml`<br>`openapi-specs/eth2/signing/schemas.yaml`<br>`openapi-specs/eth2/signing/paths/sign.yaml`<br>`openapi-specs/eth2/signing/paths/public_keys.yaml`<br>`openapi-specs/eth2/signing/paths/high_watermark.yaml`<br>`openapi-specs/eth2/signing/paths/upcheck.yaml`<br>`openapi-specs/eth2/signing/paths/healthcheck.yaml`<br>`openapi-specs/eth2/signing/paths/reload.yaml`<br>`openapi-specs/eth2/keymanager/schemas.yaml`<br>`openapi-specs/eth2/keymanager/paths/keystores.yaml` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `api/openapi/docs_test.go` | new | | | |
@@ -145,16 +146,33 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `api/openapi/examples_test.go` | new | | | |
 | `api/openapi/golden_test.go` | new | | | |
 | `api/openapi/spec_test.go` | new | | | |
+| `cmd/remotesigner/consensus.go` | new | | | |
+| `cmd/remotesigner/consensus_test.go` | new | | | |
+| `cmd/remotesigner/flags/flags.go` | new | | | |
+| `cmd/remotesigner/flags/flags_test.go` | new | | | |
 | `cmd/remotesigner/flavour_consensus.go` | new | | | |
 | `cmd/remotesigner/flavour_full.go` | new | | | |
 | `cmd/remotesigner/main.go` | new | | | |
 | `cmd/remotesigner/main_test.go` | new | | | |
 | `internal/api/apierr/apierr.go` | new | | | |
 | `internal/api/apierr/apierr_test.go` | new | | | |
+| `internal/api/apierr/messages.go` | new | | | |
+| `internal/api/consensus/capabilities.go` | new | | | |
+| `internal/api/consensus/consensus_test.go` | new | | | |
+| `internal/api/consensus/identifier.go` | new | | | |
+| `internal/api/consensus/publickeys.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/PublicKeysListHandler.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/api/jsonutil/jsonutil_test.go` | new | | | |
 | `internal/api/jsonutil/object.go` | new | | | |
 | `internal/api/jsonutil/scan.go` | new | | | |
 | `internal/api/jsonutil/values.go` | new | | | |
+| `internal/api/ops/healthcheck.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Runner.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/config/HealthCheckNames.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/api/ops/ops_test.go` | new | | | |
+| `internal/api/ops/reload.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/ReloadHandler.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/api/ops/upcheck.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/UpcheckHandler.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/config/config.go` | new | | | |
+| `internal/config/config_test.go` | new | | | |
+| `internal/config/env.go` | w3s-derived | Web3Signer | `commandline/src/main/java/tech/pegasys/web3signer/commandline/valueprovider/EnvironmentVariableDefaultProvider.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/config/yaml.go` | w3s-derived | Web3Signer | `commandline/src/main/java/tech/pegasys/web3signer/commandline/valueprovider/YamlConfigFileDefaultProvider.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/consensus/policy/clock.go` | new | | | |
 | `internal/consensus/policy/clock_test.go` | new | | | |
 | `internal/consensus/policy/golden_test.go` | new | | | |
@@ -188,6 +206,11 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/crypto/mldsa87/mldsa87.go` | new | | | |
 | `internal/crypto/mldsa87/mldsa87_test.go` | new | | | |
 | `internal/crypto/mldsa87/selftest.go` | new | | | |
+| `internal/keys/keyconfig/keyconfig.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/SignerLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/parser/YamlSignerParser.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileRawSigningMetadata.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/keys/keyconfig/keyconfig_test.go` | new | | | |
+| `internal/logging/logging.go` | new | | | |
+| `internal/logging/logging_test.go` | new | | | |
+| `internal/logging/secret.go` | new | | | |
 | `internal/network/config.go` | new | | | |
 | `internal/network/config_test.go` | new | | | |
 | `internal/network/embedded/end-to-end-mainnet.yaml` | new | | | |
@@ -202,6 +225,21 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/randao/onion/golden_test.go` | new | | | |
 | `internal/randao/onion/onion.go` | new | | | |
 | `internal/randao/onion/onion_test.go` | new | | | |
+| `internal/runner/runner.go` | new | | | |
+| `internal/runner/runner_test.go` | new | | | |
+| `internal/server/auth/auth.go` | new | | | |
+| `internal/server/auth/auth_test.go` | new | | | |
+| `internal/server/body.go` | new | | | |
+| `internal/server/errors.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/JsonErrorHandler.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/server/hostallow.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/HostAllowListHandler.java`<br>`commandline/src/main/java/tech/pegasys/web3signer/commandline/config/AllowListHostsProperty.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/server/listener.go` | new | | | |
+| `internal/server/middleware.go` | new | | | |
+| `internal/server/ports.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/server/router.go` | new | | | |
+| `internal/server/server.go` | new | | | |
+| `internal/server/server_test.go` | new | | | |
+| `internal/signer/provider/provider.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/DefaultArtifactSignerProvider.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/signer/provider/provider_test.go` | new | | | |
 | `internal/slashing/boltstore/boltstore.go` | new | | | |
 | `internal/slashing/boltstore/boltstore_test.go` | new | | | |
 | `internal/slashing/boltstore/encoding.go` | new | | | |
@@ -229,9 +267,14 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/ssz/types.go` | new | | | |
 | `internal/ssz/types_test.go` | new | | | |
 | `internal/vectors/vectors.go` | new | | | |
+| `test/acceptance/b19_test.go` | new | | | |
+| `test/acceptance/harness_test.go` | new | | | |
+| `test/acceptance/server_test.go` | new | | | |
 | `third_party/qrl-keystore/README.md` | new | | | sha256 `b62799d6df0bdbbb39c3110d2f4ffe98e9e4508cc6f45ea618f943d29184b19c` |
 | `third_party/qrl-keystore/go-qrl-wallet-encryptor-keystore/` | vendored | `cyyber/qrysm` (= `theQRL/qrysm` `e07a6007`) | `pkg/go-qrl-wallet-encryptor-keystore` | tree `6c97bfffa7d145c2be452fa4435c81b6c7532554` |
 | `third_party/qrl-keystore/go.mod` | new | | | sha256 `8794f04b43301ccdaa0e3a1b5bb6a68affe585340a058657f12e7b6a28375d47` |
+| `tools/flagdoc/main.go` | new | | | |
+| `tools/flagdoc/main_test.go` | new | | | |
 | `tools/headercheck/check.go` | new | | | |
 | `tools/headercheck/check_test.go` | new | | | |
 | `tools/headercheck/gittree.go` | new | | | |

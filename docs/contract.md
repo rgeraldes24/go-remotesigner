@@ -150,6 +150,8 @@ Response bodies:
     `DELETE …/randao_state/…` and the keymanager.
 - `admin` does not imply `sign`, and `sign` does not imply `admin`. A sign token on an admin route gets 403
   `FORBIDDEN_SCOPE`; an admin token on a sign route gets 401 `UNAUTHENTICATED`.
+- The two tokens must differ: identical sign and admin tokens are refused at startup, and on SIGHUP the previous
+  tokens stay in force.
 - A client certificate (optional mTLS) grants the `sign` scope only, never `admin`. Admin routes always need the
   admin bearer token, whatever `--http-auth-mode` says.
 
@@ -161,7 +163,9 @@ Response bodies:
 | `none` (loopback listeners only) | open | admin token |
 
 Before authentication the server refuses any request carrying an `Origin` header (403 `ORIGIN_NOT_ALLOWED`) and any
-`Host` outside the host allowlist (403 `HOST_NOT_ALLOWED`). The qrysm e2e reads the generated
+`Host` outside the host allowlist (403 `HOST_NOT_ALLOWED`). A request whose path or method matches no route is
+authenticated before it is answered 404 or 405: without the sign or the admin credential it gets 401
+`UNAUTHENTICATED`, so routes cannot be enumerated without a token. The qrysm e2e reads the generated
 `<data-path>/auth-token` and passes it to the VC, so authentication is exercised from the first e2e run.
 
 ## 7. Request envelope and validation pipeline
@@ -365,7 +369,7 @@ The qrysm client logs 412 refusals at WARN, never ERROR.
 | `ReadHeaderTimeout` / `ReadTimeout` / `WriteTimeout` | 5 s / max(5 s, slot/4) / max(5 s, slot/3); `publicKeys` 120 s and the keymanager 10 min |
 | `IdleTimeout` | 120 s, above the Go client's 90 s `IdleConnTimeout` |
 | Signing concurrency | 32 in flight, queue 512, then 503 `OVERLOADED` |
-| Large-body reads in flight | 8. A request is large when `Content-Length > 64 KiB` or the length is unknown (chunked, or h2 without `content-length`), or once 64 KiB of its body have been read. |
+| Large-body reads in flight | 8. A request is large when `Content-Length > 64 KiB` or the length is unknown (chunked, or h2 without `content-length`), or once more than 64 KiB of its body have been read. Routes that need no credential (`/upcheck`, `/healthcheck`) never take a slot; their 4 KiB limit bounds them. |
 | Open connections | `--http-max-connections` 1024 |
 | RANDAO reveal concurrency | `max(1, GOMAXPROCS/2)` |
 
@@ -535,7 +539,8 @@ golden fixture for each check.
   so two VCs must never share it. Use `--validators-external-signer-key-file` per VC instead.
 - **`/upcheck`**: plain `OK` (not JSON), or 503 `LOADING` before the first key load and store open finish.
 - **`/healthcheck`**: the Web3Signer shape `{status, outcome, checks[{id, status, data?}]}` with the check ids
-  `default-check`, `slashing-protection-db-health-check`, `keys-check/config-files-loading`,
+  `default-check`, `slashing-protection-db-health-check` (only when slashing protection is enabled, as in
+  Web3Signer), `keys-check/config-files-loading`,
   `keys-check/keystores-bulk-loading` and `keys-check/randao` (degraded when keys cannot reveal or fewer than 1,024
   layers remain). Unauthenticated callers see only `status` and `outcome`.
 - **`/reload`**: `POST` (admin) starts an asynchronous reload and returns 202, or 409 while one runs; `GET` (sign)
@@ -616,6 +621,8 @@ show on this contract:
 | X23 (metric names) | [section 18](#18-metric-label-values) |
 | X24 (no `DEPOSIT`), X27 (no raw-signing endpoints) | [section 8](#8-artifact-types) |
 | X29 (reload never disables keys) | [section 17](#17-supporting-endpoints) |
+| X36 (`/upcheck` 503 while loading), X37 (healthcheck detail needs the sign scope), X44 (fixed reload messages) | [sections 5](#5-endpoints) and [17](#17-supporting-endpoints) |
+| X45 (every POST needs `application/json`) | [section 6](#6-authentication-and-scopes) |
 
 ## 22. Worked examples
 

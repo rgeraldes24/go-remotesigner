@@ -130,6 +130,8 @@ jobs:
         run: make headercheck
       - name: contract (OpenAPI spec, examples, docs/contract.md)
         run: make contract
+      - name: docs/reference/flags.md is current (tools/flagdoc)
+        run: go run ./tools/flagdoc -check
       - name: go-licenses check
         run: |
           go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"
