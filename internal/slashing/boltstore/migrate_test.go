@@ -48,7 +48,7 @@ func fileSchemaVersion(t *testing.T, path string) uint32 {
 	t.Helper()
 	db, err := bolt.Open(path, fileMode, &bolt.Options{ReadOnly: true})
 	mustNil(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	var v uint32
 	mustNil(t, db.View(func(tx *bolt.Tx) error {
 		v, err = schemaVersion(tx)

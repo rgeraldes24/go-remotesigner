@@ -169,7 +169,7 @@ func TestGenesisValidatorsRootPin(t *testing.T) {
 		path := dbPath(t)
 		must(t, open(t, path, boltstore.Options{}).Close())
 		s := open(t, path, boltstore.Options{GenesisValidatorsRoot: &gvr})
-		defer s.Close()
+		defer func() { _ = s.Close() }()
 		if got, ok, err := s.GenesisValidatorsRoot(ctx); err != nil || !ok || got != gvr {
 			t.Fatalf("GenesisValidatorsRoot: %x %v %v, want %x", got, ok, err, gvr)
 		}
