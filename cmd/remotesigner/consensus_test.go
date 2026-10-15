@@ -84,14 +84,21 @@ func TestDefaults(t *testing.T) {
 
 func TestHostAllowlistWords(t *testing.T) {
 	for args, want := range map[string][]string{
-		"--http-host-allowlist=all":        {"*"},
-		"--http-host-allowlist=none":       {},
-		"--http-host-allowlist=a, b":       {"a", "b"},
-		"--http-host-allowlist=signer,ALL": {"signer", "*"},
+		"--http-host-allowlist=all":  {"*"},
+		"--http-host-allowlist=none": {},
+		"--http-host-allowlist=a, b": {"a", "b"},
+		"--http-host-allowlist=ALL":  {"*"},
+		"--http-host-allowlist=None": {},
 	} {
 		cfg, code, stderr := capture(t, args, "consensus", "--network=e2e")
 		if code != exitOK || !slices.Equal(cfg.HTTP.HostAllowlist, want) {
 			t.Errorf("%s: exit %d %s, allowlist %q, want %q", args, code, stderr, cfg.HTTP.HostAllowlist, want)
+		}
+	}
+	// As in Web3Signer, "none" and "*" stand alone.
+	for _, args := range []string{"--http-host-allowlist=none,signer", "--http-host-allowlist=signer,*"} {
+		if _, code, stderr := capture(t, args, "consensus", "--network=e2e"); code != exitUsage || !strings.Contains(stderr, "cannot be combined") {
+			t.Errorf("%s: exit %d %s, want a usage error", args, code, stderr)
 		}
 	}
 }

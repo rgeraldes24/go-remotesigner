@@ -123,6 +123,7 @@ func TestStartupRefusals(t *testing.T) {
 		{"unknown flag", options{consensus: []string{"--nope"}}, 2, "usage error"},
 		{"one token file for both scopes", options{global: []string{"--http-auth-token-file=" + sharedToken, "--http-admin-token-file=" + sharedToken}}, 1,
 			"the sign and admin tokens must differ"},
+		{"none mixed into the host allowlist", options{global: []string{"--http-host-allowlist=none,localhost"}}, 2, `"none" cannot be combined`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

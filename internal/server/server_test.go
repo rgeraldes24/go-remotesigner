@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -303,6 +304,31 @@ func TestHostAllowlist(t *testing.T) {
 	}
 	if newHostAllowlist(nil).allows("localhost") {
 		t.Error("an empty allowlist admitted a host")
+	}
+}
+
+func TestParseHostAllowlist(t *testing.T) {
+	tests := []struct {
+		in   []string
+		want []string
+		err  error
+	}{
+		{in: []string{"localhost", " 127.0.0.1 ", "::1"}, want: []string{"localhost", "127.0.0.1", "::1"}},
+		{in: []string{"all"}, want: []string{"*"}},
+		{in: []string{"ALL"}, want: []string{"*"}},
+		{in: []string{"*"}, want: []string{"*"}},
+		{in: []string{"none"}, want: []string{}},
+		{in: []string{"None", ""}, want: []string{}},
+		{in: []string{"signer", ""}, want: []string{"signer"}},
+		{in: []string{"none", "signer"}, err: ErrAllowlistNoneMixed},
+		{in: []string{"signer", "all"}, err: ErrAllowlistAllMixed},
+		{in: []string{"*", "*"}, err: ErrAllowlistAllMixed},
+	}
+	for _, tt := range tests {
+		got, err := ParseHostAllowlist(tt.in)
+		if !errors.Is(err, tt.err) || (tt.err == nil && !slices.Equal(got, tt.want)) {
+			t.Errorf("ParseHostAllowlist(%q) = %q, %v; want %q, %v", tt.in, got, err, tt.want, tt.err)
+		}
 	}
 }
 

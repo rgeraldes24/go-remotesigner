@@ -14,18 +14,63 @@
 //
 // Modified by The go-remotesigner Authors, 2026: translated from Java to Go and adapted for QRL.
 // Derived from Web3Signer
-// core/src/main/java/tech/pegasys/web3signer/core/service/http/HostAllowListHandler.java
+// core/src/main/java/tech/pegasys/web3signer/core/service/http/HostAllowListHandler.java and
+// commandline/src/main/java/tech/pegasys/web3signer/commandline/config/AllowListHostsProperty.java
 // at commit 30af06dc975ba5b8ed0e17e53cba8683ca50ec02.
 
 package server
 
 import (
+	"errors"
 	"net"
+	"slices"
 	"strings"
 )
 
 // AllowAllHosts is the host-allowlist entry that admits every Host header.
 const AllowAllHosts = "*"
+
+// The list words of --http-host-allowlist.
+const (
+	allowAllWord  = "all"  // the same as AllowAllHosts
+	allowNoneWord = "none" // alone, an empty list that refuses every host
+)
+
+// Errors returned by ParseHostAllowlist.
+var (
+	ErrAllowlistNoneMixed = errors.New(`host allowlist: "none" cannot be combined with other hosts`)
+	ErrAllowlistAllMixed  = errors.New(`host allowlist: "*" or "all" cannot be combined with other hosts`)
+)
+
+// ParseHostAllowlist applies the list words of --http-host-allowlist, as
+// Web3Signer does: "all" is "*", and "none" alone is an empty list that
+// refuses every host. Neither "none" nor "*" may be combined with other
+// entries. Entries are trimmed, empty ones dropped, and the words matched
+// case-insensitively.
+func ParseHostAllowlist(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	none := false
+	for _, h := range in {
+		h = strings.TrimSpace(h)
+		switch {
+		case h == "":
+			continue
+		case strings.EqualFold(h, allowNoneWord):
+			none = true
+			continue
+		case strings.EqualFold(h, allowAllWord):
+			h = AllowAllHosts
+		}
+		out = append(out, h)
+	}
+	switch {
+	case none && len(out) > 0:
+		return nil, ErrAllowlistNoneMixed
+	case len(out) > 1 && slices.Contains(out, AllowAllHosts):
+		return nil, ErrAllowlistAllMixed
+	}
+	return out, nil
+}
 
 // hostAllowlist is the DNS-rebinding defence: a request is served only when
 // its Host header, without the port, is in the list (case-insensitively), or

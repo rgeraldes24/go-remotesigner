@@ -231,7 +231,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/server/auth/auth_test.go` | new | | | |
 | `internal/server/body.go` | new | | | |
 | `internal/server/errors.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/JsonErrorHandler.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
-| `internal/server/hostallow.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/HostAllowListHandler.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/server/hostallow.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/HostAllowListHandler.java`<br>`commandline/src/main/java/tech/pegasys/web3signer/commandline/config/AllowListHostsProperty.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/server/listener.go` | new | | | |
 | `internal/server/middleware.go` | new | | | |
 | `internal/server/ports.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |

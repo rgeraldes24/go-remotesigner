@@ -22,6 +22,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/logging"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/runner"
+	"github.com/rgeraldes24/go-remotesigner/internal/server"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
 )
 
@@ -124,7 +125,6 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 		},
 		HTTP: config.HTTP{
 			ListenHost:     c.String(flags.HTTPListenHost),
-			HostAllowlist:  hostAllowlist(c.StringSlice(flags.HTTPHostAllowlist)),
 			AuthMode:       auth.Mode(c.String(flags.HTTPAuthMode)),
 			AuthTokenFile:  c.String(flags.HTTPAuthTokenFile),
 			AdminTokenFile: c.String(flags.HTTPAdminTokenFile),
@@ -144,6 +144,11 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 			AllowGVRTOFU:              c.Bool(flags.AllowGVRTOFU),
 		},
 	}
+	hosts, err := server.ParseHostAllowlist(c.StringSlice(flags.HTTPHostAllowlist))
+	if err != nil {
+		return nil, fmt.Errorf("--%s: %w", flags.HTTPHostAllowlist, err)
+	}
+	cfg.HTTP.HostAllowlist = hosts
 	if cfg.Consensus.Network.Network == "" {
 		return nil, fmt.Errorf("--%s is required: a built-in name (%s) or a network config file",
 			flags.Network, strings.Join(network.Names(), ", "))
@@ -181,25 +186,6 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 		cfg.Consensus.Network.GenesisValidatorsRoot = &gvr
 	}
 	return cfg, nil
-}
-
-// hostAllowlist applies Web3Signer's list words: "all" is "*", and "none"
-// alone is an empty list that refuses every host.
-func hostAllowlist(in []string) []string {
-	if len(in) == 1 && strings.EqualFold(strings.TrimSpace(in[0]), "none") {
-		return []string{}
-	}
-	out := make([]string, 0, len(in))
-	for _, h := range in {
-		h = strings.TrimSpace(h)
-		if strings.EqualFold(h, "all") {
-			h = "*"
-		}
-		if h != "" {
-			out = append(out, h)
-		}
-	}
-	return out
 }
 
 func parseRoot(s string) ([32]byte, error) {
