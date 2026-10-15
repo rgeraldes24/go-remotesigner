@@ -10,6 +10,7 @@ package runner
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -144,15 +145,22 @@ loop:
 	log.Info("Shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
+	err = srv.Shutdown(shutdownCtx)
+	if err != nil {
 		log.WithError(err).Warn("In-flight requests did not finish in time")
 	}
 	if serveErr == nil {
 		serveErr = <-served
 	}
 	reloader.Close()
-	closeStore()
-	keys.Close()
+	if errors.Is(err, server.ErrHandlersRunning) {
+		// A handler may still use the store or a key; the process exit
+		// releases both (bbolt is crash-safe).
+		log.Error("Request handlers are still running; the process exits without closing the slashing-protection store")
+	} else {
+		closeStore()
+		keys.Close()
+	}
 	if portsFile != "" {
 		_ = os.Remove(portsFile)
 	}

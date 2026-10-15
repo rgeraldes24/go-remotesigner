@@ -18,6 +18,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -32,7 +33,15 @@ const (
 	MinRequestTimeout  = 5 * time.Second
 	DefaultIdleTimeout = 120 * time.Second
 	MaxHeaderBytes     = 64 << 10
+	// HandlerDrainTimeout bounds the wait for handlers still running after
+	// Shutdown has given up and closed their connections.
+	HandlerDrainTimeout = 5 * time.Second
 )
+
+// ErrHandlersRunning is returned by Shutdown when handlers are still running
+// after HandlerDrainTimeout. The caller must then not release what they use,
+// such as the slashing-protection store or the keys.
+var ErrHandlersRunning = errors.New("server: handlers still running after shutdown")
 
 // ReadTimeout returns max(5 s, slot/4).
 func ReadTimeout(secondsPerSlot uint64) time.Duration {
@@ -85,6 +94,9 @@ type Server struct {
 	http     *http.Server
 	listener net.Listener
 	errLog   interface{ Close() error }
+
+	inflight     atomic.Int64 // handlers running
+	drainTimeout time.Duration
 }
 
 // New builds the server. It does not listen yet.
@@ -120,12 +132,14 @@ func New(cfg Config) (*Server, error) {
 		hosts:   newHostAllowlist(cfg.HostAllowlist),
 		gate:    newBodyGate(cfg.LargeBodySlots),
 		metrics: m,
+
+		drainTimeout: HandlerDrainTimeout,
 	}
 	mux, err := s.newMux(cfg.Routes)
 	if err != nil {
 		return nil, err
 	}
-	s.handler = s.accessLog(s.hostCheck(s.originCheck(mux)))
+	s.handler = s.track(s.accessLog(s.hostCheck(s.originCheck(mux))))
 
 	errWriter := cfg.Log.WriterLevel(logrus.DebugLevel)
 	s.errLog = errWriter
@@ -173,12 +187,40 @@ func (s *Server) Serve() error {
 }
 
 // Shutdown stops accepting connections and waits, until ctx ends, for
-// in-flight requests to complete. Connections still active then are closed.
+// in-flight requests to complete. Connections still active then are closed,
+// and Shutdown waits up to HandlerDrainTimeout more for their handlers to
+// return, since closing a connection does not stop its handler. If some are
+// still running, the error wraps ErrHandlersRunning.
 func (s *Server) Shutdown(ctx context.Context) error {
 	defer func() { _ = s.errLog.Close() }()
 	err := s.http.Shutdown(ctx)
 	if err != nil {
 		_ = s.http.Close()
 	}
+	if !s.drain(s.drainTimeout) {
+		err = errors.Join(err, ErrHandlersRunning)
+	}
 	return err
+}
+
+// track counts the handlers running, for Shutdown.
+func (s *Server) track(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.inflight.Add(1)
+		defer s.inflight.Add(-1)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// drain waits up to d for every handler to return, and reports whether
+// they all did.
+func (s *Server) drain(d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for s.inflight.Load() > 0 {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return true
 }

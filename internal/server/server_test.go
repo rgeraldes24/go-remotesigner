@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -17,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -665,6 +667,67 @@ func TestShutdownCompletesInFlight(t *testing.T) {
 	wg.Wait()
 	if err := <-served; err != nil {
 		t.Fatalf("Serve after Shutdown = %v", err)
+	}
+}
+
+// After the shutdown deadline, Shutdown closes the connections and waits for
+// handlers still running, and reports ErrHandlersRunning when they outlast
+// the drain bound.
+func TestShutdownDrainsHandlers(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		drain   time.Duration
+		running bool
+	}{
+		{"handler returns within the drain bound", 3 * time.Second, false},
+		{"handler outlasts the drain bound", 100 * time.Millisecond, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			release := make(chan struct{})
+			var returned atomic.Bool
+			s := newTestServer(t, func(c *Config) {
+				c.Routes = []Route{{Method: http.MethodGet, Pattern: "/slow", Scope: auth.ScopeNone,
+					Handler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+						<-release // ignores its context, as CPU-bound work would
+						returned.Store(true)
+					})}}
+			})
+			s.drainTimeout = tt.drain
+			if err := s.Listen(); err != nil {
+				t.Fatal(err)
+			}
+			served := make(chan error, 1)
+			go func() { served <- s.Serve() }()
+			go func() {
+				req, _ := http.NewRequest(http.MethodGet, "http://"+s.Addr().String()+"/slow", nil)
+				req.Host = "localhost"
+				if resp, err := http.DefaultClient.Do(req); err == nil {
+					_ = resp.Body.Close()
+				}
+			}()
+			waitFor(t, func() bool { return s.inflight.Load() == 1 })
+
+			go func() {
+				time.Sleep(300 * time.Millisecond)
+				close(release)
+			}()
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			defer cancel()
+			err := s.Shutdown(ctx)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("Shutdown = %v, want the deadline", err)
+			}
+			if got := errors.Is(err, ErrHandlersRunning); got != tt.running {
+				t.Fatalf("Shutdown = %v, ErrHandlersRunning %v, want %v", err, got, tt.running)
+			}
+			if !tt.running && !returned.Load() {
+				t.Fatal("Shutdown returned before the handler did")
+			}
+			if err := <-served; err != nil {
+				t.Fatalf("Serve = %v", err)
+			}
+			waitFor(t, returned.Load)
+		})
 	}
 }
 
