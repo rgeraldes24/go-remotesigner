@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -273,26 +274,32 @@ func TestFirstUseNewLayerReReveal(t *testing.T) {
 func TestPrecompute(t *testing.T) {
 	f := newFixture(t, memstore.New())
 	f.ok(f.reveal(1000, testLayers), testLayers, metrics.RandaoFirstUse)
+	f.precomputed(testLayers - 2)
+	f.clock.atSlot(1001)
+	f.ok(f.reveal(1001, testLayers-1), testLayers-1, metrics.RandaoNewLayer)
+	if hot, scan := f.durations(metrics.RandaoPathHot), f.durations(metrics.RandaoPathScan); hot != 1 || scan != 1 {
+		t.Fatalf("%d hot and %d scan reveals, want 1 and 1", hot, scan)
+	}
+}
+
+// precomputed waits for the background computation of x_m.
+func (f *fixture) precomputed(m uint64) {
+	f.t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		f.s.mu.Lock()
 		n := f.s.keys[f.id].next
 		f.s.mu.Unlock()
-		if n != nil {
-			if n.index != testLayers-2 || n.value != f.x[testLayers-2] {
-				t.Fatalf("precomputed x_%d = %x", n.index, n.value[:4])
+		if n != nil && n.index == m {
+			if n.value != f.x[m] {
+				f.t.Fatalf("precomputed x_%d = %x", n.index, n.value[:4])
 			}
-			break
+			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("next layer never precomputed")
+			f.t.Fatalf("x_%d never precomputed", m)
 		}
 		time.Sleep(time.Millisecond)
-	}
-	f.clock.atSlot(1001)
-	f.ok(f.reveal(1001, testLayers-1), testLayers-1, metrics.RandaoNewLayer)
-	if hot, scan := f.durations(metrics.RandaoPathHot), f.durations(metrics.RandaoPathScan); hot != 1 || scan != 1 {
-		t.Fatalf("%d hot and %d scan reveals, want 1 and 1", hot, scan)
 	}
 }
 
@@ -609,4 +616,74 @@ func TestConcurrentSameLayer(t *testing.T) {
 	if classes[metrics.RandaoNewLayer] != 1 || classes[metrics.RandaoReReveal] != 7 {
 		t.Fatalf("classes %v", classes)
 	}
+}
+
+// gatedKey holds its first seed loan after arm until release is closed,
+// standing in for a slow scan.
+type gatedKey struct {
+	*seedKey
+	armed   atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (k *gatedKey) WithSeed(fn func(*[mldsa87.SeedSize]byte) error) error {
+	if k.armed.CompareAndSwap(true, false) {
+		close(k.entered)
+		<-k.release
+	}
+	return k.seedKey.WithSeed(fn)
+}
+
+// G4 S23: a slow-path scan in flight does not delay a legitimate reveal for
+// the same key, which finishes within 100 ms; the scan's result is then
+// classified against the frontier those reveals moved.
+func TestScanDoesNotBlockKey(t *testing.T) {
+	f := newFixture(t, memstore.New(), withConfig(func(c *Config) { c.Concurrency = 2 }))
+	f.ok(f.reveal(1000, testLayers), testLayers, metrics.RandaoFirstUse) // m = L-1
+	f.precomputed(testLayers - 2)
+	f.clock.atSlot(1002)
+
+	g := &gatedKey{seedKey: f.key, entered: make(chan struct{}), release: make(chan struct{})}
+	g.armed.Store(true)
+	request := func(slot uint64, j int) Request {
+		return Request{ID: f.id, Key: g, Slot: slot, Commitment: f.x[j], LogID: "test"}
+	}
+	// x_{L-5} is deeper than R = x_{L-1}: a gap advance, found by a scan.
+	scanned := make(chan Outcome, 1)
+	go func() { scanned <- f.s.Reveal(context.Background(), request(1002, testLayers-5)) }()
+	select {
+	case <-g.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the scan never started")
+	}
+
+	within := func(r Request) Outcome {
+		t.Helper()
+		done := make(chan Outcome, 1)
+		start := time.Now()
+		go func() { done <- f.s.Reveal(context.Background(), r) }()
+		select {
+		case out := <-done:
+			if d := time.Since(start); d > 100*time.Millisecond {
+				t.Fatalf("reveal took %v behind a scan", d)
+			}
+			return out
+		case <-time.After(100 * time.Millisecond):
+			close(g.release)
+			t.Fatal("a reveal for the key waited for the scan")
+			return Outcome{}
+		}
+	}
+	f.ok(within(request(1002, testLayers)), testLayers, metrics.RandaoReReveal)
+	f.ok(within(request(1001, testLayers-1)), testLayers-1, metrics.RandaoNewLayer) // m = L-2
+	select {
+	case out := <-scanned:
+		t.Fatalf("the scan finished before its release: %+v", out)
+	default:
+	}
+
+	close(g.release)
+	f.ok(<-scanned, testLayers-5, metrics.RandaoGapAdvanced)
+	f.frontier(testLayers-6, 1002)
 }

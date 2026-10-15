@@ -150,7 +150,8 @@ type Service struct {
 // keyState is what the service holds per key in memory.
 type keyState struct {
 	// mu serialises the requests and resets of the key: classification
-	// and the read-modify-write of its frontier.
+	// and the read-modify-write of its frontier. A slow-path scan runs
+	// without it.
 	mu       sync.Mutex
 	bucket   bucket
 	lastScan time.Time
@@ -220,47 +221,56 @@ func (s *Service) Reveal(ctx context.Context, r Request) Outcome {
 	start := time.Now()
 	path := metrics.RandaoPathHot
 	ks := s.state(r.ID)
-	ks.mu.Lock()
-	defer ks.mu.Unlock()
-	out := s.reveal(ctx, ks, r, &path)
+	out, scan := s.classify(ctx, ks, r, &path)
+	if scan {
+		out = s.scan(ctx, ks, r, &path)
+	}
 	if out.Err == nil && s.cfg.Metrics != nil {
 		s.cfg.Metrics.RandaoRevealDuration.WithLabelValues(path).Observe(time.Since(start).Seconds())
 	}
 	return out
 }
 
-// reveal classifies the commitment; ks.mu is held.
-func (s *Service) reveal(ctx context.Context, ks *keyState, r Request, path *string) Outcome {
+// classify answers the commitment from the stored frontier under the key's
+// lock. When it needs the slow path it takes the key's scan budget and
+// reports scan instead of answering.
+func (s *Service) classify(ctx context.Context, ks *keyState, r Request, path *string) (out Outcome, scan bool) {
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
 	st, ok, err := s.cfg.Store.RandaoState(ctx, r.ID)
 	if err != nil {
-		return storeFailure(err)
+		return storeFailure(err), false
 	}
-	var cur *slashing.RandaoState
 	if ok {
-		cur = &st
 		if r.Commitment == st.Reveal {
-			return s.advance(ctx, ks, r, cur, st.Index, nil, metrics.RandaoNewLayer, path)
+			return s.advance(ctx, ks, r, &st, st.Index, nil, metrics.RandaoNewLayer, path), false
 		}
 		if v, ok := walk(st.Reveal, r.Commitment, s.cfg.ReorgWindow); ok {
-			return released(v, metrics.RandaoReReveal)
+			return released(v, metrics.RandaoReReveal), false
 		}
 	}
-
-	// The slow path: a scan from x_0.
-	nk := negKey{id: r.ID, commitment: r.Commitment}
 	s.mu.Lock()
-	unknown := s.negative.contains(nk)
+	unknown := s.negative.contains(negKey{id: r.ID, commitment: r.Commitment})
 	s.mu.Unlock()
 	if unknown {
-		return refused(apierr.RandaoUnknownCommitment, "commitment is not in this key's onion")
+		return refused(apierr.RandaoUnknownCommitment, "commitment is not in this key's onion"), false
 	}
 	now := s.cfg.Now()
 	if wait := ks.scanWait(now, s.cfg.FullScanMinInterval); wait > 0 {
 		out := refused(apierr.RandaoScanRateLimited, "slow-path scan budget used up for this key")
 		out.RetryAfter = wait
-		return out
+		return out, false
 	}
 	ks.lastScan, ks.scanned = now, true
+	return Outcome{}, true
+}
+
+// scan is the slow path: a scan from x_0 for the commitment. The scan is
+// stateless and costs up to --randao-max-layers hashes, so it runs without
+// the key's lock, and a concurrent legitimate reveal for the key does not
+// wait for it. The frontier may have moved meanwhile, so the result is
+// classified against the frontier re-read under the lock.
+func (s *Service) scan(ctx context.Context, ks *keyState, r Request, path *string) Outcome {
 	*path = metrics.RandaoPathScan
 	if s.cfg.Metrics != nil {
 		s.cfg.Metrics.RandaoSlowPathScans.Inc()
@@ -270,7 +280,7 @@ func (s *Service) reveal(ctx context.Context, ks *keyState, r Request, path *str
 		reveal [onion.Size]byte
 		found  bool
 	)
-	err = s.withSeed(ctx, r.Key, func(seed *[mldsa87.SeedSize]byte) {
+	err := s.withSeed(ctx, r.Key, func(seed *[mldsa87.SeedSize]byte) {
 		j, reveal, found = onion.Find(seed[:], r.Commitment, s.cfg.MaxLayers)
 	})
 	if err != nil {
@@ -278,22 +288,33 @@ func (s *Service) reveal(ctx context.Context, ks *keyState, r Request, path *str
 	}
 	if !found {
 		s.mu.Lock()
-		s.negative.add(nk)
+		s.negative.add(negKey{id: r.ID, commitment: r.Commitment})
 		s.mu.Unlock()
 		return refused(apierr.RandaoUnknownCommitment, "commitment is not in this key's onion")
 	}
+
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+	st, ok, err := s.cfg.Store.RandaoState(ctx, r.ID)
+	if err != nil {
+		return storeFailure(err)
+	}
 	switch {
-	case cur == nil:
+	case !ok:
 		return s.advance(ctx, ks, r, nil, j, &reveal, metrics.RandaoFirstUse, path)
-	case j < cur.Index:
-		out := s.advance(ctx, ks, r, cur, j, &reveal, metrics.RandaoGapAdvanced, path)
+	case j == st.Index:
+		// The frontier moved to the commitment during the scan.
+		return s.advance(ctx, ks, r, &st, j, &reveal, metrics.RandaoNewLayer, path)
+	case j < st.Index:
+		out := s.advance(ctx, ks, r, &st, j, &reveal, metrics.RandaoGapAdvanced, path)
 		if out.Err == nil {
-			s.cfg.Log.WithFields(logrus.Fields{"key": r.LogID, "m": cur.Index, "j": j}).
+			s.cfg.Log.WithFields(logrus.Fields{"key": r.LogID, "m": st.Index, "j": j}).
 				Warn("RANDAO commitment was deeper than any layer this signer released (another source revealed for this key, or the store was restored): the frontier advanced")
 		}
 		return out
 	default:
-		// j > m + W: a deep reorg re-reveal of a layer above R.
+		// j > m: x_{j-1} is at or above R, so already public; beyond the
+		// reorg window this is a deep-reorg re-reveal.
 		return released(reveal, metrics.RandaoReReveal)
 	}
 }

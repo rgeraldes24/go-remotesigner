@@ -90,6 +90,8 @@ layer is computed in the background and kept in memory, so the next proposal nee
 hashes. At most `max(1, GOMAXPROCS/2)` onion computations run at once. `consensus_randao_reveal_duration_seconds{path}`
 separates the fast path (`hot`) from computations from `x_0` (`scan`), and `consensus_randao_slow_path_scans_total`
 counts the scans. Commitments a scan did not find are remembered (1,024 entries), so repeating one costs nothing.
+A scan does not hold the key's lock: a new layer or a re-reveal for the same key is served while a scan for another
+commitment runs, and the scan's result is classified against the frontier as it stands when the scan finishes.
 
 ## 5. Persistence
 
