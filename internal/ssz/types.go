@@ -50,7 +50,8 @@ func BitvectorRoot(b []byte, n uint64) ([32]byte, error) {
 	if n == 0 {
 		return [32]byte{}, ErrEmptyVector
 	}
-	if uint64(len(b)) != (n+7)/8 {
+	// n/8 + min(n%8, 1) is (n+7)/8 without wrapping for n near 2^64.
+	if uint64(len(b)) != n/8+min(n%8, 1) {
 		return [32]byte{}, fmt.Errorf("%w: %d bytes for %d bits", ErrBitvectorLength, len(b), n)
 	}
 	if rem := n % 8; rem != 0 && b[len(b)-1]>>rem != 0 {

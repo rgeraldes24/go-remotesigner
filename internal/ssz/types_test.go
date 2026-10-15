@@ -225,6 +225,8 @@ func TestBitvectorRoot(t *testing.T) {
 		{"one byte long", []byte{0x05, 0, 0}, 16, ErrBitvectorLength},
 		{"mainnet length for minimal", make([]byte, 16), 16, ErrBitvectorLength},
 		{"padding bit set", []byte{0xff, 0x1f}, 12, ErrBitvectorPadding},
+		{"max bit count", nil, ^uint64(0), ErrBitvectorLength},
+		{"bit count where n+7 wraps", nil, ^uint64(0) - 6, ErrBitvectorLength},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
