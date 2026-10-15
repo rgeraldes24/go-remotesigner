@@ -217,11 +217,12 @@ type Frontier struct {
 		Name     string `json:"name"`
 		Scenario string `json:"scenario"`
 		Signer   struct {
-			RandaoMaxLayers            uint64 `json:"randao_max_layers"`
-			RandaoReorgWindow          uint64 `json:"randao_reorg_window"`
-			SigningClockSkewSlots      uint64 `json:"signing_clock_skew_slots"`
-			RandaoNewLayerBurst        uint64 `json:"randao_new_layer_burst"`
-			RandaoNewLayerRefillEpochs uint64 `json:"randao_new_layer_refill_epochs"`
+			RandaoMaxLayers                uint64 `json:"randao_max_layers"`
+			RandaoReorgWindow              uint64 `json:"randao_reorg_window"`
+			SigningClockSkewSlots          uint64 `json:"signing_clock_skew_slots"`
+			RandaoNewLayerBurst            uint64 `json:"randao_new_layer_burst"`
+			RandaoNewLayerRefillEpochs     uint64 `json:"randao_new_layer_refill_epochs"`
+			RandaoFullScanMinIntervalSlots uint64 `json:"randao_full_scan_min_interval_slots"`
 		} `json:"signer"`
 		Steps []FrontierStep `json:"steps"`
 	} `json:"scripts"`

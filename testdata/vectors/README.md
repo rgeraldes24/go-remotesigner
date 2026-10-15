@@ -110,7 +110,7 @@ mostly out of any real range.
   signer's current slot plus `slot_offset`.
 - `randao/frontier.json`: each script starts from an empty reveal state on key 0 with the signer settings it
   names. `now_slot` is the signer's clock. `state` is the stored `(m, x_m, last)` after the
-  step. The expectations are the contract's (section 14.3); the layer values are qrysm's.
+  step. The expectations are the contract's (sections 14.3 and 14.4); the layer values are qrysm's.
 
 ## Use
 

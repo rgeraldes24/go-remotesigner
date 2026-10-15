@@ -471,8 +471,11 @@ returns 412 `RANDAO_SLOT_OUT_OF_WINDOW` for anything that would move the frontie
   key's next request is a first use, subject to conditions N.
 - No onions are built at startup, and `/upcheck` never waits for them. The first reveal per key per process is a scan
   from `x_0` (at most 2^20 SHA-256 calls, 0.04-0.26 s); the signer then precomputes `x_{m-1}` in the background. The
-  slow path runs at most once per key per `--randao-full-scan-min-interval` (default `SECONDS_PER_SLOT`), otherwise
-  429 `RANDAO_SCAN_RATE_LIMITED`.
+  slow path (a first use, a gap advance, or a commitment more than `W` above `R`) runs at most once per key per
+  `--randao-full-scan-min-interval` (default `SECONDS_PER_SLOT`), otherwise 429 `RANDAO_SCAN_RATE_LIMITED`. The budget
+  is checked before the scan, and so before conditions N: only the scan tells which class the commitment is in, and
+  so whether conditions N apply. A slow-path request inside the interval gets 429 even if conditions N would refuse
+  it too.
 
 ## 15. Selection proofs and signing modes
 
@@ -662,7 +665,10 @@ What follows from that reveal:
   one more layer.
 - Submitting it with slot 500 returns 412 `RANDAO_SLOT_OUT_OF_WINDOW`.
 - Submitting a commitment several layers deeper than anything this signer released (for example one an old local VC
-  revealed on chain) with slot 63 releases exactly one layer and logs a WARN (`result="gap_advanced"`). A second such
-  request in slot 63 returns 412 `RANDAO_SLOT_NOT_INCREASING`.
+  revealed on chain) with slot 63, at least `SECONDS_PER_SLOT` after the first reveal's scan, releases exactly one
+  layer and logs a WARN (`result="gap_advanced"`). A second such request in slot 63 needs another slow-path scan:
+  within `SECONDS_PER_SLOT` of the first it returns 429 `RANDAO_SCAN_RATE_LIMITED`, because the scan budget is checked
+  before the slot rule (section 14.4); later, while slot 63 is still in the window, it returns 412
+  `RANDAO_SLOT_NOT_INCREASING`.
 - A fourth frontier-moving release for the same key within one epoch returns 412 `RANDAO_NEW_LAYER_RATE_LIMITED`
   (default burst 3).

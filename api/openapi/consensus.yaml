@@ -274,9 +274,10 @@ paths:
         - first use (no state): scan from x_0 (rate-limited, else 429); new-layer conditions; release.
         - commitment reachable forward from R in 1..W steps, or further (slow path): re-reveal, no state change.
         - commitment == R: a new layer; new-layer conditions; release x_{m-1}.
-        - commitment deeper than anything this signer released: the frontier advances to it under the same
-          new-layer conditions (one layer per slot, bucket applies) and a WARN is logged. It is never refused
-          merely for being deeper.
+        - commitment deeper than anything this signer released: found by a scan from x_0 (rate-limited, else
+          429, checked before the new-layer conditions); the frontier advances to it under the same new-layer
+          conditions (one layer per slot, bucket applies) and a WARN is logged. It is never refused merely for
+          being deeper.
         - not in this onion: 422 `RANDAO_UNKNOWN_COMMITMENT`.
 
         New layers require the signer to know the genesis time. The client must verify

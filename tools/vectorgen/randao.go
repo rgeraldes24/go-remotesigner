@@ -216,10 +216,13 @@ const (
 	scriptSkew        = 1
 	scriptReorgWindow = 1024
 	scriptBurst       = 3
+	// scriptScanSlots is --randao-full-scan-min-interval in slots (its
+	// default, SECONDS_PER_SLOT).
+	scriptScanSlots = 1
 )
 
 // step is one reveal request of a frontier script and what the contract's
-// frontier rule (docs/contract.md section 14.3) answers.
+// frontier rule (docs/contract.md sections 14.3 and 14.4) answers.
 type step struct {
 	now, slot uint64
 	// layer is the commitment's onion index; commitment overrides it with
@@ -262,9 +265,11 @@ func refused(now, slot, layer uint64, status int, reason string, m, last uint64,
 // frontierScripts are the G1 §5 scenarios under the contract's frontier rule,
 // each from an empty state on key 0, whose onion has L = 2^20 layers. Steps
 // that need a slow-path scan from x_0 are two slots apart, so the default
-// --randao-full-scan-min-interval (one slot) never decides an outcome; the
-// one exception is the contract's own §22 example, where the slot rule
-// refuses a second gap advance in the same slot.
+// --randao-full-scan-min-interval (one slot) never decides an outcome. The
+// one exception is the contract's §22 example of a second gap advance in the
+// same slot, where the scan budget, checked before conditions N (§14.4),
+// refuses it with 429; gap_advanced_slot_rule shows the slot rule refusing a
+// gap advance once the budget has refilled.
 func frontierScripts() []script {
 	L := uint64(bigL)
 	return []script{
@@ -297,10 +302,15 @@ func frontierScripts() []script {
 			refused(102, 100, L, 412, "RANDAO_SLOT_OUT_OF_WINDOW", 0, 0, false),
 			released(104, 103, L, "first_use", L-1, 103),
 		}},
-		{name: "gap_advanced", scenario: "G1 §5 #6, #9; contract §22: the slot rule refuses a second advance in the same slot", refillEpochs: 1, steps: []step{
+		{name: "gap_advanced", scenario: "G1 §5 #6, #9; contract §22, §14.4: a second advance in the same slot needs a scan inside the budget's interval", refillEpochs: 1, steps: []step{
 			released(100, 100, L, "first_use", L-1, 100),
 			released(200, 200, L-10, "gap_advanced", L-11, 200),
-			refused(200, 200, L-20, 412, "RANDAO_SLOT_NOT_INCREASING", L-11, 200, true),
+			refused(200, 200, L-20, 429, "RANDAO_SCAN_RATE_LIMITED", L-11, 200, true),
+		}},
+		{name: "gap_advanced_slot_rule", scenario: "contract §22: once the scan budget has refilled, the slot rule refuses a second advance for the same slot", refillEpochs: 1, steps: []step{
+			released(100, 100, L, "first_use", L-1, 100),
+			released(200, 201, L-10, "gap_advanced", L-11, 201),
+			refused(202, 201, L-20, 412, "RANDAO_SLOT_NOT_INCREASING", L-11, 201, true),
 		}},
 		{name: "deep_reorg_within_window", scenario: "G1 §5 #11", refillEpochs: 1, steps: []step{
 			released(100, 100, L, "first_use", L-1, 100),
@@ -423,12 +433,13 @@ func genFrontier(g *generator) error {
 				set("randao_reorg_window", scriptReorgWindow).
 				set("signing_clock_skew_slots", scriptSkew).
 				set("randao_new_layer_burst", scriptBurst).
-				set("randao_new_layer_refill_epochs", s.refillEpochs)).
+				set("randao_new_layer_refill_epochs", s.refillEpochs).
+				set("randao_full_scan_min_interval_slots", scriptScanSlots)).
 			set("steps", steps))
 	}
 	return writeJSON(g.vectors, "randao/frontier.json", obj{}.
 		set("description", g.description("Vector V6: frontier-rule scripts for the G1 §5 scenarios under "+
-			"docs/contract.md section 14.3, on interop key 0 (onion length 2^20) of the end-to-end network "+
+			"docs/contract.md sections 14.3 and 14.4, on interop key 0 (onion length 2^20) of the end-to-end network "+
 			"(6 slots per epoch). Each script starts from an empty reveal state; now_slot is the signer's clock. "+
 			"The expectations are the contract's; every layer value was computed by qrysm's crypto/randao, and "+
 			"layers lists each index the scripts use. state is the stored (m, x_m, last) after the step, or null.")).
