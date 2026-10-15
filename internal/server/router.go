@@ -79,6 +79,10 @@ func (s *Server) newMux(routes []Route) (*http.ServeMux, error) {
 		if rt.Handler == nil || !strings.HasPrefix(rt.Pattern, "/") || strings.ContainsAny(rt.Pattern, " \t") {
 			return nil, fmt.Errorf("server: route %q %q: need a handler and a path pattern", rt.Method, rt.Pattern)
 		}
+		if rt.Scope == auth.ScopeNone && rt.bodyLimit() > LargeBodyThreshold {
+			// limitBody does not gate these routes; see there.
+			return nil, fmt.Errorf("server: route %s %s needs no credential, so its body limit must not exceed %d", rt.Method, rt.Pattern, LargeBodyThreshold)
+		}
 		if rt.Scope == auth.ScopeAdmin && !s.cfg.Auth.HasAdmin() {
 			return nil, fmt.Errorf("server: admin route %s %s needs an admin token", rt.Method, rt.Pattern)
 		}

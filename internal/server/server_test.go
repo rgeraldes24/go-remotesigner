@@ -273,6 +273,7 @@ func TestAdminRouteNeedsAdminToken(t *testing.T) {
 		t.Fatalf("New = %v, want an admin-token error", err)
 	}
 	for _, routes := range [][]Route{
+		{{Method: "POST", Pattern: "/x", Scope: auth.ScopeNone, BodyLimit: LargeBodyThreshold + 1, Handler: http.HandlerFunc(ok)}},
 		{{Method: "PUT", Pattern: "/x", Handler: http.HandlerFunc(ok)}},
 		{{Method: "GET", Pattern: "x", Handler: http.HandlerFunc(ok)}},
 		{{Method: "GET", Pattern: "/x"}},
@@ -408,38 +409,94 @@ func TestLargeBodyGateChunked(t *testing.T) {
 	waitFor(t, func() bool { return len(s.gate.slots) == 0 })
 }
 
-// A body of known small length needs no slot, but one whose reads cross the
-// threshold takes one before reading past it.
+// A body needs a slot only once more than 64 KiB of it have actually been
+// read, however large the reader's buffer.
 func TestGatedBodyCrossing(t *testing.T) {
-	g := newBodyGate(1)
-	tk := &ticket{gate: g}
-	b := &gatedBody{ReadCloser: io.NopCloser(bytes.NewReader(make([]byte, 100<<10))), ctx: context.Background(), ticket: tk}
-	buf := make([]byte, 32<<10)
-	for range 2 {
-		if _, err := b.Read(buf); err != nil {
-			t.Fatal(err)
+	newBody := func(ctx context.Context, g *bodyGate, size int) *gatedBody {
+		return &gatedBody{ReadCloser: io.NopCloser(bytes.NewReader(make([]byte, size))), ctx: ctx, ticket: &ticket{gate: g}}
+	}
+	// io.ReadAll grows its buffer past the bytes read; that alone must not
+	// take a slot.
+	for _, size := range []int{50 << 10, 60 << 10, LargeBodyThreshold} {
+		g := newBodyGate(1)
+		b := newBody(context.Background(), g, size)
+		data, err := io.ReadAll(b)
+		if err != nil || len(data) != size {
+			t.Fatalf("ReadAll of %d bytes: %d, %v", size, len(data), err)
+		}
+		if b.ticket.held || len(g.slots) != 0 {
+			t.Fatalf("a %d-byte body took a slot", size)
 		}
 	}
-	if tk.held {
+
+	g := newBodyGate(1)
+	b := newBody(context.Background(), g, 100<<10)
+	buf := make([]byte, 48<<10)
+	for _, want := range []int{48 << 10, 16 << 10} {
+		if n, err := b.Read(buf); err != nil || n != want {
+			t.Fatalf("read %d, %v; want %d", n, err, want)
+		}
+	}
+	if b.ticket.held {
 		t.Fatal("slot taken at 64 KiB read")
 	}
 	if _, err := b.Read(buf); err != nil {
 		t.Fatal(err)
 	}
-	if !tk.held || len(g.slots) != 1 {
+	if !b.ticket.held || len(g.slots) != 1 {
 		t.Fatal("no slot taken past 64 KiB")
+	}
+	if _, err := io.Copy(io.Discard, b); err != nil || b.read != 100<<10 {
+		t.Fatalf("rest of the body: %d bytes read in all, %v", b.read, err)
 	}
 
 	// With the gate full, a crossing read waits and gives up with its context.
 	ctx, cancel := context.WithCancel(context.Background())
-	other := &gatedBody{ReadCloser: io.NopCloser(bytes.NewReader(make([]byte, 100<<10))), ctx: ctx, ticket: &ticket{gate: g}}
+	other := newBody(ctx, g, 100<<10)
 	cancel()
-	if _, err := other.Read(make([]byte, 65<<10)); err == nil {
+	if n, err := other.Read(make([]byte, 65<<10)); err != nil || n != LargeBodyThreshold {
+		t.Fatalf("read below the threshold: %d, %v", n, err)
+	}
+	if _, err := other.Read(make([]byte, 1)); err == nil {
 		t.Fatal("a read past the threshold proceeded without a slot")
 	}
-	tk.release()
+	b.ticket.release()
 	if len(g.slots) != 0 {
 		t.Fatal("release did not free the slot")
+	}
+}
+
+// Routes that need no credential never take a large-body slot, so tokenless
+// chunked bodies trickled to /open cannot hold the gate against
+// authenticated large bodies.
+func TestOpenRouteNotGated(t *testing.T) {
+	s := newTestServer(t, nil)
+	base := serve(t, s)
+	addr := strings.TrimPrefix(base, "http://")
+
+	for range DefaultLargeBodySlots {
+		c, err := net.Dial("tcp", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		if _, err := io.WriteString(c, "GET /open HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx\r\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(200 * time.Millisecond) // the requests are in limitBody, reading
+	if n := len(s.gate.slots); n != 0 {
+		t.Fatalf("%d slots taken by tokenless requests", n)
+	}
+
+	start := time.Now()
+	resp, err := postChunked(base+"/body/0x01", bytes.NewReader(make([]byte, 1<<20)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 || time.Since(start) > 2*time.Second {
+		t.Fatalf("authenticated chunked body: %d after %v", resp.StatusCode, time.Since(start))
 	}
 }
 

@@ -365,7 +365,7 @@ The qrysm client logs 412 refusals at WARN, never ERROR.
 | `ReadHeaderTimeout` / `ReadTimeout` / `WriteTimeout` | 5 s / max(5 s, slot/4) / max(5 s, slot/3); `publicKeys` 120 s and the keymanager 10 min |
 | `IdleTimeout` | 120 s, above the Go client's 90 s `IdleConnTimeout` |
 | Signing concurrency | 32 in flight, queue 512, then 503 `OVERLOADED` |
-| Large-body reads in flight | 8. A request is large when `Content-Length > 64 KiB` or the length is unknown (chunked, or h2 without `content-length`), or once 64 KiB of its body have been read. |
+| Large-body reads in flight | 8. A request is large when `Content-Length > 64 KiB` or the length is unknown (chunked, or h2 without `content-length`), or once more than 64 KiB of its body have been read. Routes that need no credential (`/upcheck`, `/healthcheck`) never take a slot; their 4 KiB limit bounds them. |
 | Open connections | `--http-max-connections` 1024 |
 | RANDAO reveal concurrency | `max(1, GOMAXPROCS/2)` |
 

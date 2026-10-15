@@ -236,6 +236,39 @@ func TestLargeBodyGate(t *testing.T) {
 	}
 }
 
+// Tokenless chunked bodies trickled to /upcheck take no large-body slot, so
+// they cannot hold the gate against authenticated large bodies.
+func TestTokenlessBodiesTakeNoSlot(t *testing.T) {
+	s := start(t, options{})
+	s.waitReady()
+	for range 8 {
+		c, err := net.Dial("tcp", "127.0.0.1:"+s.port)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		if _, err := io.WriteString(c, "GET /upcheck HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx\r\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(200 * time.Millisecond) // all 8 are reading their bodies
+
+	pr, pw := io.Pipe()
+	code := postHeld(s, s.adminToken(), pr)
+	go func() {
+		_, _ = pw.Write([]byte("{}"))
+		_ = pw.Close()
+	}()
+	select {
+	case c := <-code:
+		if c != 202 && c != 409 {
+			t.Fatalf("admin chunked POST /reload: %d", c)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("an authenticated chunked body waited behind tokenless ones")
+	}
+}
+
 // With --http-max-connections=4 a 5th connection is not served until one of
 // the four closes.
 func TestMaxConnections(t *testing.T) {
