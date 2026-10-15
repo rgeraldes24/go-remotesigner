@@ -9,7 +9,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	rawmldsa87 "github.com/theQRL/go-qrllib/crypto/ml_dsa_87"
 	walletmldsa87 "github.com/theQRL/go-qrllib/wallet/ml_dsa_87"
@@ -362,6 +364,53 @@ func TestConcurrentSignAndZeroize(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Error(err)
+	}
+}
+
+// TestZeroizeWaitsForWithSeed runs under -race: a Zeroize that starts while
+// a WithSeed callback is running returns only after the callback has
+// returned, and Sign is not blocked by the callback in the meantime.
+func TestZeroizeWaitsForWithSeed(t *testing.T) {
+	k := newTestKey(t, 12)
+	inFn := make(chan struct{})
+	release := make(chan struct{})
+	var fnDone atomic.Bool
+	seedErr := make(chan error, 1)
+	go func() {
+		seedErr <- k.WithSeed(func(*[SeedSize]byte) error {
+			close(inFn)
+			<-release
+			fnDone.Store(true)
+			return nil
+		})
+	}()
+	<-inFn
+
+	// Signing proceeds while the callback holds the seed.
+	if _, err := k.Sign([]byte("m"), Hedged); err != nil {
+		t.Fatalf("Sign during WithSeed: %v", err)
+	}
+
+	zeroized := make(chan struct{})
+	go func() {
+		k.Zeroize()
+		close(zeroized)
+	}()
+	select {
+	case <-zeroized:
+		t.Fatal("Zeroize returned while a WithSeed callback was running")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	<-zeroized
+	if !fnDone.Load() {
+		t.Fatal("Zeroize returned before the WithSeed callback")
+	}
+	if err := <-seedErr; err != nil {
+		t.Fatalf("WithSeed: %v", err)
+	}
+	if err := k.WithSeed(func(*[SeedSize]byte) error { return nil }); !errors.Is(err, ErrZeroized) {
+		t.Fatalf("WithSeed after Zeroize: err = %v, want ErrZeroized", err)
 	}
 }
 

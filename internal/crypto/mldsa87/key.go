@@ -20,6 +20,11 @@ type Key struct {
 
 	mu     sync.Mutex
 	wallet *walletmldsa87.Wallet // nil once zeroized
+
+	// seedMu is held for reading by every running WithSeed callback, so
+	// that Zeroize can wait for them without taking mu, which would block
+	// signing for the length of an onion scan.
+	seedMu sync.RWMutex
 }
 
 // FromSeed48 builds a consensus key from the validator's 48-byte wallet seed
@@ -88,11 +93,16 @@ func (k *Key) Verify(message, sig []byte) bool {
 }
 
 // WithSeed calls fn with a temporary copy of the 48-byte wallet seed, which it
-// wipes when fn returns. Only seed holders can compute RANDAO reveals. The key
-// lock is not held while fn runs, so a long onion scan does not block signing;
-// it returns ErrZeroized if the key was zeroized before the copy was taken.
-// fn must not retain the pointer.
+// wipes when fn returns. Only seed holders can compute RANDAO reveals. It
+// returns ErrZeroized, without calling fn, once the key has been zeroized.
+//
+// Signing is not blocked while fn runs, so a long onion scan does not delay
+// Sign. Zeroize does wait for fn to return, so a caller that sees WithSeed
+// return nil knows the key was live for the whole of fn. fn must not retain
+// the pointer and must not call Zeroize on the same key.
 func (k *Key) WithSeed(fn func(seed *[SeedSize]byte) error) error {
+	k.seedMu.RLock()
+	defer k.seedMu.RUnlock()
 	k.mu.Lock()
 	if k.wallet == nil {
 		k.mu.Unlock()
@@ -105,14 +115,20 @@ func (k *Key) WithSeed(fn func(seed *[SeedSize]byte) error) error {
 }
 
 // Zeroize clears the wallet's seed and secret key and makes the key refuse
-// to sign. It waits for an in-flight Sign to finish. It is idempotent.
+// to sign. It waits for an in-flight Sign and for running WithSeed callbacks
+// to finish; once it returns, no copy of the seed made by this key remains.
+// It is idempotent.
 func (k *Key) Zeroize() {
 	k.mu.Lock()
-	defer k.mu.Unlock()
 	if k.wallet != nil {
 		k.wallet.Zeroize()
 		k.wallet = nil
 	}
+	k.mu.Unlock()
+	// Taking seedMu for writing waits for the WithSeed callbacks that copied
+	// the seed before the wallet went; later ones see ErrZeroized.
+	k.seedMu.Lock()
+	defer k.seedMu.Unlock()
 }
 
 // Zeroized reports whether Zeroize has been called.
