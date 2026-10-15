@@ -19,7 +19,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test fuzz contract lint headercheck licenses license-hash vuln vectors docs clean
+.PHONY: all build build-consensus test fuzz contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify docs clean
 
 all: build build-consensus
 
@@ -69,10 +69,25 @@ licenses:
 vuln:
 	$(GOVULNCHECK) ./...
 
-## vectors: regenerate testdata/vectors with the nested tools/vectorgen module (milestone S3)
+## nogpl: the signer module links no qrysm package, in either flavour (only tools/vectorgen may)
+nogpl:
+	@! $(GO) list -deps ./... | grep '^github.com/theQRL/qrysm'
+	@! $(GO) list -deps -tags noexecution ./... | grep '^github.com/theQRL/qrysm'
+
+## vectors: regenerate testdata/vectors and internal/network/embedded with the nested tools/vectorgen module.
+## The built tool links qrysm (GPL-3.0) and is never shipped; see tools/vectorgen/README.md.
 vectors:
-	@test -f tools/vectorgen/go.mod || { echo "vectors: tools/vectorgen does not exist yet (milestone S3)" >&2; exit 1; }
-	cd tools/vectorgen && $(GO) run .
+	cd tools/vectorgen && $(GO) run . gen
+
+## vectors-test: vet and test tools/vectorgen (its own module)
+vectors-test:
+	cd tools/vectorgen && $(GO) vet ./... && $(GO) test -short ./...
+
+## vectors-verify: check a running signer against the golden vectors (SIGNER, TOKEN_FILE)
+SIGNER     ?= http://127.0.0.1:9000
+TOKEN_FILE ?=
+vectors-verify:
+	cd tools/vectorgen && $(GO) run . verify -signer $(SIGNER) $(if $(TOKEN_FILE),-token-file $(abspath $(TOKEN_FILE)))
 
 ## docs: regenerate docs/reference/flags.md with tools/flagdoc (milestone S5a)
 docs:
