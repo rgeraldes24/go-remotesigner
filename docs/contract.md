@@ -513,7 +513,7 @@ returns 412 `RANDAO_SLOT_OUT_OF_WINDOW` for anything that would move the frontie
 |---|---|
 | `api_version` | The contract version, equal to `info.version` of the spec (`1.0.0`) |
 | `types` | The **enabled** artifact types; a disabled type (exits by default) is absent |
-| `randao_reveal` | `false` when the signer cannot release new layers: genesis time unknown, or `--randao-reveal-enabled=false` |
+| `randao_reveal` | `false` when the signer cannot release new layers: genesis time unknown |
 | `selection_proof_mode` | `deterministic` or `hedged` |
 | `slashing_protection` | `bolt`, `postgres` or `disabled` |
 | `network.config_name`, `genesis_fork_version` | From the network configuration |
@@ -557,7 +557,7 @@ part of the contract. A change needs the evaluator changed in lockstep.
 
 | Metric | Labels and values |
 |---|---|
-| `consensus_randao_reveals_total{result}` | `first_use`, `new_layer`, `gap_advanced`, `re_reveal`, `refused` (any 412, 422 or 429), `error` (500) |
+| `consensus_randao_reveals_total{result}` | `first_use`, `new_layer`, `gap_advanced`, `re_reveal`, `refused` (any 412, 422 or 429), `error` (5xx, including 503 `KEY_QUARANTINED`) |
 | `consensus_randao_new_layer_rate_limited_total` | no labels |
 | `consensus_slashingprotection_prevented_signings_total{reason}` | the 412 `SLASHING_*` and `VALIDATOR_DISABLED` reasons, lower-cased (for example `slashing_double_vote`) |
 | `signing_verify_failures_total` | no labels |

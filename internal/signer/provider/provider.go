@@ -65,6 +65,9 @@ type Batch struct {
 // Delta summarises an Apply.
 type Delta struct {
 	Added, Removed, Kept int
+	// Renewed counts the loaded keys replaced by the copy just derived,
+	// because renew asked for it.
+	Renewed int
 	// Errors counts the batches that failed.
 	Errors int
 }
@@ -127,7 +130,9 @@ func (p *Provider) PublicKeys() iter.Seq[*mldsa87.PublicKey] {
 //
 //   - a failed batch keeps the keys its source had in the current set;
 //   - a key already loaded keeps its current object, and the duplicate just
-//     derived is zeroized;
+//     derived is zeroized, unless renew reports true for its id: then the
+//     copy just derived replaces it, and the old object is zeroized after
+//     the swap (the signer renews quarantined keys this way);
 //   - of two batches with the same key, the first wins, with a warning;
 //   - sources absent from batches are dropped.
 //
@@ -135,8 +140,8 @@ func (p *Provider) PublicKeys() iter.Seq[*mldsa87.PublicKey] {
 // the set (it registers them in slashing protection); if it fails, nothing
 // changes, the new keys are zeroized and its error is returned. After the
 // swap, keys no longer in the set are zeroized. Apply takes ownership of
-// every key in batches.
-func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error) (Delta, error) {
+// every key in batches. A nil renew renews nothing.
+func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error, renew func(ID) bool) (Delta, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
@@ -152,6 +157,7 @@ func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error)
 		added   [][]byte
 		fresh   []*mldsa87.Key // keys of this load that entered the set
 		discard []*mldsa87.Key // keys of this load that did not
+		renewed []*mldsa87.Key // loaded keys replaced by a copy of this load
 	)
 	put := func(e *Entry) bool {
 		id := e.Key.ID()
@@ -176,8 +182,17 @@ func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error)
 		}
 		for _, k := range b.Keys {
 			if old, ok := cur.byID[k.ID()]; ok {
-				discard = append(discard, k)
-				put(&Entry{Key: old.Key, PK: old.PK, Source: b.Source})
+				if renew == nil || !renew(k.ID()) {
+					discard = append(discard, k)
+					put(&Entry{Key: old.Key, PK: old.PK, Source: b.Source})
+					continue
+				}
+				if put(&Entry{Key: k, PK: k.PublicKey(), Source: b.Source}) {
+					fresh = append(fresh, k)
+					renewed = append(renewed, old.Key)
+				} else {
+					discard = append(discard, k)
+				}
 				continue
 			}
 			if !put(&Entry{Key: k, PK: k.PublicKey(), Source: b.Source}) {
@@ -206,6 +221,8 @@ func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error)
 	p.state.Store(next)
 
 	zeroize(discard)
+	zeroize(renewed)
+	d.Renewed = len(renewed)
 	for id, e := range cur.byID {
 		if _, ok := next.byID[id]; !ok {
 			e.Key.Zeroize()

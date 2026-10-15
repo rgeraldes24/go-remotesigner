@@ -55,6 +55,8 @@ func render() []byte {
 
 ` + "```" + `
 remotesigner [global flags] consensus [consensus flags]
+remotesigner [global flags] consensus [consensus flags] migrate [migrate flags]
+remotesigner [global flags] consensus [consensus flags] randao-state reset --key <id> [reset flags]
 ` + "```" + `
 
 Every flag can also be set:
@@ -71,6 +73,16 @@ missing ` + "`--network`" + ` and an invalid config file), 1 when the signer ref
 	section(&b, "## Global flags", "", flags.Global(), false)
 	section(&b, "## Consensus flags", flags.ConsensusCommand, flags.Consensus(), false)
 	b.WriteString(`
+## Offline store commands
+
+These subcommands work on the bbolt slashing-protection store while the signer is stopped (bbolt allows one process
+per file; they refuse a store that a running signer holds). They read ` + "`--data-path`" + ` for the default store
+location. Their flags are not read from the config file; ` + "`--slashing-protection-db-url`" + ` may also be given to
+` + "`consensus`" + ` itself, on the command line, in the environment or in the config file.
+`)
+	section(&b, "### consensus migrate", subcommand, flags.Migrate(), false)
+	section(&b, "### consensus randao-state reset", subcommand, flags.RandaoStateReset(), false)
+	b.WriteString(`
 ## Override flags
 
 These flags are hidden from ` + "`--help`" + `. Each one accepts a risk that a startup fail-safe otherwise refuses on a
@@ -80,6 +92,10 @@ non-loopback listener. None of them can re-enable a disabled slashing protection
 	section(&b, "### Consensus", flags.ConsensusCommand, flags.Consensus(), true)
 	return b.Bytes()
 }
+
+// subcommand marks a section of subcommand flags, which have no
+// config-file key of their own.
+const subcommand = "-"
 
 func section(b *bytes.Buffer, title, command string, fs []cli.Flag, hidden bool) {
 	fmt.Fprintf(b, "\n%s\n", title)
@@ -98,8 +114,14 @@ func section(b *bytes.Buffer, title, command string, fs []cli.Flag, hidden bool)
 			env = append(env, "`"+e+"`")
 		}
 		yamlKey := "`" + f.Names()[0] + "`"
-		if command != "" {
+		switch {
+		case command == subcommand:
+			yamlKey = "none"
+		case command != "":
 			yamlKey = "`" + f.Names()[0] + "` or `" + command + "." + f.Names()[0] + "`"
+		}
+		if len(env) == 0 {
+			env = []string{"none"}
 		}
 		if f.Names()[0] == flags.ConfigFile {
 			env, yamlKey = []string{"none"}, "none"

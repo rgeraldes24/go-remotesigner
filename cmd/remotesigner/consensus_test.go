@@ -17,6 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
+	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
 )
 
@@ -79,6 +80,57 @@ func TestDefaults(t *testing.T) {
 	if cfg.Logging.Level != "INFO" || cfg.Logging.Format != "text" || !cfg.Consensus.SlashingProtectionEnabled ||
 		cfg.Consensus.KeyManagerAPIEnabled || cfg.Consensus.Network.GenesisTime != nil || cfg.Consensus.Network.GenesisValidatorsRoot != nil {
 		t.Fatalf("defaults %+v", cfg)
+	}
+}
+
+// The metrics listener and the signing policy flags: Web3Signer's metrics
+// names and defaults, exits off, deterministic selection proofs.
+func TestSigningAndMetricsFlags(t *testing.T) {
+	cfg, code, stderr := capture(t, "consensus", "--network=e2e")
+	if code != exitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if cfg.Metrics.Enabled || cfg.Metrics.Host != "127.0.0.1" || cfg.Metrics.Port != 9001 ||
+		!slices.Equal(cfg.Metrics.HostAllowlist, []string{"localhost", "127.0.0.1"}) {
+		t.Fatalf("metrics defaults %+v", cfg.Metrics)
+	}
+	c := cfg.Consensus
+	if c.VoluntaryExitsEnabled || c.FeeRecipientFile != "" || c.ClockSkewSlots != 1 || c.SelectionProofMode != mldsa87.Deterministic {
+		t.Fatalf("signing defaults %+v", c)
+	}
+	if cfg.Version == "" {
+		t.Fatal("no release version")
+	}
+
+	cfg, code, stderr = capture(t, "--metrics-enabled", "--metrics-host=0.0.0.0", "--metrics-port=9101",
+		"--metrics-host-allowlist=prometheus,all-the-rest", "consensus", "--network=e2e",
+		"--voluntary-exit-signing-enabled", "--registration-fee-recipient-file=/pins.yaml",
+		"--signing-clock-skew-slots=2", "--selection-proof-signing=hedged")
+	if code != exitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	want := config.Metrics{Enabled: true, Host: "0.0.0.0", Port: 9101, HostAllowlist: []string{"prometheus", "all-the-rest"}}
+	if cfg.Metrics.Enabled != want.Enabled || cfg.Metrics.Addr() != "0.0.0.0:9101" || !slices.Equal(cfg.Metrics.HostAllowlist, want.HostAllowlist) {
+		t.Fatalf("metrics %+v", cfg.Metrics)
+	}
+	c = cfg.Consensus
+	if !c.VoluntaryExitsEnabled || c.FeeRecipientFile != "/pins.yaml" || c.ClockSkewSlots != 2 || c.SelectionProofMode != mldsa87.Hedged {
+		t.Fatalf("signing flags %+v", c)
+	}
+
+	for args, want := range map[string]string{
+		"--selection-proof-signing=random": "selection-proof-signing",
+		"--metrics-port=70000":             "not a TCP port",
+		"--metrics-host-allowlist=none,a":  "cannot be combined",
+	} {
+		global := strings.HasPrefix(args, "--metrics")
+		argv := []string{"consensus", "--network=e2e", args}
+		if global {
+			argv = []string{args, "consensus", "--network=e2e"}
+		}
+		if _, code, stderr := capture(t, argv...); code != exitUsage || !strings.Contains(stderr, want) {
+			t.Errorf("%s: exit %d %q, want a usage error mentioning %q", args, code, stderr, want)
+		}
 	}
 }
 

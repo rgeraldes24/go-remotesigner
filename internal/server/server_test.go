@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -758,14 +759,103 @@ func TestShutdownDrainsHandlers(t *testing.T) {
 }
 
 func TestWritePortsFile(t *testing.T) {
-	dir := t.TempDir()
-	path, err := WritePortsFile(dir, 9123)
+	tests := []struct {
+		name        string
+		metricsPort int
+		want        []string
+		notWant     string
+	}{
+		{"API only", 0, []string{"\nhttp-port=9123\n"}, "metrics-port"},
+		{"with metrics", 9124, []string{"\nhttp-port=9123\n", "\nmetrics-port=9124\n"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, err := WritePortsFile(t.TempDir(), 9123, tt.metricsPort)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, _ := os.ReadFile(path)
+			if filepath.Base(path) != PortsFileName {
+				t.Fatalf("written to %s", path)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(string(data), w) {
+					t.Errorf("%q lacks %q", data, w)
+				}
+			}
+			if tt.notWant != "" && strings.Contains(string(data), tt.notWant) {
+				t.Errorf("%q has %q", data, tt.notWant)
+			}
+		})
+	}
+}
+
+// The request metrics label each request with its route pattern, never the
+// path, and its status; a request refused before routing has route "-".
+func TestRequestMetrics(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	s := newTestServer(t, func(c *Config) { c.Registerer = reg })
+	h := s.Handler()
+	for _, r := range []*http.Request{
+		httptest.NewRequest(http.MethodGet, "http://localhost/open", nil),
+		httptest.NewRequest(http.MethodGet, "http://evil.example/open", nil),
+	} {
+		h.ServeHTTP(httptest.NewRecorder(), r)
+	}
+	mfs, err := reg.Gather()
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _ := os.ReadFile(path)
-	if filepath.Base(path) != PortsFileName || !strings.Contains(string(data), "\nhttp-port=9123\n") {
-		t.Fatalf("%s: %q", path, data)
+	got := map[string]uint64{}
+	for _, mf := range mfs {
+		switch mf.GetName() {
+		case "http_request_duration_seconds":
+			for _, m := range mf.GetMetric() {
+				labels := map[string]string{}
+				for _, l := range m.GetLabel() {
+					labels[l.GetName()] = l.GetValue()
+				}
+				got[labels["route"]+" "+labels["code"]] = m.GetHistogram().GetSampleCount()
+			}
+		case "http_requests_in_flight":
+			if v := mf.GetMetric()[0].GetGauge().GetValue(); v != 0 {
+				t.Errorf("http_requests_in_flight = %v after the requests", v)
+			}
+		}
+	}
+	want := map[string]uint64{"/open 200": 1, "- 403": 1}
+	if !maps.Equal(got, want) {
+		t.Fatalf("http_request_duration_seconds samples %v, want %v", got, want)
+	}
+}
+
+func TestRequireAllowedHost(t *testing.T) {
+	h := RequireAllowedHost([]string{"localhost", "127.0.0.1"}, quietLog(), http.HandlerFunc(ok))
+	tests := []struct {
+		host   string
+		status int
+	}{
+		{"localhost:9001", 200},
+		{"LOCALHOST", 200},
+		{"127.0.0.1:9001", 200},
+		{"evil.example:9001", 403},
+		{"", 403},
+	}
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+			r.Host = tt.host
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, r)
+			if rec.Code != tt.status {
+				t.Fatalf("status %d, want %d", rec.Code, tt.status)
+			}
+			if tt.status == 403 {
+				if e := decodeErr(t, rec); e.Reason != apierr.HostNotAllowed {
+					t.Fatalf("reason %+v", e)
+				}
+			}
+		})
 	}
 }
 

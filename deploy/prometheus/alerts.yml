@@ -1,0 +1,49 @@
+# Copyright 2026 The go-remotesigner Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Prometheus alerting rules for remotesigner. Load them with `rule_files:` in
+# prometheus.yml and scrape the metrics listener (--metrics-enabled). The
+# runbook for each alert is in docs/operations/metrics.md.
+groups:
+  - name: remotesigner
+    rules:
+      - alert: RemoteSignerRandaoNewLayerRateLimited
+        expr: increase(consensus_randao_new_layer_rate_limited_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A key hit its RANDAO new-layer bucket
+          description: >-
+            remotesigner refused a RANDAO reveal with RANDAO_NEW_LAYER_RATE_LIMITED: a key asked for more new
+            onion layers than --randao-new-layer-burst and --randao-new-layer-refill-epochs allow. The WARN log
+            names the short key id. See docs/operations/metrics.md#randaonewlayerratelimited.
+
+      - alert: RemoteSignerRandaoGapAdvanced
+        expr: increase(consensus_randao_reveals_total{result="gap_advanced"}[1h]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A RANDAO commitment was deeper than this signer's frontier
+          description: >-
+            A reveal advanced the frontier over layers this signer never released: someone else released
+            reveals for a key, or the store was restored from an old backup. See
+            docs/operations/metrics.md#randaogapadvanced.
+
+      - alert: RemoteSignerSignatureFault
+        expr: signing_verify_failures_total > 0 or signing_keys_quarantined > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: A signature failed verification and its key is quarantined
+          description: >-
+            remotesigner discarded a signature that did not verify, answered 500 SIGNATURE_FAULT and quarantined
+            the key, which refuses to sign until a reload. See docs/operations/metrics.md#signaturefault.
+
+      - alert: RemoteSignerConnectionLimitReached
+        expr: increase(http_connections_limit_reached_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: The API listener reached --http-max-connections
+          description: >-
+            New connections waited until one closed. See docs/operations/metrics.md#connectionlimitreached.

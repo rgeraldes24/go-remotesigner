@@ -12,10 +12,10 @@ Consensys.
 
 Pre-release. The HTTP contract with the qrysm validator client is [`docs/contract.md`](docs/contract.md) and
 [`api/openapi/consensus.yaml`](api/openapi/consensus.yaml), with the protocol facts it relies on in
-[`docs/spec/`](docs/spec/README.md). `remotesigner consensus` runs the API server: token authentication, the
-request guards and limits, `file-raw` key loading, `publicKeys`, `capabilities`, `/upcheck`, `/healthcheck` and
-`/reload`, with the bbolt slashing-protection store opened at startup. The signing and RANDAO endpoints follow in the
-next milestone. To try it, see [`docs/operations/quickstart.md`](docs/operations/quickstart.md); every flag is in
+[`docs/spec/`](docs/spec/README.md). `remotesigner consensus` signs all nine artifact types behind bbolt slashing
+protection, releases RANDAO reveals under the frontier rule, and serves `publicKeys`, `capabilities`, `/upcheck`,
+`/healthcheck`, `/reload` and a Prometheus metrics listener, with token authentication, the request guards and
+limits, and `file-raw` key loading. To try it, see [`docs/operations/quickstart.md`](docs/operations/quickstart.md); every flag is in
 [`docs/reference/flags.md`](docs/reference/flags.md).
 
 ## Building

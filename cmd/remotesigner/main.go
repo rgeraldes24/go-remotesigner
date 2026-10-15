@@ -75,7 +75,7 @@ func newApp(stdout, stderr io.Writer, runSigner runFunc) *cli.App {
 		Flags:           flags.Global(),
 		Metadata:        map[string]any{},
 		Before:          loadConfigFile,
-		Commands:        []*cli.Command{consensusCommand(runSigner, stderr)},
+		Commands:        []*cli.Command{consensusCommand(runSigner, stdout, stderr)},
 		Action:          rootAction,
 		OnUsageError: func(_ *cli.Context, err error, _ bool) error {
 			return cli.Exit(fmt.Sprintf("usage error: %v", err), exitUsage)
@@ -102,7 +102,14 @@ func rootAction(c *cli.Context) error {
 
 // versionString renders "<version> (commit <rev>, <go version>, <os>/<arch>)".
 func versionString() string {
-	v, c := version, commit
+	v, c := release()
+	return fmt.Sprintf("%s (commit %s, %s, %s/%s)", v, c, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
+
+// release returns the version and commit: the link-time values, else those
+// the Go toolchain recorded, else "dev" and "unknown".
+func release() (v, c string) {
+	v, c = version, commit
 	if info, ok := debug.ReadBuildInfo(); ok {
 		if v == "" && info.Main.Version != "" && info.Main.Version != "(devel)" {
 			v = info.Main.Version
@@ -119,5 +126,5 @@ func versionString() string {
 	if c == "" {
 		c = "unknown"
 	}
-	return fmt.Sprintf("%s (commit %s, %s, %s/%s)", v, c, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	return v, c
 }
