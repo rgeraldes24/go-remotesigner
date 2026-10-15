@@ -128,8 +128,8 @@ func ImportBlocks(ctx context.Context, s slashing.Store, key slashing.KeyID, blo
 	})
 }
 
-// ImportAttestations writes attestations to a validator's history and raises its low-watermark epochs to their
-// minimum source and target epochs, which is what an EIP-3076 import does.
+// ImportAttestations writes attestations to a validator's history and raises each low-watermark epoch independently
+// to the larger of its current value and the imported minimum, which is what an EIP-3076 import does.
 func ImportAttestations(ctx context.Context, s slashing.Store, key slashing.KeyID, atts ...slashing.SignedAttestation) error {
 	return s.UpdateAttestations(ctx, key, func(tx slashing.AttestationTx) error {
 		if len(atts) == 0 {
@@ -141,6 +141,13 @@ func ImportAttestations(ctx context.Context, s slashing.Store, key slashing.KeyI
 				return err
 			}
 			minSource, minTarget = min(minSource, a.SourceEpoch), min(minTarget, a.TargetEpoch)
+		}
+		low, err := tx.LowWatermark()
+		if err != nil {
+			return err
+		}
+		if low.SourceEpoch != nil {
+			minSource, minTarget = max(minSource, *low.SourceEpoch), max(minTarget, *low.TargetEpoch)
 		}
 		return tx.RaiseEpochLowWatermarks(minSource, minTarget)
 	})
