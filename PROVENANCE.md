@@ -89,6 +89,10 @@ RANDAO onion, the interop genesis, `ConfigToYaml`, and the keystore encoders.
   public domain under CC0-1.0, as `testdata/vectors/README.md` and every file's `description` state, and each file
   records the module versions that generated it. JSON files outside `deploy/` carry no header row; the generated
   YAMLs carry the class `new` header.
+- **The consumers.** The signer's `golden_test.go` files and `internal/vectors` read the data only. The seed
+  expansion of the random-root sets is implemented twice, independently, from its description in
+  `testdata/vectors/README.md`: once over qrysm's types in `tools/vectorgen`, once over the signer's types in
+  `internal/consensus/types/golden_test.go`.
 
 ## Generated test code
 
@@ -150,6 +154,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/api/jsonutil/values.go` | new | | | |
 | `internal/consensus/policy/clock.go` | new | | | |
 | `internal/consensus/policy/clock_test.go` | new | | | |
+| `internal/consensus/policy/golden_test.go` | new | | | |
 | `internal/consensus/policy/pins.go` | new | | | |
 | `internal/consensus/policy/pins_test.go` | new | | | |
 | `internal/consensus/policy/policy.go` | new | | | |
@@ -158,6 +163,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/consensus/signingroot/artifact_test.go` | new | | | |
 | `internal/consensus/signingroot/domain.go` | new | | | |
 | `internal/consensus/signingroot/domain_test.go` | new | | | |
+| `internal/consensus/signingroot/golden_test.go` | new | | | |
 | `internal/consensus/testdata/containers.json` | new | | | |
 | `internal/consensus/testdata/gen_fixtures.py` | new | | | |
 | `internal/consensus/testdata/signing.json` | new | | | |
@@ -168,11 +174,13 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/consensus/types/fastssz_mirror_htr_test.go` | new | | | |
 | `internal/consensus/types/fastssz_mirror_test.go` | new | | | |
 | `internal/consensus/types/fastssz_test.go` | new | | | |
+| `internal/consensus/types/golden_test.go` | new | | | |
 | `internal/consensus/types/json.go` | new | | | |
 | `internal/consensus/types/randao.go` | new | | | |
 | `internal/consensus/types/request.go` | new | | | |
 | `internal/consensus/types/request_test.go` | new | | | |
 | `internal/crypto/mldsa87/bench_test.go` | new | | | |
+| `internal/crypto/mldsa87/golden_test.go` | new | | | |
 | `internal/crypto/mldsa87/key.go` | new | | | |
 | `internal/crypto/mldsa87/mldsa87.go` | new | | | |
 | `internal/crypto/mldsa87/mldsa87_test.go` | new | | | |
@@ -184,9 +192,11 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/network/embedded/interop.yaml` | new | | | |
 | `internal/network/embedded/minimal.yaml` | new | | | |
 | `internal/network/genesis.go` | new | | | |
+| `internal/network/golden_test.go` | new | | | |
 | `internal/network/network.go` | new | | | |
 | `internal/network/network_test.go` | new | | | |
 | `internal/network/registry.go` | new | | | |
+| `internal/randao/onion/golden_test.go` | new | | | |
 | `internal/randao/onion/onion.go` | new | | | |
 | `internal/randao/onion/onion_test.go` | new | | | |
 | `internal/slashing/boltstore/boltstore.go` | new | | | |
@@ -215,6 +225,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/ssz/merkleize_test.go` | new | | | |
 | `internal/ssz/types.go` | new | | | |
 | `internal/ssz/types_test.go` | new | | | |
+| `internal/vectors/vectors.go` | new | | | |
 | `third_party/qrl-keystore/README.md` | new | | | sha256 `b62799d6df0bdbbb39c3110d2f4ffe98e9e4508cc6f45ea618f943d29184b19c` |
 | `third_party/qrl-keystore/go-qrl-wallet-encryptor-keystore/` | vendored | `cyyber/qrysm` (= `theQRL/qrysm` `e07a6007`) | `pkg/go-qrl-wallet-encryptor-keystore` | tree `6c97bfffa7d145c2be452fa4435c81b6c7532554` |
 | `third_party/qrl-keystore/go.mod` | new | | | sha256 `8794f04b43301ccdaa0e3a1b5bb6a68affe585340a058657f12e7b6a28375d47` |
