@@ -9,6 +9,10 @@
 # Go tooling
 *.test
 *.prof
+
+# Python bytecode from running the fixture generators
+__pycache__/
+*.pyc
 # Coverage profiles and other outputs written in the repository root only, so
 # source files such as internal/x/coverage.go are never ignored.
 /*.out

@@ -1,0 +1,689 @@
+{
+ "description": "Hand-derived by gen_fixtures.py, an independent Python implementation of the CC0 Ethereum consensus specs v1.5.0 with QRL sizes. 'pattern:<seed>' values expand to bytes (seed*37 + i*11 + (i//256)*3) mod 256 of the field's length.",
+ "cases": [
+  {
+   "name": "e2e/AGGREGATE_AND_PROOF",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58636e79848f"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x000000fd",
+    "epoch": "0"
+   },
+   "type": "AGGREGATE_AND_PROOF",
+   "at": "1233",
+   "object_root": "0xacb7c2cdd8e3eef9040f1a25303b46515c67727d88939ea9b4bfcad5e0ebf601",
+   "epoch": "205",
+   "domain": "0x0600000003e2d3d5e86094c499a43f0839f294e7f8e4c2586625e4c6ec9bfbb3",
+   "signing_root": "0x6353a067b1e6042ddc879a89acbbb0c44cfeeafd2d7f3c57b1b516386b41ee3f"
+  },
+  {
+   "name": "e2e/AGGREGATION_SLOT",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58636e79848f"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x000000fd",
+    "epoch": "0"
+   },
+   "type": "AGGREGATION_SLOT",
+   "at": "1234",
+   "object_root": "0xd1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9e4effa05101b26",
+   "epoch": "205",
+   "domain": "0x0500000003e2d3d5e86094c499a43f0839f294e7f8e4c2586625e4c6ec9bfbb3",
+   "signing_root": "0x9b95876f2f8f4d1851924cf1715cc269e9a8f26a2ce1a639ecaa2763d3dfa420"
+  },
+  {
+   "name": "e2e/ATTESTATION",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58636e79848f"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x000000fd",
+    "epoch": "0"
+   },
+   "type": "ATTESTATION",
+   "at": "205",
+   "object_root": "0xf6010c17222d38434e59646f7a85909ba6b1bcc7d2dde8f3fe09141f2a35404b",
+   "epoch": "205",
+   "domain": "0x0100000003e2d3d5e86094c499a43f0839f294e7f8e4c2586625e4c6ec9bfbb3",
+   "signing_root": "0x067d04427541e18adb686b3b83f8f29122d345de4d45522e6a0808083f8a646d"
+  },
+  {
+   "name": "e2e/BLOCK_V2",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58636e79848f"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x000000fd",
+    "epoch": "0"
+   },
+   "type": "BLOCK_V2",
+   "at": "1234",
+   "object_root": "0x1b26313c47525d68737e89949faab5c0cbd6e1ecf7020d18232e39444f5a6570",
+   "epoch": "205",
+   "domain": "0x0000000003e2d3d5e86094c499a43f0839f294e7f8e4c2586625e4c6ec9bfbb3",
+   "signing_root": "0x402a6c50b9b6f898430f86cc480f9cb05d307ba011a13de1a82d8ad304bc5761"
+  },
+  {
+   "name": "e2e/SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58636e79848f"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x000000fd",
+    "epoch": "0"
+   },
+   "type": "SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF",
+   "at": "1237",
+   "object_root": "0x404b56616c77828d98a3aeb9c4cfdae5f0fb06111c27323d48535e69747f8a95",
+   "epoch": "206",
+   "domain": "0x0900000003e2d3d5e86094c499a43f0839f294e7f8e4c2586625e4c6ec9bfbb3",
+   "signing_root": "0x7e7579238cfde51dd88ae36d0acf2a70e0d1a910c9637a5380d50b1b1f784760"
+  },
+  {
+   "name": "e2e/SYNC_COMMITTEE_MESSAGE",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58636e79848f"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x000000fd",
+    "epoch": "0"
+   },
+   "type": "SYNC_COMMITTEE_MESSAGE",
+   "at": "1235",
+   "object_root": "0x65707b86919ca7b2bdc8d3dee9f4ff0a15202b36414c57626d78838e99a4afba",
+   "epoch": "205",
+   "domain": "0x0700000003e2d3d5e86094c499a43f0839f294e7f8e4c2586625e4c6ec9bfbb3",
+   "signing_root": "0x86b3441006dc9b4318fe250adac831ff53284772a64e46eb4d4c9b5876daeb0d"
+  },
+  {
+   "name": "e2e/SYNC_COMMITTEE_SELECTION_PROOF",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58636e79848f"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x000000fd",
+    "epoch": "0"
+   },
+   "type": "SYNC_COMMITTEE_SELECTION_PROOF",
+   "at": "1236",
+   "object_root": "0x8a95a0abb6c1ccd7e2edf8030e19242f3a45505b66717c87929da8b3bec9d4df",
+   "epoch": "206",
+   "domain": "0x0800000003e2d3d5e86094c499a43f0839f294e7f8e4c2586625e4c6ec9bfbb3",
+   "signing_root": "0x6aa4eda98efb22a3355784d063e7e1c60df892cdc7566ab645e0f81c23e4cdda"
+  },
+  {
+   "name": "e2e/VALIDATOR_REGISTRATION",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58636e79848f"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x000000fd",
+    "epoch": "0"
+   },
+   "type": "VALIDATOR_REGISTRATION",
+   "at": "1760000000",
+   "object_root": "0xafbac5d0dbe6f1fc07121d28333e49545f6a75808b96a1acb7c2cdd8e3eef904",
+   "epoch": null,
+   "domain": "0x000000012c3c06efe6456ca45340ee2bf169ae9fcd41f600b9cd0a54cbe6b472",
+   "signing_root": "0x70838a37232d746a845526b81bf6d0c9b81ae5488f70714b519af9f5a76995ed"
+  },
+  {
+   "name": "e2e/VOLUNTARY_EXIT",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58636e79848f"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x000000fd",
+    "epoch": "0"
+   },
+   "type": "VOLUNTARY_EXIT",
+   "at": "100",
+   "object_root": "0xd4dfeaf5000b16212c37424d58636e79848f9aa5b0bbc6d1dce7f2fd08131e29",
+   "epoch": "100",
+   "domain": "0x0400000003e2d3d5e86094c499a43f0839f294e7f8e4c2586625e4c6ec9bfbb3",
+   "signing_root": "0xb8e21f29b0ca02a5b63572c17891da852e887b6804ec7778338961ae17e1a212"
+  },
+  {
+   "name": "mainnet/AGGREGATE_AND_PROOF",
+   "network": {
+    "genesis_fork_version": "0x00000000",
+    "slots_per_epoch": "128",
+    "genesis_validators_root": "0x5f6a75808b96a1acb7c2cdd8e3eef9040f1a25303b46515c67727d88939ea9b4"
+   },
+   "fork": {
+    "previous_version": "0x00000000",
+    "current_version": "0x00000000",
+    "epoch": "0"
+   },
+   "type": "AGGREGATE_AND_PROOF",
+   "at": "1233",
+   "object_root": "0xacb7c2cdd8e3eef9040f1a25303b46515c67727d88939ea9b4bfcad5e0ebf601",
+   "epoch": "9",
+   "domain": "0x06000000952290ed3dc261abfdca93cebe15691262d5e215572990fcac59e5a1",
+   "signing_root": "0x01050dedab2de10169b82e4197a6ce172fdd5ec1710b13e8e125b009dfe729cb"
+  },
+  {
+   "name": "mainnet/AGGREGATION_SLOT",
+   "network": {
+    "genesis_fork_version": "0x00000000",
+    "slots_per_epoch": "128",
+    "genesis_validators_root": "0x5f6a75808b96a1acb7c2cdd8e3eef9040f1a25303b46515c67727d88939ea9b4"
+   },
+   "fork": {
+    "previous_version": "0x00000000",
+    "current_version": "0x00000000",
+    "epoch": "0"
+   },
+   "type": "AGGREGATION_SLOT",
+   "at": "1234",
+   "object_root": "0xd1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9e4effa05101b26",
+   "epoch": "9",
+   "domain": "0x05000000952290ed3dc261abfdca93cebe15691262d5e215572990fcac59e5a1",
+   "signing_root": "0xe0e0c0106a2d7d735c59754c922429d98aba0c9dbab69bf4209de608d69178b0"
+  },
+  {
+   "name": "mainnet/ATTESTATION",
+   "network": {
+    "genesis_fork_version": "0x00000000",
+    "slots_per_epoch": "128",
+    "genesis_validators_root": "0x5f6a75808b96a1acb7c2cdd8e3eef9040f1a25303b46515c67727d88939ea9b4"
+   },
+   "fork": {
+    "previous_version": "0x00000000",
+    "current_version": "0x00000000",
+    "epoch": "0"
+   },
+   "type": "ATTESTATION",
+   "at": "205",
+   "object_root": "0xf6010c17222d38434e59646f7a85909ba6b1bcc7d2dde8f3fe09141f2a35404b",
+   "epoch": "205",
+   "domain": "0x01000000952290ed3dc261abfdca93cebe15691262d5e215572990fcac59e5a1",
+   "signing_root": "0x2ebe4286e3ccf1fb33292b00b6dc8a5dbb37d762e63c535c093cb6d43efdc660"
+  },
+  {
+   "name": "mainnet/BLOCK_V2",
+   "network": {
+    "genesis_fork_version": "0x00000000",
+    "slots_per_epoch": "128",
+    "genesis_validators_root": "0x5f6a75808b96a1acb7c2cdd8e3eef9040f1a25303b46515c67727d88939ea9b4"
+   },
+   "fork": {
+    "previous_version": "0x00000000",
+    "current_version": "0x00000000",
+    "epoch": "0"
+   },
+   "type": "BLOCK_V2",
+   "at": "1234",
+   "object_root": "0x1b26313c47525d68737e89949faab5c0cbd6e1ecf7020d18232e39444f5a6570",
+   "epoch": "9",
+   "domain": "0x00000000952290ed3dc261abfdca93cebe15691262d5e215572990fcac59e5a1",
+   "signing_root": "0xbd778b071d619efca0f4e5a4263fcab36fdadf5751191c96f6fe1600cf95b242"
+  },
+  {
+   "name": "mainnet/SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF",
+   "network": {
+    "genesis_fork_version": "0x00000000",
+    "slots_per_epoch": "128",
+    "genesis_validators_root": "0x5f6a75808b96a1acb7c2cdd8e3eef9040f1a25303b46515c67727d88939ea9b4"
+   },
+   "fork": {
+    "previous_version": "0x00000000",
+    "current_version": "0x00000000",
+    "epoch": "0"
+   },
+   "type": "SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF",
+   "at": "1237",
+   "object_root": "0x404b56616c77828d98a3aeb9c4cfdae5f0fb06111c27323d48535e69747f8a95",
+   "epoch": "9",
+   "domain": "0x09000000952290ed3dc261abfdca93cebe15691262d5e215572990fcac59e5a1",
+   "signing_root": "0x204aa06757d933c43a0f81cf23c939fa4ed6f4e90cb5d16ccffe573cc92551fd"
+  },
+  {
+   "name": "mainnet/SYNC_COMMITTEE_MESSAGE",
+   "network": {
+    "genesis_fork_version": "0x00000000",
+    "slots_per_epoch": "128",
+    "genesis_validators_root": "0x5f6a75808b96a1acb7c2cdd8e3eef9040f1a25303b46515c67727d88939ea9b4"
+   },
+   "fork": {
+    "previous_version": "0x00000000",
+    "current_version": "0x00000000",
+    "epoch": "0"
+   },
+   "type": "SYNC_COMMITTEE_MESSAGE",
+   "at": "1235",
+   "object_root": "0x65707b86919ca7b2bdc8d3dee9f4ff0a15202b36414c57626d78838e99a4afba",
+   "epoch": "9",
+   "domain": "0x07000000952290ed3dc261abfdca93cebe15691262d5e215572990fcac59e5a1",
+   "signing_root": "0x99ba287bc7728be9b8fee2734266afbea71d2ebb850c74757575bf6d4e13b8cc"
+  },
+  {
+   "name": "mainnet/SYNC_COMMITTEE_SELECTION_PROOF",
+   "network": {
+    "genesis_fork_version": "0x00000000",
+    "slots_per_epoch": "128",
+    "genesis_validators_root": "0x5f6a75808b96a1acb7c2cdd8e3eef9040f1a25303b46515c67727d88939ea9b4"
+   },
+   "fork": {
+    "previous_version": "0x00000000",
+    "current_version": "0x00000000",
+    "epoch": "0"
+   },
+   "type": "SYNC_COMMITTEE_SELECTION_PROOF",
+   "at": "1236",
+   "object_root": "0x8a95a0abb6c1ccd7e2edf8030e19242f3a45505b66717c87929da8b3bec9d4df",
+   "epoch": "9",
+   "domain": "0x08000000952290ed3dc261abfdca93cebe15691262d5e215572990fcac59e5a1",
+   "signing_root": "0x5ef1b5fffd9fc521fdd2f28ab7ca0638200f3c9272f46136a9ebeb5b424d3f12"
+  },
+  {
+   "name": "mainnet/VALIDATOR_REGISTRATION",
+   "network": {
+    "genesis_fork_version": "0x00000000",
+    "slots_per_epoch": "128",
+    "genesis_validators_root": "0x5f6a75808b96a1acb7c2cdd8e3eef9040f1a25303b46515c67727d88939ea9b4"
+   },
+   "fork": {
+    "previous_version": "0x00000000",
+    "current_version": "0x00000000",
+    "epoch": "0"
+   },
+   "type": "VALIDATOR_REGISTRATION",
+   "at": "1760000000",
+   "object_root": "0xafbac5d0dbe6f1fc07121d28333e49545f6a75808b96a1acb7c2cdd8e3eef904",
+   "epoch": null,
+   "domain": "0x00000001f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a9",
+   "signing_root": "0xae102d2da447075ceb18cf1f6a9a4ccf689f82567d9aac17d9935c68dda2d5bb"
+  },
+  {
+   "name": "mainnet/VOLUNTARY_EXIT",
+   "network": {
+    "genesis_fork_version": "0x00000000",
+    "slots_per_epoch": "128",
+    "genesis_validators_root": "0x5f6a75808b96a1acb7c2cdd8e3eef9040f1a25303b46515c67727d88939ea9b4"
+   },
+   "fork": {
+    "previous_version": "0x00000000",
+    "current_version": "0x00000000",
+    "epoch": "0"
+   },
+   "type": "VOLUNTARY_EXIT",
+   "at": "100",
+   "object_root": "0xd4dfeaf5000b16212c37424d58636e79848f9aa5b0bbc6d1dce7f2fd08131e29",
+   "epoch": "100",
+   "domain": "0x04000000952290ed3dc261abfdca93cebe15691262d5e215572990fcac59e5a1",
+   "signing_root": "0x05130a368fbe3c86fa460653c4432f10cb1827dd8042076d1decad04c3cbc16b"
+  },
+  {
+   "name": "minimal/AGGREGATE_AND_PROOF",
+   "network": {
+    "genesis_fork_version": "0x00000001",
+    "slots_per_epoch": "8",
+    "genesis_validators_root": "0x848f9aa5b0bbc6d1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9"
+   },
+   "fork": {
+    "previous_version": "0x00000001",
+    "current_version": "0x00000001",
+    "epoch": "0"
+   },
+   "type": "AGGREGATE_AND_PROOF",
+   "at": "1233",
+   "object_root": "0xacb7c2cdd8e3eef9040f1a25303b46515c67727d88939ea9b4bfcad5e0ebf601",
+   "epoch": "154",
+   "domain": "0x060000008ba2efab7b9962f1df3c9d145f492d0edadaa9cf9c2389666b4133eb",
+   "signing_root": "0x12f5255d6ecb2143f06b6dd485528cda3dad0ef20d63bc67672b0e403351bf23"
+  },
+  {
+   "name": "minimal/AGGREGATION_SLOT",
+   "network": {
+    "genesis_fork_version": "0x00000001",
+    "slots_per_epoch": "8",
+    "genesis_validators_root": "0x848f9aa5b0bbc6d1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9"
+   },
+   "fork": {
+    "previous_version": "0x00000001",
+    "current_version": "0x00000001",
+    "epoch": "0"
+   },
+   "type": "AGGREGATION_SLOT",
+   "at": "1234",
+   "object_root": "0xd1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9e4effa05101b26",
+   "epoch": "154",
+   "domain": "0x050000008ba2efab7b9962f1df3c9d145f492d0edadaa9cf9c2389666b4133eb",
+   "signing_root": "0x8343fabaaa1a8eb5badb16650b90692dc5ae07a9e939b0e318c0bef702cd017e"
+  },
+  {
+   "name": "minimal/ATTESTATION",
+   "network": {
+    "genesis_fork_version": "0x00000001",
+    "slots_per_epoch": "8",
+    "genesis_validators_root": "0x848f9aa5b0bbc6d1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9"
+   },
+   "fork": {
+    "previous_version": "0x00000001",
+    "current_version": "0x00000001",
+    "epoch": "0"
+   },
+   "type": "ATTESTATION",
+   "at": "205",
+   "object_root": "0xf6010c17222d38434e59646f7a85909ba6b1bcc7d2dde8f3fe09141f2a35404b",
+   "epoch": "205",
+   "domain": "0x010000008ba2efab7b9962f1df3c9d145f492d0edadaa9cf9c2389666b4133eb",
+   "signing_root": "0xaa81aac8bfe05bc613f7d31b13240ebbc51165d81e6746b8ade5c4ad3e5cf977"
+  },
+  {
+   "name": "minimal/BLOCK_V2",
+   "network": {
+    "genesis_fork_version": "0x00000001",
+    "slots_per_epoch": "8",
+    "genesis_validators_root": "0x848f9aa5b0bbc6d1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9"
+   },
+   "fork": {
+    "previous_version": "0x00000001",
+    "current_version": "0x00000001",
+    "epoch": "0"
+   },
+   "type": "BLOCK_V2",
+   "at": "1234",
+   "object_root": "0x1b26313c47525d68737e89949faab5c0cbd6e1ecf7020d18232e39444f5a6570",
+   "epoch": "154",
+   "domain": "0x000000008ba2efab7b9962f1df3c9d145f492d0edadaa9cf9c2389666b4133eb",
+   "signing_root": "0x3930a75b3d35f97ed4907d2866a9547913f250ba9fcb36a25b1e51d568346790"
+  },
+  {
+   "name": "minimal/SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF",
+   "network": {
+    "genesis_fork_version": "0x00000001",
+    "slots_per_epoch": "8",
+    "genesis_validators_root": "0x848f9aa5b0bbc6d1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9"
+   },
+   "fork": {
+    "previous_version": "0x00000001",
+    "current_version": "0x00000001",
+    "epoch": "0"
+   },
+   "type": "SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF",
+   "at": "1237",
+   "object_root": "0x404b56616c77828d98a3aeb9c4cfdae5f0fb06111c27323d48535e69747f8a95",
+   "epoch": "154",
+   "domain": "0x090000008ba2efab7b9962f1df3c9d145f492d0edadaa9cf9c2389666b4133eb",
+   "signing_root": "0x387f4ca0da65d4bace10c16b0b077366c9365bb593d58f5641f52b410409136b"
+  },
+  {
+   "name": "minimal/SYNC_COMMITTEE_MESSAGE",
+   "network": {
+    "genesis_fork_version": "0x00000001",
+    "slots_per_epoch": "8",
+    "genesis_validators_root": "0x848f9aa5b0bbc6d1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9"
+   },
+   "fork": {
+    "previous_version": "0x00000001",
+    "current_version": "0x00000001",
+    "epoch": "0"
+   },
+   "type": "SYNC_COMMITTEE_MESSAGE",
+   "at": "1235",
+   "object_root": "0x65707b86919ca7b2bdc8d3dee9f4ff0a15202b36414c57626d78838e99a4afba",
+   "epoch": "154",
+   "domain": "0x070000008ba2efab7b9962f1df3c9d145f492d0edadaa9cf9c2389666b4133eb",
+   "signing_root": "0x49d561ff0d52b548fced67ed48d033bd48263adbcf6073b49c750cd63d736e50"
+  },
+  {
+   "name": "minimal/SYNC_COMMITTEE_SELECTION_PROOF",
+   "network": {
+    "genesis_fork_version": "0x00000001",
+    "slots_per_epoch": "8",
+    "genesis_validators_root": "0x848f9aa5b0bbc6d1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9"
+   },
+   "fork": {
+    "previous_version": "0x00000001",
+    "current_version": "0x00000001",
+    "epoch": "0"
+   },
+   "type": "SYNC_COMMITTEE_SELECTION_PROOF",
+   "at": "1236",
+   "object_root": "0x8a95a0abb6c1ccd7e2edf8030e19242f3a45505b66717c87929da8b3bec9d4df",
+   "epoch": "154",
+   "domain": "0x080000008ba2efab7b9962f1df3c9d145f492d0edadaa9cf9c2389666b4133eb",
+   "signing_root": "0x5e485ca4668b37ae934ff485d6043772ea8573420b757a8a6d795492ed1d6eb0"
+  },
+  {
+   "name": "minimal/VALIDATOR_REGISTRATION",
+   "network": {
+    "genesis_fork_version": "0x00000001",
+    "slots_per_epoch": "8",
+    "genesis_validators_root": "0x848f9aa5b0bbc6d1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9"
+   },
+   "fork": {
+    "previous_version": "0x00000001",
+    "current_version": "0x00000001",
+    "epoch": "0"
+   },
+   "type": "VALIDATOR_REGISTRATION",
+   "at": "1760000000",
+   "object_root": "0xafbac5d0dbe6f1fc07121d28333e49545f6a75808b96a1acb7c2cdd8e3eef904",
+   "epoch": null,
+   "domain": "0x0000000118ae4ccbda9538839d79bb18ca09e23e24ae8c1550f56cbb3d84b053",
+   "signing_root": "0xf8b44fd747b239da5edb7d99827bbefe85914495a56a1fe191ccb95375c59c0e"
+  },
+  {
+   "name": "minimal/VOLUNTARY_EXIT",
+   "network": {
+    "genesis_fork_version": "0x00000001",
+    "slots_per_epoch": "8",
+    "genesis_validators_root": "0x848f9aa5b0bbc6d1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9"
+   },
+   "fork": {
+    "previous_version": "0x00000001",
+    "current_version": "0x00000001",
+    "epoch": "0"
+   },
+   "type": "VOLUNTARY_EXIT",
+   "at": "100",
+   "object_root": "0xd4dfeaf5000b16212c37424d58636e79848f9aa5b0bbc6d1dce7f2fd08131e29",
+   "epoch": "100",
+   "domain": "0x040000008ba2efab7b9962f1df3c9d145f492d0edadaa9cf9c2389666b4133eb",
+   "signing_root": "0xce4b4873faabb9f543a37b1686106f72528f4536d7e3bc390f9fb3353745bcb8"
+  },
+  {
+   "name": "fork_schedule/BLOCK_V2/59",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x1e29343f4a55606b76818c97a2adb8c3ced9e4effa05101b26313c47525d6873"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x010000fd",
+    "epoch": "10"
+   },
+   "type": "BLOCK_V2",
+   "at": "59",
+   "object_root": "0x909ba6b1bcc7d2dde8f3fe09141f2a35404b56616c77828d98a3aeb9c4cfdae5",
+   "epoch": "9",
+   "domain": "0x00000000b8c368a4845eb30aa10c7dc18358280f657d576f0242f4f096dbd5dd",
+   "signing_root": "0x9cab0105587997ce669e3597f49cacf06f88ffeca6cf3bcc97d6180515a43e85"
+  },
+  {
+   "name": "fork_schedule/BLOCK_V2/60",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x1e29343f4a55606b76818c97a2adb8c3ced9e4effa05101b26313c47525d6873"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x010000fd",
+    "epoch": "10"
+   },
+   "type": "BLOCK_V2",
+   "at": "60",
+   "object_root": "0x909ba6b1bcc7d2dde8f3fe09141f2a35404b56616c77828d98a3aeb9c4cfdae5",
+   "epoch": "10",
+   "domain": "0x00000000fe324b8550ee71e65ab44471dc0327b613ee385dbc54352b63379976",
+   "signing_root": "0x23c149bc0ec509b109183362d8a9ddeca456a88fbe8d4784e9be47c95689eac6"
+  },
+  {
+   "name": "fork_schedule/ATTESTATION/9",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x1e29343f4a55606b76818c97a2adb8c3ced9e4effa05101b26313c47525d6873"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x010000fd",
+    "epoch": "10"
+   },
+   "type": "ATTESTATION",
+   "at": "9",
+   "object_root": "0x909ba6b1bcc7d2dde8f3fe09141f2a35404b56616c77828d98a3aeb9c4cfdae5",
+   "epoch": "9",
+   "domain": "0x01000000b8c368a4845eb30aa10c7dc18358280f657d576f0242f4f096dbd5dd",
+   "signing_root": "0x16781a8a145d56a5b267072f6c803879018dd03233c7236ad7944346a580d27e"
+  },
+  {
+   "name": "fork_schedule/ATTESTATION/10",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x1e29343f4a55606b76818c97a2adb8c3ced9e4effa05101b26313c47525d6873"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x010000fd",
+    "epoch": "10"
+   },
+   "type": "ATTESTATION",
+   "at": "10",
+   "object_root": "0x909ba6b1bcc7d2dde8f3fe09141f2a35404b56616c77828d98a3aeb9c4cfdae5",
+   "epoch": "10",
+   "domain": "0x01000000fe324b8550ee71e65ab44471dc0327b613ee385dbc54352b63379976",
+   "signing_root": "0xd8ce70afc8891085f4a620c48061ada35dc2839f07d90ecb1c97192b2d2a85f4"
+  },
+  {
+   "name": "fork_schedule/VOLUNTARY_EXIT/9",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x1e29343f4a55606b76818c97a2adb8c3ced9e4effa05101b26313c47525d6873"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x010000fd",
+    "epoch": "10"
+   },
+   "type": "VOLUNTARY_EXIT",
+   "at": "9",
+   "object_root": "0x909ba6b1bcc7d2dde8f3fe09141f2a35404b56616c77828d98a3aeb9c4cfdae5",
+   "epoch": "9",
+   "domain": "0x04000000b8c368a4845eb30aa10c7dc18358280f657d576f0242f4f096dbd5dd",
+   "signing_root": "0xe591480f74efc5b0cd2bbe525faff99646ed2d3515160fa2b043c5ab7ff3153b"
+  },
+  {
+   "name": "fork_schedule/VOLUNTARY_EXIT/18446744073709551615",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x1e29343f4a55606b76818c97a2adb8c3ced9e4effa05101b26313c47525d6873"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x010000fd",
+    "epoch": "10"
+   },
+   "type": "VOLUNTARY_EXIT",
+   "at": "18446744073709551615",
+   "object_root": "0x909ba6b1bcc7d2dde8f3fe09141f2a35404b56616c77828d98a3aeb9c4cfdae5",
+   "epoch": "18446744073709551615",
+   "domain": "0x04000000fe324b8550ee71e65ab44471dc0327b613ee385dbc54352b63379976",
+   "signing_root": "0xbd9b5fbcd0102dcec02b7e66924618009f4a9521dad9b876286d2cadfb177e9d"
+  },
+  {
+   "name": "fork_schedule/SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF/59",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x1e29343f4a55606b76818c97a2adb8c3ced9e4effa05101b26313c47525d6873"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x010000fd",
+    "epoch": "10"
+   },
+   "type": "SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF",
+   "at": "59",
+   "object_root": "0x909ba6b1bcc7d2dde8f3fe09141f2a35404b56616c77828d98a3aeb9c4cfdae5",
+   "epoch": "9",
+   "domain": "0x09000000b8c368a4845eb30aa10c7dc18358280f657d576f0242f4f096dbd5dd",
+   "signing_root": "0xf8eb5b3b51473a02c5a49d21c095a4360d3bd51e496d654613bc5918b22cb5e4"
+  },
+  {
+   "name": "fork_schedule/SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF/60",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x1e29343f4a55606b76818c97a2adb8c3ced9e4effa05101b26313c47525d6873"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x010000fd",
+    "epoch": "10"
+   },
+   "type": "SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF",
+   "at": "60",
+   "object_root": "0x909ba6b1bcc7d2dde8f3fe09141f2a35404b56616c77828d98a3aeb9c4cfdae5",
+   "epoch": "10",
+   "domain": "0x09000000fe324b8550ee71e65ab44471dc0327b613ee385dbc54352b63379976",
+   "signing_root": "0x1df8d67595a2ebc54c0d4dbb14258986deb2fff9fd1420b348f88cc6ce79d465"
+  },
+  {
+   "name": "fork_schedule/VALIDATOR_REGISTRATION/60",
+   "network": {
+    "genesis_fork_version": "0x000000fd",
+    "slots_per_epoch": "6",
+    "genesis_validators_root": "0x1e29343f4a55606b76818c97a2adb8c3ced9e4effa05101b26313c47525d6873"
+   },
+   "fork": {
+    "previous_version": "0x000000fd",
+    "current_version": "0x010000fd",
+    "epoch": "10"
+   },
+   "type": "VALIDATOR_REGISTRATION",
+   "at": "60",
+   "object_root": "0x909ba6b1bcc7d2dde8f3fe09141f2a35404b56616c77828d98a3aeb9c4cfdae5",
+   "epoch": null,
+   "domain": "0x000000012c3c06efe6456ca45340ee2bf169ae9fcd41f600b9cd0a54cbe6b472",
+   "signing_root": "0xfabd77b2efc667028dbb7b54fcce24aa03a7c797e5fafec42a4371874c38a085"
+  }
+ ]
+}
