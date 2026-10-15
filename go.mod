@@ -6,6 +6,7 @@ toolchain go1.26.9
 
 require (
 	github.com/getkin/kin-openapi v0.149.0
+	github.com/theQRL/go-qrllib v0.11.0
 	github.com/urfave/cli/v2 v2.27.5
 )
 

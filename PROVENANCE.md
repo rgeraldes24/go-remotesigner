@@ -122,6 +122,11 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/consensus/testdata/signing.json` | new | | | |
 | `internal/consensus/types/containers.go` | new | | | |
 | `internal/consensus/types/containers_test.go` | new | | | |
+| `internal/crypto/mldsa87/bench_test.go` | new | | | |
+| `internal/crypto/mldsa87/key.go` | new | | | |
+| `internal/crypto/mldsa87/mldsa87.go` | new | | | |
+| `internal/crypto/mldsa87/mldsa87_test.go` | new | | | |
+| `internal/crypto/mldsa87/selftest.go` | new | | | |
 | `internal/randao/onion/onion.go` | new | | | |
 | `internal/randao/onion/onion_test.go` | new | | | |
 | `internal/ssz/merkleize.go` | new | | | |
