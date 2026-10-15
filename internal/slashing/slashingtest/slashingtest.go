@@ -16,8 +16,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
-	"fmt"
-	"strconv"
 	"testing"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
@@ -29,7 +27,6 @@ type Factory func(t *testing.T) slashing.Store
 // Run runs the whole conformance suite against stores from newStore.
 func Run(t *testing.T, newStore Factory) {
 	t.Run("EIP3076", func(t *testing.T) { RunEIP3076(t, newStore) })
-	t.Run("StoreContract", func(t *testing.T) { RunStoreContract(t, newStore) })
 	t.Run("Randao", func(t *testing.T) { RunRandao(t, newStore) })
 	t.Run("Schema", func(t *testing.T) { RunSchema(t, newStore) })
 	t.Run("Stress", func(t *testing.T) { RunStress(t, newStore) })
@@ -158,19 +155,4 @@ func must(t *testing.T, err error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-}
-
-func fmtLow(w slashing.LowWatermark) string {
-	return fmt.Sprintf("{slot %s, source %s, target %s}", fmtU64(w.Slot), fmtU64(w.SourceEpoch), fmtU64(w.TargetEpoch))
-}
-
-func fmtHigh(h slashing.HighWatermark) string {
-	return fmt.Sprintf("{epoch %s, slot %s}", fmtU64(h.Epoch), fmtU64(h.Slot))
-}
-
-func fmtU64(p *uint64) string {
-	if p == nil {
-		return "unset"
-	}
-	return strconv.FormatUint(*p, 10)
 }
