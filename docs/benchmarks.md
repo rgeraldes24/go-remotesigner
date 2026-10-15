@@ -7,23 +7,35 @@ must be re-run on the reference VMs before v1.0.
 
 ## ML-DSA-87 (B1-B4, `internal/crypto/mldsa87`)
 
+**Status: open.** The S2c acceptance criterion "B1-B4 meet their thresholds" is not yet confirmed. The only
+measurements so far come from a shared, heavily loaded development machine, which cannot confirm or refute a
+latency bound. This stays a tracked gate until the rows below are re-run on a quiet machine or the reference VMs.
+
 ```
-go test -run '^$' -bench . -benchtime 20000x ./internal/crypto/mldsa87/
+go test -run '^$' -bench 'SignHedged|SignDeterministic|KeyFromSeed' -benchtime 20000x -count 10 \
+    ./internal/crypto/mldsa87/ | tee b1-b3.txt && benchstat b1-b3.txt
+go test -run '^$' -bench SignParallel -cpu 4 -benchtime 5000x -count 10 \
+    ./internal/crypto/mldsa87/ | tee b4.txt && benchstat b4.txt
 CGO_ENABLED=1 go test -race -run '^$' -bench SignParallel -benchtime 200x ./internal/crypto/mldsa87/
 ```
 
 Signing uses 1,024 random 32-byte roots, never one fixed message. Latency percentiles come from per-call timings
-(`p50-ms`, `p99-ms`, `p99.99-ms`).
+(`p50-ms`, `p99-ms`, `p99.99-ms`). B4 runs with `-cpu 4` so that it uses four procs, as on the reference VMs.
 
-| ID | Benchmark | Threshold | Result | Verdict |
+| ID | Benchmark | Threshold | Development-machine results | Verdict |
 |---|---|---|---|---|
-| B1 | `BenchmarkSignHedged` | mean ≤ 2 ms; p99 ≤ 6 ms; p99.99 ≤ 12 ms (amd64) | mean 0.67 ms; p50 0.53 ms; p99 2.27 ms; p99.99 13.9 ms | mean and p99 met; p99.99 to re-measure on reference hardware (see note) |
-| B2 | `BenchmarkSignDeterministic` | as B1, and byte-identical output for repeated roots | mean 0.60 ms; p50 0.48 ms; p99 2.10 ms; p99.99 16.0 ms; every repeated root gave identical bytes | as B1 |
-| B3 | `BenchmarkKeyFromSeed` (`NewWalletFromSeed` plus the weak-key check) | mean ≤ 1 ms | 0.18 ms | met |
-| B4 | `BenchmarkSignParallel` (GOMAXPROCS = 8 goroutines) | ≥ 1,000 signatures/s on 4 vCPU; no data races | distinct keys 5,620/s; one shared key 1,690/s (serialised by the per-key lock); no race reported under `-race` | met (on 8 cores, not 4 vCPU) |
+| B1 | `BenchmarkSignHedged` | mean ≤ 2 ms; p99 ≤ 6 ms; p99.99 ≤ 12 ms (amd64) | run A: mean 0.67 ms, p50 0.53 ms, p99 2.27 ms, p99.99 13.9 ms; run B: mean 2.52 ms, p99 24.8 ms, p99.99 161.6 ms | pending: re-run on reference hardware |
+| B2 | `BenchmarkSignDeterministic` | as B1, and byte-identical output for repeated roots | run A: mean 0.60 ms, p50 0.48 ms, p99 2.10 ms, p99.99 16.0 ms; run B: mean 1.92 ms, p99 12.75 ms, p99.99 103.7 ms; every repeated root gave identical bytes | pending: re-run on reference hardware |
+| B3 | `BenchmarkKeyFromSeed` (`NewWalletFromSeed` plus the weak-key check) | mean ≤ 1 ms | run A: 0.18 ms | pending: re-run on reference hardware |
+| B4 | `BenchmarkSignParallel` | ≥ 1,000 signatures/s on 4 vCPU; no data races | run A (8 procs): distinct keys 5,620/s, shared key 1,690/s; run B (8 procs): shared key 721/s; run C (`-cpu 4`, 10 runs): distinct keys 2,192/s ± 15%, shared key 835/s ± 9%; no race reported under `-race` | pending: re-run on reference hardware |
 
-Measured 2026-10-15 on an Apple M2 (8 cores, darwin/arm64, Go 1.26.9, go-qrllib v0.11.0), one run of 20,000
-operations per benchmark, on a shared development machine with a load average of 11-20 during the run. A p99.99 over
-20,000 samples is the third-slowest call, so it is dominated by scheduler pauses from the other load; an earlier
-run under heavier load gave p99.99 of 56-58 ms with p99 of 2.9-4.6 ms. The amd64 p99.99 threshold needs the
-reference VM.
+All runs were on an Apple M2 (8 cores, darwin/arm64, go-qrllib v0.11.0) shared with other work:
+
+- Run A, 2026-10-15, Go 1.26.9: one run of 20,000 operations per benchmark, load average 11-20.
+- Run B, 2026-10-15, review re-run of the same command, load average 16-20.
+- Run C, 2026-10-15, Go 1.26.5: B4 with `-cpu 4 -benchtime 5000x -count 10`, summarised with `benchstat`, load
+  average 8-14.
+
+A p99.99 over 20,000 samples is the third-slowest call, so on a loaded machine it measures scheduler pauses from the
+other load rather than signing. The shared-key B4 figure is bounded by the per-key lock (one signature at a time per
+key), so it tracks single-call latency and falls with load; the distinct-keys figure is the parallel throughput.

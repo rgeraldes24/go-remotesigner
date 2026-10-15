@@ -6,11 +6,8 @@ package mldsa87
 // Benchmarks B1-B4 (signing latency, key derivation, parallel signing).
 // Signing uses random 32-byte roots, never one fixed message: the rejection
 // loop's cost depends on the message. Besides ns/op, the latency benchmarks
-// report p50, p99 and p99.99 in milliseconds. Run with
-//
-//	go test -run '^$' -bench . -benchtime 2000x ./internal/crypto/mldsa87/
-//
-// and B4 once more with -race to check for data races.
+// report p50, p99 and p99.99 in milliseconds. docs/benchmarks.md has the
+// commands, including the -cpu 4 run of B4 and the -race run.
 
 import (
 	"crypto/rand"
