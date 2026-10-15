@@ -73,6 +73,15 @@ qrysm's Go source while writing them. The facts, with their sources, are recorde
 | EIP-3076 conformance scenarios (`internal/slashing/slashingtest/eip3076.go`) | — | The conditions of EIP-3076 (CC0-1.0), authored as QRL scenarios with 2,592-byte keys. The `eth-clients/slashing-protection-interchange-tests` vectors are not used: that repository has no licence. |
 | RANDAO hash onion (`internal/randao/onion`) | `docs/spec/randao-onion.md` | The package is written from the facts and vectors V1-V3 of that note only. The note records honestly that the construction (domain tag `qrl-randao-onion-v1`, `x_0 = SHA-256(tag ‖ seed48)`, `x_{j+1} = SHA-256(x_j)`, commitment `x_L`, default `L = 2^20`, reveal check `SHA-256(reveal) = commitment`) was **learned by reading qrysm's GPL `crypto/randao/onion.go`**; only these facts were taken. The package was written from the note without opening `onion.go`, and its vectors were computed independently with Python `hashlib`; vector V2 reuses the seed and length of qrysm's own onion test. The Go API uses its own names (`Base`, `Step`, `Top`, `Find`, `Advance`, `DefaultLength`); a test asserts that it exports none of qrysm's names `Origin`, `Next`, `Verify`, `Commitment`, `DefaultLayers`. The first draft did reuse two qrysm identifiers (`DefaultLayers`, which the design had named after qrysm's constant, and the unexported `domainTag`) and two doc-comment phrasings close to qrysm's; review caught these and they were renamed and reworded. The body of `Base` is the one idiomatic Go form of `SHA-256(tag ‖ seed)` and resembles qrysm's for that reason. The note's "Signer-level additions" (added with the contract, not package input) record two further GPL sources: the interop seed derivation behind vector V4, **learned by reading qrysm's GPL `runtime/interop`**, and the onion lengths used by qrysm's deposit tooling, interop genesis and unit-test helpers. Only facts were taken there too, and the V4 and V5 values were computed independently. |
 
+## Generated test code
+
+`internal/consensus/types/fastssz_mirror_htr_test.go` is output of the `sszgen` code generator of fastssz v1.0.0
+(`github.com/ferranbt/fastssz`, MIT), run over this project's own mirror structs in `fastssz_mirror_test.go` and
+reduced to the hash-tree-root methods (the regeneration steps are in that file). It is the test-only oracle of the
+differential fuzz in `fastssz_test.go`. fastssz is a test-only dependency: no package that ships imports it, so it is
+in no binary and outside `go-licenses check`. The generated file is classed `new`: it is generator output over our
+declarations, not fastssz source.
+
 ## Header classes
 
 | Class | Files | Required header |
@@ -127,9 +136,13 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/consensus/testdata/containers.json` | new | | | |
 | `internal/consensus/testdata/gen_fixtures.py` | new | | | |
 | `internal/consensus/testdata/signing.json` | new | | | |
+| `internal/consensus/types/bench_test.go` | new | | | |
 | `internal/consensus/types/containers.go` | new | | | |
 | `internal/consensus/types/containers_test.go` | new | | | |
 | `internal/consensus/types/decode_fuzz_test.go` | new | | | |
+| `internal/consensus/types/fastssz_mirror_htr_test.go` | new | | | |
+| `internal/consensus/types/fastssz_mirror_test.go` | new | | | |
+| `internal/consensus/types/fastssz_test.go` | new | | | |
 | `internal/consensus/types/json.go` | new | | | |
 | `internal/consensus/types/randao.go` | new | | | |
 | `internal/consensus/types/request.go` | new | | | |

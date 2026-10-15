@@ -67,6 +67,9 @@ jobs:
         if: env.CROSS != 'true'
         # The race detector needs cgo; everything else in this job builds with CGO_ENABLED=0.
         run: make test
+      - name: Fuzz (differential hash-tree-root against fastssz, strict decoders; 10 s each)
+        if: env.CROSS != 'true'
+        run: make fuzz
 
   lint:
     runs-on: ubuntu-24.04
