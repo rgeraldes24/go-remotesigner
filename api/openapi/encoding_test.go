@@ -6,6 +6,8 @@ package openapi
 import (
 	"math/big"
 	"math/rand"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -325,6 +327,104 @@ func TestRandaoRequestStrictness(t *testing.T) {
 		tt.mutate(m)
 		if err := s.VisitJSON(m, openapi3.VisitAsRequest()); (err == nil) != tt.want {
 			t.Errorf("%s: accepted=%v, want %v (%v)", tt.name, err == nil, tt.want, err)
+		}
+	}
+}
+
+// TestNullableSitsNextToType enforces the OpenAPI 3.0.3 rule that nullable
+// has an effect only in a Schema Object that also sets type. kin-openapi is
+// more lenient than strict validators and code generators here, so a
+// nullable beside an allOf would pass these tests and still break clients.
+func TestNullableSitsNextToType(t *testing.T) {
+	doc := loadSpec(t)
+	seen := map[*openapi3.Schema]bool{}
+	var walk func(where string, ref *openapi3.SchemaRef)
+	walk = func(where string, ref *openapi3.SchemaRef) {
+		if ref == nil || ref.Value == nil || seen[ref.Value] {
+			return
+		}
+		s := ref.Value
+		seen[s] = true
+		if s.Nullable && (s.Type == nil || len(*s.Type) == 0) {
+			t.Errorf("%s: nullable without type has no effect under OpenAPI 3.0.3", where)
+		}
+		for name, p := range s.Properties {
+			walk(where+"."+name, p)
+		}
+		walk(where+"[]", s.Items)
+		for i, sub := range slices.Concat(s.OneOf, s.AnyOf, s.AllOf) {
+			walk(where+"#"+strconv.Itoa(i), sub)
+		}
+	}
+	for name, s := range doc.Components.Schemas {
+		walk("components.schemas."+name, s)
+	}
+	for _, o := range operations(t) {
+		at := o.method + " " + o.path
+		if rb := o.op.RequestBody; rb != nil {
+			for ct, mt := range rb.Value.Content {
+				walk(at+" request "+ct, mt.Schema)
+			}
+		}
+		for code, resp := range o.op.Responses.Map() {
+			for ct, mt := range resp.Value.Content {
+				walk(at+" response "+code+" "+ct, mt.Schema)
+			}
+		}
+	}
+}
+
+func TestCapabilitiesNullableNetworkFields(t *testing.T) {
+	network := schema(t, "Capabilities").Properties["network"].Value
+	gvr := network.Properties["genesis_validators_root"].Value
+	genesisTime := network.Properties["genesis_time"].Value
+
+	// The fields are inlined copies of Root and Uint64; keep them in step.
+	if gvr.Pattern != schema(t, "Root").Pattern {
+		t.Errorf("genesis_validators_root pattern %q differs from Root's", gvr.Pattern)
+	}
+	if genesisTime.Pattern != schema(t, "Uint64").Pattern {
+		t.Errorf("genesis_time pattern differs from Uint64's")
+	}
+
+	tests := []struct {
+		name  string
+		field *openapi3.Schema
+		in    any
+		want  bool
+	}{
+		{"gvr null", gvr, nil, true},
+		{"gvr root", gvr, "0x" + strings.Repeat("7a", 32), true},
+		{"gvr short", gvr, "0x" + strings.Repeat("7a", 31), false},
+		{"gvr empty", gvr, "", false},
+		{"time null", genesisTime, nil, true},
+		{"time decimal", genesisTime, "1760000000", true},
+		{"time number", genesisTime, float64(1760000000), false},
+		{"time over uint64", genesisTime, "18446744073709551616", false},
+	}
+	for _, tt := range tests {
+		if err := tt.field.VisitJSON(tt.in, openapi3.VisitAsResponse()); (err == nil) != tt.want {
+			t.Errorf("%s %#v: accepted=%v, want %v (%v)", tt.name, tt.in, err == nil, tt.want, err)
+		}
+	}
+}
+
+func TestHighWatermarkIsBothFieldsOrNone(t *testing.T) {
+	s := schema(t, "HighWatermark")
+	tests := []struct {
+		in   string
+		want bool
+	}{
+		{`{}`, true},
+		{`{"epoch":"1200","slot":"7200"}`, true},
+		{`{"epoch":"1200"}`, false},
+		{`{"slot":"7200"}`, false},
+		{`{"epoch":"1200","slot":"7200","extra":"1"}`, false},
+		{`{"epoch":1200,"slot":"7200"}`, false},
+	}
+	for _, tt := range tests {
+		if err := s.VisitJSON(decode(t, tt.in), openapi3.VisitAsResponse()); (err == nil) != tt.want {
+			t.Errorf("HighWatermark %s: accepted=%v, want %v (%v)", tt.in, err == nil, tt.want, err)
 		}
 	}
 }

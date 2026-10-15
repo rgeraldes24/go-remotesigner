@@ -53,9 +53,10 @@ info:
     with FIPS 204 context "ZOND" || 0x01 || descriptor (5a4f4e4401010000).
 
     Examples are schema-valid but are not golden vectors: public keys and signatures are fixed byte patterns
-    (0xa5 and 0x5a repeated), and signing roots are not recomputed from the objects. The RANDAO example uses
-    interop key 0's real commitment and first reveal (docs/spec/randao-onion.md, vector V4). Milestone S3
-    replaces the signing examples with generated golden vectors.
+    (0xa5 and 0x5a repeated), and signing roots are placeholders, not recomputed from the objects, except in the
+    AGGREGATION_SLOT example, whose root is the worked example of docs/spec/signing-roots.md section 4. The
+    RANDAO example uses interop key 0's real commitment and first reveal (docs/spec/randao-onion.md, vector V4).
+    Milestone S3 replaces the signing examples with generated golden vectors.
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
@@ -92,17 +93,14 @@ paths:
         The signer derives every domain from its own network configuration. Body limit 2 MiB.
         `AGGREGATION_SLOT` and `SYNC_COMMITTEE_SELECTION_PROOF` are signed deterministically by default,
         all other types hedged.
+
+        Content negotiation: the response is `application/json` unless the `Accept` header lists `text/plain`
+        and does not list `application/json`; only then is the bare signature returned as `text/plain`. q-values
+        do not change this. No `Accept` header means JSON.
       security:
         - signToken: []
       parameters:
         - $ref: '#/components/parameters/Identifier'
-        - in: header
-          name: Accept
-          required: false
-          schema:
-            type: string
-            default: application/json
-          description: JSON is returned unless `text/plain` is explicitly preferred over `application/json`.
       requestBody:
         required: true
         content:
@@ -362,7 +360,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
-          $ref: '#/components/responses/NotFound'
+          $ref: '#/components/responses/NotFoundOrProtectionDisabled'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -1365,15 +1363,17 @@ components:
             genesis_fork_version:
               $ref: '#/components/schemas/Bytes4'
             genesis_validators_root:
-              allOf:
-                - $ref: '#/components/schemas/Root'
+              # Inlined Root: under OpenAPI 3.0.3, nullable only applies next to a type.
+              type: string
+              pattern: '^0x[0-9a-fA-F]{64}$'
               nullable: true
-              description: null while a trust-on-first-use pin is pending
+              description: A Root, or null while a trust-on-first-use pin is pending
             genesis_time:
-              allOf:
-                - $ref: '#/components/schemas/Uint64'
+              # Inlined Uint64, for the same reason.
+              type: string
+              pattern: '^(0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]|1844674407370955161[0-4]|18446744073709551615)$'
               nullable: true
-              description: null when unknown; the client treats null as a mismatch
+              description: A Uint64, or null when unknown; the client treats null as a mismatch
             seconds_per_slot:
               $ref: '#/components/schemas/Uint64'
             slots_per_epoch:
@@ -1382,6 +1382,10 @@ components:
     HighWatermark:
       type: object
       additionalProperties: false
+      description: Both fields, or none (`{}`) when no high watermark is set.
+      oneOf:
+        - required: [epoch, slot]
+        - maxProperties: 0
       properties:
         epoch:
           $ref: '#/components/schemas/Uint64'
@@ -1633,7 +1637,14 @@ components:
             scope:
               value: {code: 403, message: token does not grant this scope, reason: FORBIDDEN_SCOPE}
     NotFound:
-      description: No loaded key for the identifier, or (RANDAO state reset only) slashing protection is disabled
+      description: No loaded key for the identifier
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example: {code: 404, message: public key not found, reason: UNKNOWN_KEY}
+    NotFoundOrProtectionDisabled:
+      description: No loaded key for the identifier, or slashing protection is disabled
       content:
         application/json:
           schema:
@@ -1692,8 +1703,11 @@ components:
       description: RANDAO slow-path scan budget for this key is used up
       headers:
         Retry-After:
+          required: true
+          description: Seconds until the key's scan budget allows another scan
           schema:
             type: integer
+            minimum: 0
       content:
         application/json:
           schema:
@@ -1760,13 +1774,13 @@ components:
           source: {epoch: "8", root: "0x55ee66ff778899001122334455667788990011aabbccddeeff00112233445555"}
           target: {epoch: "10", root: "0x66ff778899001122334455667788990011aabbccddeeff0011223344556666ff"}
     AggregationSlot:
-      summary: AGGREGATION_SLOT (aggregation selection proof, deterministic)
+      summary: AGGREGATION_SLOT (aggregation selection proof, deterministic; real signing root)
       value:
         type: AGGREGATION_SLOT
         fork_info:
           fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
           genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
-        signing_root: "0x7b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a"
+        signing_root: "0x489e15e8bcf803c483b1efdff3bf2832f9ee2dbd4154e0f5257168d2a14b3284"
         aggregation_slot: {slot: "61"}
     AggregateAndProof:
       summary: AGGREGATE_AND_PROOF (4 participants; 0x1f = 4 bits + delimiter)

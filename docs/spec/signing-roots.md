@@ -94,6 +94,9 @@ Worked example (end-to-end network, GVR
 | domain `compute_domain(0x05000000, 0x000000fd, GVR)` | `05000000b8e25631e1df7e6cbf073dcd2459a5baa6a3649d070d4be0de51066e` |
 | signing root | `489e15e8bcf803c483b1efdff3bf2832f9ee2dbd4154e0f5257168d2a14b3284` |
 
+The `AGGREGATION_SLOT` example in `api/openapi/consensus.yaml` carries this signing root, and a contract test
+recomputes it.
+
 ## 5. The signature over the root
 
 The message signed is the 32-byte signing root, unhashed, with ML-DSA-87 through the go-qrllib wallet API, which

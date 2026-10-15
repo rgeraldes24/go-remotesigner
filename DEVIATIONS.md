@@ -28,7 +28,7 @@ links that section where one exists.
 | X9 | Body limits | 10 MiB everywhere | Per route ([contract §13](docs/contract.md#13-size-limits-and-timeouts)) | QRL-sized | G6 §7.1 |
 | X10 | Idle timeout | 30 s | 120 s | Go client | G6 §7.2 |
 | X11 | JSON strictness | Unknown fields ignored, numbers accepted, case-insensitive `type` | Strict ([contract §4](docs/contract.md#4-encoding-rules)) | Fix | G2 §6.1 |
-| X12 | Response default | `text/plain` without `Accept` | JSON unless `text/plain` is explicitly preferred ([contract §10](docs/contract.md#10-responses-and-content-negotiation)) | Simplification | CH §6.2 |
+| X12 | Response default | `text/plain` without `Accept` | JSON unless `Accept` lists `text/plain` and not `application/json` ([contract §10](docs/contract.md#10-responses-and-content-negotiation)) | Simplification | CH §6.2 |
 | X13 | Signer load | batch 500 on virtual threads | Memory-sized Argon2id semaphore | QRL-forced | G6 §7.4 |
 | X14 | Keystores | EIP-2335 | QRL v1 + deposit-cli, KDF bounds, derive and compare | QRL-forced + fix | G3 §A.2; G4 C7, C8 |
 | X15 | Keymanager file names | `<pubkey>.*` | `<sha256(pk)>.*`, 0600 | NAME_MAX | G3 §B.7 |

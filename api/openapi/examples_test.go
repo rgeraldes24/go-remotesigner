@@ -4,6 +4,9 @@
 package openapi
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"sort"
@@ -314,4 +317,93 @@ func TestErrorExamplesAgreeWithStatus(t *testing.T) {
 	if checked < 20 {
 		t.Fatalf("checked only %d error examples", checked)
 	}
+}
+
+// TestNoIgnoredHeaderParameters rejects header parameters that OpenAPI 3.0.3
+// says SHALL be ignored (Accept, Content-Type, Authorization): they look
+// normative but carry no weight, so their rules belong in the description.
+func TestNoIgnoredHeaderParameters(t *testing.T) {
+	ignored := map[string]bool{"accept": true, "content-type": true, "authorization": true}
+	for _, o := range operations(t) {
+		for _, p := range o.op.Parameters {
+			if p.Value.In == "header" && ignored[strings.ToLower(p.Value.Name)] {
+				t.Errorf("%s %s: header parameter %s is ignored by OpenAPI 3.0.3", o.method, o.path, p.Value.Name)
+			}
+		}
+	}
+}
+
+// TestReasonsOnlyWhereTheyOccur keeps example reasons off routes that never
+// send them, so a fake server built from the examples stays faithful.
+func TestReasonsOnlyWhereTheyOccur(t *testing.T) {
+	allowed := map[string]map[string]bool{
+		"PROTECTION_DISABLED": {
+			"GET /api/v1/consensus/highWatermark":                true,
+			"DELETE /api/v1/consensus/randao_state/{identifier}": true,
+		},
+	}
+	for _, o := range operations(t) {
+		at := o.method + " " + o.path
+		for code, resp := range o.op.Responses.Map() {
+			for _, ex := range mediaExamples(at+" "+code, resp.Value.Content.Get("application/json"), false) {
+				v, _ := ex.value.(map[string]any)
+				reason, _ := v["reason"].(string)
+				if routes, ok := allowed[reason]; ok && !routes[at] {
+					t.Errorf("%s: reason %s is never sent on this route", ex.where, reason)
+				}
+			}
+		}
+	}
+}
+
+func TestRetryAfterRequiredOn429(t *testing.T) {
+	for _, o := range operations(t) {
+		resp := o.op.Responses.Status(429)
+		if resp == nil {
+			continue
+		}
+		h, ok := resp.Value.Headers["Retry-After"]
+		if !ok || !h.Value.Required {
+			t.Errorf("%s %s: 429 must carry a required Retry-After header", o.method, o.path)
+		}
+	}
+}
+
+// TestAggregationSlotExampleSigningRoot recomputes the one real signing root
+// among the sign examples (docs/spec/signing-roots.md, section 4):
+// compute_signing_root(uint64 slot, compute_domain(DOMAIN_SELECTION_PROOF,
+// fork version, GVR)) from the consensus specs.
+func TestAggregationSlotExampleSigningRoot(t *testing.T) {
+	ex := signExample(t, "AGGREGATION_SLOT")
+	forkInfo := at(ex, "fork_info")
+	fork := at(forkInfo, "fork")
+	if fork["previous_version"] != fork["current_version"] || fork["epoch"] != "0" {
+		t.Fatalf("example fork %v is not a single-fork schedule", fork)
+	}
+	version := mustHex(t, fork["current_version"], 4)
+	gvr := mustHex(t, forkInfo["genesis_validators_root"], 32)
+	slot, err := strconv.ParseUint(at(ex, "aggregation_slot")["slot"].(string), 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	forkData := sha256.Sum256(slices.Concat(version, make([]byte, 28), gvr))
+	domain := slices.Concat([]byte{0x05, 0, 0, 0}, forkData[:28])
+	var objectRoot [32]byte
+	binary.LittleEndian.PutUint64(objectRoot[:], slot)
+	root := sha256.Sum256(slices.Concat(objectRoot[:], domain))
+
+	if got, want := ex["signing_root"], "0x"+hex.EncodeToString(root[:]); got != want {
+		t.Errorf("AGGREGATION_SLOT example signing_root = %v, want %s", got, want)
+	}
+}
+
+func mustHex(t *testing.T, v any, n int) []byte {
+	t.Helper()
+	s, _ := v.(string)
+	b, err := hex.DecodeString(strings.TrimPrefix(s, "0x"))
+	if err != nil || len(b) != n {
+		t.Fatalf("%q is not %d bytes of hex", s, n)
+	}
+	return b
 }

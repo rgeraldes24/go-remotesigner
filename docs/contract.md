@@ -46,8 +46,10 @@ SSZ containers and sizes, signing roots and domains, the RANDAO hash onion, and 
   `testdata/vectors/`, from milestone S3) in its own tests; it never copies code from here, and this repository
   never copies code from qrysm.
 - Until S3, the examples in the spec are schema-valid but are not golden vectors: public keys and signatures are
-  fixed byte patterns and the signing roots are not recomputed from the objects. The RANDAO example is real (interop
-  key 0, [`docs/spec/randao-onion.md`](spec/randao-onion.md) vector V4).
+  fixed byte patterns and the signing roots are placeholders, not recomputed from the objects. Two examples are
+  real: the `AGGREGATION_SLOT` signing root (the worked example in
+  [`docs/spec/signing-roots.md`](spec/signing-roots.md) section 4) and the RANDAO example (interop key 0,
+  [`docs/spec/randao-onion.md`](spec/randao-onion.md) vector V4).
 
 ## 2. Transport
 
@@ -606,7 +608,7 @@ show on this contract:
 | X6 (authentication and scopes), X7 (content type and `Origin`) | [section 6](#6-authentication-and-scopes) |
 | X9 (per-route body limits), X10 (idle timeout), X32 (connection cap) | [section 13](#13-size-limits-and-timeouts) |
 | X11 (strict JSON) | [section 4](#4-encoding-rules) |
-| X12 (JSON unless `text/plain` is preferred) | [section 10](#10-responses-and-content-negotiation) |
+| X12 (JSON unless `Accept` lists `text/plain` and not `application/json`) | [section 10](#10-responses-and-content-negotiation) |
 | X20 (exits off by default), X21 (clock bounds) | [sections 8](#8-artifact-types) and [12](#12-wall-clock-bounds) |
 | X22 (RANDAO reveal endpoint) | [section 14](#14-randao-reveal) |
 | X23 (metric names) | [section 18](#18-metric-label-values) |
