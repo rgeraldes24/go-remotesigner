@@ -457,9 +457,9 @@ paths:
         init on: a `genesis_fork_version` or GVR mismatch; `genesis_time`, `seconds_per_slot` or
         `slots_per_epoch` different from its own chain (or `genesis_time` null); `randao_reveal: false`;
         or an unsupported `api_version` major.
-        `randao_reveal` is false when the signer cannot release new layers (genesis time unknown, or
-        RANDAO disabled). `genesis_validators_root` is null while a trust-on-first-use pin is pending
-        (file networks on loopback only).
+        `randao_reveal` is false when the signer cannot release new layers (genesis time unknown).
+        `genesis_validators_root` is null while a trust-on-first-use pin is pending (file networks on
+        loopback only).
       security:
         - signToken: []
       responses:
@@ -1347,7 +1347,7 @@ components:
             $ref: '#/components/schemas/ArtifactType'
         randao_reveal:
           type: boolean
-          description: false when the signer cannot release new layers (genesis time unknown, or RANDAO disabled)
+          description: false when the signer cannot release new layers (genesis time unknown)
         selection_proof_mode:
           type: string
           enum: [deterministic, hedged]

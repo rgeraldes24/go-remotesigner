@@ -513,7 +513,7 @@ returns 412 `RANDAO_SLOT_OUT_OF_WINDOW` for anything that would move the frontie
 |---|---|
 | `api_version` | The contract version, equal to `info.version` of the spec (`1.0.0`) |
 | `types` | The **enabled** artifact types; a disabled type (exits by default) is absent |
-| `randao_reveal` | `false` when the signer cannot release new layers: genesis time unknown, or `--randao-reveal-enabled=false` |
+| `randao_reveal` | `false` when the signer cannot release new layers: genesis time unknown |
 | `selection_proof_mode` | `deterministic` or `hedged` |
 | `slashing_protection` | `bolt`, `postgres` or `disabled` |
 | `network.config_name`, `genesis_fork_version` | From the network configuration |
