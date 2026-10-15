@@ -10,9 +10,24 @@ import (
 	qrysmpb "github.com/theQRL/qrysm/proto/qrysm/v1alpha1"
 )
 
-// seedsPerPreset is the number of random containers per type and preset:
-// about 1,000 per container across the two presets (DESIGN §7.2).
+// seedsPerPreset is the number of random containers per type and preset.
+// Each preset draws its own seeds (seedRange), so most types are
+// preset-independent yet still give 1,024 distinct objects across the two
+// presets, about the 1,000 per container of DESIGN §7.2.
 const seedsPerPreset = 512
+
+// seedRange returns the first and last seed of the i-th chain of
+// g.chains(): 0-511 for minimal and 512-1023 for mainnet.
+func seedRange(i int) (first, last uint64) {
+	first = uint64(i) * seedsPerPreset
+	return first, first + seedsPerPreset - 1
+}
+
+// seedRangeText is seedRange(i) as "first-last".
+func seedRangeText(i int) string {
+	first, last := seedRange(i)
+	return u64s(first) + "-" + u64s(last)
+}
 
 // randomObject expands seed into an object of type t, field by field in SSZ
 // declaration order, as testdata/vectors/README.md ("Seed expansion")
@@ -78,11 +93,12 @@ func randomObject(t string, seed uint64, subcommitteeBits int) *object {
 // genRoots writes roots/<preset>/<type>.json: the roots of seed-expanded
 // random containers.
 func genRoots(g *generator) error {
-	for _, c := range g.chains() {
+	for i, c := range g.chains() {
+		first, last := seedRange(i)
 		for _, t := range artifactTypes {
 			recs := make([]obj, 0, seedsPerPreset)
 			padded := false
-			for seed := uint64(0); seed < seedsPerPreset; seed++ {
+			for seed := first; seed <= last; seed++ {
 				o := randomObject(t, seed, int(c.subcommitteeBits))
 				padded = padded || o.padded
 				objectRoot, domain, signingRoot, err := c.roots(o)
@@ -96,7 +112,7 @@ func genRoots(g *generator) error {
 					set("signing_root", hx(signingRoot[:])))
 			}
 			f := obj{}.
-				set("description", g.description("Roots of "+t+" objects expanded from seeds 0-"+u64s(seedsPerPreset-1)+
+				set("description", g.description("Roots of "+t+" objects expanded from seeds "+seedRangeText(i)+
 					" as testdata/vectors/README.md (\"Seed expansion\") specifies, on the "+c.def.name+" network, "+
 					"computed by qrysm's own code.")).
 				set("generator", g.info).

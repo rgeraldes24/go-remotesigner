@@ -17,6 +17,8 @@ func genReadme(g *generator) error {
 	}
 	text := strings.ReplaceAll(readmeTemplate, "{{MODULES}}", strings.Join(mods, "\n"))
 	text = strings.ReplaceAll(text, "{{SEEDS}}", u64s(seedsPerPreset))
+	text = strings.ReplaceAll(text, "{{MINIMAL_SEEDS}}", seedRangeText(0))
+	text = strings.ReplaceAll(text, "{{MAINNET_SEEDS}}", seedRangeText(1))
 	text = strings.ReplaceAll(text, "{{TAG}}", streamTag)
 	text = strings.ReplaceAll(text, "{{FORMAT}}", fmt.Sprint(formatVersion))
 	return writeFile(g.vectors, "README.md", []byte(text))
@@ -53,7 +55,7 @@ are pinned in ` + "`tools/vectorgen/go.mod`" + `:
 | ` + "`networks/genesis-state-prefix.json`" + ` | The first 128 bytes of qrysm's SSZ genesis state for ` + "`end-to-end-mainnet`" + ` |
 | ` + "`keys/interop.json`" + ` | Interop keys 0-7: 48-byte seed, public key, RANDAO commitment and first reveal |
 | ` + "`signing/<preset>/<type>.json`" + ` | Curated golden sign requests (status 200), per artifact type and preset |
-| ` + "`roots/<preset>/<type>.json`" + ` | Roots of {{SEEDS}} seed-expanded random objects per type and preset ("Seed expansion" below) |
+| ` + "`roots/<preset>/<type>.json`" + ` | Roots of {{SEEDS}} seed-expanded random objects per type and preset, each preset with its own seeds (` + "`minimal`" + ` {{MINIMAL_SEEDS}}, ` + "`mainnet`" + ` {{MAINNET_SEEDS}}; "Seed expansion" below) |
 | ` + "`negative/<preset>.json`" + ` | Requests the signer refuses, with status and reason |
 | ` + "`capabilities.json`" + ` | Capabilities handshakes and whether the qrysm client must accept them |
 | ` + "`randao/onion.json`" + ` | Onion vectors V1-V3 of ` + "`docs/spec/randao-onion.md`" + ` |
