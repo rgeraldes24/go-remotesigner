@@ -30,6 +30,7 @@
 package metrics
 
 import (
+	"math"
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -55,6 +56,12 @@ const (
 	RandaoReReveal    = "re_reveal"
 	RandaoRefused     = "refused" // any 412, 422 or 429
 	RandaoError       = "error"   // 500
+)
+
+// Values of the path label of consensus_randao_reveal_duration_seconds.
+const (
+	RandaoPathHot  = "hot"  // served from the frontier or the precomputed layer
+	RandaoPathScan = "scan" // needed a computation from x_0
 )
 
 // Values of the operation label of
@@ -130,6 +137,13 @@ type Metrics struct {
 	// RandaoNewLayerRateLimited is
 	// consensus_randao_new_layer_rate_limited_total.
 	RandaoNewLayerRateLimited prometheus.Counter
+	// RandaoRevealDuration is consensus_randao_reveal_duration_seconds{path}
+	// of released reveals.
+	RandaoRevealDuration *prometheus.HistogramVec
+	// RandaoSlowPathScans is consensus_randao_slow_path_scans_total.
+	RandaoSlowPathScans prometheus.Counter
+	// RandaoMinLayersRemaining is consensus_randao_min_layers_remaining.
+	RandaoMinLayersRemaining prometheus.Gauge
 }
 
 // New builds the registry with the Go and process collectors,
@@ -184,6 +198,19 @@ func New(cfg Config) (*Metrics, error) {
 			Name: "consensus_randao_new_layer_rate_limited_total",
 			Help: "RANDAO reveals refused because the key's new-layer bucket was empty.",
 		}),
+		RandaoRevealDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "consensus_randao_reveal_duration_seconds",
+			Help:    "Time to release a RANDAO reveal, by path (hot: no onion computation; scan: computed from x_0).",
+			Buckets: []float64{.0001, .0005, .001, .005, .01, .05, .1, .25, .5, 1, 2.5},
+		}, []string{"path"}),
+		RandaoSlowPathScans: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "consensus_randao_slow_path_scans_total",
+			Help: "RANDAO onion scans from x_0 (first use, gap advance, deep reorg, unknown commitment).",
+		}),
+		RandaoMinLayersRemaining: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "consensus_randao_min_layers_remaining",
+			Help: "Fewest RANDAO layers any loaded key has left (its frontier index); NaN while no loaded key has a frontier.",
+		}),
 	}
 	release := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "process_release",
@@ -197,7 +224,7 @@ func New(cfg Config) (*Metrics, error) {
 		release,
 		m.SigningRequests, m.SigningDuration, m.MalformedRequests, m.MissingIdentifier, m.KeysQuarantined,
 		m.VerifyFailures, m.SlashingPermitted, m.SlashingPrevented, m.SlashingDatabaseDuration, m.RandaoReveals,
-		m.RandaoNewLayerRateLimited,
+		m.RandaoNewLayerRateLimited, m.RandaoRevealDuration, m.RandaoSlowPathScans, m.RandaoMinLayersRemaining,
 	}
 	if cfg.SignersLoaded != nil {
 		loaded := cfg.SignersLoaded
@@ -227,6 +254,10 @@ func New(cfg Config) (*Metrics, error) {
 	for _, r := range RandaoResults {
 		m.RandaoReveals.WithLabelValues(r)
 	}
+	for _, p := range []string{RandaoPathHot, RandaoPathScan} {
+		m.RandaoRevealDuration.WithLabelValues(p)
+	}
+	m.RandaoMinLayersRemaining.Set(math.NaN())
 	return m, nil
 }
 

@@ -6,6 +6,7 @@ package metrics
 import (
 	"context"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -105,6 +106,9 @@ func TestCatalogue(t *testing.T) {
 		{"consensus_slashingprotection_database_duration_seconds", map[string][]string{"operation": {"attestation", "block"}}},
 		{"consensus_randao_reveals_total", map[string][]string{"result": RandaoResults}},
 		{"consensus_randao_new_layer_rate_limited_total", nil},
+		{"consensus_randao_reveal_duration_seconds", map[string][]string{"path": {RandaoPathHot, RandaoPathScan}}},
+		{"consensus_randao_slow_path_scans_total", nil},
+		{"consensus_randao_min_layers_remaining", nil},
 		{"process_release", map[string][]string{"version": {"v1.2.3"}}},
 		{"go_goroutines", nil},
 	}
@@ -120,6 +124,9 @@ func TestCatalogue(t *testing.T) {
 				}
 			}
 		})
+	}
+	if v := fams["consensus_randao_min_layers_remaining"].GetMetric()[0].GetGauge().GetValue(); !math.IsNaN(v) {
+		t.Errorf("consensus_randao_min_layers_remaining = %v before any frontier, want NaN", v)
 	}
 	if v := fams["signing_signers_loaded_count"].GetMetric()[0].GetGauge().GetValue(); v != 3 {
 		t.Errorf("signing_signers_loaded_count = %v, want 3", v)
