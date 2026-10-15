@@ -69,7 +69,8 @@ allocates only small bookkeeping, which is why B6 stays far under its memory bou
 ## Public keys and idle connections (B15, B19, the API server)
 
 **B15: met on the development machine.** **B19: implemented as a nightly job; no 1 h run recorded yet** (a 40 s
-smoke run passed with 0 errors).
+smoke run and a 5 min run passed with 0 errors). B19 is met only once a 1 h run, nightly or local, is recorded
+below.
 
 ```
 go test -run '^$' -bench PublicKeys10k -benchtime 10x -count 10 ./internal/api/consensus/ | tee b15.txt && benchstat b15.txt
@@ -86,7 +87,7 @@ about 2:1 at any level. B19 runs the built binary and two clients with Go's defa
 |---|---|---|---|---|
 | B15 | `BenchmarkPublicKeys10k/plain` | ≤ 2 s on a LAN; transient allocation ≤ 64 MB | 20.7-21.0 ms, 71.6 KB and 12 allocations per request | met on dev machine |
 | B15 | `BenchmarkPublicKeys10k/gzip` | as above | 526-551 ms, 1.28 MB and 32 allocations per request | met on dev machine |
-| B19 | `TestB19IdleConnectionRace` (`make b19`) | 0 "server closed idle connection" or EOF errors over 1 h with `IdleTimeout` 120 s | 40 s smoke run: 0 errors | pending: first nightly run |
+| B19 | `TestB19IdleConnectionRace` (`make b19`) | 0 "server closed idle connection" or EOF errors over 1 h with `IdleTimeout` 120 s | 40 s smoke run: 0 errors; 5 min run (2026-10-15): 14 POSTs, 0 errors | pending: first 1 h run |
 
 Run E, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), 10 runs of 10 requests each, load average 4-5 from
 other work.
