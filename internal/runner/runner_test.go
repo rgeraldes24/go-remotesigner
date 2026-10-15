@@ -88,16 +88,20 @@ func baseConfig(t *testing.T) *config.Config {
 		Consensus: config.Consensus{
 			Network:                   network.Sources{Network: fileNetwork, GenesisTime: &genesis},
 			SlashingProtectionEnabled: true,
+			ClockSkewSlots:            policy.DefaultClockSkewSlots,
+			SelectionProofMode:        mldsa87.Deterministic,
 		},
 	}
 }
 
 type running struct {
-	base  string
-	sign  string
-	admin string
-	stop  func() error
-	hup   chan struct{}
+	base string
+	// metrics is the metrics listener's base URL, when it runs.
+	metrics string
+	sign    string
+	admin   string
+	stop    func() error
+	hup     chan struct{}
 }
 
 func quiet() *logrus.Logger {
@@ -137,6 +141,13 @@ func start(t *testing.T, cfg *config.Config) *running {
 		time.Sleep(5 * time.Millisecond)
 	}
 	r := &running{base: "http://localhost:" + port, hup: hup}
+	if data, err := os.ReadFile(ports); err == nil {
+		for line := range strings.SplitSeq(string(data), "\n") {
+			if p, ok := strings.CutPrefix(line, "metrics-port="); ok {
+				r.metrics = "http://localhost:" + p
+			}
+		}
+	}
 	if cfg.HTTP.AuthMode == auth.ModeToken {
 		r.sign = readToken(t, cfg.SignTokenFile())
 	}
@@ -453,6 +464,27 @@ func TestRunStartupRefusals(t *testing.T) {
 		cfg := baseConfig(t)
 		writeNewerSchema(t, cfg.SlashingProtectionDB())
 		if err := Run(context.Background(), cfg, quiet(), nil); !errors.Is(err, slashing.ErrSchemaTooNew) {
+			t.Fatalf("Run = %v", err)
+		}
+	})
+	t.Run("invalid fee-recipient file", func(t *testing.T) {
+		cfg := baseConfig(t)
+		cfg.Consensus.FeeRecipientFile = filepath.Join(t.TempDir(), "pins.yaml")
+		if err := os.WriteFile(cfg.Consensus.FeeRecipientFile, []byte("[]\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := Run(context.Background(), cfg, quiet(), nil); !errors.Is(err, policy.ErrPinFile) {
+			t.Fatalf("Run = %v", err)
+		}
+	})
+	t.Run("metrics address in use", func(t *testing.T) {
+		cfg := baseConfig(t)
+		r := start(t, cfg)
+		r.waitReady(t)
+		second := baseConfig(t)
+		second.Metrics = config.Metrics{Enabled: true, Host: "127.0.0.1", Port: portOf(t, r.base)}
+		err := Run(context.Background(), second, quiet(), nil)
+		if err == nil || !strings.Contains(err.Error(), "metrics: listen") {
 			t.Fatalf("Run = %v", err)
 		}
 	})

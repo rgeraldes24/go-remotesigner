@@ -19,6 +19,7 @@ import (
 
 	"github.com/rgeraldes24/go-remotesigner/cmd/remotesigner/flags"
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
+	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/logging"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/runner"
@@ -115,7 +116,9 @@ func runWithSignals(parent context.Context, cfg *config.Config, log *logrus.Logg
 // configFrom resolves the flags into a configuration. Its errors are usage
 // errors.
 func configFrom(c *cli.Context) (*config.Config, error) {
+	v, _ := release()
 	cfg := &config.Config{
+		Version:       v,
 		DataPath:      c.String(flags.DataPath),
 		KeyConfigPath: c.String(flags.KeyConfigPath),
 		Logging: logging.Config{
@@ -142,6 +145,13 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 			KeyManagerAPIEnabled:      c.Bool(flags.KeyManagerAPIEnabled),
 			AllowUnknownGenesisTime:   c.Bool(flags.AllowUnknownGenesisTime),
 			AllowGVRTOFU:              c.Bool(flags.AllowGVRTOFU),
+			VoluntaryExitsEnabled:     c.Bool(flags.VoluntaryExitSigning),
+			FeeRecipientFile:          c.String(flags.RegistrationFeeRecipients),
+			ClockSkewSlots:            c.Uint64(flags.SigningClockSkewSlots),
+		},
+		Metrics: config.Metrics{
+			Enabled: c.Bool(flags.MetricsEnabled),
+			Host:    c.String(flags.MetricsHost),
 		},
 	}
 	hosts, err := server.ParseHostAllowlist(c.StringSlice(flags.HTTPHostAllowlist))
@@ -149,6 +159,12 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 		return nil, fmt.Errorf("--%s: %w", flags.HTTPHostAllowlist, err)
 	}
 	cfg.HTTP.HostAllowlist = hosts
+	if cfg.Metrics.HostAllowlist, err = server.ParseHostAllowlist(c.StringSlice(flags.MetricsHostAllowlist)); err != nil {
+		return nil, fmt.Errorf("--%s: %w", flags.MetricsHostAllowlist, err)
+	}
+	if cfg.Consensus.SelectionProofMode, err = mldsa87.ParseMode(c.String(flags.SelectionProofSigning)); err != nil {
+		return nil, fmt.Errorf("--%s: %w", flags.SelectionProofSigning, err)
+	}
 	if cfg.Consensus.Network.Network == "" {
 		return nil, fmt.Errorf("--%s is required: a built-in name (%s) or a network config file",
 			flags.Network, strings.Join(network.Names(), ", "))
@@ -168,6 +184,11 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 		return nil, fmt.Errorf("--%s=%d: not a TCP port", flags.HTTPListenPort, port)
 	}
 	cfg.HTTP.ListenPort = uint16(port)
+	metricsPort := c.Uint(flags.MetricsPort)
+	if metricsPort > 65535 {
+		return nil, fmt.Errorf("--%s=%d: not a TCP port", flags.MetricsPort, metricsPort)
+	}
+	cfg.Metrics.Port = uint16(metricsPort)
 	if cfg.HTTP.MaxConnections < 1 {
 		return nil, fmt.Errorf("--%s must be at least 1", flags.HTTPMaxConnections)
 	}

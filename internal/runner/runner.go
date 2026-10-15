@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package runner runs `remotesigner consensus`: it binds the network, applies
-// the startup fail-safes, opens the slashing-protection store, loads the
-// token files, starts the API listener, loads the keys in the background
+// the startup fail-safes and the signing self-test, opens the
+// slashing-protection store, loads the token files, starts the API listener
+// and, when enabled, the metrics listener, loads the keys in the background
 // and shuts everything down in order when its context ends.
 package runner
 
@@ -26,9 +27,11 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keyconfig"
+	"github.com/rgeraldes24/go-remotesigner/internal/metrics"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/server"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
+	"github.com/rgeraldes24/go-remotesigner/internal/signer"
 	"github.com/rgeraldes24/go-remotesigner/internal/signer/provider"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/boltstore"
@@ -40,7 +43,7 @@ const ShutdownTimeout = 10 * time.Second
 
 // Run runs the signer until ctx ends, then shuts down gracefully and returns
 // nil. A value on hup re-reads the token files. Any error returned before
-// the listener is up is a startup refusal.
+// the listeners are up is a startup refusal.
 func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan struct{}) error {
 	n, err := network.Load(cfg.Consensus.Network)
 	if err != nil {
@@ -49,7 +52,10 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	if err := config.CheckFailSafes(cfg, n); err != nil {
 		return err
 	}
-	pol, err := policy.New(policy.Config{Network: n, ClockSkewSlots: policy.DefaultClockSkewSlots})
+	if err := mldsa87.SelfTest(); err != nil {
+		return fmt.Errorf("refusing to start: %w", err)
+	}
+	pol, err := newPolicy(cfg, n)
 	if err != nil {
 		return err
 	}
@@ -78,15 +84,37 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	}
 
 	keys := provider.New(log)
+	m, err := metrics.New(metrics.Config{Version: cfg.Version, SignersLoaded: keys.Len})
+	if err != nil {
+		closeStore()
+		return fmt.Errorf("metrics: %w", err)
+	}
+	engine := slashing.NewEngine(store)
+	sig := signer.New(signer.Config{
+		Lookup: func(id signer.ID) (signer.Key, bool) {
+			k, ok := keys.Get(id)
+			if !ok {
+				return nil, false
+			}
+			return k, true
+		},
+		SelectionProofMode: cfg.Consensus.SelectionProofMode,
+		Metrics:            m,
+		Log:                log,
+	})
 	loads := &loadState{}
-	reloader := ops.NewReloader(loadKeys(cfg.KeyConfigPath, keys, store, loads, log), log)
+	reloader := ops.NewReloader(loadKeys(cfg.KeyConfigPath, keys, engine, sig, loads, log), log)
 	var ready atomic.Bool
 
+	sign := &consensus.Sign{Policy: pol, Signer: sig, Pinner: store, Metrics: m, Log: log}
+	if cfg.Consensus.SlashingProtectionEnabled {
+		sign.Protector = engine
+	}
 	srv, err := server.New(server.Config{
 		Addr:           cfg.ListenAddr(),
 		HostAllowlist:  cfg.HTTP.HostAllowlist,
 		Auth:           authn,
-		Routes:         routes(cfg, n, pol, authn, keys, store, loads, reloader, ready.Load, log),
+		Routes:         routes(cfg, n, pol, authn, keys, store, sign, loads, reloader, ready.Load, log),
 		Ready:          ready.Load,
 		MaxConnections: cfg.HTTP.MaxConnections,
 		ReadTimeout:    server.ReadTimeout(n.Config.SecondsPerSlot),
@@ -94,6 +122,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		IdleTimeout:    cfg.HTTP.IdleTimeout,
 		AccessLogs:     cfg.HTTP.AccessLogs,
 		Log:            log,
+		Registerer:     m.Registry,
 	})
 	if err == nil {
 		err = srv.Listen()
@@ -102,14 +131,34 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		closeStore()
 		return err
 	}
+	var ml *metrics.Listener
+	if cfg.Metrics.Enabled {
+		ml = metrics.NewListener(metrics.ListenerConfig{
+			Addr: cfg.Metrics.Addr(), HostAllowlist: cfg.Metrics.HostAllowlist, Gatherer: m.Registry, Log: log,
+		})
+		if err := ml.Listen(); err != nil {
+			_ = srv.Shutdown(context.Background())
+			closeStore()
+			return err
+		}
+	}
 	portsFile := ""
 	if cfg.DataPath != "" {
-		if portsFile, err = server.WritePortsFile(cfg.DataPath, srv.Addr().Port); err != nil {
+		metricsPort := 0
+		if ml != nil {
+			metricsPort = ml.Addr().Port
+		}
+		if portsFile, err = server.WritePortsFile(cfg.DataPath, srv.Addr().Port, metricsPort); err != nil {
 			log.WithError(err).Warn("Could not write the ports file")
 		}
 	}
-	served := make(chan error, 1)
+	served, serving := make(chan error, 2), 1
 	go func() { served <- srv.Serve() }()
+	if ml != nil {
+		serving++
+		go func() { served <- ml.Serve() }()
+		log.WithField("address", ml.Addr().String()).Info("Metrics listener is listening")
+	}
 	log.WithFields(logrus.Fields{
 		"address":   srv.Addr().String(),
 		"auth-mode": cfg.HTTP.AuthMode,
@@ -136,7 +185,8 @@ loop:
 				log.Info("Token files reloaded")
 			}
 		case serveErr = <-served:
-			log.WithError(serveErr).Error("The API listener failed")
+			serving--
+			log.WithError(serveErr).Error("A listener failed")
 			break loop
 		}
 	}
@@ -144,12 +194,19 @@ loop:
 	log.Info("Shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 	defer cancel()
+	if ml != nil {
+		if err := ml.Shutdown(shutdownCtx); err != nil {
+			log.WithError(err).Warn("The metrics listener did not stop in time")
+		}
+	}
 	err = srv.Shutdown(shutdownCtx)
 	if err != nil {
 		log.WithError(err).Warn("In-flight requests did not finish in time")
 	}
-	if serveErr == nil {
-		serveErr = <-served
+	for ; serving > 0; serving-- {
+		if e := <-served; serveErr == nil {
+			serveErr = e
+		}
 	}
 	reloader.Close()
 	if errors.Is(err, server.ErrHandlersRunning) {
@@ -165,6 +222,24 @@ loop:
 	}
 	log.Info("Shutdown complete")
 	return serveErr
+}
+
+// newPolicy builds the request policy from the consensus flags, loading
+// the fee-recipient pins when a file is given.
+func newPolicy(cfg *config.Config, n *network.Network) (*policy.Policy, error) {
+	pc := policy.Config{
+		Network:               n,
+		ClockSkewSlots:        cfg.Consensus.ClockSkewSlots,
+		VoluntaryExitsEnabled: cfg.Consensus.VoluntaryExitsEnabled,
+	}
+	if f := cfg.Consensus.FeeRecipientFile; f != "" {
+		pins, err := policy.LoadFeeRecipientPins(f)
+		if err != nil {
+			return nil, fmt.Errorf("refusing to start: --registration-fee-recipient-file: %w", err)
+		}
+		pc.FeeRecipients = pins
+	}
+	return policy.New(pc)
 }
 
 // openStore opens the bbolt store, or a memory store when protection is
@@ -209,11 +284,13 @@ type loadState struct {
 }
 
 // loadKeys returns the reloader's load function: read the key-config
-// directory, then apply it to the provider, registering new keys in the
-// store first.
-func loadKeys(dir string, keys *provider.Provider, store slashing.Store, st *loadState, log *logrus.Logger) ops.LoadFunc {
+// directory, then apply it to the provider, registering new keys in
+// slashing protection first. Quarantined keys are renewed from the fresh
+// load, which lifts their quarantine.
+func loadKeys(dir string, keys *provider.Provider, engine *slashing.Engine, sig *signer.Signer, st *loadState,
+	log *logrus.Logger) ops.LoadFunc {
 	return func(ctx context.Context) (int, error) {
-		errs, err := loadOnce(ctx, dir, keys, store, log)
+		errs, err := loadOnce(ctx, dir, keys, engine, sig, log)
 		st.errors.Store(int64(errs))
 		st.failed.Store(err != nil)
 		st.done.Store(true)
@@ -221,7 +298,8 @@ func loadKeys(dir string, keys *provider.Provider, store slashing.Store, st *loa
 	}
 }
 
-func loadOnce(ctx context.Context, dir string, keys *provider.Provider, store slashing.Store, log *logrus.Logger) (int, error) {
+func loadOnce(ctx context.Context, dir string, keys *provider.Provider, engine *slashing.Engine, sig *signer.Signer,
+	log *logrus.Logger) (int, error) {
 	var batches []provider.Batch
 	if dir == "" {
 		log.Warn("No --key-config-path: no keys are loaded")
@@ -237,18 +315,20 @@ func loadOnce(ctx context.Context, dir string, keys *provider.Provider, store sl
 			batches = append(batches, provider.Batch{Source: r.Path, Keys: r.Keys, Err: r.Err})
 		}
 	}
-	d, err := keys.Apply(batches, func(pks [][]byte) error { return store.RegisterValidators(ctx, pks) }, nil)
+	d, err := keys.Apply(batches, func(pks [][]byte) error { return engine.RegisterValidators(ctx, pks) }, sig.Quarantined)
 	if err != nil {
 		return d.Errors, fmt.Errorf("register keys in slashing protection: %w", err)
 	}
+	quarantined := sig.Release()
 	log.WithFields(logrus.Fields{
-		"loaded": keys.Len(), "added": d.Added, "removed": d.Removed, "errors": d.Errors,
+		"loaded": keys.Len(), "added": d.Added, "removed": d.Removed, "renewed": d.Renewed, "errors": d.Errors,
+		"quarantined": quarantined,
 	}).Info("Keys loaded")
 	return d.Errors, nil
 }
 
 func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *auth.Authenticator,
-	keys *provider.Provider, store slashing.Store, loads *loadState, reloader *ops.Reloader,
+	keys *provider.Provider, store slashing.Store, sign *consensus.Sign, loads *loadState, reloader *ops.Reloader,
 	ready func() bool, log *logrus.Logger) []server.Route {
 	protection := consensus.ProtectionBolt
 	if !cfg.Consensus.SlashingProtectionEnabled {
@@ -258,7 +338,7 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 		Network:               n,
 		Types:                 pol.EnabledTypes,
 		GenesisValidatorsRoot: pol.GenesisValidatorsRoot,
-		SelectionProofMode:    mldsa87.Deterministic.String(),
+		SelectionProofMode:    cfg.Consensus.SelectionProofMode.String(),
 		SlashingProtection:    protection,
 	}
 	checks := []ops.Check{{ID: ops.CheckDefault, Run: func(context.Context) (bool, map[string]any) { return true, nil }}}
@@ -285,6 +365,8 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 			WriteTimeout: consensus.PublicKeysWriteTimeout, Handler: consensus.PublicKeys(keys.PublicKeys)},
 		{Method: http.MethodGet, Pattern: "/api/v1/consensus/capabilities", Scope: auth.ScopeSign, NeedsReady: true,
 			Handler: caps.Handler()},
+		{Method: http.MethodPost, Pattern: "/api/v1/consensus/sign/{identifier}", Scope: auth.ScopeSign, NeedsReady: true,
+			BodyLimit: consensus.SignBodyLimit, ReadsBody: true, Handler: sign},
 		{Method: http.MethodGet, Pattern: "/reload", Scope: auth.ScopeSign, Handler: reloader.StatusHandler()},
 	}
 	if authn.HasAdmin() {

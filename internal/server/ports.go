@@ -29,12 +29,17 @@ import (
 const PortsFileName = "remotesigner.ports"
 
 // WritePortsFile writes the bound ports to <dataPath>/remotesigner.ports in
-// Java properties form ("http-port=9000"), so that a harness that started the
-// signer on port 0 can find it. The caller removes the file on shutdown.
-func WritePortsFile(dataPath string, httpPort int) (string, error) {
+// Java properties form ("http-port=9000", and "metrics-port=9001" when
+// metricsPort is not 0, that is when the metrics listener runs), so that a
+// harness that started the signer on port 0 can find it. The caller removes
+// the file on shutdown.
+func WritePortsFile(dataPath string, httpPort, metricsPort int) (string, error) {
 	path := filepath.Join(dataPath, PortsFileName)
 	content := fmt.Sprintf("# This file contains the ports used by the running instance of remotesigner. "+
 		"It is deleted when remotesigner shuts down.\nhttp-port=%d\n", httpPort)
+	if metricsPort != 0 {
+		content += fmt.Sprintf("metrics-port=%d\n", metricsPort)
+	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return "", fmt.Errorf("server: write ports file: %w", err)
 	}

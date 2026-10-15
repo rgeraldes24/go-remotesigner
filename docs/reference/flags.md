@@ -36,6 +36,10 @@ missing `--network` and an invalid config file), 1 when the signer refuses to st
 | `--http-max-connections` | `REMOTESIGNER_HTTP_MAX_CONNECTIONS` | `http-max-connections` | `1024` | Maximum open API connections; further connections wait until one closes |
 | `--idle-connection-timeout-seconds` | `REMOTESIGNER_IDLE_CONNECTION_TIMEOUT_SECONDS` | `idle-connection-timeout-seconds` | `120` | Seconds a kept-alive API connection may stay idle |
 | `--access-logs-enabled` | `REMOTESIGNER_ACCESS_LOGS_ENABLED` | `access-logs-enabled` | `false` | Log every API request at INFO (route, status, duration; never paths or bodies) |
+| `--metrics-enabled` | `REMOTESIGNER_METRICS_ENABLED` | `metrics-enabled` | `false` | Serve Prometheus metrics at /metrics on a separate listener |
+| `--metrics-host` | `REMOTESIGNER_METRICS_HOST` | `metrics-host` | `127.0.0.1` | Host the metrics listener binds |
+| `--metrics-port` | `REMOTESIGNER_METRICS_PORT` | `metrics-port` | `9001` | Port the metrics listener binds; 0 picks a free port (see the ports file) |
+| `--metrics-host-allowlist` | `REMOTESIGNER_METRICS_HOST_ALLOWLIST` | `metrics-host-allowlist` | `localhost,127.0.0.1` | Host header names the metrics listener accepts; \* or all accepts any, none refuses all |
 
 ## Consensus flags
 
@@ -47,6 +51,10 @@ missing `--network` and an invalid config file), 1 when the signer refuses to st
 | `--network-genesis-state` | `REMOTESIGNER_CONSENSUS_NETWORK_GENESIS_STATE` | `network-genesis-state` or `consensus.network-genesis-state` | unset | SSZ genesis state; its first 64 bytes give the genesis time, the genesis validators root and the fork |
 | `--slashing-protection-enabled` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_ENABLED` | `slashing-protection-enabled` or `consensus.slashing-protection-enabled` | `true` | Slashing protection (bbolt store at \<data-path>/slashing-protection.db). false is allowed only when every listener is loopback. |
 | `--key-manager-api-enabled` | `REMOTESIGNER_CONSENSUS_KEY_MANAGER_API_ENABLED` | `key-manager-api-enabled` or `consensus.key-manager-api-enabled` | `false` | Accepted for Web3Signer compatibility; requires an admin token. This release has no keymanager API. |
+| `--voluntary-exit-signing-enabled` | `REMOTESIGNER_CONSENSUS_VOLUNTARY_EXIT_SIGNING_ENABLED` | `voluntary-exit-signing-enabled` or `consensus.voluntary-exit-signing-enabled` | `false` | Sign VOLUNTARY_EXIT requests; refused with 403 ARTIFACT_TYPE_DISABLED otherwise |
+| `--registration-fee-recipient-file` | `REMOTESIGNER_CONSENSUS_REGISTRATION_FEE_RECIPIENT_FILE` | `registration-fee-recipient-file` or `consensus.registration-fee-recipient-file` | unset | YAML list of {key, fee_recipient} pins: a VALIDATOR_REGISTRATION for a pinned key must carry its pinned fee recipient |
+| `--signing-clock-skew-slots` | `REMOTESIGNER_CONSENSUS_SIGNING_CLOCK_SKEW_SLOTS` | `signing-clock-skew-slots` or `consensus.signing-clock-skew-slots` | `1` | Slots a slot-scoped request may lie ahead of the wall clock (when genesis time is known) |
+| `--selection-proof-signing` | `REMOTESIGNER_CONSENSUS_SELECTION_PROOF_SIGNING` | `selection-proof-signing` or `consensus.selection-proof-signing` | `deterministic` | Signing mode of AGGREGATION_SLOT and SYNC_COMMITTEE_SELECTION_PROOF: deterministic or hedged; other types are always hedged |
 
 ## Override flags
 

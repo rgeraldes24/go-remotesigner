@@ -81,6 +81,29 @@ func TestCheckFailSafes(t *testing.T) {
 			c.Consensus.KeyManagerAPIEnabled = true
 		}, known, []error{ErrKeyManagerNoAdmin}},
 		{"keymanager with admin token", func(c *Config) { c.Consensus.KeyManagerAPIEnabled = true }, known, nil},
+		{"loopback metrics, protection off", func(c *Config) {
+			c.Metrics = Metrics{Enabled: true, Host: "127.0.0.1", HostAllowlist: []string{"localhost"}}
+			c.Consensus.SlashingProtectionEnabled = false
+		}, known, nil},
+		{"remote metrics, protection off (no override exists)", func(c *Config) {
+			c.Metrics = Metrics{Enabled: true, Host: "0.0.0.0", HostAllowlist: []string{"prometheus"}}
+			c.Consensus.SlashingProtectionEnabled = false
+		}, known, []error{ErrProtectionDisabledNonLoopback}},
+		{"remote metrics, default allowlist", func(c *Config) {
+			c.Metrics = Metrics{Enabled: true, Host: "0.0.0.0", HostAllowlist: []string{"localhost", "127.0.0.1"}}
+		}, known, []error{ErrMetricsLoopbackAllowlist}},
+		{"remote metrics, scraper allowed", func(c *Config) {
+			c.Metrics = Metrics{Enabled: true, Host: "0.0.0.0", HostAllowlist: []string{"prometheus"}}
+		}, known, nil},
+		{"remote metrics host while disabled", func(c *Config) {
+			c.Metrics = Metrics{Host: "0.0.0.0", HostAllowlist: []string{"localhost"}}
+			c.Consensus.SlashingProtectionEnabled = false
+		}, known, nil},
+		{"remote API and metrics, protection off: refused once", func(c *Config) {
+			remote(c)
+			c.Metrics = Metrics{Enabled: true, Host: "0.0.0.0", HostAllowlist: []string{"prometheus"}}
+			c.Consensus.SlashingProtectionEnabled = false
+		}, known, []error{ErrProtectionDisabledNonLoopback}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

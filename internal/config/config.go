@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/logging"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
@@ -30,6 +31,8 @@ const (
 
 // Config is a resolved `consensus` configuration.
 type Config struct {
+	// Version is the release, as process_release reports it.
+	Version string
 	// DataPath holds the token files, the bbolt store and the ports file.
 	DataPath string
 	// KeyConfigPath is the key-config directory; empty means no key-config
@@ -39,7 +42,21 @@ type Config struct {
 	HTTP          HTTP
 	// AllowPlaintextTokenAuth is --Xallow-plaintext-token-auth.
 	AllowPlaintextTokenAuth bool
+	Metrics                 Metrics
 	Consensus               Consensus
+}
+
+// Metrics configures the metrics listener.
+type Metrics struct {
+	Enabled       bool
+	Host          string
+	Port          uint16
+	HostAllowlist []string
+}
+
+// Addr returns host:port of the metrics listener.
+func (m *Metrics) Addr() string {
+	return net.JoinHostPort(m.Host, strconv.Itoa(int(m.Port)))
 }
 
 // HTTP configures the API listener.
@@ -66,6 +83,15 @@ type Consensus struct {
 	AllowUnknownGenesisTime bool
 	// AllowGVRTOFU is --Xallow-gvr-tofu.
 	AllowGVRTOFU bool
+	// VoluntaryExitsEnabled is --voluntary-exit-signing-enabled.
+	VoluntaryExitsEnabled bool
+	// FeeRecipientFile is --registration-fee-recipient-file; empty means no
+	// pins.
+	FeeRecipientFile string
+	// ClockSkewSlots is --signing-clock-skew-slots.
+	ClockSkewSlots uint64
+	// SelectionProofMode is --selection-proof-signing.
+	SelectionProofMode mldsa87.Mode
 }
 
 // ListenAddr returns host:port of the API listener.
@@ -107,6 +133,7 @@ var (
 	ErrAuthNoneNonLoopback           = fmt.Errorf("%w: --http-auth-mode=none is allowed only on a loopback listener", ErrRefused)
 	ErrPlaintextToken                = fmt.Errorf("%w: token auth over plaintext HTTP on a non-loopback listener sends the token in clear; set --Xallow-plaintext-token-auth to accept that", ErrRefused)
 	ErrLoopbackAllowlist             = fmt.Errorf("%w: a non-loopback listener with a host allowlist of loopback names only refuses every remote client; add the names clients use to --http-host-allowlist", ErrRefused)
+	ErrMetricsLoopbackAllowlist      = fmt.Errorf("%w: a non-loopback metrics listener with a host allowlist of loopback names only refuses every remote scraper; add the names scrapers use to --metrics-host-allowlist", ErrRefused)
 	ErrKeyManagerNoAdmin             = fmt.Errorf("%w: --key-manager-api-enabled needs an admin token (--http-admin-token-file or --data-path)", ErrRefused)
 	ErrProtectionDisabledNonLoopback = fmt.Errorf("%w: --slashing-protection-enabled=false is allowed only when every listener is loopback", ErrRefused)
 	ErrGVRTOFUNonLoopback            = fmt.Errorf("%w: the genesis validators root is unknown and would be pinned on first use, which a non-loopback listener allows only with --Xallow-gvr-tofu; set --network-genesis-validators-root or --network-genesis-state", ErrRefused)
@@ -129,6 +156,10 @@ func CheckFailSafes(c *Config, n *network.Network) error {
 	refuse(c.Consensus.SlashingProtectionEnabled && c.DataPath == "", ErrNoDataPath)
 	refuse(c.HTTP.AuthMode == auth.ModeToken && c.SignTokenFile() == "", ErrNoSignToken)
 	refuse(c.Consensus.KeyManagerAPIEnabled && c.AdminTokenFile() == "", ErrKeyManagerNoAdmin)
+	if c.Metrics.Enabled && !IsLoopbackHost(c.Metrics.Host) {
+		refuse(!c.Consensus.SlashingProtectionEnabled && IsLoopbackHost(c.HTTP.ListenHost), ErrProtectionDisabledNonLoopback)
+		refuse(loopbackOnly(c.Metrics.HostAllowlist), ErrMetricsLoopbackAllowlist)
+	}
 	if !IsLoopbackHost(c.HTTP.ListenHost) {
 		refuse(!c.Consensus.SlashingProtectionEnabled, ErrProtectionDisabledNonLoopback)
 		refuse(c.HTTP.AuthMode == auth.ModeNone, ErrAuthNoneNonLoopback)

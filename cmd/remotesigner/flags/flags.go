@@ -39,6 +39,10 @@ const (
 	IdleConnectionTimeout   = "idle-connection-timeout-seconds"
 	AccessLogsEnabled       = "access-logs-enabled"
 	AllowPlaintextTokenAuth = "Xallow-plaintext-token-auth"
+	MetricsEnabled          = "metrics-enabled"
+	MetricsHost             = "metrics-host"
+	MetricsPort             = "metrics-port"
+	MetricsHostAllowlist    = "metrics-host-allowlist"
 )
 
 // Consensus flag names.
@@ -52,6 +56,10 @@ const (
 	KeyManagerAPIEnabled      = "key-manager-api-enabled"
 	AllowUnknownGenesisTime   = "Xallow-unknown-genesis-time"
 	AllowGVRTOFU              = "Xallow-gvr-tofu"
+	VoluntaryExitSigning      = "voluntary-exit-signing-enabled"
+	RegistrationFeeRecipients = "registration-fee-recipient-file"
+	SigningClockSkewSlots     = "signing-clock-skew-slots"
+	SelectionProofSigning     = "selection-proof-signing"
 )
 
 // Defaults.
@@ -61,10 +69,18 @@ const (
 	DefaultAuthMode       = "token"
 	DefaultMaxConnections = 1024
 	DefaultIdleTimeout    = 120
+	DefaultMetricsHost    = "127.0.0.1"
+	DefaultMetricsPort    = 9001
+	DefaultClockSkew      = 1
+	DefaultSelectionProof = "deterministic"
 )
 
 // DefaultHostAllowlist is the default of --http-host-allowlist.
 var DefaultHostAllowlist = []string{"localhost", "127.0.0.1", "::1"}
+
+// DefaultMetricsHostAllowlist is the default of --metrics-host-allowlist,
+// Web3Signer's.
+var DefaultMetricsHostAllowlist = []string{"localhost", "127.0.0.1"}
 
 // Global returns the flags that precede the subcommand.
 func Global() []cli.Flag {
@@ -85,6 +101,10 @@ func Global() []cli.Flag {
 		&cli.UintFlag{Name: IdleConnectionTimeout, Value: DefaultIdleTimeout, Usage: "Seconds a kept-alive API connection may stay idle"},
 		&cli.BoolFlag{Name: AccessLogsEnabled, Usage: "Log every API request at INFO (route, status, duration; never paths or bodies)"},
 		&cli.BoolFlag{Name: AllowPlaintextTokenAuth, Hidden: true, Usage: "Allow bearer tokens over plaintext HTTP on a non-loopback listener"},
+		&cli.BoolFlag{Name: MetricsEnabled, Usage: "Serve Prometheus metrics at /metrics on a separate listener"},
+		&cli.StringFlag{Name: MetricsHost, Value: DefaultMetricsHost, Usage: "Host the metrics listener binds"},
+		&cli.UintFlag{Name: MetricsPort, Value: DefaultMetricsPort, Usage: "Port the metrics listener binds; 0 picks a free port (see the ports file)"},
+		&cli.StringSliceFlag{Name: MetricsHostAllowlist, Value: cli.NewStringSlice(DefaultMetricsHostAllowlist...), Usage: "Host header names the metrics listener accepts; * or all accepts any, none refuses all"},
 	})
 }
 
@@ -99,6 +119,10 @@ func Consensus() []cli.Flag {
 		&cli.BoolFlag{Name: KeyManagerAPIEnabled, Usage: "Accepted for Web3Signer compatibility; requires an admin token. This release has no keymanager API."},
 		&cli.BoolFlag{Name: AllowUnknownGenesisTime, Hidden: true, Usage: "Allow a non-loopback listener without a genesis time (wall-clock bounds off)"},
 		&cli.BoolFlag{Name: AllowGVRTOFU, Hidden: true, Usage: "Allow a non-loopback listener to pin the genesis validators root on first use"},
+		&cli.BoolFlag{Name: VoluntaryExitSigning, Usage: "Sign VOLUNTARY_EXIT requests; refused with 403 ARTIFACT_TYPE_DISABLED otherwise"},
+		&cli.StringFlag{Name: RegistrationFeeRecipients, Usage: "YAML list of {key, fee_recipient} pins: a VALIDATOR_REGISTRATION for a pinned key must carry its pinned fee recipient", TakesFile: true},
+		&cli.Uint64Flag{Name: SigningClockSkewSlots, Value: DefaultClockSkew, Usage: "Slots a slot-scoped request may lie ahead of the wall clock (when genesis time is known)"},
+		&cli.StringFlag{Name: SelectionProofSigning, Value: DefaultSelectionProof, Usage: "Signing mode of AGGREGATION_SLOT and SYNC_COMMITTEE_SELECTION_PROOF: deterministic or hedged; other types are always hedged"},
 	})
 }
 

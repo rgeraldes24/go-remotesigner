@@ -759,14 +759,34 @@ func TestShutdownDrainsHandlers(t *testing.T) {
 }
 
 func TestWritePortsFile(t *testing.T) {
-	dir := t.TempDir()
-	path, err := WritePortsFile(dir, 9123)
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name        string
+		metricsPort int
+		want        []string
+		notWant     string
+	}{
+		{"API only", 0, []string{"\nhttp-port=9123\n"}, "metrics-port"},
+		{"with metrics", 9124, []string{"\nhttp-port=9123\n", "\nmetrics-port=9124\n"}, ""},
 	}
-	data, _ := os.ReadFile(path)
-	if filepath.Base(path) != PortsFileName || !strings.Contains(string(data), "\nhttp-port=9123\n") {
-		t.Fatalf("%s: %q", path, data)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, err := WritePortsFile(t.TempDir(), 9123, tt.metricsPort)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, _ := os.ReadFile(path)
+			if filepath.Base(path) != PortsFileName {
+				t.Fatalf("written to %s", path)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(string(data), w) {
+					t.Errorf("%q lacks %q", data, w)
+				}
+			}
+			if tt.notWant != "" && strings.Contains(string(data), tt.notWant) {
+				t.Errorf("%q has %q", data, tt.notWant)
+			}
+		})
 	}
 }
 
