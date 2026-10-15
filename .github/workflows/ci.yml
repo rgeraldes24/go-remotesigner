@@ -110,6 +110,28 @@ jobs:
       - name: The signer module links no qrysm package
         run: make nogpl
 
+  vectors-verify:
+    # L3 cross-verification (DESIGN §7.5): the built signer, loaded with the
+    # interop keys, against `vectorgen verify` on both end-to-end networks.
+    # Two passes per network: protection disabled and no genesis time (every
+    # sign fixture), then protection on with genesis time (RANDAO).
+    # tools/vectorgen links qrysm (GPL-3.0); it runs here and is never shipped.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: |
+            go.sum
+            tools/vectorgen/go.sum
+      - name: Build the signer (static)
+        run: make build
+      - name: vectorgen verify against the built signer
+        env:
+          REMOTESIGNER_BINARY: ${{ github.workspace }}/bin/remotesigner
+        run: make vectors-verify-binary
+
   compliance:
     runs-on: ubuntu-24.04
     steps:

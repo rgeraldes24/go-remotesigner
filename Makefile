@@ -94,8 +94,8 @@ TOKEN_FILE ?=
 vectors-verify:
 	cd tools/vectorgen && $(GO) run . verify -signer $(SIGNER) $(if $(TOKEN_FILE),-token-file $(abspath $(TOKEN_FILE)))
 
-## vectors-verify-binary: build the binary, run it with the interop keys on both end-to-end networks and check it
-## with `vectorgen verify` (builds tools/vectorgen, which links qrysm)
+## vectors-verify-binary: build the binary (or use REMOTESIGNER_BINARY), run it with the interop keys on both
+## end-to-end networks and check it with `vectorgen verify` (builds tools/vectorgen, which links qrysm)
 vectors-verify-binary:
 	REMOTESIGNER_VECTORS_VERIFY=1 $(GO) test -count=1 -run '^TestVectorgenVerify$$' -v ./test/acceptance/
 
