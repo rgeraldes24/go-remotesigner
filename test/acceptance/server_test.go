@@ -58,6 +58,8 @@ func TestRequestRefusals(t *testing.T) {
 		{"bad Host", request{path: "/upcheck", host: "evil.example:" + s.port}, 403, "HOST_NOT_ALLOWED"},
 		{"rebinding Host", request{path: pubkeys, token: sign, host: "localhost.evil.example"}, 403, "HOST_NOT_ALLOWED"},
 		{"oversized body", request{method: "POST", path: "/reload", token: admin, contentType: "application/json", body: strings.NewReader(strings.Repeat(" ", 4097))}, 413, "BODY_TOO_LARGE"},
+		{"unknown path without a token", request{path: "/api/v1/consensus/nope"}, 401, "UNAUTHENTICATED"},
+		{"unknown method without a token", request{method: "DELETE", path: pubkeys}, 401, "UNAUTHENTICATED"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -79,6 +81,12 @@ func TestRequestRefusals(t *testing.T) {
 	}
 	if code, _, _ := s.do(request{path: "/upcheck", host: "127.0.0.1:" + s.port}); code != 200 {
 		t.Errorf("Host 127.0.0.1: %d", code)
+	}
+	if code, _, h := s.do(request{method: "DELETE", path: pubkeys, token: sign}); code != 405 || h.Get("Allow") != "GET, HEAD" {
+		t.Errorf("unknown method with the sign token: %d, Allow %q", code, h.Get("Allow"))
+	}
+	if code, _, _ := s.do(request{path: "/api/v1/consensus/nope", token: admin}); code != 404 {
+		t.Errorf("unknown path with the admin token: %d", code)
 	}
 }
 

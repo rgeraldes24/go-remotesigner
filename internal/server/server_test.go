@@ -221,19 +221,56 @@ func TestSuccessAndRouting(t *testing.T) {
 		t.Errorf("2 MiB + 1 body: %d", rec.Code)
 	}
 
-	rec := do("GET", "/nope", signTok, "", "")
+	for _, tok := range []string{signTok, adminTok} {
+		rec := do("GET", "/nope", tok, "", "")
+		if rec.Code != 404 {
+			t.Fatalf("unknown path: %d", rec.Code)
+		}
+		if e := decodeErr(t, rec); e.Message != "Not Found" || e.Reason != "" {
+			t.Errorf("unknown path body %+v", e)
+		}
+		rec = do("DELETE", "/sign", tok, "", "")
+		if rec.Code != 405 || rec.Header().Get("Allow") != "GET, HEAD" {
+			t.Fatalf("wrong method: %d, Allow %q", rec.Code, rec.Header().Get("Allow"))
+		}
+		if e := decodeErr(t, rec); e.Message != "Method Not Allowed" {
+			t.Errorf("wrong method body %+v", e)
+		}
+	}
+}
+
+// A request that matches no path or method is authenticated before it is
+// told so: without a credential it gets 401, and no Allow header, so routes
+// cannot be enumerated (contract section 7, step 1).
+func TestUnroutedNeedsCredential(t *testing.T) {
+	s := newTestServer(t, nil)
+	for _, tt := range []struct{ method, path, tok string }{
+		{"GET", "/nope", ""},
+		{"GET", "/nope", "0x" + strings.Repeat("9", 64)},
+		{"DELETE", "/sign", ""},
+		{"POST", "/open", ""},
+		{"GET", "/admin", ""},
+	} {
+		r := httptest.NewRequest(tt.method, "http://localhost:9000"+tt.path, nil)
+		if tt.tok != "" {
+			r.Header.Set("Authorization", "Bearer "+tt.tok)
+		}
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, r)
+		if rec.Code != 401 || rec.Header().Get("Allow") != "" {
+			t.Fatalf("%s %s: %d, Allow %q", tt.method, tt.path, rec.Code, rec.Header().Get("Allow"))
+		}
+		if e := decodeErr(t, rec); e.Reason != apierr.Unauthenticated {
+			t.Fatalf("%s %s: %+v", tt.method, tt.path, e)
+		}
+	}
+
+	// In auth mode none the sign scope is open, so anyone may be told.
+	open := newTestServer(t, func(c *Config) { c.Auth = testAuth(t, auth.ModeNone, true) })
+	rec := httptest.NewRecorder()
+	open.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "http://localhost:9000/nope", nil))
 	if rec.Code != 404 {
-		t.Fatalf("unknown path: %d", rec.Code)
-	}
-	if e := decodeErr(t, rec); e.Message != "Not Found" || e.Reason != "" {
-		t.Errorf("unknown path body %+v", e)
-	}
-	rec = do("DELETE", "/sign", signTok, "", "")
-	if rec.Code != 405 || rec.Header().Get("Allow") != "GET, HEAD" {
-		t.Fatalf("wrong method: %d, Allow %q", rec.Code, rec.Header().Get("Allow"))
-	}
-	if e := decodeErr(t, rec); e.Message != "Method Not Allowed" {
-		t.Errorf("wrong method body %+v", e)
+		t.Fatalf("unknown path in mode none: %d", rec.Code)
 	}
 }
 

@@ -44,7 +44,8 @@ func (rt *Route) bodyLimit() int64 {
 }
 
 // methods dispatches one path pattern by method, answering 405 with an
-// Allow header for a method no route registers.
+// Allow header for a method no route registers, once the caller has
+// presented a credential (see unrouted).
 type methods struct {
 	s      *Server
 	byName map[string]http.Handler
@@ -58,14 +59,17 @@ func (m *methods) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h, ok := m.byName[method]
 	if !ok {
-		w.Header().Set("Allow", m.allow)
-		writePlainError(w, m.s.log, r, http.StatusMethodNotAllowed)
+		if m.s.unrouted(w, r) {
+			w.Header().Set("Allow", m.allow)
+			writePlainError(w, m.s.log, r, http.StatusMethodNotAllowed)
+		}
 		return
 	}
 	h.ServeHTTP(w, r)
 }
 
-// newMux builds the router. An unknown path is a JSON 404.
+// newMux builds the router. An unknown path is a JSON 404, once the caller
+// has presented a credential (see unrouted).
 func (s *Server) newMux(routes []Route) (*http.ServeMux, error) {
 	byPattern := map[string]*methods{}
 	var order []string
@@ -114,8 +118,26 @@ func (s *Server) newMux(routes []Route) (*http.ServeMux, error) {
 	}
 	if _, ok := byPattern["/"]; !ok {
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			writePlainError(w, s.log, r, http.StatusNotFound)
+			if s.unrouted(w, r) {
+				writePlainError(w, s.log, r, http.StatusNotFound)
+			}
 		})
 	}
 	return mux, nil
+}
+
+// unrouted authenticates a request that matches no route, before it may
+// learn so from a 404 or 405: the sign or the admin credential will do, and
+// anyone else gets the sign scope's refusal (401), so that routes and
+// methods cannot be enumerated without a token. It reports whether the
+// caller may be told; otherwise it has written the refusal.
+func (s *Server) unrouted(w http.ResponseWriter, r *http.Request) bool {
+	if s.cfg.Auth.Allows(r, auth.ScopeAdmin) {
+		return true
+	}
+	if e := s.cfg.Auth.Check(r, auth.ScopeSign); e != nil {
+		WriteError(w, s.log, r, e)
+		return false
+	}
+	return true
 }

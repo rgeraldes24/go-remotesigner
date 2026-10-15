@@ -163,7 +163,9 @@ Response bodies:
 | `none` (loopback listeners only) | open | admin token |
 
 Before authentication the server refuses any request carrying an `Origin` header (403 `ORIGIN_NOT_ALLOWED`) and any
-`Host` outside the host allowlist (403 `HOST_NOT_ALLOWED`). The qrysm e2e reads the generated
+`Host` outside the host allowlist (403 `HOST_NOT_ALLOWED`). A request whose path or method matches no route is
+authenticated before it is answered 404 or 405: without the sign or the admin credential it gets 401
+`UNAUTHENTICATED`, so routes cannot be enumerated without a token. The qrysm e2e reads the generated
 `<data-path>/auth-token` and passes it to the VC, so authentication is exercised from the first e2e run.
 
 ## 7. Request envelope and validation pipeline

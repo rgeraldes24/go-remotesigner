@@ -15,11 +15,14 @@ import (
 
 // The middleware runs in this order (docs/contract.md section 7, step 1):
 //
-//	access log → host allowlist → Origin refusal → (routing) → auth →
-//	content type → body limit → readiness → handler
+//	access log → host allowlist → Origin refusal → auth → content type →
+//	body limit → readiness → handler
 //
-// Routing sits between the Origin refusal and auth because the required
-// scope is a property of the route.
+// The router picks the route between the Origin refusal and auth, because
+// the required scope is a property of the route, but it answers nothing
+// itself before auth: a request that matches no path or method is
+// authenticated first (Server.unrouted), so an unauthenticated caller gets
+// 401, never 404 or 405.
 
 // accessLog records every request after it completes, at INFO when access
 // logs are enabled. It logs the route pattern, not the path.
