@@ -132,6 +132,9 @@ func initialise(tx *bolt.Tx, gvr *slashing.Root) error {
 	if version != slashing.SchemaVersion {
 		return &slashing.SchemaError{Stored: version, Expected: slashing.SchemaVersion}
 	}
+	if tx.Bucket(bucketValidators) == nil {
+		return ErrNotStore
+	}
 	if gvr == nil {
 		return nil
 	}

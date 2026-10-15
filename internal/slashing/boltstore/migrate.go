@@ -33,8 +33,13 @@ type Migration struct {
 // existing backup). All steps then run in one transaction, so a failed migration leaves the file at its old version.
 // A current file is left untouched, and a newer one is refused with a *slashing.SchemaError.
 func Migrate(path string) (Migration, error) {
-	if _, err := os.Stat(path); err != nil {
+	fi, err := os.Stat(path)
+	if err != nil {
 		return Migration{}, fmt.Errorf("boltstore: migrate: %w", err)
+	}
+	if fi.Size() == 0 {
+		// bolt.Open would lay out an empty database in it before the version probe could refuse it.
+		return Migration{}, fmt.Errorf("boltstore: migrate %s: %w", path, ErrNotStore)
 	}
 	db, err := openDB(path, DefaultLockTimeout)
 	if err != nil {

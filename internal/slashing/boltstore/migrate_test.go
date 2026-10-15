@@ -99,6 +99,24 @@ func TestOpenRefusesOtherSchemaVersions(t *testing.T) {
 	}
 }
 
+// TestOpenRefusesHalfWrittenFile covers a file that has a current meta bucket but no validators bucket.
+func TestOpenRefusesHalfWrittenFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "slashing-protection.db")
+	db, err := bolt.Open(path, fileMode, nil)
+	mustNil(t, err)
+	mustNil(t, db.Update(func(tx *bolt.Tx) error {
+		meta, err := tx.CreateBucket(bucketMeta)
+		if err != nil {
+			return err
+		}
+		return meta.Put(keySchemaVersion, encodeVersion(slashing.SchemaVersion))
+	}))
+	mustNil(t, db.Close())
+	if _, err := Open(path, Options{}); !errors.Is(err, ErrNotStore) {
+		t.Fatalf("Open: %v, want ErrNotStore", err)
+	}
+}
+
 func TestMigrate(t *testing.T) {
 	path := newStoreFile(t)
 	setSchemaVersion(t, path, 0)
@@ -203,7 +221,7 @@ func TestMigrateRefusals(t *testing.T) {
 	}
 }
 
-func TestMigrateLockedAndMissing(t *testing.T) {
+func TestMigrateLockedMissingAndEmpty(t *testing.T) {
 	path := newStoreFile(t)
 	s, err := Open(path, Options{})
 	mustNil(t, err)
@@ -218,5 +236,14 @@ func TestMigrateLockedAndMissing(t *testing.T) {
 	}
 	if _, err := os.Stat(missing); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("Migrate created %s", missing)
+	}
+
+	empty := filepath.Join(t.TempDir(), "empty.db")
+	mustNil(t, os.WriteFile(empty, nil, fileMode))
+	if _, err := Migrate(empty); !errors.Is(err, ErrNotStore) {
+		t.Errorf("Migrate of an empty file: %v, want ErrNotStore", err)
+	}
+	if fi, err := os.Stat(empty); err != nil || fi.Size() != 0 {
+		t.Errorf("Migrate changed the empty file: %v, %v", fi, err)
 	}
 }
