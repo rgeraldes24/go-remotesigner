@@ -120,6 +120,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/consensus/testdata/containers.json` | new | | | |
 | `internal/consensus/testdata/gen_fixtures.py` | new | | | |
 | `internal/consensus/testdata/signing.json` | new | | | |
+| `internal/consensus/types/containers.go` | new | | | |
+| `internal/consensus/types/containers_test.go` | new | | | |
 | `internal/ssz/merkleize.go` | new | | | |
 | `internal/ssz/merkleize_test.go` | new | | | |
 | `internal/ssz/types.go` | new | | | |
