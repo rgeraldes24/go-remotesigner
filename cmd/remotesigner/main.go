@@ -75,7 +75,7 @@ func newApp(stdout, stderr io.Writer, runSigner runFunc) *cli.App {
 		Flags:           flags.Global(),
 		Metadata:        map[string]any{},
 		Before:          loadConfigFile,
-		Commands:        []*cli.Command{consensusCommand(runSigner, stderr)},
+		Commands:        []*cli.Command{consensusCommand(runSigner, stdout, stderr)},
 		Action:          rootAction,
 		OnUsageError: func(_ *cli.Context, err error, _ bool) error {
 			return cli.Exit(fmt.Sprintf("usage error: %v", err), exitUsage)

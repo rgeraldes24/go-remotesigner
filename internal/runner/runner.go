@@ -29,6 +29,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keyconfig"
 	"github.com/rgeraldes24/go-remotesigner/internal/metrics"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
+	"github.com/rgeraldes24/go-remotesigner/internal/randao"
 	"github.com/rgeraldes24/go-remotesigner/internal/server"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
 	"github.com/rgeraldes24/go-remotesigner/internal/signer"
@@ -102,19 +103,21 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		Metrics:            m,
 		Log:                log,
 	})
+	reveals := newReveals(cfg, n, store, m, log)
 	loads := &loadState{}
-	reloader := ops.NewReloader(loadKeys(cfg.KeyConfigPath, keys, engine, sig, loads, log), log)
+	reloader := ops.NewReloader(loadKeys(cfg.KeyConfigPath, keys, engine, sig, reveals, loads, log), log)
 	var ready atomic.Bool
 
 	sign := &consensus.Sign{Policy: pol, Signer: sig, Pinner: store, Metrics: m, Log: log}
 	if cfg.Consensus.SlashingProtectionEnabled {
 		sign.Protector = engine
 	}
+	reveal := &consensus.RandaoReveal{Policy: pol, Signer: sig, Reveals: reveals, Pinner: store, Metrics: m, Log: log}
 	srv, err := server.New(server.Config{
 		Addr:           cfg.ListenAddr(),
 		HostAllowlist:  cfg.HTTP.HostAllowlist,
 		Auth:           authn,
-		Routes:         routes(cfg, n, pol, authn, keys, store, sign, loads, reloader, ready.Load, log),
+		Routes:         routes(cfg, n, pol, authn, keys, store, sign, reveal, loads, reloader, ready.Load, log),
 		Ready:          ready.Load,
 		MaxConnections: cfg.HTTP.MaxConnections,
 		ReadTimeout:    server.ReadTimeout(n.Config.SecondsPerSlot),
@@ -128,6 +131,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		err = srv.Listen()
 	}
 	if err != nil {
+		reveals.Close()
 		closeStore()
 		return err
 	}
@@ -138,6 +142,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		})
 		if err := ml.Listen(); err != nil {
 			_ = srv.Shutdown(context.Background())
+			reveals.Close()
 			closeStore()
 			return err
 		}
@@ -209,6 +214,7 @@ loop:
 		}
 	}
 	reloader.Close()
+	reveals.Close()
 	if errors.Is(err, server.ErrHandlersRunning) {
 		// A handler may still use the store or a key; the process exit
 		// releases both (bbolt is crash-safe).
@@ -249,7 +255,15 @@ func openStore(cfg *config.Config, n *network.Network, pol *policy.Policy, log *
 	if !cfg.Consensus.SlashingProtectionEnabled {
 		log.Error("SLASHING PROTECTION IS DISABLED: blocks and attestations are signed without any slashing check. " +
 			"This is allowed only because every listener is loopback.")
+		log.Warn("RANDAO frontiers are kept in memory only: after a restart every key's next reveal is a first use " +
+			"(set --randao-protection-required to refuse this)")
 		return memstore.New(), nil
+	}
+	path := cfg.SlashingProtectionDB()
+	if cfg.Consensus.SlashingProtectionDBMigrate {
+		if err := migrateStore(path, log); err != nil {
+			return nil, err
+		}
 	}
 	opts := boltstore.Options{OnPin: func(gvr slashing.Root) {
 		if err := pol.PinGenesisValidatorsRoot(gvr); err != nil {
@@ -260,7 +274,7 @@ func openStore(cfg *config.Config, n *network.Network, pol *policy.Policy, log *
 		gvr := slashing.Root(n.GenesisValidatorsRoot)
 		opts.GenesisValidatorsRoot = &gvr
 	}
-	store, err := boltstore.Open(cfg.SlashingProtectionDB(), opts)
+	store, err := boltstore.Open(path, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -276,6 +290,63 @@ func openStore(cfg *config.Config, n *network.Network, pol *policy.Policy, log *
 	return store, nil
 }
 
+// migrateStore upgrades an existing store file before it is opened
+// (--slashing-protection-db-migrate); a missing file is created current by
+// Open.
+func migrateStore(path string, log *logrus.Logger) error {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	m, err := boltstore.Migrate(path)
+	if err != nil {
+		return fmt.Errorf("refusing to start: --slashing-protection-db-migrate: %w", err)
+	}
+	if m.From != m.To {
+		log.WithFields(logrus.Fields{"from": m.From, "to": m.To, "backup": m.Backup}).
+			Warn("Slashing-protection store migrated")
+	}
+	return nil
+}
+
+// newReveals builds the RANDAO reveal service over the store and logs the
+// effective new-layer rate.
+func newReveals(cfg *config.Config, n *network.Network, store slashing.Store, m *metrics.Metrics,
+	log *logrus.Logger) *randao.Service {
+	rc := cfg.Consensus.Randao
+	interval := rc.FullScanMinInterval
+	if interval == 0 {
+		interval = time.Duration(n.Config.SecondsPerSlot) * time.Second
+	}
+	s := randao.New(randao.Config{
+		Store:                store,
+		GenesisTime:          n.GenesisTime,
+		GenesisKnown:         n.GenesisTimeKnown(),
+		SecondsPerSlot:       n.Config.SecondsPerSlot,
+		SlotsPerEpoch:        n.Config.SlotsPerEpoch,
+		ClockSkewSlots:       cfg.Consensus.ClockSkewSlots,
+		MaxLayers:            rc.MaxLayers,
+		ReorgWindow:          rc.ReorgWindow,
+		FullScanMinInterval:  interval,
+		NewLayerBurst:        rc.NewLayerBurst,
+		NewLayerRefillEpochs: rc.NewLayerRefillEpochs,
+		Metrics:              m,
+		Log:                  log,
+	})
+	f := logrus.Fields{"max-layers": rc.MaxLayers, "reorg-window": rc.ReorgWindow, "full-scan-min-interval": interval}
+	if p := s.RefillPeriod(); p > 0 {
+		f["new-layer-burst"] = rc.NewLayerBurst
+		f["new-layer-refill"] = p
+		log.WithFields(f).Infof("RANDAO reveals: at most %d new layers per key in a burst, then one per %s", rc.NewLayerBurst, p)
+	} else {
+		log.WithFields(f).Info("RANDAO reveals: the per-key new-layer bucket is off (one new layer per slot)")
+	}
+	if !n.GenesisTimeKnown() {
+		log.Error("RANDAO: genesis time is unknown, so no new layer can be released and capabilities reports " +
+			"randao_reveal false; set --network-genesis-time or --network-genesis-state")
+	}
+	return s
+}
+
 // loadState is what the keys-check/config-files-loading health check reads.
 type loadState struct {
 	done   atomic.Bool
@@ -287,10 +358,10 @@ type loadState struct {
 // directory, then apply it to the provider, registering new keys in
 // slashing protection first. Quarantined keys are renewed from the fresh
 // load, which lifts their quarantine.
-func loadKeys(dir string, keys *provider.Provider, engine *slashing.Engine, sig *signer.Signer, st *loadState,
-	log *logrus.Logger) ops.LoadFunc {
+func loadKeys(dir string, keys *provider.Provider, engine *slashing.Engine, sig *signer.Signer, reveals *randao.Service,
+	st *loadState, log *logrus.Logger) ops.LoadFunc {
 	return func(ctx context.Context) (int, error) {
-		errs, err := loadOnce(ctx, dir, keys, engine, sig, log)
+		errs, err := loadOnce(ctx, dir, keys, engine, sig, reveals, log)
 		st.errors.Store(int64(errs))
 		st.failed.Store(err != nil)
 		st.done.Store(true)
@@ -299,7 +370,7 @@ func loadKeys(dir string, keys *provider.Provider, engine *slashing.Engine, sig 
 }
 
 func loadOnce(ctx context.Context, dir string, keys *provider.Provider, engine *slashing.Engine, sig *signer.Signer,
-	log *logrus.Logger) (int, error) {
+	reveals *randao.Service, log *logrus.Logger) (int, error) {
 	var batches []provider.Batch
 	if dir == "" {
 		log.Warn("No --key-config-path: no keys are loaded")
@@ -319,6 +390,13 @@ func loadOnce(ctx context.Context, dir string, keys *provider.Provider, engine *
 	if err != nil {
 		return d.Errors, fmt.Errorf("register keys in slashing protection: %w", err)
 	}
+	var ids []slashing.KeyID
+	for pk := range keys.PublicKeys() {
+		ids = append(ids, slashing.KeyID(pk.ID()))
+	}
+	if err := reveals.Track(ctx, ids); err != nil {
+		log.WithError(err).Error("Reading the RANDAO frontiers of the loaded keys failed")
+	}
 	quarantined := sig.Release()
 	log.WithFields(logrus.Fields{
 		"loaded": keys.Len(), "added": d.Added, "removed": d.Removed, "renewed": d.Renewed, "errors": d.Errors,
@@ -328,8 +406,8 @@ func loadOnce(ctx context.Context, dir string, keys *provider.Provider, engine *
 }
 
 func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *auth.Authenticator,
-	keys *provider.Provider, store slashing.Store, sign *consensus.Sign, loads *loadState, reloader *ops.Reloader,
-	ready func() bool, log *logrus.Logger) []server.Route {
+	keys *provider.Provider, store slashing.Store, sign *consensus.Sign, reveal *consensus.RandaoReveal,
+	loads *loadState, reloader *ops.Reloader, ready func() bool, log *logrus.Logger) []server.Route {
 	protection := consensus.ProtectionBolt
 	if !cfg.Consensus.SlashingProtectionEnabled {
 		protection = consensus.ProtectionDisabled
@@ -356,6 +434,7 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 		up := loads.done.Load() && !loads.failed.Load() && errs == 0
 		return up, map[string]any{"keys-loaded": keys.Len(), "error-count": errs}
 	}})
+	checks = append(checks, ops.Check{ID: ops.CheckRandao, Run: randaoCheck(n, reveal.Reveals)})
 
 	rs := []server.Route{
 		{Method: http.MethodGet, Pattern: "/upcheck", Scope: auth.ScopeNone, Handler: ops.Upcheck(ready)},
@@ -367,13 +446,38 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 			Handler: caps.Handler()},
 		{Method: http.MethodPost, Pattern: "/api/v1/consensus/sign/{identifier}", Scope: auth.ScopeSign, NeedsReady: true,
 			BodyLimit: consensus.SignBodyLimit, ReadsBody: true, Handler: sign},
+		{Method: http.MethodPost, Pattern: "/api/v1/consensus/randao_reveal/{identifier}", Scope: auth.ScopeSign,
+			NeedsReady: true, BodyLimit: consensus.RandaoBodyLimit, ReadsBody: true, Handler: reveal},
 		{Method: http.MethodGet, Pattern: "/reload", Scope: auth.ScopeSign, Handler: reloader.StatusHandler()},
 	}
 	if authn.HasAdmin() {
-		rs = append(rs, server.Route{Method: http.MethodPost, Pattern: "/reload", Scope: auth.ScopeAdmin,
-			Handler: reloader.StartHandler(log)})
+		reset := &consensus.RandaoReset{Log: log}
+		if cfg.Consensus.SlashingProtectionEnabled {
+			reset.Reveals = reveal.Reveals
+		}
+		rs = append(rs,
+			server.Route{Method: http.MethodPost, Pattern: "/reload", Scope: auth.ScopeAdmin,
+				Handler: reloader.StartHandler(log)},
+			server.Route{Method: http.MethodDelete, Pattern: "/api/v1/consensus/randao_state/{identifier}",
+				Scope: auth.ScopeAdmin, Handler: reset})
 	}
 	return rs
+}
+
+// randaoCheck is keys-check/randao: DOWN when no new layer can be released
+// (genesis time unknown) or a loaded key has fewer than
+// randao.LowLayersThreshold layers left. Every key this release loads holds
+// its seed, so keys-without-seed is always 0.
+func randaoCheck(n *network.Network, reveals *randao.Service) func(context.Context) (bool, map[string]any) {
+	return func(context.Context) (bool, map[string]any) {
+		data := map[string]any{"keys-without-seed": 0}
+		up := n.GenesisTimeKnown()
+		if least, ok := reveals.MinLayersRemaining(); ok {
+			data["min-layers-remaining"] = least
+			up = up && least >= randao.LowLayersThreshold
+		}
+		return up, data
+	}
 }
 
 // logNetwork records the chain binding at startup, once the store has had

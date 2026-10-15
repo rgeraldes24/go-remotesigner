@@ -32,6 +32,7 @@ const (
 	CheckDefault            = "default-check"
 	CheckSlashingProtection = "slashing-protection-db-health-check"
 	CheckConfigFilesLoading = "keys-check/config-files-loading"
+	CheckRandao             = "keys-check/randao"
 )
 
 // CheckTimeout bounds one check.

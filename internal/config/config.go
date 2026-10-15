@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -92,6 +93,26 @@ type Consensus struct {
 	ClockSkewSlots uint64
 	// SelectionProofMode is --selection-proof-signing.
 	SelectionProofMode mldsa87.Mode
+	// SlashingProtectionDBPath is the bbolt file named by
+	// --slashing-protection-db-url; empty means the default under
+	// --data-path.
+	SlashingProtectionDBPath string
+	// SlashingProtectionDBMigrate is --slashing-protection-db-migrate.
+	SlashingProtectionDBMigrate bool
+	Randao                      Randao
+}
+
+// Randao holds the --randao-* settings of the reveal service.
+type Randao struct {
+	MaxLayers   uint64
+	ReorgWindow uint64
+	// FullScanMinInterval is the per-key slow-path budget; zero means
+	// SECONDS_PER_SLOT.
+	FullScanMinInterval  time.Duration
+	NewLayerBurst        uint64
+	NewLayerRefillEpochs uint64
+	// ProtectionRequired is --randao-protection-required.
+	ProtectionRequired bool
 }
 
 // ListenAddr returns host:port of the API listener.
@@ -111,9 +132,31 @@ func (c *Config) AdminTokenFile() string {
 	return c.orDataPath(c.HTTP.AdminTokenFile, AdminTokenFileName)
 }
 
-// SlashingProtectionDB is the bbolt store file, <data-path>/slashing-protection.db.
+// SlashingProtectionDB is the bbolt store file: the path of
+// --slashing-protection-db-url, else <data-path>/slashing-protection.db.
 func (c *Config) SlashingProtectionDB() string {
-	return c.orDataPath("", SlashingProtectionFile)
+	return c.orDataPath(c.Consensus.SlashingProtectionDBPath, SlashingProtectionFile)
+}
+
+// ParseDBURL returns the file path of a --slashing-protection-db-url. Only
+// bbolt URLs with an absolute path, bolt:///path/to/file.db, are supported
+// in this release.
+func ParseDBURL(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", errors.New("not a URL; want bolt:///path/to/file.db")
+	}
+	switch {
+	case u.Scheme == "postgres" || u.Scheme == "postgresql" || strings.HasPrefix(raw, "jdbc:postgresql:"):
+		return "", errors.New("the Postgres backend is not part of this release; use bolt:///path/to/file.db")
+	case u.Scheme != "bolt":
+		return "", errors.New("unsupported scheme; want bolt:///path/to/file.db")
+	case u.Host != "" || u.Opaque != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil:
+		return "", errors.New("want bolt:/// followed by an absolute file path, with no host or query")
+	case !filepath.IsAbs(u.Path) || strings.HasSuffix(u.Path, "/"):
+		return "", errors.New("want bolt:/// followed by an absolute file path")
+	}
+	return filepath.Clean(u.Path), nil
 }
 
 func (c *Config) orDataPath(flag, name string) string {
@@ -138,7 +181,8 @@ var (
 	ErrProtectionDisabledNonLoopback = fmt.Errorf("%w: --slashing-protection-enabled=false is allowed only when every listener is loopback", ErrRefused)
 	ErrGVRTOFUNonLoopback            = fmt.Errorf("%w: the genesis validators root is unknown and would be pinned on first use, which a non-loopback listener allows only with --Xallow-gvr-tofu; set --network-genesis-validators-root or --network-genesis-state", ErrRefused)
 	ErrUnknownGenesisNonLoopback     = fmt.Errorf("%w: genesis time is unknown, so the wall-clock bounds are off, which a non-loopback listener allows only with --Xallow-unknown-genesis-time; set --network-genesis-time or --network-genesis-state", ErrRefused)
-	ErrNoDataPath                    = fmt.Errorf("%w: slashing protection needs --data-path for its store", ErrRefused)
+	ErrNoDataPath                    = fmt.Errorf("%w: slashing protection needs --data-path or --slashing-protection-db-url for its store", ErrRefused)
+	ErrRandaoProtectionRequired      = fmt.Errorf("%w: --randao-protection-required refuses to keep RANDAO frontiers in memory, which --slashing-protection-enabled=false does", ErrRefused)
 	ErrNoSignToken                   = fmt.Errorf("%w: --http-auth-mode=token needs --http-auth-token-file or --data-path", ErrRefused)
 )
 
@@ -153,7 +197,8 @@ func CheckFailSafes(c *Config, n *network.Network) error {
 			errs = append(errs, err)
 		}
 	}
-	refuse(c.Consensus.SlashingProtectionEnabled && c.DataPath == "", ErrNoDataPath)
+	refuse(c.Consensus.SlashingProtectionEnabled && c.SlashingProtectionDB() == "", ErrNoDataPath)
+	refuse(c.Consensus.Randao.ProtectionRequired && !c.Consensus.SlashingProtectionEnabled, ErrRandaoProtectionRequired)
 	refuse(c.HTTP.AuthMode == auth.ModeToken && c.SignTokenFile() == "", ErrNoSignToken)
 	refuse(c.Consensus.KeyManagerAPIEnabled && c.AdminTokenFile() == "", ErrKeyManagerNoAdmin)
 	if c.Metrics.Enabled && !IsLoopbackHost(c.Metrics.Host) {

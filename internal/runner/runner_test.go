@@ -27,6 +27,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/policy"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
+	"github.com/rgeraldes24/go-remotesigner/internal/randao"
 	"github.com/rgeraldes24/go-remotesigner/internal/server"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
@@ -90,6 +91,8 @@ func baseConfig(t *testing.T) *config.Config {
 			SlashingProtectionEnabled: true,
 			ClockSkewSlots:            policy.DefaultClockSkewSlots,
 			SelectionProofMode:        mldsa87.Deterministic,
+			Randao: config.Randao{MaxLayers: randao.DefaultMaxLayers, ReorgWindow: randao.DefaultReorgWindow,
+				NewLayerBurst: randao.DefaultNewLayerBurst, NewLayerRefillEpochs: randao.DefaultRefillEpochs},
 		},
 	}
 }

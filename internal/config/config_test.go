@@ -73,6 +73,16 @@ func TestCheckFailSafes(t *testing.T) {
 		{"remote, genesis unknown acknowledged", func(c *Config) { remote(c); c.Consensus.AllowUnknownGenesisTime = true }, fileNetwork(true, false), nil},
 		{"named network never TOFU", remote, &network.Network{Named: true, GenesisTimeSource: network.SourceNamed}, nil},
 		{"protection without data path", func(c *Config) { c.DataPath = ""; c.HTTP.AuthTokenFile = "/t" }, known, []error{ErrNoDataPath}},
+		{"protection with a store URL and no data path", func(c *Config) {
+			c.DataPath = ""
+			c.HTTP.AuthTokenFile = "/t"
+			c.Consensus.SlashingProtectionDBPath = "/var/lib/sp.db"
+		}, known, nil},
+		{"RANDAO protection required, protection off", func(c *Config) {
+			c.Consensus.SlashingProtectionEnabled = false
+			c.Consensus.Randao.ProtectionRequired = true
+		}, known, []error{ErrRandaoProtectionRequired}},
+		{"RANDAO protection required, protection on", func(c *Config) { c.Consensus.Randao.ProtectionRequired = true }, known, nil},
 		{"token mode without token file", func(c *Config) { c.DataPath = ""; c.Consensus.SlashingProtectionEnabled = false }, known, []error{ErrNoSignToken}},
 		{"keymanager without admin token", func(c *Config) {
 			c.DataPath = ""
@@ -270,5 +280,42 @@ func TestYAMLSourceErrors(t *testing.T) {
 				t.Fatalf("error %v, want ErrConfigFile", err)
 			}
 		})
+	}
+}
+
+func TestParseDBURL(t *testing.T) {
+	for raw, want := range map[string]string{
+		"bolt:///var/lib/signer/sp.db":    "/var/lib/signer/sp.db",
+		"bolt:///var/lib/signer/../sp.db": "/var/lib/sp.db",
+	} {
+		if got, err := ParseDBURL(raw); err != nil || got != want {
+			t.Errorf("%s: %q %v, want %q", raw, got, err, want)
+		}
+	}
+	for raw, want := range map[string]string{
+		"postgres://u@db/signer":      "Postgres",
+		"jdbc:postgresql://db/signer": "Postgres",
+		"bolt://host/sp.db":           "no host",
+		"bolt:///sp.db?mode=ro":       "no host or query",
+		"bolt:relative.db":            "no host",
+		"bolt:///":                    "absolute file path",
+		"/var/lib/sp.db":              "unsupported scheme",
+		"sqlite:///var/lib/sp.db":     "unsupported scheme",
+		"bolt://%zz":                  "not a URL",
+	} {
+		if _, err := ParseDBURL(raw); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want an error mentioning %q", raw, err, want)
+		}
+	}
+}
+
+func TestSlashingProtectionDB(t *testing.T) {
+	c := base()
+	if got := c.SlashingProtectionDB(); got != "/data/slashing-protection.db" {
+		t.Fatalf("default %s", got)
+	}
+	c.Consensus.SlashingProtectionDBPath = "/elsewhere/sp.db"
+	if got := c.SlashingProtectionDB(); got != "/elsewhere/sp.db" {
+		t.Fatalf("from the URL %s", got)
 	}
 }

@@ -34,7 +34,7 @@ type runFunc func(ctx context.Context, cfg *config.Config, log *logrus.Logger, h
 // metaConfigFile is the App.Metadata key of the parsed --config-file.
 const metaConfigFile = "config-file"
 
-func consensusCommand(run runFunc, stderr io.Writer) *cli.Command {
+func consensusCommand(run runFunc, stdout, stderr io.Writer) *cli.Command {
 	return &cli.Command{
 		Name:  flags.ConsensusCommand,
 		Usage: "run the consensus-layer remote signer for qrysm validator clients",
@@ -47,7 +47,9 @@ func consensusCommand(run runFunc, stderr io.Writer) *cli.Command {
 			}
 			return nil
 		},
-		OnUsageError: onUsageError,
+		OnUsageError:    onUsageError,
+		HideHelpCommand: true,
+		Subcommands:     []*cli.Command{migrateCommand(stdout), randaoStateCommand(stdout)},
 		Action: func(c *cli.Context) error {
 			if c.NArg() > 0 {
 				return usageError(fmt.Errorf("unexpected argument %q", c.Args().First()))
@@ -141,13 +143,22 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 				Network:          c.String(flags.Network),
 				GenesisStateFile: c.String(flags.NetworkGenesisState),
 			},
-			SlashingProtectionEnabled: c.Bool(flags.SlashingProtectionEnabled),
-			KeyManagerAPIEnabled:      c.Bool(flags.KeyManagerAPIEnabled),
-			AllowUnknownGenesisTime:   c.Bool(flags.AllowUnknownGenesisTime),
-			AllowGVRTOFU:              c.Bool(flags.AllowGVRTOFU),
-			VoluntaryExitsEnabled:     c.Bool(flags.VoluntaryExitSigning),
-			FeeRecipientFile:          c.String(flags.RegistrationFeeRecipients),
-			ClockSkewSlots:            c.Uint64(flags.SigningClockSkewSlots),
+			SlashingProtectionEnabled:   c.Bool(flags.SlashingProtectionEnabled),
+			KeyManagerAPIEnabled:        c.Bool(flags.KeyManagerAPIEnabled),
+			AllowUnknownGenesisTime:     c.Bool(flags.AllowUnknownGenesisTime),
+			AllowGVRTOFU:                c.Bool(flags.AllowGVRTOFU),
+			VoluntaryExitsEnabled:       c.Bool(flags.VoluntaryExitSigning),
+			FeeRecipientFile:            c.String(flags.RegistrationFeeRecipients),
+			ClockSkewSlots:              c.Uint64(flags.SigningClockSkewSlots),
+			SlashingProtectionDBMigrate: c.Bool(flags.SlashingProtectionMigrate),
+			Randao: config.Randao{
+				MaxLayers:            c.Uint64(flags.RandaoMaxLayers),
+				ReorgWindow:          c.Uint64(flags.RandaoReorgWindow),
+				FullScanMinInterval:  c.Duration(flags.RandaoFullScanMinInterval),
+				NewLayerBurst:        c.Uint64(flags.RandaoNewLayerBurst),
+				NewLayerRefillEpochs: c.Uint64(flags.RandaoRefillEpochs),
+				ProtectionRequired:   c.Bool(flags.RandaoProtectionRequired),
+			},
 		},
 		Metrics: config.Metrics{
 			Enabled: c.Bool(flags.MetricsEnabled),
@@ -195,6 +206,12 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 	if cfg.HTTP.IdleTimeout < time.Second {
 		return nil, fmt.Errorf("--%s must be at least 1", flags.IdleConnectionTimeout)
 	}
+	if err := checkRandao(&cfg.Consensus.Randao); err != nil {
+		return nil, err
+	}
+	if cfg.Consensus.SlashingProtectionDBPath, err = dbPath(c); err != nil {
+		return nil, err
+	}
 	if c.IsSet(flags.NetworkGenesisTime) {
 		t := c.Uint64(flags.NetworkGenesisTime)
 		cfg.Consensus.Network.GenesisTime = &t
@@ -207,6 +224,41 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 		cfg.Consensus.Network.GenesisValidatorsRoot = &gvr
 	}
 	return cfg, nil
+}
+
+// maxRefillEpochs bounds --randao-new-layer-refill-epochs, so that the
+// refill period cannot overflow.
+const maxRefillEpochs = 1 << 20
+
+func checkRandao(r *config.Randao) error {
+	switch {
+	case r.MaxLayers == 0:
+		return fmt.Errorf("--%s must be at least 1", flags.RandaoMaxLayers)
+	case r.FullScanMinInterval < 0:
+		return fmt.Errorf("--%s must not be negative", flags.RandaoFullScanMinInterval)
+	case r.NewLayerRefillEpochs > maxRefillEpochs:
+		return fmt.Errorf("--%s must be at most %d", flags.RandaoRefillEpochs, maxRefillEpochs)
+	case r.NewLayerRefillEpochs > 0 && r.NewLayerBurst == 0:
+		return fmt.Errorf("--%s must be at least 1 while the bucket is on (--%s=0 turns it off)",
+			flags.RandaoNewLayerBurst, flags.RandaoRefillEpochs)
+	}
+	return nil
+}
+
+// dbPath returns the bbolt file of --slashing-protection-db-url, set on
+// the command or on any parent, or "" when it is not set.
+func dbPath(c *cli.Context) (string, error) {
+	for _, x := range c.Lineage() {
+		if !x.IsSet(flags.SlashingProtectionDBURL) {
+			continue
+		}
+		p, err := config.ParseDBURL(x.String(flags.SlashingProtectionDBURL))
+		if err != nil {
+			return "", fmt.Errorf("--%s: %w", flags.SlashingProtectionDBURL, err)
+		}
+		return p, nil
+	}
+	return "", nil
 }
 
 func parseRoot(s string) ([32]byte, error) {
