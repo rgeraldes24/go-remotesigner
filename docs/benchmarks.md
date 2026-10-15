@@ -91,3 +91,28 @@ about 2:1 at any level. B19 runs the built binary and two clients with Go's defa
 
 Run E, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), 10 runs of 10 requests each, load average 4-5 from
 other work.
+
+## End-to-end bursts and RANDAO reveals (B7-B9, the built binary)
+
+**B7, B8 and B9: met on the development machine**, pending the reference VMs.
+
+```
+make bench-e2e     # REMOTESIGNER_BENCH=1 go test -run '^TestB[789]' ./test/acceptance/
+```
+
+Each test starts the built binary on loopback with token auth and bbolt slashing protection, and drives it with a Go
+client on `http.DefaultTransport`; latencies are measured by the client, so they include the loopback round trip.
+B7 sends the t = 20 s burst of the e2e network at once: 32 `ATTESTATION` requests, one per key so that every one is
+recorded in the store, and 126 `SYNC_COMMITTEE_MESSAGE` requests over the same 32 keys. B8 sends 16 copies of the
+mainnet-preset 128-signature contribution (1,197,210 bytes) at once, so eight wait for a large-body slot, and reads
+the process RSS with `ps` before and after. B9 sends four concurrent first reveals (each a scan of up to 2^20
+layers) while the B7 burst runs, then an unknown commitment twice: the second answer must come from the negative
+cache. This release has no TLS, so B7 runs without it; the TLS variant is part of B20 (S7).
+
+| ID | Test | Threshold | Development-machine results (5 runs) | Verdict |
+|---|---|---|---|---|
+| B7 | `TestB7AttestationBurst` | last response ≤ 1 s, p99 ≤ 500 ms, 0 errors | last 203-331 ms, p50 26-38 ms, p99 200-328 ms, 0 errors | met on dev machine |
+| B8 | `TestB8ContributionBurst` | each ≤ 250 ms; RSS increase ≤ 128 MiB | slowest 31-33 ms; RSS +28-33 MiB | met on dev machine |
+| B9 | `TestB9RandaoReveal` | reveal p99 ≤ 0.5 s; unknown ≤ 0.6 s and cached on retry; B7 signing p99 unaffected (≤ 500 ms) | 4 concurrent first reveals p99 203-224 ms; unknown 54-115 ms, retry 0.21-0.30 ms; signing p99 alongside 159-259 ms | met on dev machine |
+
+Run F, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), load average 2.6-3.4 from other work.

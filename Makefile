@@ -19,7 +19,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test fuzz contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify docs acceptance b19 clean
+.PHONY: all build build-consensus test fuzz contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary docs acceptance b19 bench-e2e clean
 
 all: build build-consensus
 
@@ -94,6 +94,11 @@ TOKEN_FILE ?=
 vectors-verify:
 	cd tools/vectorgen && $(GO) run . verify -signer $(SIGNER) $(if $(TOKEN_FILE),-token-file $(abspath $(TOKEN_FILE)))
 
+## vectors-verify-binary: build the binary, run it with the interop keys on both end-to-end networks and check it
+## with `vectorgen verify` (builds tools/vectorgen, which links qrysm)
+vectors-verify-binary:
+	REMOTESIGNER_VECTORS_VERIFY=1 $(GO) test -count=1 -run '^TestVectorgenVerify$$' -v ./test/acceptance/
+
 ## docs: regenerate docs/reference/flags.md with tools/flagdoc
 docs:
 	$(GO) run ./tools/flagdoc
@@ -106,6 +111,10 @@ acceptance:
 B19_DURATION ?= 1h
 b19:
 	REMOTESIGNER_B19_DURATION=$(B19_DURATION) $(GO) test -count=1 -run '^TestB19IdleConnectionRace$$' -timeout 90m -v ./test/acceptance/
+
+## bench-e2e: the end-to-end benchmarks B7 (attestation burst), B8 (contribution burst) and B9 (RANDAO reveals)
+bench-e2e:
+	REMOTESIGNER_BENCH=1 $(GO) test -count=1 -run '^TestB[789]' -v ./test/acceptance/
 
 clean:
 	rm -rf $(BIN_DIR)

@@ -67,5 +67,10 @@ loaded, on that network, bound to the fixture GVR (or with a pending trust-on-fi
   reveal for keys 0 and 1 at the current slot, which must pass qrysm's `randao.Verify` and equal the key's first
   reveal. A 429 is retried once after its `Retry-After`.
 
+`make vectors-verify-binary` does all of this against the built binary: it runs the signer with the interop keys on
+both end-to-end networks, once without genesis time (so the fixtures at the slot and epoch limits pass the clock
+bounds) and once with genesis time and exits disabled (the RANDAO fixtures and the exits-disabled fixture), with
+protection disabled, and fails on any failure or on a skip the other run does not cover.
+
 `verify` exits 1 if any check fails. Its tests run it against a fake signer that answers from the fixtures, and
 against fakes that sign the wrong root or sign selection proofs in hedged mode, which it must catch.

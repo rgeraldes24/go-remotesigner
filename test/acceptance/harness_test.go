@@ -98,6 +98,7 @@ type options struct {
 	consensus []string // after it
 	env       []string
 	keys      string // key-config directory; created when empty
+	data      string // --data-path; created when empty
 	// noNetwork leaves --network and --network-genesis-time off the command
 	// line, for tests that set them through other sources.
 	noNetwork bool
@@ -116,7 +117,10 @@ func defaultArgs(t *testing.T, data, keys string, o options) []string {
 
 func launch(t *testing.T, o options) *signer {
 	t.Helper()
-	s := &signer{t: t, data: t.TempDir(), keys: o.keys, output: &lockedBuffer{}, done: make(chan struct{})}
+	s := &signer{t: t, data: o.data, keys: o.keys, output: &lockedBuffer{}, done: make(chan struct{})}
+	if s.data == "" {
+		s.data = t.TempDir()
+	}
 	if s.keys == "" {
 		s.keys = t.TempDir()
 	}
