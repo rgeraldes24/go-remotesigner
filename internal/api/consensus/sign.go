@@ -131,7 +131,7 @@ func (x *exchange) serve() {
 	x.key = pk.LogID()
 
 	if d.PinGVR {
-		if e := x.pin(d.GenesisValidatorsRoot); e != nil {
+		if e := pinGVR(x.r.Context(), x.h.Pinner, x.h.Policy, d.GenesisValidatorsRoot, x.h.Log); e != nil {
 			x.fail(e)
 			return
 		}
@@ -151,18 +151,18 @@ func (x *exchange) serve() {
 	x.respond(sig)
 }
 
-// pin binds a pending trust-on-first-use GVR: the store first, so that a
-// restart keeps it, then the policy. Of concurrent first requests with
+// pinGVR binds a pending trust-on-first-use GVR: the store first, so that
+// a restart keeps it, then the policy. Of concurrent first requests with
 // different roots, one wins and the others get FORK_INFO_MISMATCH.
-func (x *exchange) pin(gvr [32]byte) *apierr.Error {
-	pinned, err := x.h.Pinner.PinGenesisValidatorsRoot(x.r.Context(), slashing.Root(gvr))
+func pinGVR(ctx context.Context, pinner GVRPinner, pol *policy.Policy, gvr [32]byte, log logrus.FieldLogger) *apierr.Error {
+	pinned, err := pinner.PinGenesisValidatorsRoot(ctx, slashing.Root(gvr))
 	if err != nil {
 		return apierr.New(apierr.StoreUnavailable, "pin the genesis validators root: "+err.Error())
 	}
-	if err := x.h.Policy.PinGenesisValidatorsRoot(pinned); err != nil || pinned != gvr {
+	if err := pol.PinGenesisValidatorsRoot(pinned); err != nil || pinned != gvr {
 		return apierr.New(apierr.ForkInfoMismatch, "another genesis validators root was pinned first")
 	}
-	x.h.Log.WithField("genesis-validators-root", "0x"+hex.EncodeToString(gvr[:])).
+	log.WithField("genesis-validators-root", "0x"+hex.EncodeToString(gvr[:])).
 		Warn("Genesis validators root pinned from the first accepted request (trust on first use)")
 	return nil
 }

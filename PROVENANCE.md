@@ -163,6 +163,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/api/consensus/consensus_test.go` | new | | | |
 | `internal/api/consensus/identifier.go` | new | | | |
 | `internal/api/consensus/publickeys.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/PublicKeysListHandler.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/api/consensus/randao.go` | new | | | |
+| `internal/api/consensus/randao_test.go` | new | | | |
 | `internal/api/consensus/sign.go` | new | | | |
 | `internal/api/consensus/sign_test.go` | new | | | |
 | `internal/api/jsonutil/jsonutil_test.go` | new | | | |
