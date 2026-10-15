@@ -79,10 +79,11 @@ func TestRequestEditing(t *testing.T) {
 // TestReplacesMirrorQrysm checks that this module repeats qrysm's replace
 // directives exactly, in particular the go-qrl one: replaces apply only in
 // the main module, and a different go-qrl would change what is generated.
+// CI relies on this check, so it fails rather than skips when it cannot run.
 func TestReplacesMirrorQrysm(t *testing.T) {
 	out, err := exec.Command("go", "list", "-m", "-json", "github.com/theQRL/qrysm").Output()
 	if err != nil {
-		t.Skipf("go list: %v", err)
+		t.Fatalf("go list: %v", err)
 	}
 	var m struct {
 		Replace *struct{ GoMod string }
