@@ -265,6 +265,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/slashing/boltstore/encoding_test.go` | new | | | |
 | `internal/slashing/boltstore/migrate.go` | new | | | |
 | `internal/slashing/boltstore/migrate_test.go` | new | | | |
+| `internal/slashing/boltstore/migrate_testmigration.go` | new | | | |
 | `internal/slashing/boltstore/process_test.go` | new | | | |
 | `internal/slashing/boltstore/tx.go` | new | | | |
 | `internal/slashing/engine.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbSlashingProtection.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/RegisteredValidators.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/BlockValidator.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/AttestationValidator.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/GenesisValidatorRootValidator.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
@@ -291,6 +292,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/e2e_test.go` | new | | | |
 | `test/acceptance/harness_test.go` | new | | | |
 | `test/acceptance/metrics_test.go` | new | | | |
+| `test/acceptance/migrate_test.go` | new | | | |
 | `test/acceptance/server_test.go` | new | | | |
 | `third_party/qrl-keystore/README.md` | new | | | sha256 `b62799d6df0bdbbb39c3110d2f4ffe98e9e4508cc6f45ea618f943d29184b19c` |
 | `third_party/qrl-keystore/go-qrl-wallet-encryptor-keystore/` | vendored | `cyyber/qrysm` (= `theQRL/qrysm` `e07a6007`) | `pkg/go-qrl-wallet-encryptor-keystore` | tree `6c97bfffa7d145c2be452fa4435c81b6c7532554` |

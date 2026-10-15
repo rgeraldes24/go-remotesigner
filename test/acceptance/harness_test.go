@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package acceptance runs the built remotesigner binary and checks its
-// behaviour over HTTP and signals. TestMain builds the binary once, unless
+// behaviour over HTTP and signals. TestMain builds the binary once, with
+// the testmigration tag (see TestMigrateOlderStore), unless
 // REMOTESIGNER_BINARY names one already built.
 package acceptance
 
@@ -40,7 +41,7 @@ func TestMain(m *testing.M) {
 		}
 		defer func() { _ = os.RemoveAll(dir) }()
 		binary = filepath.Join(dir, "remotesigner")
-		build := exec.Command("go", "build", "-o", binary, "../../cmd/remotesigner")
+		build := exec.Command("go", "build", "-tags", "testmigration", "-o", binary, "../../cmd/remotesigner")
 		build.Stdout, build.Stderr = os.Stdout, os.Stderr
 		if err := build.Run(); err != nil {
 			fmt.Fprintln(os.Stderr, "build remotesigner:", err)
