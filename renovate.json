@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "Dependency updates with digest pins (DESIGN §3.1, PLAN S0). third_party/ is a pristine upstream copy and is never updated by Renovate."
+    "Dependency updates with digest pins. third_party/ is a pristine upstream copy and is never updated by Renovate."
   ],
   "extends": [
     "config:recommended",

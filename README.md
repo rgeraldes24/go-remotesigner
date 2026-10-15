@@ -24,8 +24,8 @@ make test              # go test -race, both flavours
 make lint              # go vet, golangci-lint, headercheck, LICENSE hash
 ```
 
-Both flavours are static (`CGO_ENABLED=0`). The consensus-only flavour, `remotesigner-consensus`, links permissively
-licensed code only, and always will.
+Both flavours are static (`CGO_ENABLED=0`). The consensus-only flavour, `remotesigner-consensus`, never links go-qrl
+or any other GPL or LGPL code.
 
 ```
 $ bin/remotesigner --version
@@ -40,9 +40,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Commits need a DCO sign-off, and no GPL 
 
 go-remotesigner is licensed under the Apache License 2.0 (see [LICENSE](LICENSE)). It is a derivative of Consensys
 Web3Signer (Apache-2.0); see [NOTICE](NOTICE) and [PROVENANCE.md](PROVENANCE.md). Behaviour that differs from
-Web3Signer is listed in [DEVIATIONS.md](DEVIATIONS.md). Current builds link only permissively licensed code
-(Apache-2.0, MIT, BSD, MPL-2.0); the licence texts are in [LICENSES/](LICENSES), and release archives will also ship a
-`third_party_licenses/` directory.
+Web3Signer is listed in [DEVIATIONS.md](DEVIATIONS.md). Current builds link this project's Apache-2.0 code and
+dependencies under MIT and BSD-2-Clause; new dependencies must carry a licence from the allowlist in
+[CONTRIBUTING.md](CONTRIBUTING.md). The licence texts are in [LICENSES/](LICENSES), and release archives will also ship
+a `third_party_licenses/` directory.
 
 ## Trademarks
 

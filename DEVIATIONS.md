@@ -10,7 +10,9 @@ ML-DSA-87, QRL sizes or the qrysm client), **QRL-sized** / **QRL time** (limits 
 **Policy** (a safer default), **Simplification**, **Go client** / **Go-native** (follows the Go ecosystem),
 **NAME_MAX** (file-system limits), **QRL client** (follows gqrl's API).
 
-The source column cites the design's evidence notes (component maps and gap reports) and design sections.
+The source column cites the evidence notes (component maps and gap reports) and design sections written while
+planning the port; the `§2.x`/`§3.x` references in the table point to that design document. Neither is in this
+repository yet.
 
 | # | Area | Web3Signer | go-remotesigner | Class | Source |
 |---|---|---|---|---|---|

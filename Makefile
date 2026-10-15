@@ -14,9 +14,9 @@ LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 # Release builds are static: no cgo, no local paths in the binary.
 BUILD := CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)'
 
-# Licences allowed in shipped binaries (DESIGN §6.5).
+# Licences allowed in shipped binaries (CONTRIBUTING.md, "What you may and may not bring in").
 ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
-# sha256 of the verbatim Apache-2.0 text (DESIGN §6.1).
+# sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
 .PHONY: all build build-consensus test lint headercheck licenses license-hash vuln vectors docs clean

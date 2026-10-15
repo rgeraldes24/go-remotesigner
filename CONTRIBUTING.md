@@ -48,9 +48,10 @@ Signed-off-by: Jane Doe <jane@example.org>
   SSZ, signing roots, the RANDAO onion and the network loader are written from the CC0 specifications, the
   Apache-2.0-headed protos and the facts recorded in `PROVENANCE.md`; do not open qrysm's Go source while working on
   them. Only the nested, never-shipped `tools/vectorgen` module may link qrysm.
-- go-qrl (LGPL-3.0) may be imported only under `internal/execution/`, and never its `cmd/` or `internal/` packages.
-- New dependencies must carry one of: Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0. CI runs
-  `go-licenses check` against that list.
+- go-qrl (LGPL-3.0) may be imported only under the top-level `internal/execution/`, and never its `cmd/` or
+  `internal/` packages (which are GPL-3.0).
+- New dependencies must carry one of: Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0 (weak copyleft:
+  modified MPL files must stay available as source). CI runs `go-licenses check` against that list.
 - Do not edit anything under `third_party/`. It holds pristine upstream copies whose git tree ids are verified, and
   the few project files beside them are pinned by sha256 in `PROVENANCE.md`.
 
