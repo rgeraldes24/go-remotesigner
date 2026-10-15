@@ -103,6 +103,8 @@ jobs:
           fi
       - name: headercheck
         run: make headercheck
+      - name: contract (OpenAPI spec, examples, docs/contract.md)
+        run: make contract
       - name: go-licenses check
         run: |
           go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"

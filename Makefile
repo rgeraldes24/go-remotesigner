@@ -19,7 +19,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test lint headercheck licenses license-hash vuln vectors docs clean
+.PHONY: all build build-consensus test contract lint headercheck licenses license-hash vuln vectors docs clean
 
 all: build build-consensus
 
@@ -35,6 +35,10 @@ build-consensus:
 test:
 	CGO_ENABLED=1 $(GO) test -race ./...
 	CGO_ENABLED=1 $(GO) test -race -tags noexecution ./...
+
+## contract: lint api/openapi/consensus.yaml (kin-openapi), validate its examples, check docs/contract.md against it
+contract:
+	$(GO) test ./api/openapi/...
 
 ## lint: go vet, golangci-lint (incl. depguard), headercheck and licence checks
 lint: headercheck license-hash

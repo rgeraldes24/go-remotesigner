@@ -1,0 +1,1860 @@
+# Copyright 2020 ConsenSys AG.
+# Copyright 2026 The go-remotesigner Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+# an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Modified by The go-remotesigner Authors, 2026: rewritten for QRL (ML-DSA-87 sizes, per-participant signature
+# lists, Q addresses, a single "ZOND" fork, strict JSON, RANDAO reveal, capabilities, scoped bearer tokens).
+# Derived from openapi-specs/eth2/web3signer.yaml, openapi-specs/eth2/signing/schemas.yaml,
+# openapi-specs/eth2/signing/paths/sign.yaml, openapi-specs/eth2/signing/paths/public_keys.yaml,
+# openapi-specs/eth2/signing/paths/high_watermark.yaml, openapi-specs/eth2/signing/paths/upcheck.yaml,
+# openapi-specs/eth2/signing/paths/healthcheck.yaml, openapi-specs/eth2/signing/paths/reload.yaml,
+# openapi-specs/eth2/keymanager/schemas.yaml and openapi-specs/eth2/keymanager/paths/keystores.yaml
+# of Consensys Web3Signer at commit 30af06dc975ba5b8ed0e17e53cba8683ca50ec02. Those files carry no per-file notice;
+# the ConsenSys line above is the upstream project's copyright. The signing wire schemas also follow
+# ethereum/remote-signing-api v1.4.0 (CC0-1.0), which Web3Signer's signing schemas reproduce.
+#
+# The prose contract that goes with this file is docs/contract.md. Contract tests: api/openapi/*_test.go.
+
+openapi: 3.0.3
+info:
+  title: QRL Remote Signer API
+  version: 1.0.0
+  description: |
+    Remote-signing contract between the qrysm validator client (its `remote-web3signer` keymanager) and
+    go-remotesigner (binary `remotesigner`), a Go port of Consensys Web3Signer for the QRL stack. The prose
+    contract, including the error catalogue, the RANDAO frontier rule and the capabilities checks, is
+    `docs/contract.md`.
+
+    Derived from ethereum/remote-signing-api v1.4.0 (CC0-1.0) and Web3Signer (Apache-2.0), adapted for QRL:
+    ML-DSA-87 (2,592-byte public keys, 4,627-byte signatures), per-participant `signatures` lists,
+    64-byte `Q` addresses, a single fork ("ZOND"), and a hash-onion RANDAO reveal endpoint.
+
+    Frozen at 1.0.0. Any change to a request or response shape needs a version bump (strict JSON makes even an
+    added field breaking), regenerated golden vectors and the matching qrysm client change.
+
+    Encoding rules, enforced strictly by the signer:
+    - uint64 values are decimal strings from "0" to "18446744073709551615". JSON numbers are rejected.
+    - Fixed-size bytes are `0x` + hex of the exact length. Input may use either case; output is lowercase.
+    - Unknown JSON fields and duplicate keys are rejected (400 `UNKNOWN_FIELD` / `MALFORMED_JSON`).
+    - `type` is an exact upper-case enum.
+    - 64-byte addresses use `Q` + 128 hex. The checksum is not enforced.
+
+    Signing context: every signature is ML-DSA-87 over the 32-byte signing root via the go-qrllib wallet API,
+    with FIPS 204 context "ZOND" || 0x01 || descriptor (5a4f4e4401010000).
+
+    Examples are schema-valid but are not golden vectors: public keys and signatures are fixed byte patterns
+    (0xa5 and 0x5a repeated), and signing roots are placeholders, not recomputed from the objects, except in the
+    AGGREGATION_SLOT example, whose root is the worked example of docs/spec/signing-roots.md section 4. The
+    RANDAO example uses interop key 0's real commitment and first reveal (docs/spec/randao-onion.md, vector V4).
+    Milestone S3 replaces the signing examples with generated golden vectors.
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: http://127.0.0.1:9000
+    description: Default loopback listener
+tags:
+  - name: Signing
+    description: Consensus signing for the nine qrysm duty types
+  - name: RANDAO
+    description: Hash-onion RANDAO reveal (QRL-specific)
+  - name: Public Key
+  - name: Server Status
+  - name: Reload
+  - name: Slashing Protection
+  - name: Keymanager
+    description: Keymanager API subset. Only present with `--key-manager-api-enabled`. Admin token required.
+
+security:
+  - signToken: []
+
+paths:
+  /api/v1/consensus/sign/{identifier}:
+    post:
+      tags: [Signing]
+      operationId: sign
+      summary: Sign a consensus artifact with the key identified by `identifier`
+      description: |
+        Pipeline (docs/contract.md, "Validation pipeline"): auth → content type → body limit → identifier
+        precheck → strict decode → type policy → invariants → recompute the signing root (compare the optional
+        `signing_root`) → `fork_info` check → clock bound → key lookup → slashing check-and-record (BLOCK_V2,
+        ATTESTATION) → sign → verify → respond.
+
+        The signer derives every domain from its own network configuration. Body limit 2 MiB.
+        `AGGREGATION_SLOT` and `SYNC_COMMITTEE_SELECTION_PROOF` are signed deterministically by default,
+        all other types hedged.
+
+        Content negotiation: the response is `application/json` unless the `Accept` header lists `text/plain`
+        and does not list `application/json`; only then is the bare signature returned as `text/plain`. q-values
+        do not change this. No `Accept` header means JSON.
+      security:
+        - signToken: []
+      parameters:
+        - $ref: '#/components/parameters/Identifier'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignRequest'
+            examples:
+              BLOCK_V2:
+                $ref: '#/components/examples/BlockV2'
+              ATTESTATION:
+                $ref: '#/components/examples/Attestation'
+              AGGREGATION_SLOT:
+                $ref: '#/components/examples/AggregationSlot'
+              AGGREGATE_AND_PROOF:
+                $ref: '#/components/examples/AggregateAndProof'
+              VOLUNTARY_EXIT:
+                $ref: '#/components/examples/VoluntaryExit'
+              SYNC_COMMITTEE_MESSAGE:
+                $ref: '#/components/examples/SyncCommitteeMessage'
+              SYNC_COMMITTEE_SELECTION_PROOF:
+                $ref: '#/components/examples/SyncCommitteeSelectionProof'
+              SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF:
+                $ref: '#/components/examples/SyncCommitteeContributionAndProof'
+              VALIDATOR_REGISTRATION:
+                $ref: '#/components/examples/ValidatorRegistration'
+      responses:
+        '200':
+          description: Signature over the signing root
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureResponse'
+              example:
+                signature: &signature "0x5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\
+                  5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/Signature'
+              example: *signature
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/consensus/randao_reveal/{identifier}:
+    post:
+      tags: [RANDAO]
+      operationId: randaoReveal
+      summary: Release the RANDAO hash-onion pre-image of the given commitment
+      description: |
+        The signer holds the 48-byte seed. Onion: x_0 = SHA-256("qrl-randao-onion-v1" || seed48),
+        x_{j+1} = SHA-256(x_j), commitment x_L (L = 2^20 by default). Returns `randao_reveal` with
+        SHA-256(randao_reveal) == randao_commitment.
+
+        Frontier rule (docs/contract.md, "RANDAO reveal"), with per-key state (m, R = x_m, last). Every release
+        that moves the frontier ("new-layer conditions") requires: genesis time known and
+        `slot ∈ [now_slot - 1, now_slot + skew]` (else 412 `RANDAO_SLOT_OUT_OF_WINDOW`); `slot > last`
+        (else 412 `RANDAO_SLOT_NOT_INCREASING`); a token in the key's new-layer bucket, default burst 3 and
+        one per epoch (else 412 `RANDAO_NEW_LAYER_RATE_LIMITED`); the state compare-and-set committed before
+        the response.
+        - first use (no state): scan from x_0 (rate-limited, else 429); new-layer conditions; release.
+        - commitment reachable forward from R in 1..W steps, or further (slow path): re-reveal, no state change.
+        - commitment == R: a new layer; new-layer conditions; release x_{m-1}.
+        - commitment deeper than anything this signer released: the frontier advances to it under the same
+          new-layer conditions (one layer per slot, bucket applies) and a WARN is logged. It is never refused
+          merely for being deeper.
+        - not in this onion: 422 `RANDAO_UNKNOWN_COMMITMENT`.
+
+        New layers require the signer to know the genesis time. The client must verify
+        SHA-256(reveal) == commitment before calling GetBeaconBlock. Body limit 4 KiB.
+      security:
+        - signToken: []
+      parameters:
+        - $ref: '#/components/parameters/Identifier'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RandaoRevealRequest'
+            example:
+              slot: "62"
+              randao_commitment: "0xe17fb348371196a90df0e5fb286257f29c006b4527cd838dc9a2eee4e41e1ffe"
+              fork_info:
+                fork:
+                  previous_version: "0x000000fd"
+                  current_version: "0x000000fd"
+                  epoch: "0"
+                genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+      responses:
+        '200':
+          description: Reveal released (first use, new layer, gap advance or re-reveal)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RandaoRevealResponse'
+              example:
+                randao_reveal: "0xf26304fe9b11cac1b460aef64aaf7bb11df4b1fcdee6ddb00a69fee0a80d97df"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/consensus/randao_state/{identifier}:
+    delete:
+      tags: [RANDAO]
+      operationId: resetRandaoState
+      summary: Clear the stored RANDAO frontier for one key (admin, online)
+      description: |
+        Operational cleanup; no correctness path depends on it. Works online for both the bbolt and the
+        Postgres backend. The key's next reveal is a first use and is subject to the new-layer conditions.
+        Returns 200 also when no state existed. 404 when the key is unknown or slashing protection is
+        disabled. The offline equivalent is `remotesigner consensus randao-state reset --key`.
+      security:
+        - adminToken: []
+      parameters:
+        - $ref: '#/components/parameters/Identifier'
+      responses:
+        '200':
+          description: State cleared (or there was none)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+              example: {code: 200, message: randao state cleared}
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFoundOrProtectionDisabled'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/consensus/publicKeys:
+    get:
+      tags: [Public Key]
+      operationId: getPublicKeys
+      summary: List the canonical public keys of all loaded consensus keys
+      description: |
+        Sorted and streamed (about 5,189 bytes per key). gzip is used when the client sends
+        `Accept-Encoding: gzip`. Every VC that uses this URL with
+        `--validators-external-signer-public-keys` validates **all** returned keys. Two VCs must
+        never share it. Use `--validators-external-signer-key-file` per VC instead.
+      security:
+        - signToken: []
+      responses:
+        '200':
+          description: Public keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pubkey'
+              example:
+                - &pubkey "0xa5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5\
+                  a5"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/consensus/capabilities:
+    get:
+      tags: [Server Status]
+      operationId: getCapabilities
+      summary: Startup handshake for the VC
+      description: |
+        The qrysm client calls this once its chain parameters are known (after WaitForChainStart). It fails
+        init on: a `genesis_fork_version` or GVR mismatch; `genesis_time`, `seconds_per_slot` or
+        `slots_per_epoch` different from its own chain (or `genesis_time` null); `randao_reveal: false`;
+        or an unsupported `api_version` major.
+        `randao_reveal` is false when the signer cannot release new layers (genesis time unknown, or
+        RANDAO disabled). `genesis_validators_root` is null while a trust-on-first-use pin is pending
+        (file networks on loopback only).
+      security:
+        - signToken: []
+      responses:
+        '200':
+          description: Signer capabilities and network binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capabilities'
+              examples:
+                pinned:
+                  summary: GVR known (named network, flag or genesis state)
+                  value:
+                    api_version: "1.0.0"
+                    types: [BLOCK_V2, ATTESTATION, AGGREGATION_SLOT, AGGREGATE_AND_PROOF, SYNC_COMMITTEE_MESSAGE,
+                            SYNC_COMMITTEE_SELECTION_PROOF, SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF,
+                            VALIDATOR_REGISTRATION]
+                    randao_reveal: true
+                    selection_proof_mode: deterministic
+                    slashing_protection: bolt
+                    network:
+                      config_name: end-to-end
+                      genesis_fork_version: "0x000000fd"
+                      genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+                      genesis_time: "1760000000"
+                      seconds_per_slot: "10"
+                      slots_per_epoch: "6"
+                tofuPending:
+                  summary: File network on loopback, GVR pin not yet set (the qrysm e2e before its first request)
+                  value:
+                    api_version: "1.0.0"
+                    types: [BLOCK_V2, ATTESTATION, AGGREGATION_SLOT, AGGREGATE_AND_PROOF, SYNC_COMMITTEE_MESSAGE,
+                            SYNC_COMMITTEE_SELECTION_PROOF, SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF,
+                            VALIDATOR_REGISTRATION]
+                    randao_reveal: true
+                    selection_proof_mode: deterministic
+                    slashing_protection: bolt
+                    network:
+                      config_name: end-to-end
+                      genesis_fork_version: "0x000000fd"
+                      genesis_validators_root: null
+                      genesis_time: "1760000000"
+                      seconds_per_slot: "10"
+                      slots_per_epoch: "6"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/consensus/highWatermark:
+    get:
+      tags: [Slashing Protection]
+      operationId: getHighWatermark
+      summary: Global high watermark (migration fence)
+      security:
+        - signToken: []
+      responses:
+        '200':
+          description: The high watermark, or an empty object when none is set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HighWatermark'
+              examples:
+                set:
+                  value: {epoch: "1200", slot: "7200"}
+                unset:
+                  value: {}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Slashing protection is disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example: {code: 404, message: slashing protection is disabled, reason: PROTECTION_DISABLED}
+
+  /upcheck:
+    get:
+      tags: [Server Status]
+      operationId: upcheck
+      summary: Liveness and readiness
+      description: 503 `LOADING` until the first key load and slashing-store open have finished. No auth.
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [OK]
+              example: OK
+        '503':
+          description: Not ready yet
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [LOADING]
+              example: LOADING
+
+  /healthcheck:
+    get:
+      tags: [Server Status]
+      operationId: healthcheck
+      summary: Detailed health (Web3Signer JSON shape)
+      description: |
+        Unauthenticated callers get only `status` and `outcome`. With a `sign` token the response includes
+        `checks`. Check ids: `default-check`, `slashing-protection-db-health-check`,
+        `keys-check/config-files-loading`, `keys-check/keystores-bulk-loading`, `keys-check/randao`.
+      security:
+        - {}
+        - signToken: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheck'
+              examples:
+                detail:
+                  summary: With a sign token
+                  value:
+                    status: UP
+                    outcome: UP
+                    checks:
+                      - id: default-check
+                        status: UP
+                      - id: slashing-protection-db-health-check
+                        status: UP
+                      - id: keys-check/config-files-loading
+                        status: UP
+                        data: {keys-loaded: 256, error-count: 0}
+                      - id: keys-check/randao
+                        status: UP
+                        data: {keys-without-seed: 0, min-layers-remaining: 1048575}
+                anonymous:
+                  summary: Without a token
+                  value: {status: UP, outcome: UP}
+        '503':
+          description: Unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheck'
+              example: {status: DOWN, outcome: DOWN}
+
+  /reload:
+    get:
+      tags: [Reload]
+      operationId: getReloadStatus
+      summary: Status of the last or current key reload
+      security:
+        - signToken: []
+      responses:
+        '200':
+          description: Reload status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReloadStatus'
+              example:
+                status: completed
+                lastOperationTime: "2026-10-15T10:00:00Z"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Reload]
+      operationId: reload
+      summary: Reload keys from all configured sources (asynchronous)
+      description: |
+        Added keys are registered in slashing protection. Keys absent from the new load are evicted from
+        memory and zeroized, and their caches dropped; their slashing-protection `enabled` flag is NOT changed
+        (only keymanager DELETE or `consensus disable-validator` disables a key). A source that fails to load
+        keeps its previously loaded signers, and the reload finishes as `completed_with_errors`.
+        Admin scope required (the admin bearer token, in every auth mode).
+      security:
+        - adminToken: []
+      responses:
+        '202':
+          description: Reload started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReloadAccepted'
+              example: {code: 202, message: reload started}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: A reload is already running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example: {code: 409, message: reload already in progress, reason: RELOAD_IN_PROGRESS}
+
+  /qrl/v1/keystores:
+    get:
+      tags: [Keymanager]
+      operationId: listKeystores
+      summary: List loaded consensus keys
+      security:
+        - adminToken: []
+      responses:
+        '200':
+          description: Keys
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListKeystoresResponse'
+              example:
+                data:
+                  - validating_pubkey: *pubkey
+                    derivation_path: ""
+                    readonly: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Keymanager]
+      operationId: importKeystores
+      summary: Import QRL keystores (v1 or deposit-cli flavour), optionally with slashing-protection history
+      description: |
+        At most 64 keystores per request. KDF parameters are bounded before decryption. The derived public key
+        must equal the keystore `pubkey`. Per-key interchange failures leave the key inactive (`error`).
+        Request bodies are never logged. Body limit 32 MiB. The keystore string in the example is abbreviated;
+        the keystore formats are specified with the keymanager milestone.
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportKeystoresRequest'
+            example:
+              keystores: ["{\"version\":1,\"crypto\":{…},\"pubkey\":\"…\",\"uuid\":\"…\",\"path\":\"\",\"description\":\"\"}"]
+              passwords: ["correct horse battery staple"]
+              slashing_protection: "{\"metadata\":{\"interchange_format_version\":\"5\",\"genesis_validators_root\":\"0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809\"},\"data\":[]}"
+      responses:
+        '200':
+          description: Per-keystore result, in request order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportKeystoresResponse'
+              example:
+                data:
+                  - status: imported
+                    message: ""
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+    delete:
+      tags: [Keymanager]
+      operationId: deleteKeystores
+      summary: Delete keys, disable them in slashing protection and export their history
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteKeystoresRequest'
+            example:
+              pubkeys: [*pubkey]
+      responses:
+        '200':
+          description: Per-key result plus an EIP-3076 v5 export for the requested keys
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteKeystoresResponse'
+              example:
+                data:
+                  - status: deleted
+                    message: ""
+                slashing_protection: "{\"metadata\":{\"interchange_format_version\":\"5\",\"genesis_validators_root\":\"0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809\"},\"data\":[]}"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+
+components:
+  securitySchemes:
+    signToken:
+      type: http
+      scheme: bearer
+      bearerFormat: "0x + at least 64 hex characters"
+      description: |
+        Sign-scope token (default file `<data-path>/auth-token`, generated 0600 if missing). Covers duty routes,
+        `publicKeys`, `capabilities`, `highWatermark`, `GET /reload` and healthcheck detail.
+        Optional mTLS (`--http-auth-mode=mtls|token+mtls`) is enforced at the TLS layer. A client certificate
+        grants the sign scope only, never the admin scope. In `mtls` mode the certificate replaces this token;
+        in `token+mtls` both are required.
+    adminToken:
+      type: http
+      scheme: bearer
+      bearerFormat: "0x + at least 64 hex characters"
+      description: |
+        Admin-scope token (default file `<data-path>/admin-token`, generated 0600 if missing). Required for
+        `POST /reload`, `DELETE /api/v1/consensus/randao_state/{identifier}` and the keymanager routes in
+        every auth mode, including `mtls` (a valid client certificate alone gets 403 `FORBIDDEN_SCOPE`).
+        Does not imply the sign scope.
+
+  parameters:
+    Identifier:
+      name: identifier
+      in: path
+      required: true
+      description: |
+        Canonical: `0x` + 5,184 hex characters (the raw 2,592-byte ML-DSA-87 public key).
+        Short alias: `0x` + 64 hex characters = sha256(pubkey).
+        The length and character set are checked before decoding (400 `BAD_IDENTIFIER`).
+      schema:
+        $ref: '#/components/schemas/Identifier'
+      examples:
+        canonical:
+          value: *pubkey
+        short:
+          summary: sha256 of the canonical example
+          value: "0x6a0520f46e95a03d3957eb79b5756ac5c57a29c57c4344c0ba4c2b19dd6fa73c"
+
+  schemas:
+    Uint64:
+      type: string
+      pattern: '^(0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]|1844674407370955161[0-4]|18446744073709551615)$'
+      description: |
+        Decimal uint64, "0" to "18446744073709551615": no sign, no leading zeros, not empty. JSON numbers are
+        rejected. The pattern encodes the exact range.
+      example: "1234"
+    Bytes4:
+      type: string
+      pattern: '^0x[0-9a-fA-F]{8}$'
+      example: "0x000000fd"
+    Root:
+      type: string
+      pattern: '^0x[0-9a-fA-F]{64}$'
+      example: "0x9c2a5e0d6b3f4a1e8c7d6b5a4f3e2d1c0b9a8f7e6d5c4b3a2918070605040302"
+    Pubkey:
+      type: string
+      minLength: 5186
+      maxLength: 5186
+      pattern: '^0x[0-9a-fA-F]+$'
+      description: 2,592-byte ML-DSA-87 public key, `0x` + 5,184 hex characters
+      example: *pubkey
+    Sha256Identifier:
+      type: string
+      pattern: '^0x[0-9a-fA-F]{64}$'
+      description: sha256 of a 2,592-byte public key, `0x` + 64 hex characters
+      example: "0x6a0520f46e95a03d3957eb79b5756ac5c57a29c57c4344c0ba4c2b19dd6fa73c"
+    Identifier:
+      description: A canonical public key or its sha256 alias, told apart by length
+      anyOf:
+        - $ref: '#/components/schemas/Pubkey'
+        - $ref: '#/components/schemas/Sha256Identifier'
+    Signature:
+      type: string
+      minLength: 9256
+      maxLength: 9256
+      pattern: '^0x[0-9a-fA-F]+$'
+      description: 4,627-byte ML-DSA-87 signature, `0x` + 9,254 hex characters
+      example: *signature
+    QAddress:
+      type: string
+      pattern: '^Q[0-9a-fA-F]{128}$'
+      description: 64-byte address, `Q` + 128 hex. The QIP-55 checksum is not enforced. `0x` addresses are rejected.
+      example: "Q2b3f5c7d9e1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4"
+    Bitlist32:
+      type: string
+      pattern: '^0x(([0-9a-fA-F]{2}){0,3}([0-9a-fA-F][1-9a-fA-F]|[1-9a-fA-F][0-9a-fA-F])|([0-9a-fA-F]{2}){4}01)$'
+      description: |
+        SSZ Bitlist[32] bytes **including the delimiter bit**: 1-5 bytes, last byte non-zero, bit length at most
+        32 (so a 5-byte value ends in `01`). popcount (excluding the delimiter) must equal len(signatures).
+      example: "0x1f"
+    SyncContributionBitvector:
+      type: string
+      pattern: '^0x([0-9a-fA-F]{4}|[0-9a-fA-F]{32})$'
+      description: |
+        Bitvector[SYNC_COMMITTEE_SIZE / SYNC_COMMITTEE_SUBNET_COUNT]: exactly 2 bytes on the minimal preset,
+        16 bytes on the mainnet preset. The length is checked against the configured preset.
+      example: "0x0500"
+    ArtifactType:
+      type: string
+      enum:
+        - BLOCK_V2
+        - ATTESTATION
+        - AGGREGATION_SLOT
+        - AGGREGATE_AND_PROOF
+        - VOLUNTARY_EXIT
+        - SYNC_COMMITTEE_MESSAGE
+        - SYNC_COMMITTEE_SELECTION_PROOF
+        - SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF
+        - VALIDATOR_REGISTRATION
+
+    Fork:
+      type: object
+      additionalProperties: false
+      required: [previous_version, current_version, epoch]
+      description: Must equal {GENESIS_FORK_VERSION, GENESIS_FORK_VERSION, "0"} of the signer's network.
+      properties:
+        previous_version:
+          $ref: '#/components/schemas/Bytes4'
+        current_version:
+          $ref: '#/components/schemas/Bytes4'
+        epoch:
+          $ref: '#/components/schemas/Uint64'
+    ForkInfo:
+      type: object
+      additionalProperties: false
+      required: [fork, genesis_validators_root]
+      properties:
+        fork:
+          $ref: '#/components/schemas/Fork'
+        genesis_validators_root:
+          $ref: '#/components/schemas/Root'
+
+    Checkpoint:
+      type: object
+      additionalProperties: false
+      required: [epoch, root]
+      properties:
+        epoch:
+          $ref: '#/components/schemas/Uint64'
+        root:
+          $ref: '#/components/schemas/Root'
+    AttestationData:
+      type: object
+      additionalProperties: false
+      required: [slot, index, beacon_block_root, source, target]
+      description: SSZ AttestationData. `index` carries the proto field `committee_index`.
+      properties:
+        slot:
+          $ref: '#/components/schemas/Uint64'
+        index:
+          $ref: '#/components/schemas/Uint64'
+        beacon_block_root:
+          $ref: '#/components/schemas/Root'
+        source:
+          $ref: '#/components/schemas/Checkpoint'
+        target:
+          $ref: '#/components/schemas/Checkpoint'
+    BeaconBlockHeader:
+      type: object
+      additionalProperties: false
+      required: [slot, proposer_index, parent_root, state_root, body_root]
+      properties:
+        slot:
+          $ref: '#/components/schemas/Uint64'
+        proposer_index:
+          $ref: '#/components/schemas/Uint64'
+        parent_root:
+          $ref: '#/components/schemas/Root'
+        state_root:
+          $ref: '#/components/schemas/Root'
+        body_root:
+          $ref: '#/components/schemas/Root'
+    BeaconBlockV2:
+      type: object
+      additionalProperties: false
+      required: [version, block_header]
+      description: HTR(block_header) equals HTR of the full and the blinded Zond block. A full `block` is rejected.
+      properties:
+        version:
+          type: string
+          enum: [ZOND]
+        block_header:
+          $ref: '#/components/schemas/BeaconBlockHeader'
+    AggregationSlot:
+      type: object
+      additionalProperties: false
+      required: [slot]
+      properties:
+        slot:
+          $ref: '#/components/schemas/Uint64'
+    Attestation:
+      type: object
+      additionalProperties: false
+      required: [aggregation_bits, data, signatures]
+      properties:
+        aggregation_bits:
+          $ref: '#/components/schemas/Bitlist32'
+        data:
+          $ref: '#/components/schemas/AttestationData'
+        signatures:
+          type: array
+          minItems: 0
+          maxItems: 32
+          items:
+            $ref: '#/components/schemas/Signature'
+    AggregateAndProof:
+      type: object
+      additionalProperties: false
+      required: [aggregator_index, aggregate, selection_proof]
+      description: SSZ field order is aggregator_index, aggregate, selection_proof.
+      properties:
+        aggregator_index:
+          $ref: '#/components/schemas/Uint64'
+        aggregate:
+          $ref: '#/components/schemas/Attestation'
+        selection_proof:
+          $ref: '#/components/schemas/Signature'
+    VoluntaryExit:
+      type: object
+      additionalProperties: false
+      required: [epoch, validator_index]
+      properties:
+        epoch:
+          $ref: '#/components/schemas/Uint64'
+        validator_index:
+          $ref: '#/components/schemas/Uint64'
+    SyncCommitteeMessage:
+      type: object
+      additionalProperties: false
+      required: [beacon_block_root, slot]
+      description: The signed object is the 32-byte `beacon_block_root`. `slot` selects the fork epoch.
+      properties:
+        beacon_block_root:
+          $ref: '#/components/schemas/Root'
+        slot:
+          $ref: '#/components/schemas/Uint64'
+    SyncAggregatorSelectionData:
+      type: object
+      additionalProperties: false
+      required: [slot, subcommittee_index]
+      properties:
+        slot:
+          $ref: '#/components/schemas/Uint64'
+        subcommittee_index:
+          $ref: '#/components/schemas/Uint64'
+    SyncCommitteeContribution:
+      type: object
+      additionalProperties: false
+      required: [slot, beacon_block_root, subcommittee_index, aggregation_bits, signatures]
+      description: '`beacon_block_root` carries the proto field `block_root`.'
+      properties:
+        slot:
+          $ref: '#/components/schemas/Uint64'
+        beacon_block_root:
+          $ref: '#/components/schemas/Root'
+        subcommittee_index:
+          $ref: '#/components/schemas/Uint64'
+        aggregation_bits:
+          $ref: '#/components/schemas/SyncContributionBitvector'
+        signatures:
+          type: array
+          minItems: 1
+          maxItems: 128
+          items:
+            $ref: '#/components/schemas/Signature'
+    ContributionAndProof:
+      type: object
+      additionalProperties: false
+      required: [aggregator_index, selection_proof, contribution]
+      description: SSZ field order is aggregator_index, contribution, selection_proof.
+      properties:
+        aggregator_index:
+          $ref: '#/components/schemas/Uint64'
+        selection_proof:
+          $ref: '#/components/schemas/Signature'
+        contribution:
+          $ref: '#/components/schemas/SyncCommitteeContribution'
+    ValidatorRegistration:
+      type: object
+      additionalProperties: false
+      required: [fee_recipient, gas_limit, timestamp, pubkey]
+      description: SSZ ValidatorRegistrationV1 (Vector[64], uint64, uint64, Vector[2592]). `pubkey` must equal the key named by the path.
+      properties:
+        fee_recipient:
+          $ref: '#/components/schemas/QAddress'
+        gas_limit:
+          $ref: '#/components/schemas/Uint64'
+        timestamp:
+          $ref: '#/components/schemas/Uint64'
+        pubkey:
+          $ref: '#/components/schemas/Pubkey'
+
+    BlockV2SignRequest:
+      type: object
+      additionalProperties: false
+      required: [type, fork_info, beacon_block]
+      not:
+        required: [signing_root, signingRoot]
+      description: |
+        Object: BeaconBlockHeader. Domain DOMAIN_BEACON_PROPOSER 0x00000000 at epoch(slot). Slashing: block
+        rule on slot. Clock: slot ≤ now_slot + skew. Hedged. qrysm oneofs 110, 111.
+      properties:
+        type:
+          type: string
+          enum: [BLOCK_V2]
+        fork_info:
+          $ref: '#/components/schemas/ForkInfo'
+        signing_root:
+          $ref: '#/components/schemas/Root'
+        signingRoot:
+          allOf:
+            - $ref: '#/components/schemas/Root'
+          deprecated: true
+        beacon_block:
+          $ref: '#/components/schemas/BeaconBlockV2'
+    AttestationSignRequest:
+      type: object
+      additionalProperties: false
+      required: [type, fork_info, attestation]
+      not:
+        required: [signing_root, signingRoot]
+      description: |
+        Object: AttestationData. Domain DOMAIN_BEACON_ATTESTER 0x01000000 at target.epoch. Slashing:
+        attestation rules on (source.epoch, target.epoch); source.epoch ≤ target.epoch. Clock:
+        target.epoch ≤ now_epoch + 1. Hedged. qrysm oneof 101.
+      properties:
+        type:
+          type: string
+          enum: [ATTESTATION]
+        fork_info:
+          $ref: '#/components/schemas/ForkInfo'
+        signing_root:
+          $ref: '#/components/schemas/Root'
+        signingRoot:
+          allOf:
+            - $ref: '#/components/schemas/Root'
+          deprecated: true
+        attestation:
+          $ref: '#/components/schemas/AttestationData'
+    AggregationSlotSignRequest:
+      type: object
+      additionalProperties: false
+      required: [type, fork_info, aggregation_slot]
+      not:
+        required: [signing_root, signingRoot]
+      description: |
+        Object: uint64 slot (8-byte LE, zero-padded to 32). Domain DOMAIN_SELECTION_PROOF 0x05000000 at
+        epoch(slot). Clock: slot ≤ now_slot + skew (qrysm signs it only for the current duty slot).
+        Deterministic by default. qrysm oneof 104.
+      properties:
+        type:
+          type: string
+          enum: [AGGREGATION_SLOT]
+        fork_info:
+          $ref: '#/components/schemas/ForkInfo'
+        signing_root:
+          $ref: '#/components/schemas/Root'
+        signingRoot:
+          allOf:
+            - $ref: '#/components/schemas/Root'
+          deprecated: true
+        aggregation_slot:
+          $ref: '#/components/schemas/AggregationSlot'
+    AggregateAndProofSignRequest:
+      type: object
+      additionalProperties: false
+      required: [type, fork_info, aggregate_and_proof]
+      not:
+        required: [signing_root, signingRoot]
+      description: |
+        Object: AggregateAttestationAndProof{aggregator_index, Attestation{Bitlist[32], AttestationData,
+        List[Vector[byte,4627],32]}, Vector[byte,4627]}. Domain DOMAIN_AGGREGATE_AND_PROOF 0x06000000 at
+        epoch(aggregate.data.slot). Clock: aggregate.data.slot ≤ now_slot + skew. Hedged. qrysm oneof 102.
+        The V2 wrapper shape is not accepted.
+      properties:
+        type:
+          type: string
+          enum: [AGGREGATE_AND_PROOF]
+        fork_info:
+          $ref: '#/components/schemas/ForkInfo'
+        signing_root:
+          $ref: '#/components/schemas/Root'
+        signingRoot:
+          allOf:
+            - $ref: '#/components/schemas/Root'
+          deprecated: true
+        aggregate_and_proof:
+          $ref: '#/components/schemas/AggregateAndProof'
+    VoluntaryExitSignRequest:
+      type: object
+      additionalProperties: false
+      required: [type, fork_info, voluntary_exit]
+      not:
+        required: [signing_root, signingRoot]
+      description: |
+        Object: VoluntaryExit. Domain DOMAIN_VOLUNTARY_EXIT 0x04000000 at exit.epoch (no EIP-7044 pin).
+        Clock: epoch ≤ now_epoch + 1. 403 `ARTIFACT_TYPE_DISABLED` unless the signer runs with
+        `--voluntary-exit-signing-enabled`. Hedged. qrysm oneof 103.
+      properties:
+        type:
+          type: string
+          enum: [VOLUNTARY_EXIT]
+        fork_info:
+          $ref: '#/components/schemas/ForkInfo'
+        signing_root:
+          $ref: '#/components/schemas/Root'
+        signingRoot:
+          allOf:
+            - $ref: '#/components/schemas/Root'
+          deprecated: true
+        voluntary_exit:
+          $ref: '#/components/schemas/VoluntaryExit'
+    SyncCommitteeMessageSignRequest:
+      type: object
+      additionalProperties: false
+      required: [type, fork_info, sync_committee_message]
+      not:
+        required: [signing_root, signingRoot]
+      description: |
+        Object: Bytes32 beacon_block_root. Domain DOMAIN_SYNC_COMMITTEE 0x07000000 at epoch(slot).
+        Clock: slot ≤ now_slot + skew. Hedged. qrysm oneof 108 (slot = SigningSlot).
+      properties:
+        type:
+          type: string
+          enum: [SYNC_COMMITTEE_MESSAGE]
+        fork_info:
+          $ref: '#/components/schemas/ForkInfo'
+        signing_root:
+          $ref: '#/components/schemas/Root'
+        signingRoot:
+          allOf:
+            - $ref: '#/components/schemas/Root'
+          deprecated: true
+        sync_committee_message:
+          $ref: '#/components/schemas/SyncCommitteeMessage'
+    SyncCommitteeSelectionProofSignRequest:
+      type: object
+      additionalProperties: false
+      required: [type, fork_info, sync_aggregator_selection_data]
+      not:
+        required: [signing_root, signingRoot]
+      description: |
+        Object: SyncAggregatorSelectionData. Domain DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF 0x08000000 at
+        epoch(slot). subcommittee_index < SYNC_COMMITTEE_SUBNET_COUNT. Clock: slot ≤ now_slot + skew
+        (qrysm signs it only for the current slot). Deterministic by default. qrysm oneof 106.
+      properties:
+        type:
+          type: string
+          enum: [SYNC_COMMITTEE_SELECTION_PROOF]
+        fork_info:
+          $ref: '#/components/schemas/ForkInfo'
+        signing_root:
+          $ref: '#/components/schemas/Root'
+        signingRoot:
+          allOf:
+            - $ref: '#/components/schemas/Root'
+          deprecated: true
+        sync_aggregator_selection_data:
+          $ref: '#/components/schemas/SyncAggregatorSelectionData'
+    SyncCommitteeContributionAndProofSignRequest:
+      type: object
+      additionalProperties: false
+      required: [type, fork_info, contribution_and_proof]
+      not:
+        required: [signing_root, signingRoot]
+      description: |
+        Object: ContributionAndProof. Domain DOMAIN_CONTRIBUTION_AND_PROOF 0x09000000 at
+        epoch(contribution.slot). Clock: contribution.slot ≤ now_slot + skew. Hedged. qrysm oneof 107.
+        Bodies of up to about 1.2 MB are valid.
+      properties:
+        type:
+          type: string
+          enum: [SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF]
+        fork_info:
+          $ref: '#/components/schemas/ForkInfo'
+        signing_root:
+          $ref: '#/components/schemas/Root'
+        signingRoot:
+          allOf:
+            - $ref: '#/components/schemas/Root'
+          deprecated: true
+        contribution_and_proof:
+          $ref: '#/components/schemas/ContributionAndProof'
+    ValidatorRegistrationSignRequest:
+      type: object
+      additionalProperties: false
+      required: [type, validator_registration]
+      not:
+        required: [signing_root, signingRoot]
+      description: |
+        No fork_info (sending one is 400). Object: ValidatorRegistrationV1. Domain
+        compute_domain(DOMAIN_APPLICATION_BUILDER 0x00000001, GENESIS_FORK_VERSION, zero GVR).
+        Clock: timestamp ≤ now + SECONDS_PER_SLOT. Optional fee-recipient pin. Hedged. qrysm oneof 109.
+      properties:
+        type:
+          type: string
+          enum: [VALIDATOR_REGISTRATION]
+        signing_root:
+          $ref: '#/components/schemas/Root'
+        signingRoot:
+          allOf:
+            - $ref: '#/components/schemas/Root'
+          deprecated: true
+        validator_registration:
+          $ref: '#/components/schemas/ValidatorRegistration'
+
+    SignRequest:
+      oneOf:
+        - $ref: '#/components/schemas/BlockV2SignRequest'
+        - $ref: '#/components/schemas/AttestationSignRequest'
+        - $ref: '#/components/schemas/AggregationSlotSignRequest'
+        - $ref: '#/components/schemas/AggregateAndProofSignRequest'
+        - $ref: '#/components/schemas/VoluntaryExitSignRequest'
+        - $ref: '#/components/schemas/SyncCommitteeMessageSignRequest'
+        - $ref: '#/components/schemas/SyncCommitteeSelectionProofSignRequest'
+        - $ref: '#/components/schemas/SyncCommitteeContributionAndProofSignRequest'
+        - $ref: '#/components/schemas/ValidatorRegistrationSignRequest'
+      discriminator:
+        propertyName: type
+        mapping:
+          BLOCK_V2: '#/components/schemas/BlockV2SignRequest'
+          ATTESTATION: '#/components/schemas/AttestationSignRequest'
+          AGGREGATION_SLOT: '#/components/schemas/AggregationSlotSignRequest'
+          AGGREGATE_AND_PROOF: '#/components/schemas/AggregateAndProofSignRequest'
+          VOLUNTARY_EXIT: '#/components/schemas/VoluntaryExitSignRequest'
+          SYNC_COMMITTEE_MESSAGE: '#/components/schemas/SyncCommitteeMessageSignRequest'
+          SYNC_COMMITTEE_SELECTION_PROOF: '#/components/schemas/SyncCommitteeSelectionProofSignRequest'
+          SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF: '#/components/schemas/SyncCommitteeContributionAndProofSignRequest'
+          VALIDATOR_REGISTRATION: '#/components/schemas/ValidatorRegistrationSignRequest'
+
+    SignatureResponse:
+      type: object
+      additionalProperties: false
+      required: [signature]
+      properties:
+        signature:
+          $ref: '#/components/schemas/Signature'
+
+    RandaoRevealRequest:
+      type: object
+      additionalProperties: false
+      required: [slot, randao_commitment, fork_info]
+      properties:
+        slot:
+          allOf:
+            - $ref: '#/components/schemas/Uint64'
+          description: Proposal slot
+        randao_commitment:
+          allOf:
+            - $ref: '#/components/schemas/Root'
+          description: Validator.randao_commitment read by the VC from the beacon node head state
+        fork_info:
+          $ref: '#/components/schemas/ForkInfo'
+    RandaoRevealResponse:
+      type: object
+      additionalProperties: false
+      required: [randao_reveal]
+      properties:
+        randao_reveal:
+          allOf:
+            - $ref: '#/components/schemas/Root'
+          description: Pre-image with SHA-256(randao_reveal) == randao_commitment
+
+    Capabilities:
+      type: object
+      additionalProperties: false
+      required: [api_version, types, randao_reveal, selection_proof_mode, slashing_protection, network]
+      properties:
+        api_version:
+          type: string
+          pattern: '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          description: |
+            Semantic version of this contract, equal to `info.version`. The client refuses an unsupported major.
+          example: "1.0.0"
+        types:
+          type: array
+          uniqueItems: true
+          description: The enabled artifact types. A disabled type (exits by default) is absent.
+          items:
+            $ref: '#/components/schemas/ArtifactType'
+        randao_reveal:
+          type: boolean
+          description: false when the signer cannot release new layers (genesis time unknown, or RANDAO disabled)
+        selection_proof_mode:
+          type: string
+          enum: [deterministic, hedged]
+        slashing_protection:
+          type: string
+          enum: [bolt, postgres, disabled]
+        network:
+          type: object
+          additionalProperties: false
+          required: [config_name, genesis_fork_version, genesis_validators_root, genesis_time, seconds_per_slot, slots_per_epoch]
+          properties:
+            config_name:
+              type: string
+            genesis_fork_version:
+              $ref: '#/components/schemas/Bytes4'
+            genesis_validators_root:
+              # Inlined Root: under OpenAPI 3.0.3, nullable only applies next to a type.
+              type: string
+              pattern: '^0x[0-9a-fA-F]{64}$'
+              nullable: true
+              description: A Root, or null while a trust-on-first-use pin is pending
+            genesis_time:
+              # Inlined Uint64, for the same reason.
+              type: string
+              pattern: '^(0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]|1844674407370955161[0-4]|18446744073709551615)$'
+              nullable: true
+              description: A Uint64, or null when unknown; the client treats null as a mismatch
+            seconds_per_slot:
+              $ref: '#/components/schemas/Uint64'
+            slots_per_epoch:
+              $ref: '#/components/schemas/Uint64'
+
+    HighWatermark:
+      type: object
+      additionalProperties: false
+      description: Both fields, or none (`{}`) when no high watermark is set.
+      oneOf:
+        - required: [epoch, slot]
+        - maxProperties: 0
+      properties:
+        epoch:
+          $ref: '#/components/schemas/Uint64'
+        slot:
+          $ref: '#/components/schemas/Uint64'
+
+    HealthCheck:
+      type: object
+      additionalProperties: false
+      required: [status, outcome]
+      properties:
+        status:
+          type: string
+          enum: [UP, DOWN]
+        outcome:
+          type: string
+          enum: [UP, DOWN]
+        checks:
+          type: array
+          items:
+            type: object
+            required: [id, status]
+            properties:
+              id:
+                type: string
+              status:
+                type: string
+                enum: [UP, DOWN]
+              data:
+                type: object
+                additionalProperties: true
+              checks:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+    ReloadStatus:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [idle, running, completed, completed_with_errors, failed]
+        lastOperationTime:
+          type: string
+          format: date-time
+        lastError:
+          type: string
+    StatusMessage:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+    ReloadAccepted:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+          enum: [202]
+        message:
+          type: string
+
+    ListKeystoresResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            required: [validating_pubkey, readonly]
+            properties:
+              validating_pubkey:
+                $ref: '#/components/schemas/Pubkey'
+              derivation_path:
+                type: string
+              readonly:
+                type: boolean
+                description: true for keys not managed by the keymanager (file-raw, bulk sources)
+    ImportKeystoresRequest:
+      type: object
+      additionalProperties: false
+      required: [keystores, passwords]
+      properties:
+        keystores:
+          type: array
+          maxItems: 64
+          description: JSON-encoded QRL keystore v1 (version 1) or deposit-cli keystore (version 0) strings
+          items:
+            type: string
+        passwords:
+          type: array
+          maxItems: 64
+          description: One password per keystore, same order
+          items:
+            type: string
+        slashing_protection:
+          type: string
+          description: JSON-encoded EIP-3076 v5 interchange (2,592-byte pubkeys)
+    ImportKeystoresResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            required: [status]
+            properties:
+              status:
+                type: string
+                enum: [imported, duplicate, error]
+              message:
+                type: string
+    DeleteKeystoresRequest:
+      type: object
+      additionalProperties: false
+      required: [pubkeys]
+      properties:
+        pubkeys:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pubkey'
+    DeleteKeystoresResponse:
+      type: object
+      required: [data, slashing_protection]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            required: [status]
+            properties:
+              status:
+                type: string
+                enum: [deleted, not_active, not_found, error]
+              message:
+                type: string
+        slashing_protection:
+          type: string
+          description: JSON-encoded EIP-3076 v5 interchange for the requested keys (always includes the GVR)
+
+    ErrorReason:
+      type: string
+      description: Machine-readable refusal reason. docs/contract.md lists the status code and meaning of each value.
+      enum:
+        - BAD_IDENTIFIER
+        - MALFORMED_JSON
+        - UNKNOWN_FIELD
+        - BAD_FIELD
+        - UNKNOWN_TYPE
+        - MISSING_FORK_INFO
+        - FORK_INFO_MISMATCH
+        - SIGNING_ROOT_MISMATCH
+        - INVARIANT_VIOLATION
+        - PUBKEY_MISMATCH
+        - UNAUTHENTICATED
+        - FORBIDDEN_SCOPE
+        - HOST_NOT_ALLOWED
+        - ORIGIN_NOT_ALLOWED
+        - ARTIFACT_TYPE_DISABLED
+        - UNKNOWN_KEY
+        - PROTECTION_DISABLED
+        - RELOAD_IN_PROGRESS
+        - SLASHING_DOUBLE_PROPOSAL
+        - SLASHING_DOUBLE_VOTE
+        - SLASHING_SURROUNDING_VOTE
+        - SLASHING_SURROUNDED_VOTE
+        - SLASHING_BELOW_WATERMARK
+        - SLASHING_ABOVE_HIGH_WATERMARK
+        - VALIDATOR_DISABLED
+        - CLOCK_BOUND
+        - RANDAO_SLOT_NOT_INCREASING
+        - RANDAO_SLOT_OUT_OF_WINDOW
+        - RANDAO_NEW_LAYER_RATE_LIMITED
+        - BODY_TOO_LARGE
+        - UNSUPPORTED_MEDIA_TYPE
+        - RANDAO_UNKNOWN_COMMITMENT
+        - RANDAO_ONION_EXHAUSTED
+        - RANDAO_UNSUPPORTED_FOR_KEY
+        - RANDAO_SCAN_RATE_LIMITED
+        - INTERNAL
+        - SIGNATURE_FAULT
+        - STORE_UNAVAILABLE
+        - NOT_READY
+        - OVERLOADED
+        - KEY_QUARANTINED
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [code, message, reason]
+      properties:
+        code:
+          type: integer
+          description: The HTTP status code
+        message:
+          type: string
+          description: Fixed human-readable message. Never contains internal paths or exception text.
+        reason:
+          $ref: '#/components/schemas/ErrorReason'
+
+  responses:
+    BadRequest:
+      description: Invalid request (client bug or misconfiguration). Retrying will not help.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            identifier:
+              value: {code: 400, message: malformed identifier, reason: BAD_IDENTIFIER}
+            rootMismatch:
+              value: {code: 400, message: signing root does not match the request, reason: SIGNING_ROOT_MISMATCH}
+            forkInfo:
+              value: {code: 400, message: fork_info does not match the configured network, reason: FORK_INFO_MISMATCH}
+            unknownField:
+              value: {code: 400, message: unknown field in request, reason: UNKNOWN_FIELD}
+    Unauthorized:
+      description: Missing or wrong bearer token or client certificate
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+          example: Bearer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example: {code: 401, message: unauthenticated, reason: UNAUTHENTICATED}
+    Forbidden:
+      description: |
+        Policy refusal: wrong scope (including a sign token or a client certificate on an admin route), host not
+        allowed, Origin present, artifact type disabled.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            typeDisabled:
+              value: {code: 403, message: artifact type disabled, reason: ARTIFACT_TYPE_DISABLED}
+            scope:
+              value: {code: 403, message: token does not grant this scope, reason: FORBIDDEN_SCOPE}
+    NotFound:
+      description: No loaded key for the identifier
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example: {code: 404, message: public key not found, reason: UNKNOWN_KEY}
+    NotFoundOrProtectionDisabled:
+      description: No loaded key for the identifier, or slashing protection is disabled
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            unknownKey:
+              value: {code: 404, message: public key not found, reason: UNKNOWN_KEY}
+            protectionDisabled:
+              value: {code: 404, message: slashing protection is disabled, reason: PROTECTION_DISABLED}
+    PreconditionFailed:
+      description: |
+        Refused by slashing protection, the clock bound or the RANDAO frontier rule. The qrysm client maps
+        this to a slashing-protection error and logs it at WARN.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            doubleVote:
+              value: {code: 412, message: slashing protection refused the request, reason: SLASHING_DOUBLE_VOTE}
+            randaoWalk:
+              value: {code: 412, message: randao reveal refused, reason: RANDAO_SLOT_NOT_INCREASING}
+            randaoRateLimited:
+              value: {code: 412, message: randao new-layer rate limit reached for this key, reason: RANDAO_NEW_LAYER_RATE_LIMITED}
+            clock:
+              value: {code: 412, message: request is outside the wall-clock bound, reason: CLOCK_BOUND}
+    PayloadTooLarge:
+      description: Body over the per-route limit (sign 2 MiB, randao 4 KiB, keymanager 32 MiB)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example: {code: 413, message: request body too large, reason: BODY_TOO_LARGE}
+    UnsupportedMediaType:
+      description: POST without Content-Type application/json
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example: {code: 415, message: unsupported media type, reason: UNSUPPORTED_MEDIA_TYPE}
+    Unprocessable:
+      description: |
+        RANDAO only. `RANDAO_UNSUPPORTED_FOR_KEY` maps to qrysm's `keymanager.ErrRandaoRevealUnsupported`.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            unknown:
+              value: {code: 422, message: commitment is not in this key's onion, reason: RANDAO_UNKNOWN_COMMITMENT}
+            exhausted:
+              value: {code: 422, message: onion exhausted, reason: RANDAO_ONION_EXHAUSTED}
+            unsupported:
+              value: {code: 422, message: key cannot produce randao reveals, reason: RANDAO_UNSUPPORTED_FOR_KEY}
+    TooManyRequests:
+      description: RANDAO slow-path scan budget for this key is used up
+      headers:
+        Retry-After:
+          required: true
+          description: Seconds until the key's scan budget allows another scan
+          schema:
+            type: integer
+            minimum: 0
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example: {code: 429, message: randao scan rate limited, reason: RANDAO_SCAN_RATE_LIMITED}
+    InternalError:
+      description: |
+        Server fault. Never releases partial results, and never releases a reveal without a committed state
+        write. `SIGNATURE_FAULT` means verify-before-release failed and the key was quarantined.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            signatureFault:
+              value: {code: 500, message: internal error, reason: SIGNATURE_FAULT}
+            store:
+              value: {code: 500, message: slashing protection store unavailable, reason: STORE_UNAVAILABLE}
+    ServiceUnavailable:
+      description: Not ready, signing queue full, or key quarantined
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            overloaded:
+              value: {code: 503, message: signing queue full, reason: OVERLOADED}
+            notReady:
+              value: {code: 503, message: signer is starting, reason: NOT_READY}
+
+  examples:
+    BlockV2:
+      summary: BLOCK_V2 (full or blinded Zond block, header only)
+      value:
+        type: BLOCK_V2
+        fork_info:
+          fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
+          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+        signing_root: "0x5f1b2a3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8"
+        beacon_block:
+          version: ZOND
+          block_header:
+            slot: "62"
+            proposer_index: "17"
+            parent_root: "0x11aa22bb33cc44dd55ee66ff778899001122334455667788990011aabbccddee"
+            state_root: "0x22bb33cc44dd55ee66ff778899001122334455667788990011aabbccddeeff00"
+            body_root: "0x33cc44dd55ee66ff778899001122334455667788990011aabbccddeeff001122"
+    Attestation:
+      summary: ATTESTATION
+      value:
+        type: ATTESTATION
+        fork_info:
+          fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
+          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+        signing_root: "0x6a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+        attestation:
+          slot: "61"
+          index: "0"
+          beacon_block_root: "0x44dd55ee66ff778899001122334455667788990011aabbccddeeff0011223344"
+          source: {epoch: "8", root: "0x55ee66ff778899001122334455667788990011aabbccddeeff00112233445555"}
+          target: {epoch: "10", root: "0x66ff778899001122334455667788990011aabbccddeeff0011223344556666ff"}
+    AggregationSlot:
+      summary: AGGREGATION_SLOT (aggregation selection proof, deterministic; real signing root)
+      value:
+        type: AGGREGATION_SLOT
+        fork_info:
+          fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
+          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+        signing_root: "0x489e15e8bcf803c483b1efdff3bf2832f9ee2dbd4154e0f5257168d2a14b3284"
+        aggregation_slot: {slot: "61"}
+    AggregateAndProof:
+      summary: AGGREGATE_AND_PROOF (4 participants; 0x1f = 4 bits + delimiter)
+      value:
+        type: AGGREGATE_AND_PROOF
+        fork_info:
+          fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
+          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+        signing_root: "0x8c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b"
+        aggregate_and_proof:
+          aggregator_index: "17"
+          aggregate:
+            aggregation_bits: "0x1f"
+            data:
+              slot: "61"
+              index: "0"
+              beacon_block_root: "0x44dd55ee66ff778899001122334455667788990011aabbccddeeff0011223344"
+              source: {epoch: "8", root: "0x55ee66ff778899001122334455667788990011aabbccddeeff00112233445555"}
+              target: {epoch: "10", root: "0x66ff778899001122334455667788990011aabbccddeeff0011223344556666ff"}
+            signatures: [*signature, *signature, *signature, *signature]
+          selection_proof: *signature
+    VoluntaryExit:
+      summary: VOLUNTARY_EXIT (requires --voluntary-exit-signing-enabled)
+      value:
+        type: VOLUNTARY_EXIT
+        fork_info:
+          fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
+          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+        signing_root: "0x9d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c"
+        voluntary_exit: {epoch: "10", validator_index: "42"}
+    SyncCommitteeMessage:
+      summary: SYNC_COMMITTEE_MESSAGE
+      value:
+        type: SYNC_COMMITTEE_MESSAGE
+        fork_info:
+          fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
+          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+        signing_root: "0xae6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
+        sync_committee_message:
+          beacon_block_root: "0x44dd55ee66ff778899001122334455667788990011aabbccddeeff0011223344"
+          slot: "61"
+    SyncCommitteeSelectionProof:
+      summary: SYNC_COMMITTEE_SELECTION_PROOF (deterministic)
+      value:
+        type: SYNC_COMMITTEE_SELECTION_PROOF
+        fork_info:
+          fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
+          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+        signing_root: "0xbf708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e"
+        sync_aggregator_selection_data: {slot: "61", subcommittee_index: "0"}
+    SyncCommitteeContributionAndProof:
+      summary: SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF (minimal preset, 2-byte bitvector, 2 participants)
+      value:
+        type: SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF
+        fork_info:
+          fork: {previous_version: "0x000000fd", current_version: "0x000000fd", epoch: "0"}
+          genesis_validators_root: "0x7a1e2c4d5b6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+        signing_root: "0xc08192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f"
+        contribution_and_proof:
+          aggregator_index: "7"
+          selection_proof: *signature
+          contribution:
+            slot: "61"
+            beacon_block_root: "0x44dd55ee66ff778899001122334455667788990011aabbccddeeff0011223344"
+            subcommittee_index: "0"
+            aggregation_bits: "0x0500"
+            signatures: [*signature, *signature]
+    ValidatorRegistration:
+      summary: VALIDATOR_REGISTRATION (no fork_info; builder domain with genesis version and zero GVR)
+      value:
+        type: VALIDATOR_REGISTRATION
+        signing_root: "0xd192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70"
+        validator_registration:
+          fee_recipient: "Q2b3f5c7d9e1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4"
+          gas_limit: "30000000"
+          timestamp: "1760000000"
+          pubkey: *pubkey
