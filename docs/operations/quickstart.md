@@ -4,9 +4,9 @@ This page runs `remotesigner consensus` on one host, next to the qrysm validator
 generated bearer tokens and a file network. Every flag is listed in [`../reference/flags.md`](../reference/flags.md);
 the HTTP API is [`../contract.md`](../contract.md).
 
-> This release signs all nine artifact types behind slashing protection and serves the operational API
-> (`publicKeys`, `capabilities`, `/upcheck`, `/healthcheck`, `/reload`) and the metrics listener. The RANDAO reveal
-> endpoint arrives in the next release.
+> This release signs all nine artifact types behind slashing protection, releases RANDAO reveals under the frontier
+> rule ([`randao.md`](randao.md)), and serves the operational API (`publicKeys`, `capabilities`, `/upcheck`,
+> `/healthcheck`, `/reload`) and the metrics listener.
 
 ## 1. Build
 
@@ -70,7 +70,7 @@ On first start the signer creates, under `--data-path`:
 | File | Content |
 |---|---|
 | `auth-token` | the **sign** token (mode `0600`): duty routes, `publicKeys`, `capabilities`, `GET /reload`, healthcheck detail |
-| `admin-token` | the **admin** token (mode `0600`): `POST /reload` |
+| `admin-token` | the **admin** token (mode `0600`): `POST /reload`, `DELETE /api/v1/consensus/randao_state/{identifier}` |
 | `slashing-protection.db` | the bbolt slashing-protection store, locked while the signer runs |
 | `remotesigner.ports` | `http-port=<port>` (and `metrics-port=<port>` with `--metrics-enabled`), written once listening and removed at shutdown; useful with `--http-listen-port=0` |
 
@@ -130,6 +130,15 @@ fails is quarantined until the next reload (see [`metrics.md`](metrics.md#signat
 | `--registration-fee-recipient-file` | unset | Pins fee recipients per key ([`../reference/registration-fee-recipient-file.md`](../reference/registration-fee-recipient-file.md)) |
 | `--signing-clock-skew-slots` | `1` | How far ahead of the wall clock a slot-scoped request may be |
 | `--selection-proof-signing` | `deterministic` | `AGGREGATION_SLOT` and `SYNC_COMMITTEE_SELECTION_PROOF` are signed deterministically, as qrysm's local keymanager does; `hedged` changes that. Every other type is always hedged. |
+
+### RANDAO
+
+The validator client asks for its RANDAO reveal through `POST /api/v1/consensus/randao_reveal/{identifier}` with the
+sign token, sending the proposal slot, the commitment it read from its beacon node and `fork_info`. The signer
+releases a new onion layer only for a slot next to the wall clock and after the key's last one, within a small
+per-key budget, and records it in the store before answering. A small network (fewer than about `4 × SLOTS_PER_EPOCH` validators) should raise
+`--randao-new-layer-burst` or turn the bucket off with `--randao-new-layer-refill-epochs=0`. The rule, the flags,
+the reset of a key's state and the store upgrade (`consensus migrate`) are in [`randao.md`](randao.md).
 
 ## 7. Metrics
 

@@ -62,8 +62,12 @@ With `--slashing-protection-enabled=false` no check runs, so neither counter mov
 |---|---|---|---|
 | `consensus_randao_reveals_total` | counter | `result` | RANDAO reveal requests by outcome (see section 3) |
 | `consensus_randao_new_layer_rate_limited_total` | counter | | Reveals refused because the key's new-layer bucket was empty |
+| `consensus_randao_reveal_duration_seconds` | histogram | `path`: `hot`, `scan` | Time to release a reveal: `hot` from the frontier or the precomputed layer, `scan` when a layer was computed from `x_0` |
+| `consensus_randao_slow_path_scans_total` | counter | | Scans from `x_0`: first uses, gap advances, deep reorgs and unknown commitments |
+| `consensus_randao_min_layers_remaining` | gauge | | Fewest onion layers any loaded key has left; NaN until a key has a frontier |
 
-The RANDAO reveal endpoint arrives with the next release; until then these counters stay at 0.
+The frontier rule behind these is described in [`randao.md`](randao.md). 400 and 404 answers of the reveal endpoint
+are not counted in `consensus_randao_reveals_total`.
 
 ### HTTP and process
 
@@ -107,7 +111,7 @@ reveal was refused with 412 `RANDAO_NEW_LAYER_RATE_LIMITED`.
 1. Find the key in the signer's WARN log: it names the short key id.
 2. An honest validator client asks for one new layer per proposal, so repeated refusals mean another client is
    driving the key, or the bucket is too small for a very small network where one key proposes often. See
-   `docs/operations/randao.md` for sizing.
+   [`randao.md`](randao.md#3-sizing-the-bucket) for sizing.
 3. If another client is using the key, stop it: two clients on one key also risk slashing.
 
 ### RandaoGapAdvanced
