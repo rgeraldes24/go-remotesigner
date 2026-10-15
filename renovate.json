@@ -1,7 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "Dependency updates with digest pins. third_party/ is a pristine upstream copy and is never updated by Renovate."
+    "Dependency updates with digest pins. third_party/ is a pristine upstream copy and is never updated by Renovate.",
+    "tools/vectorgen/go.mod pins the qrysm oracle the golden vectors record; it moves only in a deliberate commit that regenerates them and updates PROVENANCE.md."
   ],
   "extends": [
     "config:recommended",
@@ -12,7 +13,8 @@
     "gomodTidy"
   ],
   "ignorePaths": [
-    "third_party/**"
+    "third_party/**",
+    "tools/vectorgen/**"
   ],
   "customManagers": [
     {
