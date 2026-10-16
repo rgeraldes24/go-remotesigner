@@ -49,8 +49,8 @@ Not keystores in this sense:
 
 ## 2. What the signer refuses
 
-The signer reads the keystore, then checks it before any Argon2id run, so that no file can make it spend more than
-256 MiB or crash it:
+The signer reads the keystore, then checks it before any Argon2id run, so that no file can make an Argon2id run
+allocate more than 256 MiB (`m ≤ 262144` KiB) or crash the decryptor:
 
 | Rule | Refusal |
 |---|---|
@@ -66,8 +66,11 @@ Then it decrypts. A wrong password and a modified ciphertext both fail GCM authe
 the derived public key with `pubkey`: a keystore whose `pubkey` belongs to another key is refused ("pubkey does not
 match the decrypted seed"), whatever its file name. The derived key is the one the signer serves.
 
-Every Argon2id run with the standard KDF takes about 1.5 s of one CPU core and 256 MiB of memory
-([`../benchmarks.md`](../benchmarks.md), B10); a light keystore takes about 20 ms and 4 MiB.
+Every Argon2id run with the standard KDF takes about 1.5 s of one CPU core and allocates 256 MiB; a light keystore
+takes about 20 ms and 4 MiB. The memory a run frees is reclaimed only by the next garbage collection, which may come
+after the next run has allocated its own block, so the process can hold about 512 MiB per running decrypt
+([`../benchmarks.md`](../benchmarks.md), B10). A non-ASCII password that is wrong runs Argon2id up to three times
+on the same keystore (section 3). Size memory for 512 MiB per keystore decrypted at once.
 
 ## 3. Password files
 

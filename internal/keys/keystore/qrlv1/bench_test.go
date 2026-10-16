@@ -18,8 +18,10 @@ import (
 // at once, P = 1, 2, 4, 8 and 16. One op is a round of P concurrent
 // decrypts. It reports the throughput (decrypts/s) and the per-decrypt
 // latency (mean and slowest), whose growth with P shows the scaling knee.
-// Peak memory is P × 256 MiB plus the process; measure RSS per P with
-// /usr/bin/time (docs/benchmarks.md).
+// Each Argon2id run allocates one 256 MiB block, but a decrypt slot can hold
+// two at its peak (the next run allocates before a garbage collection frees
+// the last block), so the process peaks near P × 512 MiB plus its base;
+// measure RSS per P with /usr/bin/time (docs/benchmarks.md).
 func BenchmarkB10Argon2idDecrypt(b *testing.B) {
 	benchDecrypt(b, "keystores/qrl-v1-standard.json", []int{1, 2, 4, 8, 16})
 }

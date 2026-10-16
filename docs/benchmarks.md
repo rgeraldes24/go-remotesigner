@@ -160,3 +160,6 @@ five rounds per P at load average 16-25 from other work. RSS: one run of two rou
   base + P × 512 MiB. `GOMEMLIMIT` lowered it only at P = 4 (1,547 MiB against 2,059 MiB without it); at P = 1, 2
   and 8 the peaks were equal, and at P = 16 it was 6,163 MiB against 5,906 MiB. The 320 MiB-per-decrypt bound is
   therefore not reached, and a loader that runs decrypts concurrently has to count 512 MiB for each.
+- **Open before v1.0.** B10 gates v1.0. Either the RSS bound is revised to the 512 MiB per decrypt that DESIGN
+  §3.6.2 already sizes the Argon2id semaphore with, or a mitigation (such as a garbage collection after each run,
+  inside the semaphore slot) is added in the keystore loader and B10's RSS rows are measured again with it.
