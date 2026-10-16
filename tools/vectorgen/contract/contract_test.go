@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	fieldparams "github.com/theQRL/qrysm/config/fieldparams"
@@ -41,6 +42,16 @@ type fakeSigner struct {
 
 	wrongRootFor string // sign a different root for this artifact type
 	revealKey    string // the reveal's response key; empty means randao_reveal
+
+	mu   sync.Mutex
+	sent []string // the type of each sign request, in arrival order
+}
+
+// sentTypes returns the type of each sign request the client sent.
+func (f *fakeSigner) sentTypes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.sent)
 }
 
 func newFakeSigner(t *testing.T, network string) *fakeSigner {
@@ -120,6 +131,9 @@ func (f *fakeSigner) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
+		f.mu.Lock()
+		f.sent = append(f.sent, body.Type)
+		f.mu.Unlock()
 		root, err := hex.DecodeString(strings.TrimPrefix(body.SigningRoot, "0x"))
 		if err != nil || len(root) != 32 {
 			http.Error(w, "bad signing root", http.StatusBadRequest)
@@ -170,19 +184,126 @@ func runAgainst(t *testing.T, f *fakeSigner, network string, genesisTime uint64)
 	return res, log.String()
 }
 
+// artifactTypes are the nine artifact types of the consensus signing API
+// (contract section 8).
+var artifactTypes = []string{"AGGREGATE_AND_PROOF", "AGGREGATION_SLOT", "ATTESTATION", "BLOCK_V2",
+	"SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF", "SYNC_COMMITTEE_MESSAGE", "SYNC_COMMITTEE_SELECTION_PROOF",
+	"VALIDATOR_REGISTRATION", "VOLUNTARY_EXIT"}
+
+// TestContractAgainstFakeSigner runs the contract against a correct signer.
+// Every check must pass, and the types qrysm's client put on the wire must
+// be the ones the log names, covering the nine artifact types.
 func TestContractAgainstFakeSigner(t *testing.T) {
 	for _, network := range []string{"end-to-end", "end-to-end-mainnet"} {
 		t.Run(network, func(t *testing.T) {
-			res, log := runAgainst(t, newFakeSigner(t, network), network, fixtureGenesisTime)
+			f := newFakeSigner(t, network)
+			res, log := runAgainst(t, f, network, fixtureGenesisTime)
 			if res.passed != checks || len(res.failed) != 0 {
 				t.Fatalf("%d passed, failed %q, want %d passed\n%s", res.passed, res.failed, checks, log)
 			}
-			for _, typ := range []string{"BLOCK_V2", "ATTESTATION", "AGGREGATION_SLOT", "AGGREGATE_AND_PROOF",
-				"VOLUNTARY_EXIT", "SYNC_COMMITTEE_MESSAGE", "SYNC_COMMITTEE_SELECTION_PROOF",
-				"SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF", "VALIDATOR_REGISTRATION"} {
-				if !strings.Contains(log, "("+typ+")\n") {
-					t.Errorf("no %s request:\n%s", typ, log)
+			var named []string // "ok: sign <oneof> (<type>)"
+			for line := range strings.SplitSeq(log, "\n") {
+				if rest, ok := strings.CutPrefix(line, "ok: sign "); ok {
+					_, typ, _ := strings.Cut(rest, " (")
+					named = append(named, strings.TrimSuffix(typ, ")"))
 				}
+			}
+			sent := f.sentTypes()
+			if !slices.Equal(sent, named) {
+				t.Errorf("the client sent types %q, the log names %q", sent, named)
+			}
+			if covered := slices.Compact(slices.Sorted(slices.Values(sent))); !slices.Equal(covered, artifactTypes) {
+				t.Errorf("the client sent the types %q, want the nine artifact types %q", covered, artifactTypes)
+			}
+		})
+	}
+}
+
+// TestLoadVectorsRefusesDrift checks that the tool stops before driving the
+// signer when the golden vectors and the pinned qrysm disagree on a network,
+// or when the interop key it signs with is missing or malformed.
+func TestLoadVectorsRefusesDrift(t *testing.T) {
+	cfg := params.E2ETestConfig()
+	network := func(edit func(n map[string]any)) func(doc map[string]any) {
+		return func(doc map[string]any) {
+			for _, n := range doc["networks"].([]any) {
+				if n := n.(map[string]any); n["config_name"] == cfg.ConfigName {
+					edit(n)
+				}
+			}
+		}
+	}
+	key0 := func(edit func(k map[string]any)) func(doc map[string]any) {
+		return func(doc map[string]any) { edit(doc["keys"].([]any)[0].(map[string]any)) }
+	}
+	tests := []struct {
+		name string
+		file string // relative to the vector directory
+		edit func(doc map[string]any)
+		want string // a substring of the error; empty means it loads
+	}{
+		{"unchanged", "networks.json", func(map[string]any) {}, ""},
+		{"fork version", "networks.json",
+			network(func(n map[string]any) { n["genesis_fork_version"] = "0x20000099" }),
+			"networks.json has genesis_fork_version 0x20000099 for end-to-end, qrysm 0x"},
+		{"seconds per slot", "networks.json",
+			network(func(n map[string]any) { n["seconds_per_slot"] = "7" }),
+			"seconds_per_slot 7 for end-to-end"},
+		{"slots per epoch", "networks.json",
+			network(func(n map[string]any) { n["slots_per_epoch"] = "5" }),
+			"slots_per_epoch 5 for end-to-end"},
+		{"network missing", "networks.json",
+			network(func(n map[string]any) { n["config_name"] = "renamed" }),
+			"networks.json has no network end-to-end"},
+		{"short genesis validators root", "networks.json",
+			network(func(n map[string]any) { n["interop_genesis_validators_root"] = "0x00" }),
+			"end-to-end genesis validators root"},
+		{"key 0 missing", "keys/interop.json",
+			func(doc map[string]any) { doc["keys"] = doc["keys"].([]any)[1:] },
+			"does not start with interop key 0"},
+		{"short public key", "keys/interop.json",
+			key0(func(k map[string]any) { k["pubkey"] = "0x00" }),
+			"key 0 pubkey"},
+		{"commitment without 0x", "keys/interop.json",
+			key0(func(k map[string]any) {
+				k["randao_commitment"] = strings.TrimPrefix(k["randao_commitment"].(string), "0x")
+			}),
+			"key 0 randao_commitment"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, name := range []string{"networks.json", filepath.Join("keys", "interop.json")} {
+				b, err := os.ReadFile(filepath.Join(vectorsDir, name))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if name == filepath.FromSlash(tt.file) {
+					var doc map[string]any
+					if err := json.Unmarshal(b, &doc); err != nil {
+						t.Fatal(err)
+					}
+					tt.edit(doc)
+					if b, err = json.Marshal(doc); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			v, err := loadVectors(dir, cfg)
+			if tt.want == "" {
+				if err != nil || v.gvr == ([32]byte{}) || len(v.key.pub) != fieldparams.MLDSA87PubkeyLength {
+					t.Fatalf("loadVectors: %v, %+v", err, v)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("loadVectors: %v, want an error containing %q", err, tt.want)
 			}
 		})
 	}

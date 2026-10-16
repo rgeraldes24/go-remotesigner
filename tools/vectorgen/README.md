@@ -112,6 +112,12 @@ without a broken branch: it builds a signer whose `AGGREGATION_SLOT` payload key
 `VOLUNTARY_EXIT` payload key and capabilities `selection_proof_mode` field are renamed, and requires each mutant to
 fail exactly those two checks.
 
+The module's own tests (`make vectors-test`) run the tool against a fake signer that answers from the golden
+vectors. They check that the types qrysm's client puts on the wire are the nine artifact types, that every signing
+oneof of `SignRequest` is driven, that a wrong signing root, a renamed reveal key or another genesis time each fail
+exactly their check, and that the tool stops when `networks.json` disagrees with the pinned qrysm or interop key 0
+is missing or malformed in `keys/interop.json`.
+
 Against a signer you started yourself (keys from `testdata/vectors/keys/interop.json`, genesis time set, exits
 enabled, on a fresh store so the reveal is a first use):
 
