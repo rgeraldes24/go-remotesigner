@@ -406,6 +406,27 @@ func runValidatorContract(t *testing.T, newStore Factory) {
 		must(t, s.SetValidatorEnabled(bg, id(0), true))
 		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true, Enabled: true})
 	})
+	t.Run("registration as disabled", func(t *testing.T) {
+		s := openWithKeys(t, newStore, 2)
+		must(t, s.SetValidatorEnabled(bg, id(1), false))
+		// New keys are registered disabled; known keys keep their flag, whichever it is.
+		must(t, s.RegisterValidatorsDisabled(bg, [][]byte{Key(0), Key(1), Key(2)}))
+		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true, Enabled: true})
+		wantStatus(t, s, 1, slashing.ValidatorStatus{Registered: true})
+		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true})
+		// A key registered disabled is a full registration: it has a history, and RegisterValidators keeps its flag.
+		must(t, s.UpdateHistory(bg, []slashing.KeyID{id(2)}, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
+			return tx.InsertBlock(slashing.SignedBlock{Slot: 1})
+		}))
+		register(t, s, 3)
+		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true})
+		for _, n := range []int{0, slashing.PublicKeyLength + 1} {
+			if err := s.RegisterValidatorsDisabled(bg, [][]byte{Key(3), make([]byte, n)}); !errors.Is(err, slashing.ErrInvalidPublicKey) {
+				t.Errorf("RegisterValidatorsDisabled(%d bytes): %v, want ErrInvalidPublicKey", n, err)
+			}
+		}
+		wantStatus(t, s, 3, slashing.ValidatorStatus{})
+	})
 	t.Run("unregistered keys", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 1)
 		if err := s.SetValidatorEnabled(bg, id(1), false); !errors.Is(err, slashing.ErrValidatorNotRegistered) {

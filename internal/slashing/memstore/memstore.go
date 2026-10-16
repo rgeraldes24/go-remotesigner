@@ -115,6 +115,15 @@ func (s *Store) SetHighWatermark(ctx context.Context, h slashing.HighWatermark) 
 
 // RegisterValidators registers new keys as enabled and leaves known keys unchanged.
 func (s *Store) RegisterValidators(ctx context.Context, pubkeys [][]byte) error {
+	return s.register(ctx, pubkeys, true)
+}
+
+// RegisterValidatorsDisabled registers new keys as disabled and leaves known keys unchanged.
+func (s *Store) RegisterValidatorsDisabled(ctx context.Context, pubkeys [][]byte) error {
+	return s.register(ctx, pubkeys, false)
+}
+
+func (s *Store) register(ctx context.Context, pubkeys [][]byte, enabled bool) error {
 	for _, pk := range pubkeys {
 		if err := slashing.CheckPublicKey(pk); err != nil {
 			return err
@@ -129,7 +138,7 @@ func (s *Store) RegisterValidators(ctx context.Context, pubkeys [][]byte) error 
 		if _, ok := s.validators[id]; !ok {
 			s.validators[id] = &validator{
 				pubkey:  slices.Clone(pk),
-				enabled: true,
+				enabled: enabled,
 				blocks:  make(map[uint64]*slashing.Root),
 				atts:    make(map[uint64]slashing.SignedAttestation),
 			}

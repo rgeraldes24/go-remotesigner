@@ -93,8 +93,9 @@ func (r ImportResult) Failed() []ValidatorResult {
 // nothing below it is signed). Validators are written in batches that share a transaction; when one fails, the batch
 // is written again validator by validator, so that only the failing ones are lost.
 //
-// A validator whose element imports is enabled; one whose element fails is disabled, so that its key cannot sign
-// without the history the file meant to give it, and it is reported in the result. Import returns an error when the
+// A validator whose element imports is enabled, by the transaction that writes its history (a key new to the store
+// is registered disabled before it); one whose element fails is disabled, so that its key cannot sign without the
+// history the file meant to give it, and it is reported in the result. Import returns an error when the
 // file stops being readable, when the roots differ, or when ctx ends. The elements read before such an error are
 // still written, as far as the store allows: each is whole, and history only adds protection. An element that could
 // not be written is reported as failed, like any other.
@@ -178,7 +179,9 @@ func (im *importer) flush() error {
 	for i, p := range pending {
 		pubkeys[i] = p.entry.PublicKey
 	}
-	if err := im.s.RegisterValidators(im.ctx, pubkeys); err != nil {
+	// New keys are registered disabled: only the transaction that writes a key's history enables it, so a key never
+	// signs without the history the file gives it, even when the import stops between the two commits.
+	if err := im.s.RegisterValidatorsDisabled(im.ctx, pubkeys); err != nil {
 		err = fmt.Errorf("register validators: %w", err)
 		im.abandon(pending, err)
 		return err
@@ -242,8 +245,8 @@ func (im *importer) fail(result int) {
 }
 
 // disableFailed registers and disables the key of every failed element, after everything else is written, so that
-// a key with a failed element stays disabled even when another element for it imported. A failure to disable is
-// added to the element's error.
+// a key with a failed element stays disabled even when another element for it imported. A key new to the store is
+// registered disabled, so it is never enabled on the way. A failure to disable is added to the element's error.
 func (im *importer) disableFailed() {
 	done := map[slashing.KeyID]bool{}
 	for _, i := range im.failed {
@@ -255,7 +258,7 @@ func (im *importer) disableFailed() {
 		done[id] = true
 		// The disabling must happen even after ctx has ended.
 		ctx := context.WithoutCancel(im.ctx)
-		err := im.s.RegisterValidators(ctx, [][]byte{res.PublicKey})
+		err := im.s.RegisterValidatorsDisabled(ctx, [][]byte{res.PublicKey})
 		if err == nil {
 			err = im.s.SetValidatorEnabled(ctx, id, false)
 		}

@@ -136,13 +136,79 @@ func TestImportStopsOnFileErrors(t *testing.T) {
 	})
 }
 
-// failingRegistration is a store whose RegisterValidators always fails.
+// failingRegistration is a store whose registrations always fail.
 type failingRegistration struct{ slashing.Store }
 
 var errRegistration = errors.New("registration failed")
 
 func (failingRegistration) RegisterValidators(context.Context, [][]byte) error {
 	return errRegistration
+}
+
+func (failingRegistration) RegisterValidatorsDisabled(context.Context, [][]byte) error {
+	return errRegistration
+}
+
+// statusWatch is a store that, whenever the import is about to commit a history transaction or an enabled flag,
+// checks whether the watched key is enabled: the state the key is left in if the process stops there.
+type statusWatch struct {
+	slashing.Store
+	t       *testing.T
+	key     slashing.KeyID
+	checks  int
+	enabled int
+}
+
+func (w *statusWatch) check() {
+	st, err := w.ValidatorStatus(bg, w.key)
+	must(w.t, err)
+	w.checks++
+	if st.Enabled {
+		w.enabled++
+	}
+}
+
+func (w *statusWatch) UpdateHistory(ctx context.Context, ids []slashing.KeyID, fn func(slashing.KeyID, slashing.HistoryTx) error) error {
+	w.check()
+	return w.Store.UpdateHistory(ctx, ids, fn)
+}
+
+func (w *statusWatch) SetValidatorEnabled(ctx context.Context, id slashing.KeyID, enabled bool) error {
+	w.check()
+	return w.Store.SetValidatorEnabled(ctx, id, enabled)
+}
+
+// A key new to the store is enabled only by the transaction that writes its history: at every commit before it,
+// it is registered disabled, so an import that stops half-way never leaves a key enabled without its history (SP
+// §18.2 fix 1). A failed element's key is never enabled at all.
+func TestImportNeverEnablesAKeyBeforeItsHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		key     int
+		element any
+		enabled bool
+	}{
+		{"an element that imports", 0, jEntry{Pubkey: pk(0), Blocks: []jBlock{blk(10, root(1))}}, true},
+		{"an element whose history crosses the high watermark", 1, jEntry{Pubkey: pk(1), Blocks: []jBlock{blk(5000, root(1))}}, false},
+		{"an element that is not valid", 2, `{"pubkey":"` + pk(2) + `","signed_blocks":[{"slot":"x"}]}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			forEachStore(t, func(t *testing.T, s slashing.Store) {
+				_, err := s.PinGenesisValidatorsRoot(bg, gvr)
+				must(t, err)
+				must(t, s.SetHighWatermark(bg, slashing.HighWatermark{Epoch: u64(100), Slot: u64(1000)}))
+				w := &statusWatch{Store: s, t: t, key: slashing.KeyIDOf(slashingtest.Key(tc.key))}
+				res, err := interchange.Import(bg, w, strings.NewReader(doc(gvr, tc.element)), interchange.ImportOptions{})
+				must(t, err)
+				if w.checks == 0 || w.enabled != 0 {
+					t.Fatalf("the key was enabled at %d of %d commits before its history was written", w.enabled, w.checks)
+				}
+				if st := enabled(t, s, tc.key); !st.Registered || st.Enabled != tc.enabled || (len(res.Failed()) == 0) != tc.enabled {
+					t.Fatalf("after the import: %+v, failures %+v", st, res.Failed())
+				}
+			})
+		})
+	}
 }
 
 // An element that was read but could not be written is reported as failed, never as imported.

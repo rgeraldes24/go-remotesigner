@@ -42,7 +42,9 @@ EIP-3076 version 5 (not JSON, truncated, another `interchange_format_version`, a
 32 bytes, an unknown or repeated field outside the data elements) is refused before anything is written. It then
 writes the validators in batches, each batch in one transaction:
 
-- each key is registered, and every block and attestation the store does not already hold is recorded;
+- each key is registered (a key new to the store is registered disabled, and the transaction that writes its
+  history enables it, so a key never signs without its history, even when the import is interrupted), and every
+  block and attestation the store does not already hold is recorded;
 - a record the store already holds, or one without a signing root where the store holds any record at that slot or
   target epoch, counts as already covered;
 - a record that differs from the one the store holds at the same slot or target epoch is not written and is reported

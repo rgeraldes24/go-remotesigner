@@ -95,6 +95,10 @@ type Store interface {
 	// RegisterValidators registers keys of PublicKeyLength bytes. New keys are enabled; registering a known key
 	// again leaves its enabled flag unchanged.
 	RegisterValidators(ctx context.Context, pubkeys [][]byte) error
+	// RegisterValidatorsDisabled registers keys like RegisterValidators, but new keys are disabled. The interchange
+	// import registers keys with it, so that a key it adds is enabled only by the transaction that writes its
+	// history, and never signs without it, whatever stops the import in between.
+	RegisterValidatorsDisabled(ctx context.Context, pubkeys [][]byte) error
 	// ValidatorStatus returns a key's registration state; an unknown key is neither registered nor enabled.
 	ValidatorStatus(ctx context.Context, id KeyID) (ValidatorStatus, error)
 	// SetValidatorEnabled sets a registered key's enabled flag. It is serialised with UpdateBlocks and
