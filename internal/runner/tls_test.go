@@ -26,9 +26,9 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/server/tlsconf"
 )
 
-// G4 S16 over the full pipeline: a repeated hedged attestation gets the
-// bytes released the first time, from the response cache, without a second
-// slashing check.
+// The response cache over the full pipeline (contract §15): a repeated
+// hedged attestation gets the bytes released the first time, from the
+// cache, without a second slashing check.
 func TestRunResponseCache(t *testing.T) {
 	cfg := baseConfig(t)
 	cfg.Metrics.Enabled, cfg.Metrics.Host, cfg.Metrics.HostAllowlist = true, "127.0.0.1", []string{"localhost"}

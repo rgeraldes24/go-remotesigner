@@ -52,9 +52,9 @@ func TestCacheTTL(t *testing.T) {
 	}
 }
 
-// G4 S16: with the cache on, a repeated hedged request gets the bytes
-// released the first time; another type, root or key does not; an entry
-// lasts the TTL.
+// With the cache on (contract §15), a repeated hedged request gets the
+// bytes released the first time; another type, root or key does not; an
+// entry lasts the TTL.
 func TestCacheRepeats(t *testing.T) {
 	s, ks, c := cachingSigner(t, DefaultCacheSize, 2*time.Minute)
 	k, other := newKey(t, 1), newKey(t, 2)

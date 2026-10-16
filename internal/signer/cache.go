@@ -21,8 +21,9 @@ import (
 //     signatures of one message a client can collect (the raw material of a
 //     fault attack on deterministic signing).
 //
-// Both bounds come from DESIGN: 4,096 entries of about 4.7 KB (about 19 MB),
-// each kept for two epochs, longer than any client retries a duty.
+// Both bounds are the contract's (contract §15): 4,096 entries of about
+// 4.7 KB (about 19 MB), each kept for two epochs, longer than any client
+// retries a duty.
 const (
 	// DefaultCacheSize is the response cache's capacity.
 	DefaultCacheSize = 4096

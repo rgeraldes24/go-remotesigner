@@ -206,7 +206,7 @@ func TestIntegrationEveryRequestType(t *testing.T) {
 		t.Error("a prevented signing or a 5xx")
 	}
 	// No metric carries a key, after every request type and RANDAO outcome
-	// (S7 acceptance).
+	// (contract §18).
 	pubkeys := make([]string, len(keys))
 	for i, k := range keys {
 		pubkeys[i] = k.Pubkey

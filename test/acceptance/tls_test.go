@@ -30,9 +30,9 @@ import (
 	"time"
 )
 
-// The milestone S7 acceptance tests: TLS 1.3, mTLS and its scope matrix,
-// the generated certificate, SIGHUP reloads, the metrics token and the
-// absence of key labels, all against the built binary.
+// The TLS acceptance tests: TLS 1.3, mTLS and its scope matrix, the
+// generated certificate, SIGHUP reloads, the metrics token and the absence
+// of key labels, all against the built binary.
 
 // tlsPair is a test certificate and its key.
 type tlsPair struct {
@@ -319,11 +319,12 @@ func (c *countingCache) Get(key string) (*tls.ClientSessionState, bool) {
 	return s, ok
 }
 
-// G4 S2 and S6 on the built binary. In mtls a known client certificate
-// reaches the sign routes and gets 403 on admin routes without the admin
-// token; in token+mtls each scope needs the certificate and its token. An
-// unknown certificate is refused at the handshake, and a client removed by
-// SIGHUP can neither use its open connection nor resume its session.
+// The mTLS scope matrix (contract §6) on the built binary. In mtls a known
+// client certificate reaches the sign routes and gets 403 on admin routes
+// without the admin token; in token+mtls each scope needs the certificate
+// and its token. An unknown certificate is refused at the handshake, and a
+// client removed by SIGHUP can neither use its open connection nor resume
+// its session.
 func TestMTLSScopeMatrix(t *testing.T) {
 	srv := serverCert(t, false)
 	vc, other := clientCertOf(t, "vc", nil), clientCertOf(t, "intruder", nil)

@@ -275,7 +275,7 @@ func withCert(r *http.Request, cn string) *http.Request {
 	return r
 }
 
-// The scope matrix of the mTLS modes (G4 S2; DESIGN §3.10): in mtls a
+// The scope matrix of the mTLS modes (contract §6): in mtls a
 // certificate is the sign credential and admin routes need the admin
 // token, a certificate alone getting 403; in token+mtls each scope needs
 // the certificate and its token.

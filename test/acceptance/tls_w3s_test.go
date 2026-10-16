@@ -37,7 +37,7 @@ import (
 // Web3Signer's run with and without a config file. The PKCS#12 keystores
 // are generated (one legacy-encrypted, one modern) instead of read from
 // fixture files. Known-clients and CA cases run in --http-auth-mode=mtls,
-// where go-remotesigner requires client certificates (DEVIATIONS.md X47).
+// where go-remotesigner requires client certificates (DEVIATIONS.md X48).
 
 // keystore is a PKCS#12 keystore of a server or client certificate.
 type keystore struct {

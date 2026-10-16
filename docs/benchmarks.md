@@ -94,7 +94,7 @@ other work.
 
 ## End-to-end bursts and RANDAO reveals (B7-B9, the built binary)
 
-**B7, B8 and B9: met on the development machine in Run F**, pending the reference VMs. Run H (S7), on the same
+**B7, B8 and B9: met on the development machine in Run F**, pending the reference VMs. Run H, on the same
 machine under a much heavier load, missed the B7 and B9 latency bounds; see below.
 
 ```
@@ -104,9 +104,9 @@ make bench-e2e     # REMOTESIGNER_BENCH=1 go test -run '^TestB([789]|20)' ./test
 Each test starts the built binary on loopback with token auth and bbolt slashing protection, and drives it with a Go
 client on `http.DefaultTransport`; latencies are measured by the client, so they include the loopback round trip.
 B7 sends the t = 20 s burst of the e2e network at once: 32 `ATTESTATION` requests, each recorded in the store, and
-126 `SYNC_COMMITTEE_MESSAGE` requests. Since S7 every request is for a key of its own (158 keys): with the response
-cache, a repeat of a key and signing root would be answered without signing, and the burst would no longer measure
-158 signatures; until S7 the 126 messages shared the attestations' 32 keys. B8 sends 16 copies of the
+126 `SYNC_COMMITTEE_MESSAGE` requests. Every request is for a key of its own (158 keys): with the response cache, a
+repeat of a key and signing root would be answered without signing, and the burst would no longer measure 158
+signatures; before the response cache, the 126 messages shared the attestations' 32 keys. B8 sends 16 copies of the
 mainnet-preset 128-signature contribution (1,197,210 bytes) at once, so eight wait for a large-body slot, and reads
 the process RSS with `ps` before and after. B9 sends four concurrent first reveals (each a scan of up to 2^20
 layers) while the B7 burst runs, then an unknown commitment twice: the second answer must come from the negative
@@ -119,10 +119,10 @@ cache. B7 runs over plaintext HTTP here; its TLS variants are part of B20 below.
 | B9 | `TestB9RandaoReveal` | reveal p99 ≤ 0.5 s; unknown ≤ 0.6 s and cached on retry; B7 signing p99 unaffected (≤ 500 ms) | 4 concurrent first reveals p99 203-224 ms; unknown 54-115 ms, retry 0.21-0.30 ms; signing p99 alongside 159-259 ms | met on dev machine |
 
 Run F, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), load average 2.6-3.4 from other work, with the
-32-key B7 of S5b.
+earlier 32-key B7, before the response cache.
 
 Run H, 2026-10-16, Go 1.26.9, the same machine under a load average of 9-20 from other work (the machine is shared,
-and no quieter window came during the milestone), with the 158-key B7 and the response cache (B7 five runs, B8 and B9
+and no quieter window came), with the 158-key B7 and the response cache (B7 five runs, B8 and B9
 three): B7 last response 526-1,491 ms, p99 520-1,480 ms, 0 errors; B8 slowest 40-78 ms, RSS +32-35 MiB; B9 first
 reveals p99 542-635 ms, unknown 69-99 ms, retry 0.36-0.51 ms, signing p99 alongside 461-821 ms. B7 and B9 miss their
 latency bounds in Run H, by an amount that tracks the load; they are re-measured on a quiet machine or the reference

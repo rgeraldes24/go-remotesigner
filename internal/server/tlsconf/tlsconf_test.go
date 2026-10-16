@@ -536,8 +536,8 @@ func (c *countingCache) Get(key string) (*tls.ClientSessionState, bool) {
 	return s, ok
 }
 
-// G4 S6: a client whose trust is withdrawn by a reload cannot resume its
-// session. Session tickets survive a reload (the control case below
+// A client whose trust is withdrawn by a reload cannot resume its session
+// (contract §6). Session tickets survive a reload (the control case below
 // resumes after one), so the refusal comes from VerifyConnection, which
 // runs on resumed handshakes too.
 func TestResumedSessionRechecked(t *testing.T) {
