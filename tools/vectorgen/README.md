@@ -141,8 +141,9 @@ the golden-vector pin would change every fixture's generator record, so `contrac
 | `github.com/json-iterator/go` | `github.com/prestonvanloon/go v1.1.7-0.20190722034630-4f2e55fcf87b` | qrysm's own replace |
 
 `contract`'s `TestReplacesMirrorQrysm` fails when a replace differs from qrysm's `go.mod` at the pinned commit, and
-the tool checks at start that `testdata/vectors/networks.json` agrees with the pinned qrysm on each network's fork
-version and slot timing. It prints the qrysm module it was built with.
+the tool checks at start that `testdata/vectors/networks.json` agrees with the pinned qrysm on the selected network's
+fork version and slot timing (`make vectors-contract` runs both networks). It prints the qrysm module it was built
+with.
 
 To bump the pin, for example to a new Q3 tip or, once Q2 and Q3 merge, to the `theQRL` or `cyyber` commit that
 carries them:
