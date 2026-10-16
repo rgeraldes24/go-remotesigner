@@ -156,9 +156,10 @@ bin/remotesigner-consensus --data-path=/var/lib/remotesigner consensus watermark
 ```
 
 - Every validator in the store gets the slot watermark `S` and source = target = `E`: no block at or below `S` and no
-  attestation with a source or target at or below `E` is signed. Only validators already in the store are
-  repaired: register the keys first by starting the signer once with no validator client connected (it registers
-  every key it loads), then stop it and repair.
+  attestation with a source below `E` or a target at or below `E` is signed (the first attestation allowed has
+  source `E` or above and target above `E`). Only validators already in the store are repaired: register the keys
+  first by starting the signer once with no validator client connected (it registers every key it loads), then stop
+  it and repair.
 - Both flags are required; a missing one is a usage error (exit 2).
 - A repair that would **lower** any validator's watermark is refused as a whole (exit 1), naming how many validators
   and one of them; nothing changes. A repair above the high watermark is refused too.

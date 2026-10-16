@@ -57,8 +57,9 @@ func optional(v *uint64) string {
 }
 
 // RepairLowWatermarks raises the low watermark of every registered validator to slot and to source = target =
-// epoch, so that nothing at or below them is signed: the fallback when no slashing-protection history can be
-// imported. It returns how many validators it updated.
+// epoch, so that no block at or below slot and no attestation with a source below epoch or a target at or below it
+// is signed: the fallback when no slashing-protection history can be imported. It returns how many validators it
+// updated.
 //
 // It changes nothing, and returns a *LowerWatermarkError, when it would lower any validator's watermark; and it
 // returns ErrWatermarkConflict when slot or epoch is above the high watermark. Validators are updated in batches,

@@ -201,8 +201,9 @@ func exportFile(ctx context.Context, path, to string, opts interchange.ExportOpt
 func watermarkRepairCommand(stdout io.Writer) *cli.Command {
 	return &cli.Command{
 		Name: flags.WatermarkRepairCommand,
-		Usage: "raise every validator's low watermarks, so that nothing at or below the slot and epoch is signed: the " +
-			"fallback when no history can be imported; it never lowers a watermark (offline; the signer must be stopped)",
+		Usage: "raise every validator's low watermarks, so that no block at or below the slot and no attestation with a " +
+			"source below the epoch or a target at or below it is signed: the fallback when no history can be imported; " +
+			"it never lowers a watermark (offline; the signer must be stopped)",
 		Flags:        flags.WatermarkRepair(),
 		OnUsageError: onUsageError,
 		Action: func(c *cli.Context) error {
