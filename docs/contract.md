@@ -62,6 +62,7 @@ SSZ containers and sizes, signing roots and domains, the RANDAO hash onion, and 
 | Subcommand | `remotesigner [global flags] consensus [flags]` |
 | Default listeners | API `127.0.0.1:9000`; metrics `127.0.0.1:9001`, only with `--metrics-enabled` |
 | HTTP | HTTP/1.1, plus h2 over TLS. `MaxHeaderBytes` 64 KiB, because a request line with a canonical identifier is about 5,225 bytes. |
+| TLS | Optional on the API listener (`--tls-cert-file` and `--tls-key-file`, `--tls-keystore-file`, or `--tls-generate-self-signed`; [`operations/tls.md`](operations/tls.md)). TLS 1.3 only, with the default key exchanges, so `X25519MLKEM768` comes first; an older client is refused in the handshake. The metrics listener is plaintext. |
 | Flags the qrysm e2e passes verbatim | global `--key-store-path` (alias of `--key-config-path`), `--data-path`, `--http-listen-port`, `--logging`, `--metrics-enabled`, `--metrics-port`; `consensus` `--network`, `--network-genesis-time` |
 
 ## 3. Identifiers
@@ -157,6 +158,14 @@ Response bodies:
   tokens stay in force.
 - A client certificate (optional mTLS) grants the `sign` scope only, never `admin`. Admin routes always need the
   admin bearer token, whatever `--http-auth-mode` says.
+- In `mtls` and `token+mtls` the TLS handshake requires a client certificate on every connection, whatever the
+  route. It is accepted when its SHA-256 fingerprint is in `--tls-known-clients-file` or it chains to a CA of
+  `--tls-client-ca-file`, never to a system root; a connection without an accepted certificate gets no HTTP answer.
+  The check runs again on resumed TLS sessions and on every request, so a client removed by a SIGHUP reload gets 401
+  `UNAUTHENTICATED` on a connection it already has open. In `mtls` a certificate on an admin route without the admin
+  token gets 403 `FORBIDDEN_SCOPE`; in `token+mtls` the sign token there gets 403 `FORBIDDEN_SCOPE`, as in `token`.
+- The metrics listener takes an optional third token (`--metrics-auth-token-file`). It grants `GET /metrics` only,
+  must differ from the other two, and neither of them grants `/metrics`.
 
 | `--http-auth-mode` | Sign scope | Admin scope |
 |---|---|---|
@@ -494,7 +503,10 @@ returns 412 `RANDAO_SLOT_OUT_OF_WINDOW` for anything that would move the frontie
 - Deterministic signing is allowed only with verify-before-release forced on, the per-key mutex and the startup
   self-test.
 - A bounded response cache (4,096 entries, two epochs, keyed by key, type and signing root) returns the same bytes
-  for a repeated request, so client retries are idempotent.
+  for a repeated request, so client retries are idempotent. Only a signature that passed verify-before-release
+  enters it. A hit is answered at step 9 of the pipeline, after every check of the request and before slashing
+  protection, which recorded the message the first time; it computes no new signature. The cache is per process,
+  and a key removed by a reload loses its entries.
 
 ## 16. Capabilities and `api_version`
 
@@ -633,6 +645,9 @@ show on this contract:
 | X29 (reload never disables keys) | [section 17](#17-supporting-endpoints) |
 | X36 (`/upcheck` 503 while loading), X37 (healthcheck detail needs the sign scope), X44 (fixed reload messages) | [sections 5](#5-endpoints) and [17](#17-supporting-endpoints) |
 | X45 (every POST needs `application/json`) | [section 7](#7-request-envelope-and-validation-pipeline) |
+| X48 (client certificates grant the sign scope only), X50 (metrics token) | [section 6](#6-authentication-and-scopes) |
+| X49 (TLS 1.3 only) | [section 2](#2-transport) |
+| X52 (response cache) | [section 15](#15-selection-proofs-and-signing-modes) |
 <!-- contract:deviations:end -->
 
 ## 22. Worked examples

@@ -11,11 +11,14 @@ metric, the label values that are fixed by the contract, and what to do when one
 | `--metrics-host` | `127.0.0.1` | Host the listener binds |
 | `--metrics-port` | `9001` | Port; `0` picks a free one, written as `metrics-port=<port>` to the ports file |
 | `--metrics-host-allowlist` | `localhost,127.0.0.1` | `Host` header names served; `*` or `all` accepts any, `none` refuses all |
+| `--metrics-auth-token-file` | unset | Bearer token a scrape must send; generated `0600` when missing, re-read on SIGHUP. Unset leaves `/metrics` open. |
 
-The names and defaults are Web3Signer's. The listener serves `GET /metrics` in the Prometheus text format and
-answers 404 to every other path. A `Host` outside the allowlist gets 403 `HOST_NOT_ALLOWED`, which keeps a browser
-page from reading the metrics through DNS rebinding. This release has no metrics token, so keep the listener on
-loopback, or on a network only Prometheus can reach.
+The names and defaults are Web3Signer's, except the token, which Web3Signer does not have. The listener serves
+`GET /metrics` in the Prometheus text format and answers 404 to every other path. A `Host` outside the allowlist gets
+403 `HOST_NOT_ALLOWED`, which keeps a browser page from reading the metrics through DNS rebinding. With
+`--metrics-auth-token-file`, a scrape without the metrics token gets 401 `UNAUTHENTICATED`; the sign and admin
+tokens never grant it, and it must differ from both ([`tls.md`](tls.md#7-the-metrics-token) has the Prometheus
+configuration). The listener has no TLS, so keep it on loopback, or on a network only Prometheus can reach.
 
 Startup is refused (exit code 1) when the listener is enabled on a non-loopback host and:
 
@@ -38,8 +41,8 @@ histograms replace Web3Signer's summaries. No metric carries a public key or a U
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `signing_requests_total` | counter | `type`, `result` | Sign requests by artifact type and outcome (see section 3) |
-| `signing_mldsa87_signing_duration_seconds` | histogram | `type` | Time to sign and verify one signature |
+| `signing_requests_total` | counter | `type`, `result` | Sign requests by artifact type and outcome (see section 3), answers from the response cache included |
+| `signing_mldsa87_signing_duration_seconds` | histogram | `type` | Time to sign and verify one signature; an answer from the response cache computes none |
 | `http_mldsa87_malformed_request_count_total` | counter | | Sign requests refused for a malformed identifier or body, before their type is known |
 | `signing_mldsa87_missing_identifier_count_total` | counter | | Sign requests for a key that is not loaded (404 `UNKNOWN_KEY`) |
 | `signing_signers_loaded_count` | gauge | | Keys loaded |
@@ -50,11 +53,14 @@ histograms replace Web3Signer's summaries. No metric carries a public key or a U
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `consensus_slashingprotection_permitted_signings_total` | counter | | Block and attestation checks that allowed signing (a repeat of a recorded message included) |
+| `consensus_slashingprotection_permitted_signings_total` | counter | | Block and attestation checks that allowed signing (a repeat of a recorded message included, unless the response cache answered it) |
 | `consensus_slashingprotection_prevented_signings_total` | counter | `reason` | Block and attestation checks that refused signing (412) |
 | `consensus_slashingprotection_database_duration_seconds` | histogram | `operation`: `block`, `attestation` | Time in the store's check-and-record transaction |
 
-With `--slashing-protection-enabled=false` no check runs, so neither counter moves.
+With `--slashing-protection-enabled=false` no check runs, so neither counter moves. A repeat of a request whose
+signature was released within the last two epochs is answered from the response cache with the same bytes
+([`../contract.md`](../contract.md#15-selection-proofs-and-signing-modes)), before slashing protection, so it moves
+neither counter either.
 
 ### RANDAO
 

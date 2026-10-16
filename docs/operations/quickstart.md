@@ -6,7 +6,8 @@ the HTTP API is [`../contract.md`](../contract.md).
 
 > This release signs all nine artifact types behind slashing protection, releases RANDAO reveals under the frontier
 > rule ([`randao.md`](randao.md)), and serves the operational API (`publicKeys`, `capabilities`, `/upcheck`,
-> `/healthcheck`, `/reload`) and the metrics listener.
+> `/healthcheck`, `/reload`) and the metrics listener. TLS, client certificates and the process hardening are in
+> [`tls.md`](tls.md).
 
 ## 1. Build
 
@@ -142,14 +143,16 @@ the reset of a key's state and the store upgrade (`consensus migrate`) are in [`
 
 ## 7. Metrics
 
-`--metrics-enabled` starts the Prometheus listener on `127.0.0.1:9001`. The metric catalogue, the alert rules in
+`--metrics-enabled` starts the Prometheus listener on `127.0.0.1:9001`; `--metrics-auth-token-file` makes it require
+a token of its own ([`tls.md`](tls.md#7-the-metrics-token)). The metric catalogue, the alert rules in
 `deploy/prometheus/alerts.yml` and their runbooks are in [`metrics.md`](metrics.md).
 
 ## 8. Rotate tokens, stop
 
 - **Rotate a token:** write a new one (`0x` and at least 64 hex characters) into its file, or delete the file to have
   a new one generated, then `kill -HUP <pid>`. If the new file is invalid, the old token stays in force and an ERROR
-  is logged.
+  is logged. SIGHUP also reloads the TLS certificate and the client trust files
+  ([`tls.md`](tls.md#5-rotating-tokens-and-certificates-with-sighup)).
 - **Stop:** `SIGTERM` (or `SIGINT`). The signer stops accepting connections, lets in-flight requests finish for up to
   10 s, closes the store, wipes the keys from memory, removes the ports file and exits 0.
 
@@ -180,8 +183,8 @@ The defaults bind `127.0.0.1`. A non-loopback `--http-listen-host` turns on fail
 
 | Refused | Fix |
 |---|---|
-| `--http-auth-mode=none` | use token auth |
-| token auth over plaintext HTTP (this release has no TLS) | put the signer behind a TLS terminator on the same host, or accept the risk with `--Xallow-plaintext-token-auth` |
+| `--http-auth-mode=none` | use `token`, `mtls` or `token+mtls` |
+| token auth over plaintext HTTP | serve TLS ([`tls.md`](tls.md)), or accept the risk with `--Xallow-plaintext-token-auth` |
 | `--http-host-allowlist` with loopback names only | add the names clients use, for example `--http-host-allowlist=signer.internal` |
 | `--slashing-protection-enabled=false` | none: protection can be disabled only when every listener is loopback |
 | GVR to be pinned on first use | pass `--network-genesis-validators-root` or `--network-genesis-state` (or `--Xallow-gvr-tofu`) |
