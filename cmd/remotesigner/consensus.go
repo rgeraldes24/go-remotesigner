@@ -51,7 +51,10 @@ func consensusCommand(run runFunc, stdout, stderr io.Writer) *cli.Command {
 		},
 		OnUsageError:    onUsageError,
 		HideHelpCommand: true,
-		Subcommands:     []*cli.Command{migrateCommand(stdout), randaoStateCommand(stdout), keystoreCommand(stdout)},
+		Subcommands: []*cli.Command{
+			migrateCommand(stdout), randaoStateCommand(stdout), importCommand(stdout, stderr), exportCommand(stdout, stderr),
+			watermarkRepairCommand(stdout), setHighWatermarkCommand(stdout), keystoreCommand(stdout),
+		},
 		Action: func(c *cli.Context) error {
 			if c.NArg() > 0 {
 				return usageError(fmt.Errorf("unexpected argument %q", c.Args().First()))
@@ -173,6 +176,10 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 				NewLayerRefillEpochs: c.Uint64(flags.RandaoRefillEpochs),
 				ProtectionRequired:   c.Bool(flags.RandaoProtectionRequired),
 			},
+			Pruning: config.Pruning{
+				EpochsToKeep: c.Uint64(flags.PruningEpochsToKeep),
+				Interval:     c.Duration(flags.PruningInterval),
+			},
 		},
 		Metrics: config.Metrics{
 			Enabled:       c.Bool(flags.MetricsEnabled),
@@ -223,6 +230,9 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 	if err := checkRandao(&cfg.Consensus.Randao); err != nil {
 		return nil, err
 	}
+	if err := checkPruning(cfg.Consensus.Pruning); err != nil {
+		return nil, err
+	}
 	if cfg.Consensus.SlashingProtectionDBPath, err = dbPath(c); err != nil {
 		return nil, err
 	}
@@ -255,6 +265,16 @@ func checkRandao(r *config.Randao) error {
 	case r.NewLayerRefillEpochs > 0 && r.NewLayerBurst == 0:
 		return fmt.Errorf("--%s must be at least 1 while the bucket is on (--%s=0 turns it off)",
 			flags.RandaoNewLayerBurst, flags.RandaoRefillEpochs)
+	}
+	return nil
+}
+
+func checkPruning(p config.Pruning) error {
+	switch {
+	case p.EpochsToKeep == 0:
+		return fmt.Errorf("--%s must be at least 1", flags.PruningEpochsToKeep)
+	case p.Interval <= 0:
+		return fmt.Errorf("--%s must be positive", flags.PruningInterval)
 	}
 	return nil
 }
