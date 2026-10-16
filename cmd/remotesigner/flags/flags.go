@@ -177,8 +177,8 @@ func RandaoStateReset() []cli.Flag {
 
 // KeystoreVerify returns the flags of `consensus keystore verify`, which
 // checks one keystore. They are named apart from the keystore loader's
-// --keystores-path, --keystores-password-file and --keystores-passwords-path
-// (DESIGN §3.6.2), which a directory form of the command would take.
+// --keystores-path, --keystores-password-file and --keystores-passwords-path,
+// which a directory form of the command would take.
 func KeystoreVerify() []cli.Flag {
 	return []cli.Flag{
 		&cli.StringFlag{Name: VerifyFile, Usage: "Required. The keystore to check: qrysm's keystore v1 or a deposit CLI keystore (JSON)", TakesFile: true},
