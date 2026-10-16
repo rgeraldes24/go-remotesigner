@@ -85,7 +85,7 @@ Every Argon2id run with the standard KDF takes about 1.5 s of one CPU core and 2
 ## 4. Checking a keystore
 
 ```
-remotesigner consensus keystore verify --keystore-file keystore-0.json --keystore-password-file keystore-0.txt
+remotesigner consensus keystore verify --file keystore-0.json --password-file keystore-0.txt
 ```
 
 The command runs the signer's decryptor and rules from sections 2 and 3 on one keystore. It needs no network, store,
@@ -133,7 +133,16 @@ Missing or extra arguments exit 2. Every flag is in [`../reference/flags.md`](..
 2. Unzip it. Entry names repeat across backups (`keystore-0.json`, …), so rename them (for example
    `<wallet>-keystore-<i>.json`) before putting several backups in one directory.
 3. Write the backup password to a file, make it and the keystores readable by their owner only (`chmod 0400`), and
-   run `consensus keystore verify` on each keystore.
+   check every keystore:
+
+   ```
+   for f in keystores/*.json; do
+     remotesigner consensus keystore verify --file "$f" --password-file backup.pw || echo "REFUSED: $f"
+   done
+   ```
+
+   The command checks one keystore per run, about 1.5 s each with the standard KDF, so 4,096 keystores take about
+   1 h 40 min.
 
 The wallet's stored public keys are copied into the backup as they are, not re-derived. A keystore that `verify`
 refuses with "pubkey does not match" comes from a wallet whose stored key and seed disagree; do not load it.

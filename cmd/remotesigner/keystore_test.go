@@ -50,7 +50,7 @@ func TestKeystoreVerify(t *testing.T) {
 		t.Run(file, func(t *testing.T) {
 			ks := filepath.Join(vectors.Dir(), "keystores", file)
 			pw := writeTemp(t, "password.txt", []byte(c.Password+"\r\n"))
-			code, stdout, stderr := runCLI(t, "consensus", "keystore", "verify", "--keystore-file", ks, "--keystore-password-file", pw)
+			code, stdout, stderr := runCLI(t, "consensus", "keystore", "verify", "--file", ks, "--password-file", pw)
 			if code != exitOK {
 				t.Fatalf("exit %d: %s", code, stderr)
 			}
@@ -92,7 +92,7 @@ func TestKeystoreVerifyUntrustedPath(t *testing.T) {
 				t.Fatal(err)
 			}
 			ks := writeTemp(t, "keystore.json", b)
-			code, stdout, stderr := runCLI(t, "consensus", "keystore", "verify", "--keystore-file", ks, "--keystore-password-file", pw)
+			code, stdout, stderr := runCLI(t, "consensus", "keystore", "verify", "--file", ks, "--password-file", pw)
 			if code != exitOK {
 				t.Fatalf("exit %d: %s", code, stderr)
 			}
@@ -148,7 +148,7 @@ func TestKeystoreVerifyRefusals(t *testing.T) {
 		{"missing password file", good, filepath.Join(t.TempDir(), "none.txt"), "no such file"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			code, stdout, stderr := runCLI(t, "consensus", "keystore", "verify", "--keystore-file", tt.keystore, "--keystore-password-file", tt.password)
+			code, stdout, stderr := runCLI(t, "consensus", "keystore", "verify", "--file", tt.keystore, "--password-file", tt.password)
 			if code != exitStartup || !strings.Contains(stderr, tt.want) {
 				t.Fatalf("exit %d, stderr %q; want exit %d mentioning %q", code, stderr, exitStartup, tt.want)
 			}
@@ -223,9 +223,9 @@ func TestKeystoreVerifyUsage(t *testing.T) {
 	for _, args := range [][]string{
 		{"consensus", "keystore"},
 		{"consensus", "keystore", "verify"},
-		{"consensus", "keystore", "verify", "--keystore-file", "k.json"},
-		{"consensus", "keystore", "verify", "--keystore-password-file", "p.txt"},
-		{"consensus", "keystore", "verify", "--keystore-file", "k.json", "--keystore-password-file", "p.txt", "extra"},
+		{"consensus", "keystore", "verify", "--file", "k.json"},
+		{"consensus", "keystore", "verify", "--password-file", "p.txt"},
+		{"consensus", "keystore", "verify", "--file", "k.json", "--password-file", "p.txt", "extra"},
 		{"consensus", "keystore", "verify", "--unknown"},
 	} {
 		if code, _, stderr := runCLI(t, args...); code != exitUsage || !strings.Contains(stderr, "usage error") {

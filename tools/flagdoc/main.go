@@ -57,7 +57,7 @@ func render() []byte {
 remotesigner [global flags] consensus [consensus flags]
 remotesigner [global flags] consensus [consensus flags] migrate [migrate flags]
 remotesigner [global flags] consensus [consensus flags] randao-state reset --key <id> [reset flags]
-remotesigner [global flags] consensus keystore verify --keystore-file <file> --keystore-password-file <file>
+remotesigner [global flags] consensus keystore verify --file <keystore> --password-file <file>
 ` + "```" + `
 
 Every flag can also be set:

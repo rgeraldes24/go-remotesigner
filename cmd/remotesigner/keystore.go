@@ -35,12 +35,12 @@ func keystoreCommand(stdout io.Writer) *cli.Command {
 				if c.NArg() > 0 {
 					return usageError(fmt.Errorf("unexpected argument %q", c.Args().First()))
 				}
-				for _, name := range []string{flags.KeystoreFile, flags.KeystorePasswordFile} {
+				for _, name := range []string{flags.VerifyFile, flags.VerifyPasswordFile} {
 					if c.String(name) == "" {
 						return usageError(fmt.Errorf("--%s is required", name))
 					}
 				}
-				err := verifyKeystore(stdout, c.String(flags.KeystoreFile), c.String(flags.KeystorePasswordFile))
+				err := verifyKeystore(stdout, c.String(flags.VerifyFile), c.String(flags.VerifyPasswordFile))
 				if err != nil {
 					return cli.Exit(err.Error(), exitStartup)
 				}
@@ -48,8 +48,8 @@ func keystoreCommand(stdout io.Writer) *cli.Command {
 			},
 		}},
 		Action: func(c *cli.Context) error {
-			return usageError(fmt.Errorf("want %s %s --%s <file> --%s <file>", flags.KeystoreCommand, flags.VerifyCommand,
-				flags.KeystoreFile, flags.KeystorePasswordFile))
+			return usageError(fmt.Errorf("want %s %s --%s <keystore> --%s <file>", flags.KeystoreCommand, flags.VerifyCommand,
+				flags.VerifyFile, flags.VerifyPasswordFile))
 		},
 	}
 }

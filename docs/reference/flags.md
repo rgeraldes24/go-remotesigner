@@ -6,7 +6,7 @@
 remotesigner [global flags] consensus [consensus flags]
 remotesigner [global flags] consensus [consensus flags] migrate [migrate flags]
 remotesigner [global flags] consensus [consensus flags] randao-state reset --key <id> [reset flags]
-remotesigner [global flags] consensus keystore verify --keystore-file <file> --keystore-password-file <file>
+remotesigner [global flags] consensus keystore verify --file <keystore> --password-file <file>
 ```
 
 Every flag can also be set:
@@ -98,8 +98,8 @@ identifier and exits 0, or names the refusal and exits 1. It needs no network, s
 
 | Flag | Environment | Config file | Default | Description |
 |---|---|---|---|---|
-| `--keystore-file` | none | none | unset | Required. The keystore to check: qrysm's keystore v1 or a deposit CLI keystore (JSON) |
-| `--keystore-password-file` | none | none | unset | Required. File holding the keystore's password; trailing line breaks are not part of it |
+| `--file` | none | none | unset | Required. The keystore to check: qrysm's keystore v1 or a deposit CLI keystore (JSON) |
+| `--password-file` | none | none | unset | Required. File holding the keystore's password; trailing line breaks are not part of it |
 
 ## Override flags
 
