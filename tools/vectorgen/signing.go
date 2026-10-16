@@ -136,7 +136,7 @@ func seq(n int) []int {
 }
 
 // curatedCases returns the curated cases of type t on chain c: zero and
-// maximum values, edge sizes and the spec examples (DESIGN §7.2).
+// maximum values, edge sizes and the spec examples.
 func (g *generator) curatedCases(c *chain, t string) ([]signCase, error) {
 	z := make([]byte, 32)
 	ff := fill32("max")

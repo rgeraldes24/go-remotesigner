@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package jsonutil is the strict JSON codec of the consensus API
-// (docs/contract.md, "Encoding rules"; DESIGN decision D7).
+// (docs/contract.md, "Encoding rules").
 //
 // encoding/json is too lenient for the contract: it matches keys
 // case-insensitively, keeps the last of duplicate keys, accepts numbers for

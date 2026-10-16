@@ -62,7 +62,7 @@ func (c *chain) fork() *qrysmpb.Fork {
 	return &qrysmpb.Fork{PreviousVersion: c.forkVersion(), CurrentVersion: c.forkVersion(), Epoch: 0}
 }
 
-// recordNetwork is the per-record network object of DESIGN §7.2.
+// recordNetwork is the per-record network object (testdata/vectors/README.md).
 func (c *chain) recordNetwork() obj {
 	return obj{}.
 		set("config_name", c.cfg.ConfigName).

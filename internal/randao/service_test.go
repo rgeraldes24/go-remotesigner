@@ -247,7 +247,7 @@ func TestNegativeCacheEvicts(t *testing.T) {
 	}
 }
 
-// First use, new layer, re-reveal and retry (G1 §5 #1, #2, #3-#5, #15).
+// First use, new layer, re-reveal (orphaned or missed proposal) and retry.
 func TestFirstUseNewLayerReReveal(t *testing.T) {
 	f := newFixture(t, memstore.New())
 	f.ok(f.reveal(1000, testLayers), testLayers, metrics.RandaoFirstUse)
@@ -313,7 +313,7 @@ func (f *fixture) durations(path string) uint64 {
 	return m.GetHistogram().GetSampleCount()
 }
 
-// G4 S23 burst test: with last 10,000 slots old, at most skew + 2 = 3 new
+// Burst test: with last 10,000 slots old, at most skew + 2 = 3 new
 // layers are released in one slot, then one per slot (bucket off) or none
 // until the bucket refills (bucket on).
 func TestBurst(t *testing.T) {
@@ -537,7 +537,7 @@ func TestTrack(t *testing.T) {
 	}
 }
 
-// G1 §8 V8 with bbolt: a store restored from an old backup sees the
+// With bbolt, a store restored from an old backup sees the
 // chain's deeper commitment as a gap, advances by one released layer, and
 // a retry after a lost response is an idempotent re-reveal.
 func TestRestoredBackup(t *testing.T) {
@@ -635,7 +635,7 @@ func (k *gatedKey) WithSeed(fn func(*[mldsa87.SeedSize]byte) error) error {
 	return k.seedKey.WithSeed(fn)
 }
 
-// G4 S23: a slow-path scan in flight does not delay a legitimate reveal for
+// A slow-path scan in flight does not delay a legitimate reveal for
 // the same key, which finishes within 100 ms; the scan's result is then
 // classified against the frontier those reveals moved.
 func TestScanDoesNotBlockKey(t *testing.T) {

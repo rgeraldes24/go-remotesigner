@@ -332,7 +332,7 @@ func TestSignIdentifierAlias(t *testing.T) {
 	}
 }
 
-// G4 S14: a fork_info that does not name the signer's network is 400
+// A fork_info that does not name the signer's network is 400
 // FORK_INFO_MISMATCH for every type that carries one, and registrations
 // carry none. Nothing is signed.
 func TestSignForkInfoMismatch(t *testing.T) {
@@ -388,7 +388,7 @@ func goldenCase(t *testing.T, typ signingroot.ArtifactType, name string) vectors
 	return vectors.SignCase{}
 }
 
-// G4 S13: a refused attestation never reaches the key. The refusal is
+// A refused attestation never reaches the key. The refusal is
 // counted by reason and the request as refused.
 func TestSignRefusedAttestationNeverSigns(t *testing.T) {
 	c := goldenCase(t, signingroot.Attestation, "typical")
@@ -530,7 +530,7 @@ func TestSignFeeRecipientPin(t *testing.T) {
 	}
 }
 
-// G4 S17: a corrupted signature is 500 SIGNATURE_FAULT, its bytes are never
+// A corrupted signature is 500 SIGNATURE_FAULT, its bytes are never
 // sent, and the key is quarantined (503 KEY_QUARANTINED) until a reload.
 func TestSignFaultInjection(t *testing.T) {
 	c := goldenCase(t, signingroot.Attestation, "typical")
@@ -566,7 +566,7 @@ func TestSignFaultInjection(t *testing.T) {
 	signature(t, f.post(f.ident(other), sc.RequestJSON))
 }
 
-// G4 S19 (run with -race): removing a key while requests sign with it
+// Run with -race: removing a key while requests sign with it
 // yields only 200 or 404, and 404 once the removal has completed.
 func TestSignDeleteWhileSigning(t *testing.T) {
 	c := goldenCase(t, signingroot.SyncCommitteeMessage, "typical")

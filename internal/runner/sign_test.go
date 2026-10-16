@@ -159,7 +159,7 @@ func TestRunSignAndMetrics(t *testing.T) {
 	}
 }
 
-// G4 S7: a 1.19 MB contribution (128 signatures, mainnet preset) passes the
+// A 1.19 MB contribution (128 signatures, mainnet preset) passes the
 // 2 MiB body limit, and 2 MiB + 1 is 413.
 func TestRunLargeContribution(t *testing.T) {
 	c := goldenCase(t, "mainnet", signingroot.SyncCommitteeContributionAndProof, "signatures_128")

@@ -98,8 +98,8 @@ func renamed(o obj, path, k string) obj {
 func hexN(label string, n int) string { return hx(fill(label, n)) }
 
 // negativeCases builds the negative fixtures of chain c from its valid
-// requests: one or more per 400 reason of docs/contract.md section 11
-// (G2 §8.3 item 5), plus the exit gate.
+// requests: one or more per 400 reason of docs/contract.md section 11,
+// plus the exit gate.
 func (g *generator) negativeCases(c *chain) ([]negCase, error) {
 	valid := map[string]obj{}
 	for _, t := range artifactTypes {

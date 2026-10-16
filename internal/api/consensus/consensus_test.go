@@ -47,7 +47,7 @@ func TestParseIdentifier(t *testing.T) {
 		name string
 		s    string
 	}{
-		{"5,188 characters", canonical + "ab"}, // G4 S7: rejected before decoding
+		{"5,188 characters", canonical + "ab"}, // rejected before decoding
 		{"5,185 characters", canonical[:5185]}, // odd length
 		{"empty", ""},
 		{"no prefix, canonical length", "ab" + canonical[2:]},
@@ -204,7 +204,7 @@ func TestCapabilities(t *testing.T) {
 	}
 }
 
-// B15: GET publicKeys for 10,000 keys, plain and gzip. Threshold (G6 §8):
+// B15: GET publicKeys for 10,000 keys, plain and gzip. Threshold (docs/benchmarks.md):
 // at most 2 s, and at most 64 MB of transient allocation, per request.
 func BenchmarkPublicKeys10k(b *testing.B) {
 	keys := randomKeys(10_000)

@@ -36,7 +36,7 @@ func capabilitiesResponse(c *chain, top map[string]any, network map[string]any) 
 
 // genCapabilities writes capabilities.json: the startup handshake of
 // docs/contract.md section 16 as the qrysm client must judge it, for the
-// client's Q2 tests. Each case pairs the chain the client knows with a
+// qrysm client's tests. Each case pairs the chain the client knows with a
 // capabilities response and whether the client must accept it.
 func genCapabilities(g *generator) error {
 	var recs []obj

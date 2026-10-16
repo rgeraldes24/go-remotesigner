@@ -11,7 +11,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/api/apierr"
 )
 
-// FuzzDecodeSignRequest feeds arbitrary bodies to the decoder (G4 S9). It
+// FuzzDecodeSignRequest feeds arbitrary bodies to the decoder. It
 // must never panic, must refuse with a 400-class reason, and anything it
 // accepts must re-encode canonically, decode to the same request and hash
 // without error unless a list is over its limit.

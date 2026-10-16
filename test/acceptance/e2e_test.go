@@ -246,7 +246,7 @@ func TestIntegrationEveryRequestType(t *testing.T) {
 	}
 }
 
-// vectorgen verify against the built binary (PLAN S5b). The signer runs
+// vectorgen verify against the built binary. The signer runs
 // with the interop keys on each end-to-end network bound to the fixture
 // GVR, in two configurations that between them leave no fixture
 // unchecked:

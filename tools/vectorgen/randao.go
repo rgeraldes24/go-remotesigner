@@ -262,8 +262,8 @@ func refused(now, slot, layer uint64, status int, reason string, m, last uint64,
 	return step{now: now, slot: slot, layer: layer, status: status, reason: reason, result: "refused", m: m, last: last, hasState: hasState}
 }
 
-// frontierScripts are the G1 §5 scenarios under the contract's frontier rule,
-// each from an empty state on key 0, whose onion has L = 2^20 layers. Steps
+// frontierScripts are the fork, reorg, orphan, retry and walking scenarios
+// under the contract's frontier rule, each from an empty state on key 0, whose onion has L = 2^20 layers. Steps
 // that need a slow-path scan from x_0 are two slots apart, so the default
 // --randao-full-scan-min-interval (one slot) never decides an outcome. The
 // one exception is the contract's §22 example of a second gap advance in the
@@ -273,18 +273,18 @@ func refused(now, slot, layer uint64, status int, reason string, m, last uint64,
 func frontierScripts() []script {
 	L := uint64(bigL)
 	return []script{
-		{name: "first_use", scenario: "G1 §5 #1, #10", refillEpochs: 1, steps: []step{
+		{name: "first_use", scenario: "first proposal after the deposit, or of a key migrated from a client that kept no reveal state", refillEpochs: 1, steps: []step{
 			released(100, 100, L, "first_use", L-1, 100),
 		}},
-		{name: "next_proposal", scenario: "G1 §5 #2", refillEpochs: 1, steps: []step{
+		{name: "next_proposal", scenario: "next proposal after an included one", refillEpochs: 1, steps: []step{
 			released(100, 100, L, "first_use", L-1, 100),
 			released(200, 200, L-1, "new_layer", L-2, 200),
 		}},
-		{name: "orphaned_or_missed_proposal", scenario: "G1 §5 #3, #4, #5", refillEpochs: 1, steps: []step{
+		{name: "orphaned_or_missed_proposal", scenario: "previous block orphaned, proposal missed after the release, or the VC's head behind the canonical chain", refillEpochs: 1, steps: []step{
 			released(100, 100, L, "first_use", L-1, 100),
 			reReveal(250, 250, L, L-1, 100),
 		}},
-		{name: "retry_within_slot", scenario: "G1 §5 #15", refillEpochs: 1, steps: []step{
+		{name: "retry_within_slot", scenario: "retry within the slot: response lost after the commit, or a VC restart", refillEpochs: 1, steps: []step{
 			released(100, 100, L, "first_use", L-1, 100),
 			reReveal(100, 100, L, L-1, 100),
 		}},
@@ -302,7 +302,7 @@ func frontierScripts() []script {
 			refused(102, 100, L, 412, "RANDAO_SLOT_OUT_OF_WINDOW", 0, 0, false),
 			released(104, 103, L, "first_use", L-1, 103),
 		}},
-		{name: "gap_advanced", scenario: "G1 §5 #6, #9; contract §22, §14.4: a second advance in the same slot needs a scan inside the budget's interval", refillEpochs: 1, steps: []step{
+		{name: "gap_advanced", scenario: "a commitment deeper than the frontier: a minority fork, or a second signer with its own store; contract §22, §14.4: a second advance in the same slot needs a scan inside the budget's interval", refillEpochs: 1, steps: []step{
 			released(100, 100, L, "first_use", L-1, 100),
 			released(200, 200, L-10, "gap_advanced", L-11, 200),
 			refused(200, 200, L-20, 429, "RANDAO_SCAN_RATE_LIMITED", L-11, 200, true),
@@ -312,26 +312,26 @@ func frontierScripts() []script {
 			released(200, 201, L-10, "gap_advanced", L-11, 201),
 			refused(202, 201, L-20, 412, "RANDAO_SLOT_NOT_INCREASING", L-11, 201, true),
 		}},
-		{name: "deep_reorg_within_window", scenario: "G1 §5 #11", refillEpochs: 1, steps: []step{
+		{name: "deep_reorg_within_window", scenario: "deep reorg orphaning several of the key's blocks", refillEpochs: 1, steps: []step{
 			released(100, 100, L, "first_use", L-1, 100),
 			released(200, 200, L-1, "new_layer", L-2, 200),
 			released(300, 300, L-2, "new_layer", L-3, 300),
 			reReveal(400, 400, L, L-3, 300),
 		}},
-		{name: "deep_reorg_beyond_window", scenario: "G1 §5 #11 (slow path)", refillEpochs: 1, steps: []step{
+		{name: "deep_reorg_beyond_window", scenario: "deep reorg beyond the reorg window (slow path)", refillEpochs: 1, steps: []step{
 			released(100, 100, L-2000, "first_use", L-2001, 100),
 			reReveal(200, 200, L, L-2001, 100),
 		}},
-		{name: "minority_fork_runs_ahead", scenario: "G1 §5 #6", refillEpochs: 1, steps: []step{
+		{name: "minority_fork_runs_ahead", scenario: "minority fork holding a block of the key that the canonical chain lacks", refillEpochs: 1, steps: []step{
 			released(100, 100, L, "first_use", L-1, 100),
 			released(200, 200, L-1, "new_layer", L-2, 200),
 			reReveal(300, 300, L-1, L-2, 200),
 			reReveal(300, 300, L, L-2, 200),
 		}},
-		{name: "exhausted", scenario: "G1 §5 #12", refillEpochs: 1, steps: []step{
+		{name: "exhausted", scenario: "onion exhausted: the commitment is x_0", refillEpochs: 1, steps: []step{
 			refused(100, 100, 0, 422, "RANDAO_ONION_EXHAUSTED", 0, 0, false),
 		}},
-		{name: "unknown_commitment", scenario: "G1 §5 #13", refillEpochs: 1, steps: []step{
+		{name: "unknown_commitment", scenario: "commitment not in this onion: zero, another key's, or above the maximum length", refillEpochs: 1, steps: []step{
 			{now: 100, slot: 100, commitment: "zero", status: 422, reason: "RANDAO_UNKNOWN_COMMITMENT", result: "refused"},
 			{now: 102, slot: 102, commitment: "other_key", status: 422, reason: "RANDAO_UNKNOWN_COMMITMENT", result: "refused"},
 			refused(104, 104, L+1, 422, "RANDAO_UNKNOWN_COMMITMENT", 0, 0, false),
@@ -345,7 +345,7 @@ func frontierScripts() []script {
 			refused(100, 100, L-3, 412, "RANDAO_NEW_LAYER_RATE_LIMITED", L-3, 99, true),
 			released(106, 106, L-3, "new_layer", L-4, 106),
 		}},
-		{name: "malicious_beacon_node", scenario: "G1 §5 #14", refillEpochs: 0, steps: []step{
+		{name: "malicious_beacon_node", scenario: "malicious beacon node asking for a reveal in every slot", refillEpochs: 0, steps: []step{
 			released(100, 100, L, "first_use", L-1, 100),
 			refused(100, 100, L-1, 412, "RANDAO_SLOT_NOT_INCREASING", L-1, 100, true),
 			released(101, 101, L-1, "new_layer", L-2, 101),
@@ -354,7 +354,7 @@ func frontierScripts() []script {
 			released(103, 103, L-3, "new_layer", L-4, 103),
 			released(104, 104, L-4, "new_layer", L-5, 104),
 		}},
-		{name: "two_vcs_same_slot", scenario: "G1 §5 #8", refillEpochs: 1, steps: []step{
+		{name: "two_vcs_same_slot", scenario: "two VCs with one key on one signer, in the same slot", refillEpochs: 1, steps: []step{
 			released(100, 100, L, "first_use", L-1, 100),
 			released(200, 200, L-1, "new_layer", L-2, 200),
 			reReveal(200, 200, L-1, L-2, 200),
@@ -438,7 +438,7 @@ func genFrontier(g *generator) error {
 			set("steps", steps))
 	}
 	return writeJSON(g.vectors, "randao/frontier.json", obj{}.
-		set("description", g.description("Vector V6: frontier-rule scripts for the G1 §5 scenarios under "+
+		set("description", g.description("Vector V6: frontier-rule scripts for fork, reorg, orphan, retry and walking scenarios under "+
 			"docs/contract.md sections 14.3 and 14.4, on interop key 0 (onion length 2^20) of the end-to-end network "+
 			"(6 slots per epoch). Each script starts from an empty reveal state; now_slot is the signer's clock. "+
 			"The expectations are the contract's; every layer value was computed by qrysm's crypto/randao, and "+

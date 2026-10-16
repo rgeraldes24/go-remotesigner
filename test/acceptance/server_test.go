@@ -32,8 +32,8 @@ func reasonOf(t *testing.T, body string) string {
 	return e.Reason
 }
 
-// G4 S1, S2, S4, S5: authentication, the scope matrix of the token modes,
-// content type, Origin and Host.
+// Authentication, the scope matrix of the token modes, content type,
+// Origin and Host.
 func TestRequestRefusals(t *testing.T) {
 	s := start(t, options{})
 	s.waitReady()
@@ -90,7 +90,7 @@ func TestRequestRefusals(t *testing.T) {
 	}
 }
 
-// G4 S3: the startup refusals. None of them has a way around it except the
+// The startup refusals. None of them has a way around it except the
 // documented override flags, and disabled protection has none.
 func TestStartupRefusals(t *testing.T) {
 	stateFile := filepath.Join(t.TempDir(), "genesis.ssz")
@@ -205,7 +205,7 @@ func postHeld(s *signer, admin string, body io.Reader) <-chan int {
 	return codes
 }
 
-// G4 S7: a chunked body takes a large-body slot; with 8 held, the 9th waits.
+// A chunked body takes a large-body slot; with 8 held, the 9th waits.
 func TestLargeBodyGate(t *testing.T) {
 	s := start(t, options{})
 	s.waitReady()

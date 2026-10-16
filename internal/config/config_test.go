@@ -39,7 +39,7 @@ func fileNetwork(gvr, genesis bool) *network.Network {
 	return n
 }
 
-// The startup refusals of the walking skeleton (G4 S3).
+// The startup refusals on a non-loopback listener (DEVIATIONS.md X38).
 func TestCheckFailSafes(t *testing.T) {
 	known := fileNetwork(true, true)
 	remote := func(c *Config) {
