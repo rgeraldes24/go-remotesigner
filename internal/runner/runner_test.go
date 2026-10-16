@@ -93,6 +93,7 @@ func baseConfig(t *testing.T) *config.Config {
 			SelectionProofMode:        mldsa87.Deterministic,
 			Randao: config.Randao{MaxLayers: randao.DefaultMaxLayers, ReorgWindow: randao.DefaultReorgWindow,
 				NewLayerBurst: randao.DefaultNewLayerBurst, NewLayerRefillEpochs: randao.DefaultRefillEpochs},
+			Pruning: config.Pruning{EpochsToKeep: 512, Interval: 12 * time.Hour},
 		},
 	}
 }
@@ -115,10 +116,16 @@ func quiet() *logrus.Logger {
 
 func start(t *testing.T, cfg *config.Config) *running {
 	t.Helper()
+	return startWithLog(t, cfg, quiet())
+}
+
+// startWithLog is start with the signer's logger given.
+func startWithLog(t *testing.T, cfg *config.Config, log *logrus.Logger) *running {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	hup := make(chan struct{})
 	done := make(chan error, 1)
-	go func() { done <- Run(ctx, cfg, quiet(), hup) }()
+	go func() { done <- Run(ctx, cfg, log, hup) }()
 
 	ports := filepath.Join(cfg.DataPath, server.PortsFileName)
 	var port string
