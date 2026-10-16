@@ -161,8 +161,8 @@ Response bodies:
 - In `mtls` and `token+mtls` the TLS handshake requires a client certificate on every connection, whatever the
   route. It is accepted when its SHA-256 fingerprint is in `--tls-known-clients-file` or it chains to a CA of
   `--tls-client-ca-file`, never to a system root; a connection without an accepted certificate gets no HTTP answer.
-  The check runs again on resumed TLS sessions and on every request, so a client removed by a SIGHUP reload gets 401
-  `UNAUTHENTICATED` on a connection it already has open. In `mtls` a certificate on an admin route without the admin
+  The check runs again on resumed TLS sessions and on every request, `/upcheck` and `/healthcheck` included, so a
+  client removed by a SIGHUP reload gets 401 `UNAUTHENTICATED` on a connection it already has open. In `mtls` a certificate on an admin route without the admin
   token gets 403 `FORBIDDEN_SCOPE`; in `token+mtls` the sign token there gets 403 `FORBIDDEN_SCOPE`, as in `token`.
 - The metrics listener takes an optional third token (`--metrics-auth-token-file`). It grants `GET /metrics` only,
   must differ from the other two, and neither of them grants `/metrics`.

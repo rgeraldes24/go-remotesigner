@@ -317,7 +317,12 @@ func TestMTLSScopeMatrix(t *testing.T) {
 		{ModeTokenMTLS, ScopeAdmin, "good", signTok, apierr.ForbiddenScope},
 		{ModeTokenMTLS, ScopeAdmin, "bad", adminTok, apierr.Unauthenticated},
 		{ModeTokenMTLS, ScopeAdmin, "-", adminTok, apierr.Unauthenticated},
-		{ModeTokenMTLS, ScopeNone, "-", "", ""},
+		{ModeMTLS, ScopeNone, "good", "", ""},
+		{ModeMTLS, ScopeNone, "bad", "", apierr.Unauthenticated},
+		{ModeMTLS, ScopeNone, "", "", apierr.Unauthenticated},
+		{ModeTokenMTLS, ScopeNone, "good", "", ""},
+		{ModeTokenMTLS, ScopeNone, "bad", signTok, apierr.Unauthenticated},
+		{ModeTokenMTLS, ScopeNone, "-", "", apierr.Unauthenticated},
 	}
 	for _, tt := range tests {
 		name := string(tt.mode) + "/" + tt.scope.String() + "/" + tt.cert + "/" + strings.TrimPrefix(tt.tok, "0x")[:min(4, len(tt.tok))]
@@ -362,6 +367,16 @@ func TestMetricsScope(t *testing.T) {
 	}
 	if a.Allows(request(metricsTok), ScopeSign) || a.Allows(request(metricsTok), ScopeAdmin) {
 		t.Fatal("the metrics token grants an API scope")
+	}
+	// The metrics listener is plaintext: in the mtls modes its scope still
+	// takes the metrics token alone, never a client certificate.
+	m, err := New(Config{Mode: ModeMTLS, AdminTokenFile: filepath.Join(dir, "admin"),
+		MetricsTokenFile: filepath.Join(dir, "metrics"), VerifyClient: acceptGood})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := m.Check(request(metricsTok), ScopeMetrics); e != nil {
+		t.Fatalf("mode mtls, metrics token over plaintext: %v", e)
 	}
 	// A generated metrics token file is 0600.
 	gen := filepath.Join(dir, "gen", "metrics-token")

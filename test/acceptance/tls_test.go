@@ -404,6 +404,13 @@ func TestMTLSScopeMatrix(t *testing.T) {
 				}
 				time.Sleep(20 * time.Millisecond)
 			}
+			// Every route of the open connection refuses it, the
+			// credential-less ones included.
+			for _, path := range []string{"/upcheck", "/healthcheck", "/api/v1/consensus/capabilities", "/no-such-route"} {
+				if code, _, err := call(withCert, http.MethodGet, s.tlsBase()+path, sign); err != nil || code != 401 {
+					t.Errorf("the removed client's open connection: GET %s got %d %v, want 401", path, code, err)
+				}
+			}
 			before = cache.offered.Load()
 			if _, _, err := call(tlsClient(roots, &vcCert, cache), http.MethodGet, s.tlsBase()+"/upcheck", ""); err == nil {
 				t.Fatal("the removed client resumed its session")
@@ -489,6 +496,7 @@ func TestMTLSRevokeTheOnlyClient(t *testing.T) {
 				r.revoke()
 				s.signal(syscall.SIGHUP)
 				waitOpen(keys, 401)
+				waitOpen("/upcheck", 401)
 				waitLog(r.log)
 				if code, _, err := call(tlsClient(roots, &vcCert, nil), http.MethodGet, s.tlsBase()+keys, ""); err == nil {
 					t.Fatalf("%s: the revoked client opened a new connection: %d", r.name, code)

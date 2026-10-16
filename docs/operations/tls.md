@@ -118,9 +118,10 @@ enough.
 
 The client check runs on every handshake, a resumed TLS session included, and again on every request against the
 trust in force at that moment. A client removed from either file by a reload (section 5) can neither open a new
-connection nor resume its session, and its open connections get 401 `UNAUTHENTICATED` from their next request. This
-holds for the last client too: a reload of a known-clients file that lists nobody, or of a CA file without a
-certificate, trusts nobody. At startup such a file refuses the start instead, as a mistake.
+connection nor resume its session, and its open connections get 401 `UNAUTHENTICATED` from their next request, on
+every route, `/upcheck` and `/healthcheck` included. This holds for the last client too: a reload of a known-clients
+file that lists nobody, or of a CA file without a certificate, trusts nobody. At startup such a file refuses the start
+instead, as a mistake.
 
 The validator client presents its certificate with `--validators-external-signer-tls-client-cert-file` and
 `--validators-external-signer-tls-client-key-file`.

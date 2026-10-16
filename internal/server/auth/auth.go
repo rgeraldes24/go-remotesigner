@@ -22,7 +22,8 @@
 // certificate never grants the admin scope: admin routes need the admin
 // token in every mode, and in token+mtls the certificate as well. The TLS
 // layer verifies the certificate during the handshake; Check verifies it
-// again on every request against the trust in force, through
+// again on every API request, the credential-less routes (/upcheck,
+// /healthcheck) included, against the trust in force, through
 // Config.VerifyClient.
 package auth
 
@@ -205,15 +206,17 @@ func same(a, b *[sha256.Size]byte) bool { return a != nil && b != nil && *a == *
 // refusal otherwise: 401 UNAUTHENTICATED for a missing or unknown token or
 // client certificate (including the admin token on a sign route), 403
 // FORBIDDEN_SCOPE for a sign credential on an admin route (the sign token,
-// or in mode mtls a client certificate without the admin token).
+// or in mode mtls a client certificate without the admin token). In the
+// mtls modes every API scope, ScopeNone included, needs an accepted client
+// certificate, so that a client removed by a reload gets 401 on every route
+// of a connection it already has open; the metrics listener has no TLS, and
+// ScopeMetrics never takes a certificate.
 func (a *Authenticator) Check(r *http.Request, scope Scope) *apierr.Error {
 	a.mu.RLock()
 	sign, admin, metrics := a.sign, a.admin, a.metrics
 	a.mu.RUnlock()
 
 	switch {
-	case scope == ScopeNone:
-		return nil
 	case scope == ScopeMetrics:
 		if metrics == nil {
 			return nil
@@ -226,10 +229,12 @@ func (a *Authenticator) Check(r *http.Request, scope Scope) *apierr.Error {
 			return nil
 		}
 		return apierr.New(apierr.Unauthenticated, "unknown token for the route's scope")
-	case scope == ScopeSign && a.cfg.Mode == ModeNone:
-		return nil
 	case a.cfg.Mode.ClientCerts() && !a.clientCert(r):
 		return apierr.New(apierr.Unauthenticated, "no accepted client certificate")
+	case scope == ScopeNone:
+		return nil
+	case scope == ScopeSign && a.cfg.Mode == ModeNone:
+		return nil
 	case scope == ScopeSign && a.cfg.Mode == ModeMTLS:
 		return nil // the certificate is the sign credential
 	}
