@@ -148,4 +148,8 @@ mostly out of any real range.
   run the client mapper, and compare the JSON with ` + "`request_json`" + `.
 - **vectorgen verify.** ` + "`vectorgen verify --signer http://127.0.0.1:9000 --token-file <auth-token>`" + ` posts every
   fixture to a running signer and checks the answers with qrysm's verifier (` + "`tools/vectorgen/README.md`" + `).
+- **vectorgen contract.** ` + "`tools/vectorgen/contract`" + ` takes the interop genesis validators root from
+  ` + "`networks.json`" + ` and interop key 0 with its first reveal from ` + "`keys/interop.json`" + `, drives a running signer
+  with qrysm's own keymanager and checks the answers with qrysm's verifiers (` + "`tools/vectorgen/README.md`" + `,
+  Contract mode).
 `

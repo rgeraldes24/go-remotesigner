@@ -31,7 +31,8 @@ the attribution survives and `headercheck` can check the file as `w3s-derived`. 
 No GPL code from qrysm (`github.com/theQRL/qrysm`, GPL-3.0) is copied into or imported by this module. `depguard`
 denies every `github.com/theQRL/qrysm/**` import, `make nogpl` checks that `go list -deps` of the module (both
 flavours) contains no qrysm package, and `go-licenses check` gates the dependency graph. Only the nested,
-never-shipped module `tools/vectorgen` may link qrysm, to generate test data (see "Golden vectors").
+never-shipped modules `tools/vectorgen` and `tools/vectorgen/contract` may link qrysm, to generate test data and to
+check the contract against qrysm's own client (see "Golden vectors").
 
 The only qrysm content in the repository is its keystore v1 implementation, an island with its own MIT `LICENSE`
 ("Copyright (c) 2023 The Quantum Resistant Ledger"). That code is itself derived from Weald Technology's Apache-2.0
@@ -92,6 +93,17 @@ RANDAO onion, the interop genesis, `ConfigToYaml`, and the keystore encoders.
   `testdata/vectors/keystores/`, which keep their native keystore format; `keystores/index.json` and the README carry
   their CC0 dedication and generator record. JSON files outside `deploy/` carry no header row; the generated
   YAMLs carry the class `new` header.
+- **Contract mode.** `tools/vectorgen/contract` is a second nested module of the same kind: class `new` sources, a
+  GPL-3.0 combined work when built, never shipped, never imported by the signer module. It links qrysm at
+  `rgeraldes24/qrysm` `eefefe9230e10a1ce0c9b05c04bd40556da29684` (2026-10-15, the tip of a stack of three PRs on
+  `cyyber/qrysm` `0b9cdf25`: rgeraldes24/qrysm#60 `remote-signer/q1-randao-slot` `8fc55fff`, which passes the proposal
+  slot to `RandaoRevealer`; #61 `remote-signer/q2-remote-keymanager` `2e957846`, the revived `remote-web3signer`
+  keymanager; and #62 `remote-signer/q3-vc-wiring`, its validator wiring), because one module cannot hold the golden
+  vectors' qrysm and this one. It writes no files: it drives a running signer with qrysm's
+  keymanager and checks the answers with qrysm's verifiers.
+  `test/acceptance` builds and runs it in a temporary directory (`make vectors-contract`); its DTO-rename test
+  copies the qrysm packages the tool links into a temporary directory and renames two JSON field names in the
+  copy, so no qrysm file ever enters the repository. `tools/vectorgen/README.md` records the pin and how to bump it.
 - **The consumers.** The signer's `golden_test.go` files and `internal/vectors` read the data only. The seed
   expansion of the random-root sets is implemented twice, independently, from its description in
   `testdata/vectors/README.md`: once over qrysm's types in `tools/vectorgen`, once over the signer's types in
@@ -291,6 +303,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/vectors/vectors.go` | new | | | |
 | `test/acceptance/b19_test.go` | new | | | |
 | `test/acceptance/bursts_test.go` | new | | | |
+| `test/acceptance/contract_test.go` | new | | | |
 | `test/acceptance/e2e_test.go` | new | | | |
 | `test/acceptance/harness_test.go` | new | | | |
 | `test/acceptance/metrics_test.go` | new | | | |
@@ -314,6 +327,11 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `tools/headercheck/provenance_test.go` | new | | | |
 | `tools/vectorgen/blocks.go` | new | | | |
 | `tools/vectorgen/capabilities.go` | new | | | |
+| `tools/vectorgen/contract/contract.go` | new | | | |
+| `tools/vectorgen/contract/contract_test.go` | new | | | |
+| `tools/vectorgen/contract/main.go` | new | | | |
+| `tools/vectorgen/contract/requests.go` | new | | | |
+| `tools/vectorgen/contract/vectors.go` | new | | | |
 | `tools/vectorgen/fixtures.go` | new | | | |
 | `tools/vectorgen/gen.go` | new | | | |
 | `tools/vectorgen/jsonout.go` | new | | | |

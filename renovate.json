@@ -2,7 +2,8 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
     "Dependency updates with digest pins. third_party/ is a pristine upstream copy and is never updated by Renovate.",
-    "tools/vectorgen/go.mod pins the qrysm oracle the golden vectors record; it moves only in a deliberate commit that regenerates them and updates PROVENANCE.md."
+    "tools/vectorgen/go.mod pins the qrysm oracle the golden vectors record; it moves only in a deliberate commit that regenerates them and updates PROVENANCE.md.",
+    "tools/vectorgen/contract/go.mod pins the qrysm client the contract check drives; it moves only in a deliberate commit that follows tools/vectorgen/README.md (Contract pin)."
   ],
   "extends": [
     "config:recommended",
