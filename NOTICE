@@ -97,6 +97,9 @@ BSD 3-Clause License (LICENSES/BSD-3-Clause.txt):
   github.com/munnerz/goautoneg
     Copyright (c) 2011, Open Knowledge Foundation Ltd.
     All rights reserved.
+  software.sslmate.com/src/go-pkcs12
+    Copyright (c) 2015, 2018, 2019 Opsmate, Inc. All rights reserved.
+    Copyright (c) 2009 The Go Authors. All rights reserved.
 
 Apache License, Version 2.0 (LICENSES/Apache-2.0.txt):
 

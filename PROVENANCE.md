@@ -295,6 +295,11 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/server/router.go` | new | | | |
 | `internal/server/server.go` | new | | | |
 | `internal/server/server_test.go` | new | | | |
+| `internal/server/tlsconf/config.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Runner.java`<br>`commandline/src/main/java/tech/pegasys/web3signer/commandline/config/PicoCliTlsServerOptionsValidator.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/server/tlsconf/selfsigned.go` | new | | | |
+| `internal/server/tlsconf/testcerts_test.go` | new | | | |
+| `internal/server/tlsconf/tlsconf.go` | new | | | |
+| `internal/server/tlsconf/tlsconf_test.go` | new | | | |
 | `internal/signer/provider/provider.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/DefaultArtifactSignerProvider.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/signer/provider/provider_test.go` | new | | | |
 | `internal/signer/signer.go` | new | | | |

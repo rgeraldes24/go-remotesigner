@@ -17,6 +17,7 @@ require (
 	golang.org/x/net v0.55.0
 	golang.org/x/text v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
+	software.sslmate.com/src/go-pkcs12 v0.7.3
 )
 
 require (
