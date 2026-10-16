@@ -202,3 +202,31 @@ Run H as above (load average 9-20). The handshake itself is cheap: even RSA-2048
 the expensive part, stays at half the bound with every core busy elsewhere. The TLS bursts are as fast as the
 plaintext one in the same runs, within the noise, so TLS adds no measurable cost to B7 here; the HTTP/1.1 variant's
 160 handshakes cost less than the scheduling delays of the loaded machine.
+
+## Slashing-protection pruning (B14, bbolt variant, `internal/slashing`)
+
+**B14 (bbolt): met on the development machine**, pending the reference VMs. The Postgres variant belongs to S9.
+
+```
+make bench-b14     # REMOTESIGNER_BENCH=1 go test -run '^TestB14' ./internal/slashing/boltstore/
+```
+
+`TestB14PruningBolt` builds a bbolt store with 4,096 validators that each keep 512 epochs: one attestation per epoch,
+one block every 32 epochs, with the mainnet preset's 128 slots per epoch. It prunes two histories with
+`slashing.Prune` (512 epochs kept): the steady state, 512 epochs plus the six a 12 h interval adds (2.1 million
+attestations, 403 MiB), and the first run on twice the window, 1,024 epochs (4.2 million attestations, 659 MiB),
+which deletes half of them. Attestation signing through `slashing.Engine` runs before and during each prune: a burst
+of 32 concurrent attestations from 32 distinct keys (4,096 keys over 128 slots) every 250 ms, 240 times the duty
+rate of 60 s slots; every call is a synced bbolt transaction. The pruner writes 16 validators per transaction.
+
+| ID | Test | Threshold | Development-machine results (3 runs) | Verdict |
+|---|---|---|---|---|
+| B14 | `TestB14PruningBolt/steady_state` | run ≤ 5 min; signing p99 during the run ≤ 2 × baseline | run 2.4-9.7 s (4,096 validators, about 26,000 attestations and 4,096 blocks deleted); signing p99 baseline 284-300 ms, during 122-235 ms (0.43-0.82 ×) | met on dev machine |
+| B14 | `TestB14PruningBolt/first_run_on_twice_the_window` | as above | run 6.2-14.0 s (2.1 million attestations and 65,536 blocks deleted); signing p99 baseline 238-329 ms, during 225-237 ms (0.68-0.95 ×) | met on dev machine |
+
+Run I, 2026-10-16, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), APFS, load average 6-15 from other work. Signing
+latency is bounded by bbolt's single writer: each attestation is its own fsynced commit, so a burst of 32 queues on
+the write lock, and the baseline p99 is the last of those commits. A prune transaction takes the write lock as often
+as one more signer would, so signing during the run stays near its baseline (in all six measurements the baseline
+p99 was the higher one, within the noise of a loaded machine). Batching signing commits (`db.Batch`) was left out:
+the threshold is met without it.
