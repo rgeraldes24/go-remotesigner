@@ -57,6 +57,7 @@ func render() []byte {
 remotesigner [global flags] consensus [consensus flags]
 remotesigner [global flags] consensus [consensus flags] migrate [migrate flags]
 remotesigner [global flags] consensus [consensus flags] randao-state reset --key <id> [reset flags]
+remotesigner [global flags] consensus keystore verify --file <keystore> --password-file <file>
 ` + "```" + `
 
 Every flag can also be set:
@@ -82,6 +83,15 @@ location. Their flags are not read from the config file; ` + "`--slashing-protec
 `)
 	section(&b, "### consensus migrate", subcommand, flags.Migrate(), false)
 	section(&b, "### consensus randao-state reset", subcommand, flags.RandaoStateReset(), false)
+	b.WriteString(`
+## Keystore commands
+
+` + "`consensus keystore verify`" + ` decrypts one keystore with its password file through the signer's keystore
+decryptor and policy, and checks that the keystore's pubkey is the key its seed derives. It prints the key's
+identifier and exits 0, or names the refusal and exits 1. It needs no network, store or running signer. See
+[` + "`../operations/keystores.md`" + `](../operations/keystores.md).
+`)
+	section(&b, "### consensus keystore verify", subcommand, flags.KeystoreVerify(), false)
 	b.WriteString(`
 ## Override flags
 

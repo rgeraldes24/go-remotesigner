@@ -27,6 +27,17 @@ with its own copyright notice and wording, is the LICENSE file in its source
 at the version recorded in go.sum; release archives will carry those files in
 third_party_licenses/.
 
+The binaries also compile internal/keys/keystore/qrlv1/, a copy of the QRL
+keystore v1 implementation (go-qrl-wallet-encryptor-keystore, from
+https://github.com/theQRL/qrysm), Copyright (c) 2023 The Quantum Resistant
+Ledger, licensed under the MIT License (LICENSES/MIT.txt), modified by The
+go-remotesigner Authors. That implementation includes code derived from
+go-eth2-wallet-encryptor-keystorev4
+(https://github.com/wealdtech/go-eth2-wallet-encryptor-keystorev4),
+Copyright © 2019 - 2023 Weald Technology Trading, licensed under the Apache
+License, Version 2.0 (LICENSES/Apache-2.0.txt). third_party/qrl-keystore/
+holds the original.
+
 MIT License (LICENSES/MIT.txt):
 
   github.com/theQRL/go-qrllib
@@ -68,9 +79,13 @@ BSD 3-Clause License (LICENSES/BSD-3-Clause.txt):
   golang.org/x/crypto, golang.org/x/net, golang.org/x/sys and golang.org/x/text
   vendored into it
     Copyright 2009 The Go Authors.
+  golang.org/x/crypto
+    Copyright 2009 The Go Authors.
   golang.org/x/net
     Copyright 2009 The Go Authors.
   golang.org/x/sys
+    Copyright 2009 The Go Authors.
+  golang.org/x/text
     Copyright 2009 The Go Authors.
   google.golang.org/protobuf
     Copyright (c) 2018 The Go Authors. All rights reserved.

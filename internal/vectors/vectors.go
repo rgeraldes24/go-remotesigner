@@ -120,6 +120,26 @@ type Key struct {
 	RandaoFirstReveal string `json:"randao_first_reveal"`
 }
 
+// KeystoreCase is an entry of keystores/index.json: a keystore file and
+// the password, seed and public key it holds.
+type KeystoreCase struct {
+	File     string `json:"file"`
+	Flavour  string `json:"flavour"` // qrl-v1 or deposit-cli
+	KDF      KDF    `json:"kdf"`
+	Password string `json:"password"`
+	KeyIndex int    `json:"key_index"`
+	Seed     string `json:"seed"`
+	Pubkey   string `json:"pubkey"`
+}
+
+// KDF is a keystore's Argon2id parameters as index.json records them.
+type KDF struct {
+	Function string `json:"function"`
+	T        int    `json:"t"`
+	M        int    `json:"m"`
+	P        int    `json:"p"`
+}
+
 // NetworkInfo is an entry of networks.json.
 type NetworkInfo struct {
 	Name                           string `json:"name"`
@@ -314,6 +334,26 @@ func Keys(t testing.TB) []Key {
 	}
 	Load(t, "keys/interop.json", &f)
 	return f.Keys
+}
+
+// Keystores returns the entries of keystores/index.json.
+func Keystores(t testing.TB) []KeystoreCase {
+	t.Helper()
+	var f struct {
+		Keystores []KeystoreCase `json:"keystores"`
+	}
+	Load(t, "keystores/index.json", &f)
+	return f.Keystores
+}
+
+// Raw returns the bytes of the fixture file at rel (relative to Dir).
+func Raw(t testing.TB, rel string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(Dir(), filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatalf("golden vectors: %v (regenerate with make vectors)", err)
+	}
+	return data
 }
 
 // Networks returns networks.json.

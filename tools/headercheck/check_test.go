@@ -31,8 +31,18 @@ const (
 package slashing
 `
 
-	mitGo = `// Copyright (c) 2023 The Quantum Resistant Ledger
-// SPDX-License-Identifier: MIT
+	// mitGo is a copy of the QRL keystore, which derives from Weald's
+	// Apache-2.0 keystore v4: it carries both notices.
+	mitGo = `// Copyright © 2019 - 2023 Weald Technology Trading.
+// Copyright (c) 2023 The Quantum Resistant Ledger
+// Copyright 2026 The go-remotesigner Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License.
+//
+// The Quantum Resistant Ledger's version of this file is licensed under the MIT License (LICENSES/MIT.txt).
+//
+// SPDX-License-Identifier: MIT AND Apache-2.0
 //
 // Modified by The go-remotesigner Authors, 2026: KDF bounds.
 
@@ -247,9 +257,20 @@ func TestCheckFailures(t *testing.T) {
 		{
 			name: "mit-derived file without a Modified by line",
 			mutate: func(t *testing.T, dir string) {
-				writeFile(t, filepath.Join(dir, "internal/keys/keystore/qrlv1/decrypt.go"), "// Copyright (c) 2023 The Quantum Resistant Ledger\n// SPDX-License-Identifier: MIT\n\npackage qrlv1\n", 0o644)
+				writeFile(t, filepath.Join(dir, "internal/keys/keystore/qrlv1/decrypt.go"), strings.Replace(mitGo, "// Modified by", "// Changed by", 1), 0o644)
 			},
 			want: []string{"decrypt.go: mit-derived: missing \"Modified by\" line"},
+		},
+		{
+			name: "mit-derived file with an Apache-only header",
+			mutate: func(t *testing.T, dir string) {
+				writeFile(t, filepath.Join(dir, "internal/keys/keystore/qrlv1/decrypt.go"), newGo, 0o644)
+			},
+			want: []string{
+				`decrypt.go: mit-derived: missing the original "Copyright (c) <year> ..." MIT line`,
+				"decrypt.go: mit-derived: missing SPDX-License-Identifier: MIT or SPDX-License-Identifier: MIT AND Apache-2.0",
+				"decrypt.go: mit-derived: missing Weald Technology's",
+			},
 		},
 		{
 			name: "yaml without SPDX",
@@ -293,6 +314,97 @@ func TestCheckFailures(t *testing.T) {
 				if !strings.Contains(got, want) {
 					t.Errorf("problems do not mention %q:\n%s", want, got)
 				}
+			}
+		})
+	}
+}
+
+// TestMITHeaders covers the mit-derived class: copies of the QRL keystore
+// carry Weald's line, the Apache notice and SPDX "MIT AND Apache-2.0" next
+// to the MIT line; other MIT code needs only the MIT notice.
+func TestMITHeaders(t *testing.T) {
+	keystore := row{class: classMIT, upstream: []string{"pkg/go-qrl-wallet-encryptor-keystore/norm.go"}, revision: "0b9cdf25"}
+	other := row{class: classMIT, upstream: []string{"pkg/other/x.go"}, revision: "0b9cdf25"}
+	lines := func(src string) []string {
+		var out []string
+		for _, l := range strings.Split(src, "\n") {
+			if l == "package qrlv1" {
+				break
+			}
+			out = append(out, strings.TrimSpace(strings.TrimPrefix(l, "//")))
+		}
+		return out
+	}
+	qrlOnly := "// Copyright (c) 2023 The Quantum Resistant Ledger\n// SPDX-License-Identifier: MIT\n//\n// Modified by The go-remotesigner Authors, 2026: KDF bounds.\n"
+	tests := []struct {
+		name   string
+		r      row
+		header string
+		want   []string // substrings of the problems; none when empty
+	}{
+		{"keystore copy with both notices", keystore, mitGo, nil},
+		{"keystore copy with only the QRL MIT notice", keystore, qrlOnly, []string{"Weald Technology", "want " + spdxMITApache}},
+		{"keystore copy with SPDX MIT only", keystore, strings.Replace(mitGo, "MIT AND Apache-2.0", "MIT", 1), []string{"want " + spdxMITApache}},
+		{"keystore copy without the Apache notice", keystore, strings.Replace(mitGo, "Licensed under", "Covered by", 1), []string{"without the Apache-2.0 licence notice"}},
+		{"keystore copy with an Apache-only header", keystore, newGo, []string{"MIT line", "missing " + spdxMIT, "Weald Technology", "Modified by"}},
+		{"keystore copy without the Weald line", keystore, strings.Replace(mitGo, "Weald Technology Trading", "Someone", 1), []string{"Weald Technology"}},
+		{"other MIT code with the MIT notice", other, qrlOnly, nil},
+		{"other MIT code with an Apache-only header", other, newGo, []string{"MIT line", "missing " + spdxMIT}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := strings.Join(checkHeader(tt.r, lines(tt.header)), "\n")
+			if len(tt.want) == 0 && got != "" {
+				t.Fatalf("unexpected problems:\n%s", got)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(got, w) {
+					t.Errorf("problems do not mention %q:\n%s", w, got)
+				}
+			}
+		})
+	}
+}
+
+// TestQRLV1Classes checks the directory rule for the hardened keystore copy:
+// a file under qrlv1/ that headercheck does not list as written for this
+// project must be mit-derived, whatever its row says.
+func TestQRLV1Classes(t *testing.T) {
+	for _, tt := range []struct {
+		name, file, content, class, want string
+	}{
+		{"listed new file", "keystore.go", newGo, "new", ""},
+		{"listed test classed new", "keystore_test.go", newGo, "new", ""},
+		{"unlisted file recorded as new", "encrypt.go", newGo, "new", "encrypt.go: new: files under internal/keys/keystore/qrlv1/ are mit-derived copies"},
+		{"unlisted test recorded as new", "decrypt_test.go", newGo, "new", "decrypt_test.go: new: files under internal/keys/keystore/qrlv1/ are mit-derived copies"},
+		{"unlisted file in a subdirectory", "sub/password.go", newGo, "new", "sub/password.go: new: files under"},
+		{"unlisted mit-derived copy", "encrypt.go", mitGo, "mit-derived", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := fixture(t)
+			rel := "internal/keys/keystore/qrlv1/" + tt.file
+			writeFile(t, filepath.Join(dir, filepath.FromSlash(rel)), tt.content, 0o644)
+			upstream, revision := "", ""
+			if tt.class == "mit-derived" {
+				upstream, revision = "`pkg/go-qrl-wallet-encryptor-keystore/encrypt.go`", "`0b9cdf25`"
+			}
+			prov := filepath.Join(dir, "PROVENANCE.md")
+			data, err := os.ReadFile(prov)
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := "| `" + rel + "` | " + tt.class + " | | " + upstream + " | " + revision + " |\n"
+			writeFile(t, prov, strings.Replace(string(data), endMarker, row+endMarker, 1), 0o644)
+			res, err := check(dir, "PROVENANCE.md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := strings.Join(res.problems, "\n")
+			switch {
+			case tt.want == "" && got != "":
+				t.Fatalf("unexpected problems:\n%s", got)
+			case tt.want != "" && !strings.Contains(got, tt.want):
+				t.Fatalf("problems do not mention %q:\n%s", tt.want, got)
 			}
 		})
 	}

@@ -49,7 +49,7 @@ func consensusCommand(run runFunc, stdout, stderr io.Writer) *cli.Command {
 		},
 		OnUsageError:    onUsageError,
 		HideHelpCommand: true,
-		Subcommands:     []*cli.Command{migrateCommand(stdout), randaoStateCommand(stdout)},
+		Subcommands:     []*cli.Command{migrateCommand(stdout), randaoStateCommand(stdout), keystoreCommand(stdout)},
 		Action: func(c *cli.Context) error {
 			if c.NArg() > 0 {
 				return usageError(fmt.Errorf("unexpected argument %q", c.Args().First()))

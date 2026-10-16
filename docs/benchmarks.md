@@ -116,3 +116,50 @@ cache. This release has no TLS, so B7 runs without it; the TLS variant is benchm
 | B9 | `TestB9RandaoReveal` | reveal p99 ≤ 0.5 s; unknown ≤ 0.6 s and cached on retry; B7 signing p99 unaffected (≤ 500 ms) | 4 concurrent first reveals p99 203-224 ms; unknown 54-115 ms, retry 0.21-0.30 ms; signing p99 alongside 159-259 ms | met on dev machine |
 
 Run F, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), load average 2.6-3.4 from other work.
+
+## Argon2id keystore decryption (B10, `internal/keys/keystore/qrlv1`)
+
+**Single-decrypt latency: met on the development machine. Scaling knee: recorded below. RSS bound: not met**; the
+reason is the Go runtime rather than the decryptor (see "Memory" below). Concurrent keystore loading must therefore
+budget 512 MiB per running decrypt. All rows are still to be re-run on the reference VMs.
+
+```
+go test -c -o qrlv1.test ./internal/keys/keystore/qrlv1/ && cd internal/keys/keystore/qrlv1
+../../../../qrlv1.test -test.run '^$' -test.bench B10 -test.benchtime 5x -test.count 3
+for p in 1 2 4 8 16; do GOMEMLIMIT=$((p*320+64))MiB /usr/bin/time -l ../../../../qrlv1.test -test.run '^$' \
+    -test.bench "B10Argon2idDecrypt/P=$p\$" -test.benchtime 2x; done    # Linux: /usr/bin/time -v
+```
+
+`BenchmarkB10Argon2idDecrypt` decrypts the standard-KDF golden keystore (`qrl-v1-standard.json`: Argon2id `t=8`,
+`m=262144` KiB, `p=1`) through `Keystore.Decrypt`, the path every keystore takes, including key derivation and the
+public-key comparison. One op is a round of P decrypts started together; the benchmark reports the throughput
+(`decrypts/s`) and the per-decrypt latency (`s/decrypt`, `max-s/decrypt`). RSS is the process's peak resident set
+from `/usr/bin/time`, with `GOMEMLIMIT` set to P × 320 MiB + 64 MiB; the test binary alone peaks at 6 MiB.
+
+| ID | Measure | Threshold | Development-machine results | Verdict |
+|---|---|---|---|---|
+| B10 | single decrypt (P = 1) | ≤ 3 s (amd64), ≤ 5 s (arm64) | 1.46-1.49 s per decrypt | met on dev machine (arm64) |
+| B10 | throughput by P | report the scaling knee | P=1: 0.68/s; P=2: 1.22-1.30/s; P=4: 2.12-2.19/s; P=8: 1.88-2.62/s; P=16: 0.96-1.54/s | knee at P = 4 |
+| B10 | per-decrypt latency by P | none (informational) | P=2: 1.54-1.64 s; P=4: 1.82-1.87 s; P=8: 2.97-4.16 s (slowest 7.2 s); P=16: 10.2-16.2 s (slowest 27.6 s) | |
+| B10 | peak RSS by P, `GOMEMLIMIT` set | ≤ base + P × 320 MiB | P=1: 521 MiB; P=2: 1,034 MiB; P=4: 1,547 MiB; P=8: 4,111 MiB; P=16: 6,163 MiB | not met: up to base + P × 512 MiB |
+| B10 | `BenchmarkDecryptLightKDF` (`m=4096` KiB), for reference | none | P=1: 21 ms per decrypt (47/s); P=8: 40-45 ms per decrypt (139-153/s) | |
+
+Run G, 2026-10-16, Go 1.26.9, Apple M2 (4 performance and 4 efficiency cores, 16 GiB, darwin/arm64). On arm64
+`x/crypto/argon2` runs its generic Go code; it has assembly for amd64 only. Throughput and latency: three runs of
+five rounds per P at load average 16-25 from other work. RSS: one run of two rounds per P at load average 25-32.
+
+- **Knee.** Throughput grows almost linearly up to P = 4, the number of performance cores, and stops there: P = 8
+  adds 0-20 % at about twice the latency, and P = 16 loses throughput, with the slowest decrypt of a round taking
+  over 20 s. Each run makes about eight passes over its 256 MiB block, so beyond the fast cores the runs also
+  compete for memory bandwidth. The heavy background load lowers the absolute numbers at P ≥ 8, so on a quiet
+  machine the knee may sit somewhat higher, but not near 16. The amd64 assembly path may move it; the reference VMs
+  decide the default concurrency cap.
+- **Memory.** Every decrypt allocates one 256 MiB Argon2id block. The block becomes garbage when its decrypt returns,
+  but the next decrypt allocates its own block before a garbage collection has reclaimed the old one, so a decrypt
+  slot holds up to two blocks at its peak. With all P decrypts of a round starting together, peak RSS comes close to
+  base + P × 512 MiB. `GOMEMLIMIT` lowered it only at P = 4 (1,547 MiB against 2,059 MiB without it); at P = 1, 2
+  and 8 the peaks were equal, and at P = 16 it was 6,163 MiB against 5,906 MiB. The 320 MiB-per-decrypt bound is
+  therefore not reached, and a loader that runs decrypts concurrently has to count 512 MiB for each.
+- **Open before v1.0.** B10 gates v1.0. Either the RSS bound is revised to 512 MiB per decrypt, the slot size of the
+  keystore loader's Argon2id semaphore, or a mitigation (such as a garbage collection after each run, inside the
+  semaphore slot) is added in the keystore loader and B10's RSS rows are measured again with it.
