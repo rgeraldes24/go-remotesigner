@@ -134,8 +134,8 @@ jobs:
         run: make vectors-verify-binary
 
   vectors-contract:
-    # L3 contract (DESIGN §7.1): qrysm's own remote-web3signer keymanager, at
-    # the commit tools/vectorgen/contract pins, drives the built signer
+    # Contract check: qrysm's own remote-web3signer keymanager, at the
+    # commit tools/vectorgen/contract pins, drives the built signer
     # (interop keys, both end-to-end networks): capabilities, publicKeys, one
     # sign request per SignRequest oneof and one RANDAO reveal, each answer
     # checked with qrysm's verifiers. Then a DTO renamed on either side must

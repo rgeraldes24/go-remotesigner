@@ -100,10 +100,10 @@ vectors-verify:
 vectors-verify-binary:
 	REMOTESIGNER_VECTORS_VERIFY=1 $(GO) test -count=1 -run '^TestVectorgenVerify$$' -v ./test/acceptance/
 
-## vectors-contract: vectorgen contract mode (DESIGN §7.1, L3 contract): build the binary (or use
-## REMOTESIGNER_BINARY), run it with the interop keys on both end-to-end networks and drive it with qrysm's own
-## remote-web3signer keymanager at the commit tools/vectorgen/contract pins; then check that a deliberate DTO rename
-## on either side fails the run (builds tools/vectorgen/contract, which links qrysm)
+## vectors-contract: vectorgen contract mode: build the binary (or use REMOTESIGNER_BINARY), run it with the interop
+## keys on both end-to-end networks and drive it with qrysm's own remote-web3signer keymanager at the commit
+## tools/vectorgen/contract pins; then check that a deliberate DTO rename on either side fails the run (builds
+## tools/vectorgen/contract, which links qrysm)
 vectors-contract:
 	REMOTESIGNER_VECTORS_CONTRACT=1 $(GO) test -count=1 -run '^TestVectorgenContract' -v ./test/acceptance/
 

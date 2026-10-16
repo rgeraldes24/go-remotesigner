@@ -112,9 +112,9 @@ require (
 )
 
 // qrysm content: rgeraldes24/qrysm eefefe92, the tip of a stack of three PRs on cyyber/qrysm 0b9cdf25:
-// Q1 (#60, remote-signer/q1-randao-slot 8fc55fff) passes the proposal slot to RandaoRevealer, Q2 (#61,
-// remote-signer/q2-remote-keymanager 2e957846) revives the remote-web3signer keymanager, and Q3 (#62,
-// remote-signer/q3-vc-wiring eefefe92) wires it into the validator. None is on a theQRL or cyyber branch
+// #60 (remote-signer/q1-randao-slot 8fc55fff) passes the proposal slot to RandaoRevealer, #61
+// (remote-signer/q2-remote-keymanager 2e957846) revives the remote-web3signer keymanager, and #62
+// (remote-signer/q3-vc-wiring eefefe92) wires it into the validator. None is on a theQRL or cyyber branch
 // yet. See ../README.md for how to bump it.
 replace github.com/theQRL/qrysm => github.com/rgeraldes24/qrysm v0.0.0-20261015164126-eefefe9230e1
 

@@ -93,13 +93,13 @@ RANDAO onion, the interop genesis, `ConfigToYaml`, and the keystore encoders.
   `testdata/vectors/keystores/`, which keep their native keystore format; `keystores/index.json` and the README carry
   their CC0 dedication and generator record. JSON files outside `deploy/` carry no header row; the generated
   YAMLs carry the class `new` header.
-- **Contract mode.** `tools/vectorgen/contract` (milestone S3b) is a second nested module of the same kind: class
-  `new` sources, a GPL-3.0 combined work when built, never shipped, never imported by the signer module. It links
-  qrysm at `rgeraldes24/qrysm` `eefefe9230e10a1ce0c9b05c04bd40556da29684` (2026-10-15, the tip of a stack of three
-  PRs on `cyyber/qrysm` `0b9cdf25`: Q1, rgeraldes24/qrysm#60 `remote-signer/q1-randao-slot` `8fc55fff`, which passes
-  the proposal slot to `RandaoRevealer`; Q2, #61 `remote-signer/q2-remote-keymanager` `2e957846`, the revived
-  `remote-web3signer` keymanager; and Q3, #62 `remote-signer/q3-vc-wiring`, its validator wiring), because one module
-  cannot hold the golden vectors' qrysm and this one. It writes no files: it drives a running signer with qrysm's
+- **Contract mode.** `tools/vectorgen/contract` is a second nested module of the same kind: class `new` sources, a
+  GPL-3.0 combined work when built, never shipped, never imported by the signer module. It links qrysm at
+  `rgeraldes24/qrysm` `eefefe9230e10a1ce0c9b05c04bd40556da29684` (2026-10-15, the tip of a stack of three PRs on
+  `cyyber/qrysm` `0b9cdf25`: rgeraldes24/qrysm#60 `remote-signer/q1-randao-slot` `8fc55fff`, which passes the proposal
+  slot to `RandaoRevealer`; #61 `remote-signer/q2-remote-keymanager` `2e957846`, the revived `remote-web3signer`
+  keymanager; and #62 `remote-signer/q3-vc-wiring`, its validator wiring), because one module cannot hold the golden
+  vectors' qrysm and this one. It writes no files: it drives a running signer with qrysm's
   keymanager and checks the answers with qrysm's verifiers.
   `test/acceptance` builds and runs it in a temporary directory (`make vectors-contract`); its DTO-rename test
   copies the qrysm packages the tool links into a temporary directory and renames two JSON field names in the

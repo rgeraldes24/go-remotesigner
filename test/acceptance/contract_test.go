@@ -117,11 +117,11 @@ func runContractTool(t *testing.T, tool string, s *signer, network string) (int,
 	return code, string(out)
 }
 
-// vectorgen contract against the built binary (PLAN S3b, DESIGN §7.1 L3
-// contract): qrysm's own remote-web3signer keymanager, at the commit
-// tools/vectorgen/contract pins, checks the capabilities, lists the keys,
-// signs one request per SignRequest oneof and asks for one RANDAO reveal on
-// each end-to-end network, and qrysm's verifiers check every answer.
+// vectorgen contract against the built binary: qrysm's own
+// remote-web3signer keymanager, at the commit tools/vectorgen/contract
+// pins, checks the capabilities, lists the keys, signs one request per
+// SignRequest oneof and asks for one RANDAO reveal on each end-to-end
+// network, and qrysm's verifiers check every answer.
 func TestVectorgenContract(t *testing.T) {
 	skipUnlessContract(t)
 	tool := buildContract(t)
@@ -300,9 +300,9 @@ func wantFailures(t *testing.T, code int, out string, want map[string]string) {
 	}
 }
 
-// A deliberate DTO rename fails vectorgen contract (PLAN S3b acceptance),
-// on either side of the contract. Each subtest builds a mutant in a
-// temporary directory instead of a broken branch:
+// A deliberate DTO rename fails vectorgen contract, on either side of the
+// contract. Each subtest builds a mutant in a temporary directory instead
+// of a broken branch:
 //
 //   - signer side (go build -overlay): the binary renames the
 //     AGGREGATION_SLOT payload key it decodes and the reveal key it answers

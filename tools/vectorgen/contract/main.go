@@ -1,10 +1,10 @@
 // Copyright 2026 The go-remotesigner Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-// Command contract is the contract mode of vectorgen (DESIGN §7.1, the L3
-// contract layer). It drives a running signer with qrysm's own
-// remote-web3signer keymanager, the client the qrysm validator signs
-// through, and checks every answer with qrysm's verifiers:
+// Command contract is the contract mode of vectorgen. It drives a running
+// signer with qrysm's own remote-web3signer keymanager, the client the
+// qrysm validator signs through, and checks every answer with qrysm's
+// verifiers:
 //
 //   - CheckCapabilities, against the network's qrysm configuration, its
 //     genesis validators root and the genesis time;

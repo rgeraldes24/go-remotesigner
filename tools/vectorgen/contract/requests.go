@@ -158,7 +158,7 @@ func signRequests(cfg *params.BeaconChainConfig, gvr [32]byte, pub []byte, genes
 // contributionHashRoot returns p for hashing, or a copy whose bitvector is
 // padded to the length of qrysm's generated SSZ code, which is the mainnet
 // one. A minimal-preset bitvector padded with zeros has the same root, since
-// both fit in one chunk; the golden vectors use the same fallback (G2 §8.3).
+// both fit in one chunk; the golden vectors use the same fallback.
 func contributionHashRoot(p *qrysmpb.ContributionAndProof) (fssz.HashRoot, error) {
 	bits := p.Contribution.AggregationBits
 	if len(bits) == fieldparams.SyncCommitteeAggregationBytesLength {
