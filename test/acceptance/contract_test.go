@@ -184,8 +184,26 @@ func writeOverlay(t *testing.T, renames []rename) string {
 	return path
 }
 
-// qrysmModule is the module the contract tool replaces qrysm with.
+// qrysmModule is the module path the contract tool imports qrysm by; its
+// go.mod replaces it with the pinned commit.
 const qrysmModule = "github.com/theQRL/qrysm"
+
+// moduleDir returns the directory of module, as the build list of the
+// module in dir resolves it (replacements included), downloading the
+// module first. go list -m cannot stand in here: it does not download, so
+// it reports no directory for a module whose source the cache does not
+// hold yet.
+func moduleDir(t *testing.T, dir, module string) string {
+	t.Helper()
+	var m struct{ Dir, Error string }
+	if err := json.Unmarshal([]byte(goCmd(t, dir, "mod", "download", "-json", module)), &m); err != nil {
+		t.Fatalf("go mod download -json %s: %v", module, err)
+	}
+	if m.Dir == "" {
+		t.Fatalf("go mod download -json %s: no module directory (error %q)", module, m.Error)
+	}
+	return m.Dir
+}
 
 // mutantClientModFile copies, from the module cache, the packages of the
 // pinned qrysm that the contract tool links, applies the renames (file
@@ -194,11 +212,11 @@ const qrysmModule = "github.com/theQRL/qrysm"
 // stand in here: it refuses to replace files in the module cache.
 func mutantClientModFile(t *testing.T, renames []rename) string {
 	t.Helper()
-	modDir := strings.TrimSpace(goCmd(t, contractDir, "list", "-m", "-f", "{{.Dir}}", qrysmModule))
+	modDir := moduleDir(t, contractDir, qrysmModule)
 	pkgDirs := strings.Fields(goCmd(t, contractDir, "list", "-deps", "-f",
 		`{{if and .Module (eq .Module.Path "`+qrysmModule+`")}}{{.Dir}}{{end}}`, "."))
-	if modDir == "" || len(pkgDirs) == 0 {
-		t.Fatalf("go list found no qrysm packages (module dir %q)", modDir)
+	if len(pkgDirs) == 0 {
+		t.Fatalf("go list found no packages of %s", qrysmModule)
 	}
 	tmp := t.TempDir()
 	copyDir := filepath.Join(tmp, "qrysm")
@@ -330,4 +348,25 @@ func TestVectorgenContractCatchesDTORenames(t *testing.T) {
 			"sign exit (VOLUNTARY_EXIT)": "status 400, reason UNKNOWN_FIELD",
 		})
 	})
+}
+
+// moduleDir works on a cold module cache, so the client-side subtest of
+// TestVectorgenContractCatchesDTORenames does not rely on an earlier build
+// having extracted qrysm (it used to fail when run alone on a fresh cache).
+// The module here is json-iterator, which the contract tool's go.mod
+// replaces as it does qrysm but which is far smaller to fetch.
+func TestVectorgenContractModuleDirOnColdCache(t *testing.T) {
+	skipUnlessContract(t)
+	cache := t.TempDir()
+	t.Setenv("GOMODCACHE", cache)
+	t.Setenv("GOFLAGS", strings.TrimSpace(os.Getenv("GOFLAGS")+" -modcacherw")) // so t.TempDir can remove it
+	t.Setenv("GOTOOLCHAIN", "local")                                            // no toolchain download into the empty cache
+
+	dir := moduleDir(t, contractDir, "github.com/json-iterator/go")
+	if want := filepath.Join(cache, "github.com", "prestonvanloon", "go@"); !strings.HasPrefix(dir, want) {
+		t.Fatalf("module dir %s, want the replacement under %s", dir, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "README.md")); err != nil {
+		t.Fatalf("module source not extracted: %v", err)
+	}
 }
