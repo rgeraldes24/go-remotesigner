@@ -104,6 +104,12 @@ The public key is shown as its first five bytes and the first four bytes of its 
 also prints its derivation `path`. When the keystore has no `pubkey` field, the `pubkey` line says so and the key
 derived from the seed is the one reported.
 
+GCM authenticates only the ciphertext: anyone who can edit a keystore file can change its `path`, `uuid` and
+`description` without knowing the password. The signer therefore keeps `path` only when it is a derivation path
+(`m`, then numeric components such as `m/12381/238/0/0`) and ignores any other value, and it drops control and
+format characters from `uuid` and `description`, so that no keystore can write terminal escapes or extra lines into
+this output or into a log.
+
 The identifier is the SHA-256 of the public key, which the API accepts wherever it takes a key identifier
 ([`../contract.md`](../contract.md)), as does `consensus randao-state reset --key`. The output never shows the
 password or the full public key.

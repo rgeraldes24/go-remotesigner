@@ -107,6 +107,44 @@ func TestPolicyRefusals(t *testing.T) {
 	}
 }
 
+// TestMetadataFields checks what Parse keeps of the fields that GCM does
+// not authenticate and that the signer prints: path only when it is a
+// derivation path, uuid and description without control or format
+// characters, so that a keystore edited without its password cannot put
+// terminal escapes or line breaks into keystore verify's output or a log.
+func TestMetadataFields(t *testing.T) {
+	base, _ := lightVector(t)
+	for _, c := range []struct{ field, in, want string }{
+		{"path", "m/12381/238/0/0", "m/12381/238/0/0"},
+		{"path", "m/12381'/238'/0", "m/12381'/238'/0"},
+		{"path", "m", "m"},
+		{"path", "", ""},
+		{"path", "\x1b[2K\x1b[1A\x1b[17G" + strings.Repeat("f", 40), ""},
+		{"path", "m/12381\x1b[31mRED\x1b[0m\nkeystore-0.json: OK", ""},
+		{"path", "m/12381/238/0/0\n", ""},
+		{"path", "m/12381/238/0/0 ", ""},
+		{"path", "m/1/2/3/4/5/6/7/8/9/10/11", ""},
+		{"path", "m/12345678901", ""},
+		{"path", "M/12381", ""},
+		{"path", "m/-1", ""},
+		{"uuid", "00000000-0000-4000-8000-00000000000b", "00000000-0000-4000-8000-00000000000b"},
+		{"uuid", "abc\x1b[2Jdef\r\n", "abc[2Jdef"},
+		{"description", "keystore", "keystore"},
+		{"description", "a b", "a b"},
+		{"description", "pässwörd\u202eevil\u200b\u00a0\x7f\u0085\tx", "pässwördevilx"},
+		{"description", strings.Repeat("é", 40), strings.Repeat("é", 32) + "…"},
+	} {
+		ks, err := Parse(edit(t, base, c.field, c.in))
+		if err != nil {
+			t.Fatalf("%s %q: %v", c.field, c.in, err)
+		}
+		got := map[string]string{"path": ks.Path, "uuid": ks.UUID, "description": ks.Description}[c.field]
+		if got != c.want {
+			t.Errorf("%s %q: kept %q, want %q", c.field, c.in, got, c.want)
+		}
+	}
+}
+
 // TestDecryptRefusals covers the refusals that need the KDF: a tampered
 // ciphertext, a pubkey that belongs to another key and a wrong password.
 // Each costs Argon2id at the keystore's own, bounded parameters.

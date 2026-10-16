@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/vectors"
 )
@@ -58,6 +59,51 @@ func TestKeystoreVerify(t *testing.T) {
 			}
 			if strings.Contains(stdout, strings.TrimPrefix(c.Pubkey, "0x")[:32]) || strings.Contains(stdout, c.Password) {
 				t.Errorf("output shows the full public key or the password:\n%s", stdout)
+			}
+		})
+	}
+}
+
+// TestKeystoreVerifyUntrustedPath checks that the keystore's path field,
+// which GCM does not authenticate, cannot write terminal escapes or extra
+// lines into the output: only a derivation path is printed.
+func TestKeystoreVerifyUntrustedPath(t *testing.T) {
+	c := lightKeystores(t)["deposit-cli-light.json"]
+	data := vectors.Raw(t, "keystores/deposit-cli-light.json")
+	pw := writeTemp(t, "password.txt", []byte(c.Password))
+	for _, tt := range []struct{ name, path, want string }{
+		{"derivation path", "m/12381/3600/0/0/0", "  path:       m/12381/3600/0/0/0\n"},
+		{"cursor escapes over the identifier", "\x1b[2K\x1b[1A\x1b[17G" + strings.Repeat("f", 40), ""},
+		{"a forged OK line", "m/12381\x1b[31mRED\x1b[0m\nkeystore-0.json: OK", ""},
+		{"OSC 52 clipboard write", "\x1b]52;c;ZWNobyBoaQ==\x07", ""},
+		{"carriage return", "m/12381/3600/0/0/0\r  identifier: 0xdead", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var m map[string]any
+			if err := json.Unmarshal(data, &m); err != nil {
+				t.Fatal(err)
+			}
+			m["path"] = tt.path
+			b, err := json.Marshal(m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ks := writeTemp(t, "keystore.json", b)
+			code, stdout, stderr := runCLI(t, "consensus", "keystore", "verify", "--keystore-file", ks, "--keystore-password-file", pw)
+			if code != exitOK {
+				t.Fatalf("exit %d: %s", code, stderr)
+			}
+			if i := strings.IndexFunc(stdout, func(r rune) bool { return r != '\n' && !unicode.IsPrint(r) }); i >= 0 {
+				t.Errorf("output holds the control character %q:\n%q", stdout[i], stdout)
+			}
+			if n := strings.Count(stdout, ": OK"); n != 1 {
+				t.Errorf("%d OK lines:\n%s", n, stdout)
+			}
+			if n := strings.Count(stdout, "identifier:"); n != 1 {
+				t.Errorf("%d identifier lines:\n%s", n, stdout)
+			}
+			if gotPath := strings.Contains(stdout, "path:"); gotPath != (tt.want != "") || !strings.Contains(stdout, tt.want) {
+				t.Errorf("path line: want %q:\n%s", tt.want, stdout)
 			}
 		})
 	}

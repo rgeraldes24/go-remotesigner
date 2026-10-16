@@ -19,6 +19,10 @@
 //     into ErrInternal. The caller wipes the Password when done with it.
 //   - The public key derived from the decrypted seed is compared with the
 //     keystore's pubkey field; the caller gets the derived key.
+//   - The fields GCM does not authenticate and decryption does not use
+//     (uuid, path, description) are kept only in a form that is safe to
+//     print: path only when it is a derivation path, the others without
+//     control or format characters.
 //
 // Errors wrap one of ErrFormat, ErrPolicy, ErrPassword, ErrPubkeyMismatch
 // or ErrInternal and never contain key material or passwords.
@@ -29,7 +33,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 )
@@ -100,12 +106,16 @@ type file struct {
 
 // Keystore is a parsed keystore that passed the policy. Decrypting it runs
 // Argon2id with at most MaxM KiB.
+//
+// UUID, Path and Description come from fields that anyone who can edit the
+// file can change without the password. Parse keeps them only in a form that
+// is safe to print to a terminal or a log line.
 type Keystore struct {
 	Flavour     Flavour
 	KDF         KDF
-	UUID        string
-	Path        string // derivation path; empty in qrysm's keystores
-	Description string
+	UUID        string // printable characters only, at most 64 bytes
+	Path        string // the derivation path (m/12381/238/0/0); empty in qrysm's keystores and when the field is not one
+	Description string // printable characters only, at most 64 bytes
 
 	pubkey *mldsa87.PublicKey // the declared pubkey, nil when the file has none
 	sealed *sealed
@@ -128,7 +138,7 @@ func Parse(data []byte) (ks *Keystore, err error) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("%w: not a single keystore JSON object", ErrFormat)
 	}
-	ks = &Keystore{UUID: truncate(f.UUID), Path: truncate(f.Path), Description: truncate(f.Description)}
+	ks = &Keystore{UUID: printable(f.UUID), Path: derivationPath(f.Path), Description: printable(f.Description)}
 	switch {
 	case f.Version == nil:
 		return nil, fmt.Errorf("%w: no version", ErrFormat)
@@ -236,6 +246,33 @@ func parsePubkey(s string) (mldsa87.PublicKey, error) {
 // end the process, since net/http recovers only its handler goroutines.
 func panicked(r any) error {
 	return fmt.Errorf("%w: %v", ErrInternal, r)
+}
+
+// derivationPathRE matches a derivation path: m, then at most 10 numeric
+// components of at most 10 digits, each optionally hardened.
+var derivationPathRE = regexp.MustCompile(`^m(/[0-9]{1,10}'?){0,10}$`)
+
+// derivationPath returns s when it is a derivation path, else "": the path
+// field is printed (keystore verify), and anything else in it, such as a
+// terminal escape that rewrites the identifier line above it, is ignored.
+func derivationPath(s string) string {
+	if derivationPathRE.MatchString(s) {
+		return s
+	}
+	return ""
+}
+
+// printable returns the printable characters of an untrusted string kept in
+// a Keystore, truncated: no control characters (C0, DEL, C1, so no ESC and
+// no line break), no format characters such as bidirectional overrides, and
+// no space other than U+0020 (unicode.IsPrint).
+func printable(s string) string {
+	return truncate(strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return -1
+	}, s))
 }
 
 // truncate bounds an untrusted string kept or quoted in an error.

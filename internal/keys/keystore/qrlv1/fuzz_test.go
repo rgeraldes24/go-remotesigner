@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/vectors"
 )
@@ -17,8 +18,9 @@ import (
 const fuzzKDFWork = 8 * MinM
 
 // FuzzDecrypt checks that arbitrary keystore JSON never panics, that every
-// refusal is typed, that whatever Parse accepts is within the policy, and
-// that decrypting allocates no more than the keystore's own Argon2id block.
+// refusal is typed, that whatever Parse accepts is within the policy and
+// keeps only printable metadata, and that decrypting allocates no more than
+// the keystore's own Argon2id block.
 func FuzzDecrypt(f *testing.F) {
 	base, password := lightVector(f)
 	for _, c := range vectors.Keystores(f) {
@@ -45,6 +47,8 @@ func FuzzDecrypt(f *testing.F) {
 		{"crypto.kdf", deleteField},
 		{"crypto.kdf.params.salt", 7},
 		{"pubkey", "0123"},
+		{"path", "m/12381\x1b[1A\nkeystore-0.json: OK"},
+		{"description", "\u202e\x1b[2J"},
 	} {
 		f.Add(edit(f, base, e.path, e.v))
 	}
@@ -66,6 +70,14 @@ func FuzzDecrypt(f *testing.F) {
 		}
 		if len(ks.sealed.salt) < minSaltSize || len(ks.sealed.salt) > maxSaltSize {
 			t.Fatalf("Parse accepted a salt of %d bytes", len(ks.sealed.salt))
+		}
+		if ks.Path != "" && !derivationPathRE.MatchString(ks.Path) {
+			t.Fatalf("Parse kept path %q, which is not a derivation path", ks.Path)
+		}
+		for _, v := range []string{ks.UUID, ks.Description} {
+			if strings.IndexFunc(v, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
+				t.Fatalf("Parse kept %q, which holds a non-printable character", v)
+			}
 		}
 		if k.T*k.M > fuzzKDFWork {
 			return
