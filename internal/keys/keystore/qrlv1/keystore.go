@@ -25,7 +25,6 @@
 package qrlv1
 
 import (
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -123,13 +122,11 @@ func Parse(data []byte) (ks *Keystore, err error) {
 	if len(data) > MaxSize {
 		return nil, fmt.Errorf("%w: %d bytes, larger than %d", ErrFormat, len(data), MaxSize)
 	}
+	// Unmarshal, unlike a Decoder, also refuses any data after the object,
+	// a stray closing bracket included.
 	var f file
-	dec := json.NewDecoder(bytes.NewReader(data))
-	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("%w: not a keystore JSON object", ErrFormat)
-	}
-	if dec.More() {
-		return nil, fmt.Errorf("%w: data after the keystore object", ErrFormat)
+	if err := json.Unmarshal(data, &f); err != nil {
+		return nil, fmt.Errorf("%w: not a single keystore JSON object", ErrFormat)
 	}
 	ks = &Keystore{UUID: truncate(f.UUID), Path: truncate(f.Path), Description: truncate(f.Description)}
 	switch {

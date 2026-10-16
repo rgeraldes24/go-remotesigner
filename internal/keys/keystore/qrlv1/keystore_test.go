@@ -81,6 +81,9 @@ func TestPolicyRefusals(t *testing.T) {
 		{"not JSON", []byte("not a keystore"), ErrFormat},
 		{"JSON array", []byte("[1, 2]"), ErrFormat},
 		{"data after the object", append(bytes.Clone(base), []byte(" {}")...), ErrFormat},
+		{"closing brace after the object", append(bytes.Clone(base), '}'), ErrFormat},
+		{"closing bracket after the object", append(bytes.Clone(base), ']'), ErrFormat},
+		{"JSON null", []byte("null"), ErrFormat},
 		{"larger than MaxSize", append(bytes.Clone(base), bytes.Repeat([]byte(" "), MaxSize)...), ErrFormat},
 		{"empty", nil, ErrFormat},
 	}
