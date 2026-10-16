@@ -610,22 +610,26 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
 [`DEVIATIONS.md`](../DEVIATIONS.md) is the register of every behaviour that differs from Web3Signer. The rows that
 show on this contract:
 
+<!-- contract:deviations:begin -->
 | Row | Where in this contract |
 |---|---|
 | X1 (check and record before signing), X3 (verify before release) | [section 7](#7-request-envelope-and-validation-pipeline) |
 | X2 (deterministic selection proofs) | [section 15](#15-selection-proofs-and-signing-modes) |
 | X4 (missing `fork_info` is 400), X5 (`fork_info` validated for every type) | [section 7](#7-request-envelope-and-validation-pipeline) |
-| X6 (authentication and scopes), X7 (content type and `Origin`) | [section 6](#6-authentication-and-scopes) |
+| X6 (authentication and scopes) | [section 6](#6-authentication-and-scopes) |
+| X7 (`Origin` refused, non-JSON POST refused) | [sections 6](#6-authentication-and-scopes) and [7](#7-request-envelope-and-validation-pipeline) |
+| X8 (inclusive low watermark) | [section 11](#11-errors) |
 | X9 (per-route body limits), X10 (idle timeout), X32 (connection cap) | [section 13](#13-size-limits-and-timeouts) |
 | X11 (strict JSON) | [section 4](#4-encoding-rules) |
 | X12 (JSON unless `Accept` lists `text/plain` and not `application/json`) | [section 10](#10-responses-and-content-negotiation) |
 | X20 (exits off by default), X21 (clock bounds) | [sections 8](#8-artifact-types) and [12](#12-wall-clock-bounds) |
 | X22 (RANDAO reveal endpoint) | [section 14](#14-randao-reveal) |
 | X23 (metric names) | [section 18](#18-metric-label-values) |
-| X24 (no `DEPOSIT`), X27 (no raw-signing endpoints) | [section 8](#8-artifact-types) |
+| X24 (no `DEPOSIT`), X27 (no raw-signing endpoints), X35 (registration `pubkey` must be the identified key) | [section 8](#8-artifact-types) |
 | X29 (reload never disables keys) | [section 17](#17-supporting-endpoints) |
 | X36 (`/upcheck` 503 while loading), X37 (healthcheck detail needs the sign scope), X44 (fixed reload messages) | [sections 5](#5-endpoints) and [17](#17-supporting-endpoints) |
-| X45 (every POST needs `application/json`) | [section 6](#6-authentication-and-scopes) |
+| X45 (every POST needs `application/json`) | [section 7](#7-request-envelope-and-validation-pipeline) |
+<!-- contract:deviations:end -->
 
 ## 22. Worked examples
 

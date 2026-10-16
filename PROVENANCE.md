@@ -296,6 +296,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/metrics_test.go` | new | | | |
 | `test/acceptance/migrate_test.go` | new | | | |
 | `test/acceptance/server_test.go` | new | | | |
+| `test/repo/links_test.go` | new | | | |
 | `test/repo/notice_test.go` | new | | | |
 | `test/repo/public_test.go` | new | | | |
 | `test/repo/repo_test.go` | new | | | |

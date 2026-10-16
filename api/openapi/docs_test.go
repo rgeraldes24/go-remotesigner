@@ -6,6 +6,7 @@ package openapi
 import (
 	"maps"
 	"os"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -15,13 +16,19 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
-// docs/contract.md carries two machine-checked tables between these markers.
+// docs/contract.md carries three machine-checked tables between these
+// markers.
 const (
-	reasonsBegin   = "<!-- contract:reasons:begin -->"
-	reasonsEnd     = "<!-- contract:reasons:end -->"
-	endpointsBegin = "<!-- contract:endpoints:begin -->"
-	endpointsEnd   = "<!-- contract:endpoints:end -->"
+	reasonsBegin    = "<!-- contract:reasons:begin -->"
+	reasonsEnd      = "<!-- contract:reasons:end -->"
+	endpointsBegin  = "<!-- contract:endpoints:begin -->"
+	endpointsEnd    = "<!-- contract:endpoints:end -->"
+	deviationsBegin = "<!-- contract:deviations:begin -->"
+	deviationsEnd   = "<!-- contract:deviations:end -->"
 )
+
+// deviationsPath is the register of differences from Web3Signer.
+const deviationsPath = "../../DEVIATIONS.md"
 
 // tableRows returns the data rows of the Markdown table between begin and
 // end in docs/contract.md, as trimmed cells with code spans unwrapped.
@@ -177,4 +184,70 @@ func normaliseCodes(s string) string {
 	}
 	sort.Strings(codes)
 	return strings.Join(slices.Compact(codes), ", ")
+}
+
+var (
+	deviationID     = regexp.MustCompile(`\bX[0-9]+\b`)
+	sectionAnchor   = regexp.MustCompile(`\(#([0-9]+)-`)
+	contractSection = regexp.MustCompile(`docs/contract\.md#([0-9]+)-`)
+)
+
+// TestDeviationsMapMatchesRegister keeps the map in docs/contract.md section
+// 21 and the links of DEVIATIONS.md in step: every register row that links a
+// contract section is in the map under that section, and every row the map
+// lists links into the contract.
+func TestDeviationsMapMatchesRegister(t *testing.T) {
+	mapped := map[string][]string{} // row -> the sections the map gives
+	for _, cells := range tableRows(t, deviationsBegin, deviationsEnd, 2) {
+		var sections []string
+		for _, m := range sectionAnchor.FindAllStringSubmatch(cells[1], -1) {
+			sections = append(sections, m[1])
+		}
+		ids := deviationID.FindAllString(cells[0], -1)
+		if len(ids) == 0 || len(sections) == 0 {
+			t.Errorf("section 21 row %q names no register row or no section", cells)
+		}
+		for _, id := range ids {
+			if _, dup := mapped[id]; dup {
+				t.Errorf("section 21 lists %s twice", id)
+			}
+			mapped[id] = sections
+		}
+	}
+
+	raw, err := os.ReadFile(deviationsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked := map[string][]string{} // row -> the contract sections it links
+	for _, line := range strings.Split(string(raw), "\n") {
+		cells := strings.Split(line, "|")
+		if len(cells) < 3 || !deviationID.MatchString(strings.TrimSpace(cells[1])) {
+			continue
+		}
+		id := strings.TrimSpace(cells[1])
+		linked[id] = nil
+		for _, m := range contractSection.FindAllStringSubmatch(line, -1) {
+			linked[id] = append(linked[id], m[1])
+		}
+	}
+	if len(linked) == 0 {
+		t.Fatalf("%s: no register rows found", deviationsPath)
+	}
+
+	for id, sections := range linked {
+		for _, sec := range sections {
+			if !slices.Contains(mapped[id], sec) {
+				t.Errorf("%s links contract section %s, but section 21 does not map it there (it gives %v)",
+					id, sec, mapped[id])
+			}
+		}
+	}
+	for id := range mapped {
+		if sections, ok := linked[id]; !ok {
+			t.Errorf("section 21 maps %s, which is not in %s", id, deviationsPath)
+		} else if len(sections) == 0 {
+			t.Errorf("section 21 maps %s, but its %s row links no contract section", id, deviationsPath)
+		}
+	}
 }

@@ -4,8 +4,9 @@
 // Package repo checks the repository's own text for a reader of the public
 // repository: statements about publication hold before and after the
 // repository is made public, no reference points at a document that is not
-// in the repository, and NOTICE attributes every module the binaries link
-// with its copyright notice as the module's source states it.
+// in the repository, every relative Markdown link resolves, and NOTICE
+// attributes every module the binaries link with its copyright notice as the
+// module's source states it.
 package repo
 
 import (
