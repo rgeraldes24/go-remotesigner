@@ -184,7 +184,7 @@ func TestEveryTypeAccepted(t *testing.T) {
 	}
 }
 
-// S32 (exit gate): VOLUNTARY_EXIT is refused with ARTIFACT_TYPE_DISABLED
+// Exit gate: VOLUNTARY_EXIT is refused with ARTIFACT_TYPE_DISABLED
 // unless exits are enabled, and unknown types are never enabled.
 func TestTypePolicy(t *testing.T) {
 	exit := sign(&types.VoluntaryExit{Epoch: 1})
@@ -284,7 +284,7 @@ func TestSigningRoot(t *testing.T) {
 	}
 }
 
-// S14: a fork_info that names another network is refused for every type
+// A fork_info that names another network is refused for every type
 // that carries one. The domain never depends on it.
 func TestForkInfoMismatch(t *testing.T) {
 	mutations := []struct {

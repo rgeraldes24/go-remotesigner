@@ -11,7 +11,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
 )
 
-// The differential fuzz of PLAN S2b: every container, and ForkData and
+// The differential fuzz: every container, and ForkData and
 // SigningData, is built from the fuzz input twice, once as ours and once as
 // its fastssz mirror (fastssz_mirror_test.go), and the two hash-tree-roots
 // must agree, including whether a list over its limit is refused. CI runs

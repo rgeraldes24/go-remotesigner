@@ -89,7 +89,7 @@ func TestLoadFeeRecipientPins(t *testing.T) {
 	}
 }
 
-// Fee-recipient pinning (G4 C13): a registration whose fee_recipient
+// Fee-recipient pinning (DEVIATIONS.md X35): a registration whose fee_recipient
 // differs from the key's pin is refused; a matching one and one for an
 // unpinned key pass.
 func TestFeeRecipientPin(t *testing.T) {

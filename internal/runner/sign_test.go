@@ -83,7 +83,7 @@ func signPath(c vectors.SignCase) string {
 	return "/api/v1/consensus/sign/" + c.Pubkey
 }
 
-// The walking skeleton signs: the first request pins the file network's
+// The signer signs end to end: the first request pins the file network's
 // GVR, a selection proof is qrysm's deterministic signature, the store
 // refuses a double vote, and the metrics listener reports all of it with
 // the contract's label values.
@@ -159,7 +159,7 @@ func TestRunSignAndMetrics(t *testing.T) {
 	}
 }
 
-// G4 S7: a 1.19 MB contribution (128 signatures, mainnet preset) passes the
+// A 1.19 MB contribution (128 signatures, mainnet preset) passes the
 // 2 MiB body limit, and 2 MiB + 1 is 413.
 func TestRunLargeContribution(t *testing.T) {
 	c := goldenCase(t, "mainnet", signingroot.SyncCommitteeContributionAndProof, "signatures_128")

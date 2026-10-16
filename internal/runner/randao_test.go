@@ -43,7 +43,7 @@ func revealReq(slot uint64, commitment, forkInfo string) []byte {
 		`","fork_info":` + forkInfo + `}`)
 }
 
-// The walking skeleton reveals: a first use, a new layer and a retry, the
+// The signer reveals end to end: a first use, a new layer and a retry, the
 // health check reports the layers left, the admin reset needs the admin
 // token and makes the next reveal a first use, and the metrics count it all.
 func TestRunRandao(t *testing.T) {

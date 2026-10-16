@@ -1,13 +1,13 @@
 # Benchmarks
 
-Each benchmark is first required by the milestone that delivers its component, then re-run weekly and before every
-release. The thresholds were set for the reference hardware: a 4-vCPU x86-64 cloud VM and a 4-vCPU Graviton-class
-arm64 VM, reporting p50, p99 and p99.9 with `benchstat` over at least 10 runs. Rows measured elsewhere say so and
-must be re-run on the reference VMs before v1.0.
+Each benchmark is first run when its component lands, then re-run weekly and before every release. The thresholds
+were set for the reference hardware: a 4-vCPU x86-64 cloud VM and a 4-vCPU Graviton-class arm64 VM, reporting p50,
+p99 and p99.9 with `benchstat` over at least 10 runs. Rows measured elsewhere say so and must be re-run on the
+reference VMs before v1.0.
 
 ## ML-DSA-87 (B1-B4, `internal/crypto/mldsa87`)
 
-**Status: open.** The S2c acceptance criterion "B1-B4 meet their thresholds" is not yet confirmed. The only
+**Status: open.** The criterion "B1-B4 meet their thresholds" is not yet confirmed. The only
 measurements so far come from a shared, heavily loaded development machine, which cannot confirm or refute a
 latency bound. This stays a tracked gate until the rows below are re-run on a quiet machine or the reference VMs.
 
@@ -107,7 +107,7 @@ recorded in the store, and 126 `SYNC_COMMITTEE_MESSAGE` requests over the same 3
 mainnet-preset 128-signature contribution (1,197,210 bytes) at once, so eight wait for a large-body slot, and reads
 the process RSS with `ps` before and after. B9 sends four concurrent first reveals (each a scan of up to 2^20
 layers) while the B7 burst runs, then an unknown commitment twice: the second answer must come from the negative
-cache. This release has no TLS, so B7 runs without it; the TLS variant is part of B20 (S7).
+cache. This release has no TLS, so B7 runs without it; the TLS variant is benchmarked once TLS support lands.
 
 | ID | Test | Threshold | Development-machine results (5 runs) | Verdict |
 |---|---|---|---|---|

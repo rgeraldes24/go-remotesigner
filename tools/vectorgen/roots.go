@@ -13,7 +13,7 @@ import (
 // seedsPerPreset is the number of random containers per type and preset.
 // Each preset draws its own seeds (seedRange), so most types are
 // preset-independent yet still give 1,024 distinct objects across the two
-// presets, about the 1,000 per container of DESIGN §7.2.
+// presets, about 1,000 per container.
 const seedsPerPreset = 512
 
 // seedRange returns the first and last seed of the i-th chain of

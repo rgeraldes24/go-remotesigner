@@ -28,5 +28,5 @@ from. None of them contains qrysm code, and none is a substitute for reading the
     copyright, but the notes record their origin honestly so that a reviewer can judge it, and `PROVENANCE.md` lists
     them under "Written from facts".
 - Values marked *independently computed* were produced from the stated facts with a small script written for these
-  notes. The golden vectors that `tools/vectorgen` generates from qrysm itself (milestone S3) confirm or replace
+  notes. The golden vectors that `tools/vectorgen` generates from qrysm itself confirm or replace
   them; where the two ever differ, the generated vectors win and the note is corrected.

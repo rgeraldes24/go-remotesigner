@@ -13,9 +13,9 @@ tree with real zero chunks instead of precomputed zero hashes, and it unpacks
 bitfields into Python booleans before packing them again.
 
 The Go tests compare against its output, so a bug has to appear in both
-implementations to go unnoticed. Golden vectors generated from qrysm replace
-these fixtures as the authority in a later milestone; until then they are the
-cross-check.
+implementations to go unnoticed. The golden vectors that tools/vectorgen
+generates with qrysm's own code are the authority; these fixtures stay as an
+independent cross-check.
 
 Usage (Python 3.9 or later, standard library only), from this directory:
 

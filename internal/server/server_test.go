@@ -130,7 +130,7 @@ func decodeErr(t *testing.T, rec *httptest.ResponseRecorder) errResp {
 }
 
 // The middleware refuses in the order access log, host, Origin, auth,
-// content type, body limit (G4 S1, S4, S5).
+// content type, body limit.
 func TestMiddlewareOrder(t *testing.T) {
 	s := newTestServer(t, func(c *Config) { c.Ready = func() bool { return false } })
 	tests := []struct {
@@ -404,7 +404,7 @@ func postChunked(url string, body io.Reader) (*http.Response, error) {
 }
 
 // A chunked body takes a large-body slot; with all 8 taken, the 9th waits
-// until one is released (G4 S7).
+// until one is released.
 func TestLargeBodyGateChunked(t *testing.T) {
 	s := newTestServer(t, nil)
 	base := serve(t, s)
@@ -587,7 +587,7 @@ func gather(t *testing.T, reg *prometheus.Registry, name string) float64 {
 }
 
 // With --http-max-connections=4, a 5th connection is not served until one
-// closes, and the limit-reached counter increments (G4 S7).
+// closes, and the limit-reached counter increments.
 func TestMaxConnections(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	s := newTestServer(t, func(c *Config) { c.MaxConnections = 4; c.Registerer = reg })

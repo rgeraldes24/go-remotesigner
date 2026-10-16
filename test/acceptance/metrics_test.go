@@ -82,7 +82,7 @@ func writeInteropKey(t *testing.T, dir string) vectors.SignCase {
 	return c
 }
 
-// S5b acceptance: with --metrics-enabled the metrics listener serves every
+// With --metrics-enabled the metrics listener serves every
 // contract counter with its documented label values behind its host
 // allowlist; a signed request moves the counters.
 func TestMetricsListener(t *testing.T) {

@@ -25,7 +25,7 @@ import (
 )
 
 // verifier posts the fixtures to a running signer and judges every answer
-// with qrysm's own code (DESIGN §7.5).
+// with qrysm's own code.
 type verifier struct {
 	base   string
 	token  string

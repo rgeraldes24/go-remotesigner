@@ -61,7 +61,7 @@ func olderStore(t *testing.T) (string, string) {
 	return data, db
 }
 
-// PLAN S4b and S5b: a store at an older schema version stops the signer with
+// A store at an older schema version stops the signer with
 // a message naming `consensus migrate`; after `consensus migrate`, which
 // keeps a .v0.bak backup, the signer starts. With
 // --slashing-protection-db-migrate the signer migrates at startup instead.

@@ -196,11 +196,11 @@ func TestRandaoGoldenRequests(t *testing.T) {
 	}
 }
 
-// V6 (randao/frontier.json): G1 §5 scenarios 1-15 as scripted HTTP
-// sequences, each from an empty state, with the stored frontier checked
-// after every step. Scenario 7 (the BN orphaning the validator's own late
-// block) is a new layer at the signer, as in next_proposal; 9 (a second
-// signer) is gap_advanced.
+// V6 (randao/frontier.json): the fork, reorg, orphan, retry and walking
+// scenarios of the frontier rule as scripted HTTP sequences, each from an
+// empty state, with the stored frontier checked after every step. A BN that
+// orphans the validator's own late block is a new layer at the signer, as
+// in next_proposal; a second signer with its own store is gap_advanced.
 func TestRandaoFrontierScripts(t *testing.T) {
 	var fr vectors.Frontier
 	vectors.Load(t, "randao/frontier.json", &fr)

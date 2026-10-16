@@ -58,7 +58,7 @@ type object struct {
 	slot, epoch *uint64
 	payload     obj
 	// padded is set when the root was computed with qrysm's mainnet SSZ code
-	// over a minimal-preset bitvector padded to 16 bytes (G2 §8.3 fallback).
+	// over a minimal-preset bitvector padded to 16 bytes (the padding fallback).
 	padded bool
 }
 
@@ -227,7 +227,7 @@ func syncSelectObject(d *qrysmpb.SyncAggregatorSelectionData) *object {
 // contributionObject builds the object for bits of the chain's subcommittee
 // size. qrysm's generated SSZ code is the mainnet one, with a 16-byte
 // bitvector; minimal-preset bits are hashed padded to 16 bytes, which gives
-// the same root because both fit one chunk (G2 §4.3), and the object is
+// the same root because both fit one chunk, and the object is
 // flagged as computed by that fallback.
 func contributionObject(aggregator uint64, c *qrysmpb.SyncCommitteeContribution, bits []byte, selectionProof []byte) *object {
 	padded := make([]byte, 16)

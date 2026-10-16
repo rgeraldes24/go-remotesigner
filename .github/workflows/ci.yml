@@ -111,7 +111,7 @@ jobs:
         run: make nogpl
 
   vectors-verify:
-    # L3 cross-verification (DESIGN §7.5): the built signer, loaded with the
+    # Cross-verification: the built signer, loaded with the
     # interop keys, against `vectorgen verify` on both end-to-end networks.
     # Two passes per network: protection disabled and no genesis time (every
     # sign fixture), then protection on with genesis time (RANDAO).

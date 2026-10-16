@@ -131,7 +131,7 @@ func TestSignModes(t *testing.T) {
 	}
 }
 
-// G4 S17: a corrupted signature is never released; the key is quarantined
+// A corrupted signature is never released; the key is quarantined
 // until a key load replaces it.
 func TestSignatureFaultQuarantines(t *testing.T) {
 	s, ks, m := newSigner(t, mldsa87.Deterministic)

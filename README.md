@@ -47,10 +47,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Commits need a DCO sign-off, and no GPL 
 
 go-remotesigner is licensed under the Apache License 2.0 (see [LICENSE](LICENSE)). It is a derivative of Consensys
 Web3Signer (Apache-2.0); see [NOTICE](NOTICE) and [PROVENANCE.md](PROVENANCE.md). Behaviour that differs from
-Web3Signer is listed in [DEVIATIONS.md](DEVIATIONS.md). Current builds link this project's Apache-2.0 code and
-dependencies under Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause (see [NOTICE](NOTICE)); new dependencies must carry a licence
-from the allowlist in [CONTRIBUTING.md](CONTRIBUTING.md). The licence texts are in [LICENSES/](LICENSES), and release
-archives will also ship a `third_party_licenses/` directory.
+Web3Signer is listed in [DEVIATIONS.md](DEVIATIONS.md).
+
+Both binaries link this project's Apache-2.0 code and dependencies under Apache-2.0, MIT, BSD-2-Clause and
+BSD-3-Clause; [NOTICE](NOTICE) lists each one with its copyright notice, and new dependencies must carry a licence
+from the allowlist in [CONTRIBUTING.md](CONTRIBUTING.md). The generic licence texts are in [LICENSES/](LICENSES), and
+release archives will also ship a `third_party_licenses/` directory with each module's own licence file. Current
+builds neither copy nor link any GPL or LGPL code. The development tool [`tools/vectorgen`](tools/vectorgen/README.md),
+a separate module that generates the golden test vectors, links qrysm (GPL-3.0) and is never built into a release.
 
 ## Trademarks
 

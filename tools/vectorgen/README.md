@@ -43,7 +43,7 @@ random choice is a fixed seed, and qrysm's block generator signs in deterministi
 
 The build must not use the `minimal` tag. qrysm has minimal-preset SSZ code only under Bazel's `--config=minimal`, so
 the minimal-preset contribution roots are computed with the mainnet code over the bitvector padded to 16 bytes (the
-roots are equal because both fit one chunk); those records are flagged `"authoritative": false` (G2 §8.3).
+roots are equal because both fit one chunk); those records are flagged `"authoritative": false`.
 
 ## Verifying a running signer
 

@@ -45,7 +45,7 @@ func reasonOf(e *apierr.Error) apierr.Reason {
 	return e.Reason
 }
 
-// The scope matrix of the token modes (G4 S1, S2).
+// The scope matrix of the token modes (docs/contract.md section 6).
 func TestScopeMatrix(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Config{

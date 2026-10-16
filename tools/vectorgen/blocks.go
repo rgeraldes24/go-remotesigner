@@ -39,7 +39,7 @@ func (g *generator) genesisState() (state.BeaconState, error) {
 // realBlockCase builds a BLOCK_V2 case from a real block: qrysm's
 // GenerateFullBlockZond on the end-to-end-mainnet genesis, with an attestation,
 // transactions and withdrawals. The record carries the full and the blinded
-// block, whose roots must both equal the header's (G2 §4.4). It needs the
+// block, whose roots must both equal the header's. It needs the
 // mainnet build, so the minimal preset has no such case.
 func (g *generator) realBlockCase() (signCase, error) {
 	c := g.mainnet

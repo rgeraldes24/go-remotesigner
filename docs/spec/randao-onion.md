@@ -14,13 +14,14 @@ any existing implementation.
   `domainTag`, and two of its doc comments were phrased close to qrysm's. Review found these and they were renamed and
   reworded. The body of `Base` is the one idiomatic Go form of `SHA-256(tag ‖ seed)` and resembles qrysm's for that
   reason.
-- The test vectors were computed independently, with Python's `hashlib`, directly from the facts below. They are
-  data, not code. V2 reuses the seed and length of qrysm's own onion test, so the S3 cross-check also covers qrysm's
-  test case; its expected value was still computed here from the facts. Milestone S3 regenerated them with
-  `tools/vectorgen` from qrysm's `crypto/randao` at the pinned commit (`testdata/vectors/randao/onion.json`), and
-  every value matched; the signer's tests check the package against the generated file.
-- If QRL publishes the construction under a permissive licence, this note will cite it instead (design open question:
-  "would QRL publish the RANDAO hash-onion construction under CC0 or a permissive licence").
+- The test vectors were computed independently, with Python's `hashlib`, directly from the facts below. They are data,
+  not code. V2 reuses the seed and length of qrysm's own onion test, so the cross-check against qrysm also covers
+  qrysm's test case; its expected value was still computed here from the facts. The golden vectors later regenerated
+  them with `tools/vectorgen` from qrysm's `crypto/randao` at the pinned commit
+  (`testdata/vectors/randao/onion.json`), and every value matched; the signer's tests check the package against the
+  generated file.
+- If QRL publishes the construction under a permissive licence, this note will cite it instead. Whether QRL
+  would publish the construction under CC0 or a permissive licence is an open question.
 
 ## Notation
 
@@ -74,7 +75,7 @@ The signer only ever passes 48-byte seeds; V2 exercises the derivation with a sh
 
 ## Signer-level additions
 
-The sections below were added with the HTTP contract (milestone S1). They are **not** inputs to
+The sections below were added with the HTTP contract (`docs/contract.md`). They are **not** inputs to
 `internal/randao/onion`, which was written from the sections above only. They record what the signer, its
 contract and its tests need around that package.
 
@@ -84,8 +85,8 @@ contract and its tests need around that package.
   The onion lengths used by qrysm's deposit tooling, interop genesis and unit-test helpers (below) were likewise
   read from qrysm's GPL code. Only these facts were taken. The V4 and V5 values were computed independently with
   Python's `hashlib` from the facts in this note.
-- Milestone S3 regenerated V4 and V5 with `tools/vectorgen` (`testdata/vectors/randao/interop.json` and
-  `requests.json`): the V4 values matched, and each commitment equals the one qrysm's interop genesis stores for
+- The golden vectors later regenerated V4 and V5 with `tools/vectorgen` (`testdata/vectors/randao/interop.json`
+  and `requests.json`): the V4 values matched, and each commitment equals the one qrysm's interop genesis stores for
   its validator.
 
 ### Onion length in practice

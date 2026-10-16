@@ -19,7 +19,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/vectors"
 )
 
-// The end-to-end benchmarks of milestone S5b, against the built binary with
+// The end-to-end benchmarks, against the built binary with
 // a Go client on the default transport (docs/benchmarks.md):
 //
 //   - B7, the t = 20 s burst: 32 ATTESTATION and 126 SYNC_COMMITTEE_MESSAGE

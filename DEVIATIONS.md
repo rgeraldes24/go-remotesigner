@@ -10,56 +10,55 @@ ML-DSA-87, QRL sizes or the qrysm client), **QRL-sized** / **QRL time** (limits 
 **Policy** (a safer default), **Simplification**, **Go client** / **Go-native** (follows the Go ecosystem),
 **NAME_MAX** (file-system limits), **QRL client** (follows gqrl's API).
 
-The source column cites the evidence notes (component maps and gap reports) written while planning the port, which
-are not in this repository. Rows that show on the HTTP API are specified in [`docs/contract.md`](docs/contract.md),
-whose section 21 maps each of them to the contract section that states the behaviour; the "go-remotesigner" column
-links that section where one exists.
+Rows that show on the HTTP API are specified in [`docs/contract.md`](docs/contract.md), whose section 21 maps each of
+them to the contract section that states the behaviour. The "go-remotesigner" column links the page that specifies
+the behaviour; rows without a link are not yet specified on a separate page.
 
-| # | Area | Web3Signer | go-remotesigner | Class | Source |
-|---|---|---|---|---|---|
-| X1 | Sign order | Signs, then checks `maySign` | Check and record, then sign, verify, release | Fix | CH §6.2; G4 C9 |
-| X2 | Signing mode | BLS is deterministic | Deterministic selection proofs; hedged for everything else | QRL-forced | QI §7 |
-| X3 | Verify before release | none | Always on; 500 and quarantine on failure | Fix | G4 C11 |
-| X4 | Missing `fork_info` | NPE, then 500 | 400 `MISSING_FORK_INFO` ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)) | Fix | CH §6.1 |
-| X5 | `fork_info` validation | Trusted; GVR pinned for blocks and attestations only | Must match the configured network for every type; domain from config | Fix | G4 C10 |
-| X6 | Authentication | None | Bearer token by default, `admin` scope, optional mTLS | Fix (user request) | CH §10; G4 C1 |
-| X7 | Content type and `Origin` | Not enforced | 415 for non-JSON POST; 403 for any `Origin` | Fix | G4 C4 |
-| X8 | Low-watermark conditions | `<` plus a double-vote check | Literal EIP-3076 (`≤`) | Stricter | SP §5.2 |
-| X9 | Body limits | 10 MiB everywhere | Per route ([contract §13](docs/contract.md#13-size-limits-and-timeouts)) | QRL-sized | G6 §7.1 |
-| X10 | Idle timeout | 30 s | 120 s | Go client | G6 §7.2 |
-| X11 | JSON strictness | Unknown fields ignored, numbers accepted, case-insensitive `type` | Strict ([contract §4](docs/contract.md#4-encoding-rules)) | Fix | G2 §6.1 |
-| X12 | Response default | `text/plain` without `Accept` | JSON unless `Accept` lists `text/plain` and not `application/json` ([contract §10](docs/contract.md#10-responses-and-content-negotiation)) | Simplification | CH §6.2 |
-| X13 | Signer load | batch 500 on virtual threads | Memory-sized Argon2id semaphore | QRL-forced | G6 §7.4 |
-| X14 | Keystores | EIP-2335 | QRL v1 + deposit-cli, KDF bounds, derive and compare | QRL-forced + fix | G3 §A.2; G4 C7, C8 |
-| X15 | Keymanager file names | `<pubkey>.*` | `<sha256(pk)>.*`, 0600 | NAME_MAX | G3 §B.7 |
-| X16 | Interchange import | Per-validator errors swallowed, no locks | Errors surface, key inactive, locks, GVR always exported | Fix | SP §18.2 |
-| X17 | Pruning | 250 epochs, 32 slots per epoch | 512 epochs, slots per epoch from the network | QRL time | SP §17.3 |
-| X18 | Secret logging | Import body at INFO on parse error | Redaction; bodies never logged | Fix | G4 N1, C15 |
-| X19 | Embedded store | none (protection off without Postgres) | bbolt by default | Fix | G4 T26 |
-| X20 | Exits | Always signed | Off by default | Policy | G4 C13 |
-| X21 | Clock bounds | none | Per type when genesis time is known; RANDAO always ([contract §12](docs/contract.md#12-wall-clock-bounds)) | Fix | G4 C12 |
-| X22 | RANDAO | BLS signature of the epoch on `/sign` | Dedicated reveal endpoint with the frontier rule ([contract §14](docs/contract.md#14-randao-reveal)) | QRL-forced | G1 §7 |
-| X23 | Metric names | `signing_bls_*`, `eth2_*`, summaries | `signing_mldsa87_*`, `consensus_*`, histograms | QRL-forced | OF §5.3 |
-| X24 | `DEPOSIT` | Always enabled | Not in v1; v2 off by default with the commitment guard | QRL-forced | G1 §6.3 |
-| X25 | eth1 nonce retry | Exact Besu `(code, message)` pairs | Code -32000 plus gqrl message substrings, per-sender lock | QRL-forced | E1 §1.7 |
-| X26 | `qrl_signTransaction` result | raw hex | gqrl `{raw, tx}` | QRL client | E1 §1.6 |
-| X27 | eth1 REST sign, `/ext/sign`, Commit-Boost | present | removed | Fix | G4 T17 |
-| X28 | Execution proxy | Forwards every header and method | Header and method allowlists, `Host` rewritten, no redirects | Fix | G4 C18 |
-| X29 | Reload delta | Removed keys (including ones that failed to load) are disabled in slashing protection | Reload only evicts from memory; `enabled=false` only on keymanager DELETE or `consensus disable-validator`; a failed source keeps its previous signers | Fix | [contract §17](docs/contract.md#17-supporting-endpoints) |
-| X30 | `--network` default | `mainnet` | Required, no default | QRL (no published mainnet) | [docs/spec/network-config.md](docs/spec/network-config.md) |
-| X31 | Disabling slashing protection | Allowed anywhere | Allowed only when every listener is loopback, no override | Fix | G4 C3, T26 |
-| X32 | Connection limits | none | `--http-max-connections` 1024; unknown-length bodies count as large | Fix | G4 C6 |
-| X33 | Text log format | log4j pattern | logrus `TextFormatter` | Go-native | CO §7 |
-| X34 | High watermark before the network is pinned | `UPDATE metadata` silently changes nothing when no genesis validators root is stored | Refused with an error (`ErrNoGenesisValidatorsRoot`) | Fix | SP §8, §18.2 |
-| X35 | Validator registrations | Signed for the key the path names, whatever `pubkey` and `fee_recipient` say | `pubkey` must be the identified key (400 `PUBKEY_MISMATCH`, [contract §8](docs/contract.md#8-artifact-types)); an optional per-key fee-recipient pin refuses any other `fee_recipient` (403 `ARTIFACT_TYPE_DISABLED`, [docs/reference/registration-fee-recipient-file.md](docs/reference/registration-fee-recipient-file.md)) | Fix | G4 N10, C13 |
-| X36 | Startup and `/upcheck` | Loads every key before it listens | Listens at once; `/upcheck` answers 503 `LOADING`, and `publicKeys` and `capabilities` 503 `NOT_READY`, until the first key load and the store open finish ([contract §17](docs/contract.md#17-supporting-endpoints)) | Fix | G6 §6.3 |
-| X37 | `/healthcheck` detail | Every caller sees every check | Without the sign scope a caller sees only `status` and `outcome` ([contract §17](docs/contract.md#17-supporting-endpoints)) | Fix | G4 C15 |
-| X38 | Startup fail-safes on a non-loopback listener | None | Refused: `--http-auth-mode=none`, plaintext token auth without `--Xallow-plaintext-token-auth`, a host allowlist of loopback names only, a GVR pinned on first use without `--Xallow-gvr-tofu`, an unknown genesis time without `--Xallow-unknown-genesis-time`; all applicable refusals are reported together ([docs/operations/quickstart.md](docs/operations/quickstart.md#10-listening-beyond-loopback)) | Fix | G4 C3 |
-| X39 | `--http-host-allowlist` default | `localhost,127.0.0.1` | `localhost,127.0.0.1,::1` | Simplification | CO §5.1 |
-| X40 | Configuration sources | `WEB3SIGNER_` environment prefix; YAML keys dotted by subcommand (`eth2.network`) | `REMOTESIGNER_` prefix (`REMOTESIGNER_CONSENSUS_NETWORK`); YAML takes bare flag names, consensus flags at the top level or in a `consensus:` section ([docs/reference/flags.md](docs/reference/flags.md)) | Go-native | CO §6 |
-| X41 | `--key-config-path` default | `./` (the working directory) | Unset: no key-config source, with a WARN | Policy | CO §5.1 |
-| X42 | `--logging-format` | `PLAIN`, `ECS`, `GCP`, `GELF`, `LOGSTASH` | `text` (logrus `TextFormatter`, alias `--log-format`) or `json` | Go-native | CO §7 |
-| X43 | Ports file | `web3signer.ports` with `http-port` and `metrics-port` | `remotesigner.ports` with `http-port`, and `metrics-port` when `--metrics-enabled` starts the metrics listener | Go-native | CO §5.1 |
-| X44 | `/reload` messages | 202 message and `lastError` carry free text and exception messages | Fixed strings: `reload started`; `reload completed with N key loading error(s)` or `reload failed; see the signer log` ([contract §17](docs/contract.md#17-supporting-endpoints)) | Fix | G4 C15 |
-| X45 | `POST` without a body | Accepted with any or no `Content-Type` | Every POST, `/reload` included, needs `Content-Type: application/json` (415 otherwise) | Stricter | G4 C4 |
-| X46 | Metrics listener on a non-loopback host | Starts with any `--metrics-host-allowlist`, so the default (`localhost,127.0.0.1`) silently refuses every remote scraper | Startup is refused when the allowlist names only loopback hosts, as for the API listener ([docs/operations/metrics.md](docs/operations/metrics.md#1-the-metrics-listener)) | Fix | G4 C3 |
+| # | Area | Web3Signer | go-remotesigner | Class |
+|---|---|---|---|---|
+| X1 | Sign order | Signs, then checks `maySign` | Check and record, then sign, verify, release ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)) | Fix |
+| X2 | Signing mode | BLS is deterministic | Deterministic selection proofs; hedged for everything else ([contract §15](docs/contract.md#15-selection-proofs-and-signing-modes)) | QRL-forced |
+| X3 | Verify before release | none | Always on; 500 and quarantine on failure ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)) | Fix |
+| X4 | Missing `fork_info` | NPE, then 500 | 400 `MISSING_FORK_INFO` ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)) | Fix |
+| X5 | `fork_info` validation | Trusted; GVR pinned for blocks and attestations only | Must match the configured network for every type; domain from config ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)) | Fix |
+| X6 | Authentication | None | Bearer token by default, `admin` scope, optional mTLS ([contract §6](docs/contract.md#6-authentication-and-scopes)) | Fix (user request) |
+| X7 | Content type and `Origin` | Not enforced | 415 for non-JSON POST ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)); 403 for any `Origin` ([contract §6](docs/contract.md#6-authentication-and-scopes)) | Fix |
+| X8 | Low-watermark conditions | `<` plus a double-vote check | Literal EIP-3076 (`≤`) ([contract §11](docs/contract.md#11-errors)) | Stricter |
+| X9 | Body limits | 10 MiB everywhere | Per route ([contract §13](docs/contract.md#13-size-limits-and-timeouts)) | QRL-sized |
+| X10 | Idle timeout | 30 s | 120 s ([contract §13](docs/contract.md#13-size-limits-and-timeouts)) | Go client |
+| X11 | JSON strictness | Unknown fields ignored, numbers accepted, case-insensitive `type` | Strict ([contract §4](docs/contract.md#4-encoding-rules)) | Fix |
+| X12 | Response default | `text/plain` without `Accept` | JSON unless `Accept` lists `text/plain` and not `application/json` ([contract §10](docs/contract.md#10-responses-and-content-negotiation)) | Simplification |
+| X13 | Signer load | batch 500 on virtual threads | Memory-sized Argon2id semaphore | QRL-forced |
+| X14 | Keystores | EIP-2335 | QRL v1 + deposit-cli, KDF bounds, derive and compare | QRL-forced + fix |
+| X15 | Keymanager file names | `<pubkey>.*` | `<sha256(pk)>.*`, 0600 | NAME_MAX |
+| X16 | Interchange import | Per-validator errors swallowed, no locks | Errors surface, key inactive, locks, GVR always exported | Fix |
+| X17 | Pruning | 250 epochs, 32 slots per epoch | 512 epochs, slots per epoch from the network | QRL time |
+| X18 | Secret logging | Import body at INFO on parse error | Redaction; bodies never logged | Fix |
+| X19 | Embedded store | none (protection off without Postgres) | bbolt by default ([docs/reference/flags.md](docs/reference/flags.md)) | Fix |
+| X20 | Exits | Always signed | Off by default ([contract §8](docs/contract.md#8-artifact-types)) | Policy |
+| X21 | Clock bounds | none | Per type when genesis time is known; RANDAO always ([contract §12](docs/contract.md#12-wall-clock-bounds)) | Fix |
+| X22 | RANDAO | BLS signature of the epoch on `/sign` | Dedicated reveal endpoint with the frontier rule ([contract §14](docs/contract.md#14-randao-reveal)) | QRL-forced |
+| X23 | Metric names | `signing_bls_*`, `eth2_*`, summaries | `signing_mldsa87_*`, `consensus_*`, histograms ([contract §18](docs/contract.md#18-metric-label-values), [docs/operations/metrics.md](docs/operations/metrics.md)) | QRL-forced |
+| X24 | `DEPOSIT` | Always enabled | Not in v1; v2 off by default with the commitment guard ([contract §8](docs/contract.md#8-artifact-types)) | QRL-forced |
+| X25 | eth1 nonce retry | Exact Besu `(code, message)` pairs | Code -32000 plus gqrl message substrings, per-sender lock | QRL-forced |
+| X26 | `qrl_signTransaction` result | raw hex | gqrl `{raw, tx}` | QRL client |
+| X27 | eth1 REST sign, `/ext/sign`, Commit-Boost | present | removed ([contract §8](docs/contract.md#8-artifact-types)) | Fix |
+| X28 | Execution proxy | Forwards every header and method | Header and method allowlists, `Host` rewritten, no redirects | Fix |
+| X29 | Reload delta | Removed keys (including ones that failed to load) are disabled in slashing protection | Reload only evicts from memory; `enabled=false` only on keymanager DELETE or `consensus disable-validator`; a failed source keeps its previous signers ([contract §17](docs/contract.md#17-supporting-endpoints)) | Fix |
+| X30 | `--network` default | `mainnet` | Required, no default ([docs/spec/network-config.md](docs/spec/network-config.md)) | QRL (no published mainnet) |
+| X31 | Disabling slashing protection | Allowed anywhere | Allowed only when every listener is loopback, no override ([docs/operations/quickstart.md](docs/operations/quickstart.md#10-listening-beyond-loopback)) | Fix |
+| X32 | Connection limits | none | `--http-max-connections` 1024; unknown-length bodies count as large ([contract §13](docs/contract.md#13-size-limits-and-timeouts)) | Fix |
+| X33 | Text log format | log4j pattern | logrus `TextFormatter` | Go-native |
+| X34 | High watermark before the network is pinned | `UPDATE metadata` silently changes nothing when no genesis validators root is stored | Refused with an error (`ErrNoGenesisValidatorsRoot`) | Fix |
+| X35 | Validator registrations | Signed for the key the path names, whatever `pubkey` and `fee_recipient` say | `pubkey` must be the identified key (400 `PUBKEY_MISMATCH`, [contract §8](docs/contract.md#8-artifact-types)); an optional per-key fee-recipient pin refuses any other `fee_recipient` (403 `ARTIFACT_TYPE_DISABLED`, [docs/reference/registration-fee-recipient-file.md](docs/reference/registration-fee-recipient-file.md)) | Fix |
+| X36 | Startup and `/upcheck` | Loads every key before it listens | Listens at once; `/upcheck` answers 503 `LOADING`, and `publicKeys` and `capabilities` 503 `NOT_READY`, until the first key load and the store open finish ([contract §17](docs/contract.md#17-supporting-endpoints)) | Fix |
+| X37 | `/healthcheck` detail | Every caller sees every check | Without the sign scope a caller sees only `status` and `outcome` ([contract §17](docs/contract.md#17-supporting-endpoints)) | Fix |
+| X38 | Startup fail-safes on a non-loopback listener | None | Refused: `--http-auth-mode=none`, plaintext token auth without `--Xallow-plaintext-token-auth`, a host allowlist of loopback names only, a GVR pinned on first use without `--Xallow-gvr-tofu`, an unknown genesis time without `--Xallow-unknown-genesis-time`; all applicable refusals are reported together ([docs/operations/quickstart.md](docs/operations/quickstart.md#10-listening-beyond-loopback)) | Fix |
+| X39 | `--http-host-allowlist` default | `localhost,127.0.0.1` | `localhost,127.0.0.1,::1` ([docs/reference/flags.md](docs/reference/flags.md)) | Simplification |
+| X40 | Configuration sources | `WEB3SIGNER_` environment prefix; YAML keys dotted by subcommand (`eth2.network`) | `REMOTESIGNER_` prefix (`REMOTESIGNER_CONSENSUS_NETWORK`); YAML takes bare flag names, consensus flags at the top level or in a `consensus:` section ([docs/reference/flags.md](docs/reference/flags.md)) | Go-native |
+| X41 | `--key-config-path` default | `./` (the working directory) | Unset: no key-config source, with a WARN ([docs/reference/flags.md](docs/reference/flags.md)) | Policy |
+| X42 | `--logging-format` | `PLAIN`, `ECS`, `GCP`, `GELF`, `LOGSTASH` | `text` (logrus `TextFormatter`, alias `--log-format`) or `json` ([docs/reference/flags.md](docs/reference/flags.md)) | Go-native |
+| X43 | Ports file | `web3signer.ports` with `http-port` and `metrics-port` | `remotesigner.ports` with `http-port`, and `metrics-port` when `--metrics-enabled` starts the metrics listener ([docs/operations/quickstart.md](docs/operations/quickstart.md#4-start)) | Go-native |
+| X44 | `/reload` messages | 202 message and `lastError` carry free text and exception messages | Fixed strings: `reload started`; `reload completed with N key loading error(s)` or `reload failed; see the signer log` ([contract §17](docs/contract.md#17-supporting-endpoints)) | Fix |
+| X45 | `POST` without a body | Accepted with any or no `Content-Type` | Every POST, `/reload` included, needs `Content-Type: application/json` (415 otherwise) ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)) | Stricter |
+| X46 | Metrics listener on a non-loopback host | Starts with any `--metrics-host-allowlist`, so the default (`localhost,127.0.0.1`) silently refuses every remote scraper | Startup is refused when the allowlist names only loopback hosts, as for the API listener ([docs/operations/metrics.md](docs/operations/metrics.md#1-the-metrics-listener)) | Fix |

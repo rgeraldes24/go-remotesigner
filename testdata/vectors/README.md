@@ -42,7 +42,7 @@ and this README carry their dedication and generator record.
 | `randao/onion.json` | Onion vectors V1-V3 of `docs/spec/randao-onion.md` |
 | `randao/interop.json` | V4: commitment and first reveal of every interop key of the e2e genesis |
 | `randao/requests.json` | V5: reveal requests the signer refuses |
-| `randao/frontier.json` | V6: frontier-rule scripts for the G1 §5 scenarios |
+| `randao/frontier.json` | V6: frontier-rule scripts for fork, reorg, orphan, retry and walking scenarios |
 | `keystores/` | Keystores of both flavours, light and standard KDF, with `index.json` |
 
 The two presets are the two end-to-end networks: `minimal` is `end-to-end` (the qrysm e2e,
@@ -52,7 +52,7 @@ qrysm's interop genesis with 256 validators, which the qrysm e2e runs.
 
 ## Signing records
 
-A record of `signing/` has the shape of DESIGN §7.2:
+A record of `signing/` has this shape:
 
 - `type`, `preset`, `network` (`config_name`, `genesis_fork_version`, `gvr`,
   `slots_per_epoch`), `key_index` and `pubkey` (an interop key);
@@ -121,7 +121,7 @@ mostly out of any real range.
 - **Signer.** The unit tests decode every `request_json` and recompute `object_root`, `domain`
   and `signing_root`, rebuild the random objects from their seeds, reproduce the deterministic signatures,
   and run the negative fixtures through the decoder and the policy.
-- **qrysm (Q2).** Decode `object_ssz_hex` with qrysm's `UnmarshalSSZ`, wrap it in a `SignRequest`,
+- **qrysm client tests.** Decode `object_ssz_hex` with qrysm's `UnmarshalSSZ`, wrap it in a `SignRequest`,
   run the client mapper, and compare the JSON with `request_json`.
 - **vectorgen verify.** `vectorgen verify --signer http://127.0.0.1:9000 --token-file <auth-token>` posts every
   fixture to a running signer and checks the answers with qrysm's verifier (`tools/vectorgen/README.md`).

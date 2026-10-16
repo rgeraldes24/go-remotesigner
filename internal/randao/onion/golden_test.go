@@ -104,7 +104,7 @@ func TestGoldenFrontierLayers(t *testing.T) {
 	seed := vectors.Hex(t, vectors.Keys(t)[f.KeyIndex].Seed)
 	walk(t, seed, f.Layers)
 	if len(f.Scripts) < 15 {
-		t.Fatalf("%d scripts, want the 15 G1 §5 scenarios", len(f.Scripts))
+		t.Fatalf("%d scripts, want at least 15", len(f.Scripts))
 	}
 	for _, s := range f.Scripts {
 		for i, st := range s.Steps {
