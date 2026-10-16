@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -42,14 +43,23 @@ func isJunk(name string) bool {
 const thirdParty = "third_party/"
 
 var (
-	ourLine      = regexp.MustCompile(`^Copyright \d{4}(-\d{4})? The go-remotesigner Authors\.$`)
-	consensysRE  = regexp.MustCompile(`(?i)^copyright\b.*\bconsensys\b`)
-	mitCopyright = regexp.MustCompile(`^Copyright \(c\) \d{4}`)
+	ourLine        = regexp.MustCompile(`^Copyright \d{4}(-\d{4})? The go-remotesigner Authors\.$`)
+	consensysRE    = regexp.MustCompile(`(?i)^copyright\b.*\bconsensys\b`)
+	mitCopyright   = regexp.MustCompile(`^Copyright \(c\) \d{4}`)
+	wealdCopyright = regexp.MustCompile(`^Copyright © \d{4}.* Weald Technology Trading\.?$`)
 )
 
 const (
-	spdxApache = "SPDX-License-Identifier: Apache-2.0"
-	spdxMIT    = "SPDX-License-Identifier: MIT"
+	spdxApache    = "SPDX-License-Identifier: Apache-2.0"
+	spdxMIT       = "SPDX-License-Identifier: MIT"
+	spdxMITApache = "SPDX-License-Identifier: MIT AND Apache-2.0"
+	apacheNotice  = `Licensed under the Apache License, Version 2.0`
+
+	// wealdKeystore is the upstream path of qrysm's MIT keystore v1, which
+	// derives from Weald Technology's Apache-2.0 keystore v4 encryptor with
+	// Weald's notices removed. Copies of it restore them (Apache-2.0
+	// §4(c); PROVENANCE.md, "QRL code").
+	wealdKeystore = "pkg/go-qrl-wallet-encryptor-keystore/"
 )
 
 // check verifies the tree at root against the PROVENANCE file prov (relative
@@ -267,7 +277,17 @@ func checkHeader(r row, lines []string) []string {
 		need(strings.Contains(joined, r.revision), fmt.Sprintf("header does not name upstream commit %s", r.revision))
 	case classMIT:
 		need(has(mitCopyright.MatchString), `missing the original "Copyright (c) <year> ..." MIT line`)
-		need(has(equals(spdxMIT)), "missing "+spdxMIT)
+		switch {
+		case has(equals(spdxMIT)):
+		case has(equals(spdxMITApache)):
+			need(strings.Contains(joined, apacheNotice), "SPDX MIT AND Apache-2.0 without the Apache-2.0 licence notice")
+		default:
+			missing = append(missing, "missing "+spdxMIT+" or "+spdxMITApache)
+		}
+		if slices.ContainsFunc(r.upstream, func(u string) bool { return strings.HasPrefix(u, wealdKeystore) }) {
+			need(has(wealdCopyright.MatchString), `missing Weald Technology's "Copyright © <years> Weald Technology Trading" line, which copies of the QRL keystore restore`)
+			need(has(equals(spdxMITApache)), "the QRL keystore derives from Apache-2.0 code: want "+spdxMITApache)
+		}
 		need(has(func(l string) bool { return strings.HasPrefix(l, "Modified by ") }), `missing "Modified by" line`)
 	case classVendored:
 		missing = append(missing, "vendored rows must name a directory")
