@@ -55,15 +55,17 @@ The copy under `third_party/` stays pristine, so the Weald lineage is recorded h
 `third_party/qrl-keystore/README.md` instead of in its files.
 
 The hardened copy that is compiled into the signer is `internal/keys/keystore/qrlv1/`. Two of its files are copies,
-recorded as `mit-derived`: `decrypt.go` (from upstream `decrypt.go` and the keystore types of `encryptor.go`) and
-`norm.go` (from `norm.go`, unchanged apart from the package name). Because they modify Apache-2.0 code, their headers
-restore Weald's per-file copyright line from `v1.4.1` ("Copyright © 2019 - 2023 Weald Technology Trading." for
-`decrypt.go` and `encryptor.go`, "Copyright © 2020, 2021 Weald Technology Trading" for `norm.go`) and the Apache
-notice next to the QRL MIT line, under `SPDX-License-Identifier: MIT AND Apache-2.0` (Apache-2.0 §4(c));
-`LICENSES/Apache-2.0.txt` and `LICENSES/MIT.txt` hold the texts. `headercheck` requires this header of every
-`mit-derived` row whose upstream path is in the QRL keystore. Upstream `encrypt.go` is not copied: the signer never
-writes keystores. The package's other files (the keystore format, the password candidates and the tests) were
-written for this project and are classed `new`.
+recorded as `mit-derived`: `decrypt.go` (from upstream `decrypt.go`, the keystore types of `encryptor.go` and the
+algorithm, cipher and IV size constants of `encrypt.go`) and `norm.go` (from `norm.go`, unchanged apart from the
+package name). Because they modify Apache-2.0 code, their headers restore Weald's per-file copyright line from
+`v1.4.1` ("Copyright © 2019 - 2023 Weald Technology Trading." for `decrypt.go`, `encryptor.go` and `encrypt.go`,
+"Copyright © 2020, 2021 Weald Technology Trading" for `norm.go`) and the Apache notice next to the QRL MIT line,
+under `SPDX-License-Identifier: MIT AND Apache-2.0` (Apache-2.0 §4(c)); `LICENSES/Apache-2.0.txt` and
+`LICENSES/MIT.txt` hold the texts. `headercheck` requires this header of every `mit-derived` row whose upstream path
+is in the QRL keystore. Of upstream `encrypt.go` only the constants `algoArgon2id`, `cipherAes256Gcm` and `ivSize`
+are taken, with their comments; its encryption code is not copied, because the signer never writes keystores. The
+package's other files (the keystore format, the password candidates and the tests) were written for this project and
+are classed `new`.
 
 qrysm's keystore package imports neither `pkg/go-qrl-wallet-types` (tree `19f25ac100399096af79b50e65ded092a8078ae3`)
 nor `pkg/go-qrl-types` (tree `fc5b262a3483358cbd4ce6f7bd7ea0ce20306dfd`) at `0b9cdf25`. Only its test
@@ -244,7 +246,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/keyconfig/keyconfig.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/SignerLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/parser/YamlSignerParser.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileRawSigningMetadata.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/keyconfig/keyconfig_test.go` | new | | | |
 | `internal/keys/keystore/qrlv1/bench_test.go` | new | | | |
-| `internal/keys/keystore/qrlv1/decrypt.go` | mit-derived | `cyyber/qrysm` (MIT), from `wealdtech/go-eth2-wallet-encryptor-keystorev4` `v1.4.1` (Apache-2.0) | `pkg/go-qrl-wallet-encryptor-keystore/decrypt.go`<br>`pkg/go-qrl-wallet-encryptor-keystore/encryptor.go` | `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` |
+| `internal/keys/keystore/qrlv1/decrypt.go` | mit-derived | `cyyber/qrysm` (MIT), from `wealdtech/go-eth2-wallet-encryptor-keystorev4` `v1.4.1` (Apache-2.0) | `pkg/go-qrl-wallet-encryptor-keystore/decrypt.go`<br>`pkg/go-qrl-wallet-encryptor-keystore/encryptor.go`<br>`pkg/go-qrl-wallet-encryptor-keystore/encrypt.go` | `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` |
 | `internal/keys/keystore/qrlv1/fuzz_test.go` | new | | | |
 | `internal/keys/keystore/qrlv1/golden_test.go` | new | | | |
 | `internal/keys/keystore/qrlv1/helpers_test.go` | new | | | |

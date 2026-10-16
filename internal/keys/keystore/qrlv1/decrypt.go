@@ -19,9 +19,10 @@
 // IV and the ciphertext are checked before Argon2id runs; the passphrase is no longer normalised here (see
 // password.go); errors are typed; the decryption key and plaintext are wiped after use; the encryptor type and its
 // options are dropped.
-// Derived from qrysm pkg/go-qrl-wallet-encryptor-keystore/decrypt.go and encryptor.go (MIT) at commit
-// 0b9cdf251d1f022957d35c4edeb6dd3ce42a617d, themselves derived from wealdtech/go-eth2-wallet-encryptor-keystorev4
-// decrypt.go and encryptor.go (Apache-2.0), compared against v1.4.1.
+// Derived from qrysm pkg/go-qrl-wallet-encryptor-keystore/decrypt.go, encryptor.go and the algorithm, cipher and IV
+// size constants of encrypt.go (MIT) at commit 0b9cdf251d1f022957d35c4edeb6dd3ce42a617d, themselves derived from
+// wealdtech/go-eth2-wallet-encryptor-keystorev4 decrypt.go, encryptor.go and encrypt.go (Apache-2.0), compared
+// against v1.4.1.
 
 package qrlv1
 
