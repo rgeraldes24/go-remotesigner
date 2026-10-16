@@ -364,6 +364,7 @@ func TestMTLSScopeMatrix(t *testing.T) {
 					{http.MethodGet, keys, sign, 200},
 					{http.MethodPost, reload, "", 401},
 					{http.MethodPost, reload, sign, 403},
+					{http.MethodPost, reload, admin, 202},
 				}
 			}
 			for _, r := range rows {
@@ -534,9 +535,35 @@ var (
 	labelLine = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*\{(.*)\} `)
 )
 
-// With --metrics-auth-token-file a scrape needs the token; no metric
-// carries a key: no key-like label name, and no long hex label value,
-// after signing and revealing.
+// assertNoKeyLabels fails t when a metric of the scrape text carries a key:
+// a key-like label name, a long hex label value, or any of the forms of
+// pubkeys (hex prefix, the logs' short form, id prefix) anywhere in it.
+func assertNoKeyLabels(t *testing.T, text string, pubkeys ...string) {
+	t.Helper()
+	for line := range strings.SplitSeq(text, "\n") {
+		m := labelLine.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		if keyLabel.MatchString(m[1]) || longHex.MatchString(m[1]) {
+			t.Errorf("metric with a key-like label: %s", line)
+		}
+	}
+	lower := strings.ToLower(text)
+	for _, pk := range pubkeys {
+		id := sha256.Sum256(mustHex(t, pk))
+		for _, needle := range []string{pk[2:18], "0x" + pk[2:12], fmt.Sprintf("%x", id[:8])} {
+			if strings.Contains(lower, strings.ToLower(needle)) {
+				t.Errorf("the scrape contains key material %s", needle)
+			}
+		}
+	}
+}
+
+// With --metrics-auth-token-file a scrape needs the token, which SIGHUP
+// rotates; no metric carries a key: no key-like label name, and no long
+// hex label value, after signing (TestIntegrationEveryRequestType applies
+// the same check after every request type and RANDAO outcome).
 func TestMetricsTokenAndNoKeyLabels(t *testing.T) {
 	keys := t.TempDir()
 	c := writeInteropKey(t, keys)
@@ -566,20 +593,30 @@ func TestMetricsTokenAndNoKeyLabels(t *testing.T) {
 	if !strings.Contains(text, `signing_requests_total{result="ok",type="AGGREGATION_SLOT"} 1`) {
 		t.Fatal("the scrape does not show the signed request")
 	}
-	id := sha256.Sum256(mustHex(t, c.Pubkey))
-	for _, line := range strings.Split(text, "\n") {
-		m := labelLine.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		if keyLabel.MatchString(m[1]) || longHex.MatchString(m[1]) {
-			t.Errorf("metric with a key-like label: %s", line)
-		}
+	assertNoKeyLabels(t, text, c.Pubkey)
+
+	// Rotation: a new token in the file and SIGHUP; the old one stops
+	// working.
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		t.Fatal(err)
 	}
-	for _, needle := range []string{c.Pubkey[2:18], fmt.Sprintf("%x", id[:8])} {
-		if strings.Contains(strings.ToLower(text), strings.ToLower(needle)) {
-			t.Errorf("the scrape contains key material %s", needle)
+	rotated := fmt.Sprintf("0x%x", raw)
+	writeTestFile(t, tokenFile, []byte(rotated+"\n"))
+	s.signal(syscall.SIGHUP)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		code, _, err := call(http.DefaultClient, http.MethodGet, url, rotated)
+		if err == nil && code == 200 {
+			break
 		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the rotated metrics token never worked: %d %v\n%s", code, err, s.output.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if code, _, err := call(http.DefaultClient, http.MethodGet, url, token); err != nil || code != 401 {
+		t.Fatalf("the replaced metrics token after SIGHUP: %d %v, want 401", code, err)
 	}
 }
 

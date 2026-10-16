@@ -9,8 +9,10 @@ import (
 )
 
 // On Linux, Apply makes the process non-dumpable with no core dumps;
-// elsewhere it is a no-op. --mlock-all is not exercised here: locking the
-// memory of a race-instrumented test binary needs CAP_IPC_LOCK.
+// elsewhere it is a no-op. --mlock-all is not exercised here: it would lock
+// this test process for the rest of the run, the race detector's shadow
+// mappings included. The acceptance test TestMlockAllLinux runs it on the
+// built binary.
 func TestApply(t *testing.T) {
 	if !Supported {
 		if err := Apply(Config{DisableCoreDumps: true, MlockAll: true}); err != nil {

@@ -8,21 +8,24 @@ package acceptance
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
-// coreLimit returns the soft and hard "Max core file size" of pid from
-// /proc/<pid>/limits.
-func coreLimit(t *testing.T, pid int) (soft, hard string) {
+// procLimit returns the soft and hard values of the limit called name
+// ("Max core file size") in /proc/<pid>/limits ("self" for this process).
+func procLimit(t *testing.T, pid, name string) (soft, hard string) {
 	t.Helper()
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/limits", pid))
+	data, err := os.ReadFile("/proc/" + pid + "/limits")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for line := range strings.SplitSeq(string(data), "\n") {
-		if rest, ok := strings.CutPrefix(line, "Max core file size"); ok {
+		if rest, ok := strings.CutPrefix(line, name); ok {
 			f := strings.Fields(rest)
 			if len(f) < 2 {
 				t.Fatalf("limits line %q", line)
@@ -30,8 +33,14 @@ func coreLimit(t *testing.T, pid int) (soft, hard string) {
 			return f[0], f[1]
 		}
 	}
-	t.Fatal("no core file size in /proc/<pid>/limits")
+	t.Fatalf("no %q in /proc/%s/limits", name, pid)
 	return "", ""
+}
+
+// coreLimit returns the soft and hard "Max core file size" of pid.
+func coreLimit(t *testing.T, pid int) (soft, hard string) {
+	t.Helper()
+	return procLimit(t, strconv.Itoa(pid), "Max core file size")
 }
 
 // procOwner returns the owner of /proc/<pid>/status. proc(5): the files of
@@ -84,5 +93,82 @@ func TestHygieneAfterStartupLinux(t *testing.T) {
 		if _, hard := coreLimit(t, off.cmd.Process.Pid); hard == "0" {
 			t.Fatal("--disable-core-dumps=false still set the hard core-file limit to 0")
 		}
+	}
+}
+
+// procStatusField returns the value of a "<name>:" line of
+// /proc/<pid>/status ("self" for this process).
+func procStatusField(t *testing.T, pid, name string) string {
+	t.Helper()
+	data, err := os.ReadFile("/proc/" + pid + "/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(line, name+":"); ok {
+			return strings.TrimSpace(rest)
+		}
+	}
+	t.Fatalf("no %s in /proc/%s/status", name, pid)
+	return ""
+}
+
+// capIPCLock is CAP_IPC_LOCK's bit in the capability sets
+// (linux/capability.h).
+const capIPCLock = 14
+
+// --mlock-all locks the signer's memory when the process may lock all of
+// it: with CAP_IPC_LOCK, or with an unlimited RLIMIT_MEMLOCK (as Docker's
+// default is), the signer starts with locked pages (VmLck) and logs it.
+// With neither, and a limit far below the size of a Go process, mlockall
+// fails and the start is refused, naming what the flag needs. A large
+// finite limit could go either way, so it accepts both outcomes and checks
+// that each is consistent.
+func TestMlockAllLinux(t *testing.T) {
+	limit, _ := procLimit(t, "self", "Max locked memory")
+	capEff, err := strconv.ParseUint(procStatusField(t, "self", "CapEff"), 16, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasCap := capEff&(1<<capIPCLock) != 0
+	canLock := hasCap || limit == "unlimited"
+	mustRefuse := false
+	if n, err := strconv.ParseUint(limit, 10, 64); err == nil && !hasCap {
+		mustRefuse = n < 64<<20
+	}
+	t.Logf("CAP_IPC_LOCK %v, RLIMIT_MEMLOCK %s", hasCap, limit)
+
+	s := launch(t, options{global: []string{"--mlock-all"}})
+	ports := filepath.Join(s.data, "remotesigner.ports")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		select {
+		case <-s.done:
+			if canLock {
+				t.Fatalf("--mlock-all with CAP_IPC_LOCK or no lock limit did not start: %v\n%s", s.waitErr, s.output.String())
+			}
+			if code := s.exitCode(time.Second); code != 1 || !strings.Contains(s.output.String(), "--mlock-all needs CAP_IPC_LOCK") {
+				t.Fatalf("refused --mlock-all: exit %d\n%s", code, s.output.String())
+			}
+			return
+		default:
+		}
+		if _, err := os.Stat(ports); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("neither started nor refused\n%s", s.output.String())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if mustRefuse {
+		t.Fatalf("--mlock-all started without CAP_IPC_LOCK under a %s-byte lock limit\n%s", limit, s.output.String())
+	}
+	locked := strings.Fields(procStatusField(t, strconv.Itoa(s.cmd.Process.Pid), "VmLck"))
+	if len(locked) != 2 || locked[0] == "0" || locked[1] != "kB" {
+		t.Fatalf("VmLck %v after starting with --mlock-all, want locked pages", locked)
+	}
+	if !strings.Contains(s.output.String(), "memory-locked=true") {
+		t.Fatalf("the startup log does not report locked memory:\n%s", s.output.String())
 	}
 }
