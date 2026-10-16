@@ -367,3 +367,20 @@ func mustU64(t *testing.T, s string) uint64 {
 	must(t, err)
 	return v
 }
+
+// A failed element disables the key under its exact "pubkey" field, not one under a field that differs in case.
+func TestImportDisablesTheKeyTheElementNames(t *testing.T) {
+	forEachStore(t, func(t *testing.T, s slashing.Store) {
+		bad := `{"pubkey":"` + pk(1) + `","PUBKEY":"` + pk(3) + `","signed_blocks":[],"signed_attestations":[]}`
+		res := importDoc(t, s, doc(gvr, bad))
+		if f := res.Failed(); len(f) != 1 || !strings.Contains(f[0].Err.Error(), "unknown field PUBKEY") {
+			t.Fatalf("failures %+v", f)
+		}
+		if st := enabled(t, s, 1); !st.Registered || st.Enabled {
+			t.Fatalf("key 1: %+v, want registered and disabled", st)
+		}
+		if st := enabled(t, s, 3); st.Registered {
+			t.Fatalf("key 3: %+v, want untouched", st)
+		}
+	})
+}

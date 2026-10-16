@@ -276,19 +276,39 @@ func parseAttestation(dec *strict, path string) (slashing.SignedAttestation, err
 	return a, err
 }
 
-// entryKey returns the public key of a data element whose other fields may be invalid, or nil.
+// entryKey returns the public key of a data element whose other fields may be invalid: the value of its "pubkey"
+// field, matched exactly, when every "pubkey" field of the element holds the same valid key, and nil otherwise. The
+// key is never taken from a field whose name differs in case only, and never chosen between two keys, so that the
+// key that is reported and disabled is the one the element names.
 func entryKey(raw []byte) []byte {
-	var e struct {
-		Pubkey *string `json:"pubkey"`
-	}
-	if json.Unmarshal(raw, &e) != nil || e.Pubkey == nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
 		return nil
 	}
-	pk, err := parseHex(*e.Pubkey, slashing.PublicKeyLength)
-	if err != nil {
-		return nil
+	var key []byte
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return nil
+		}
+		if tok != "pubkey" {
+			continue
+		}
+		var hexKey string
+		if json.Unmarshal(value, &hexKey) != nil {
+			return nil
+		}
+		pk, err := parseHex(hexKey, slashing.PublicKeyLength)
+		if err != nil || (key != nil && !bytes.Equal(pk, key)) {
+			return nil
+		}
+		key = pk
 	}
-	return pk
+	return key
 }
 
 // strict walks one JSON value token by token, refusing repeated keys and values of the wrong type.
