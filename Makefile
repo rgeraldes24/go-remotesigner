@@ -36,13 +36,14 @@ test:
 	CGO_ENABLED=1 $(GO) test -race ./...
 	CGO_ENABLED=1 $(GO) test -race -tags noexecution ./...
 
-## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, and the strict
-## request decoders
+## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, the strict
+## request decoders, and the keystore decoder (G4 S9)
 FUZZTIME ?= 10s
 fuzz:
 	$(GO) test -run '^$$' -fuzz '^FuzzHashTreeRootDifferential$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeSignRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRandaoRevealRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
+	$(GO) test -run '^$$' -fuzz '^FuzzDecrypt$$' -fuzztime $(FUZZTIME) ./internal/keys/keystore/qrlv1/
 
 ## contract: lint api/openapi/consensus.yaml (kin-openapi), validate its examples, check docs/contract.md against it
 contract:
