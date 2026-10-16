@@ -167,6 +167,36 @@ func TestDecryptRefusals(t *testing.T) {
 	}
 }
 
+// TestDecryptRecoversPanics checks the recover in Decrypt: a sealed
+// section that skipped the policy, with t or p of 0, makes Argon2id panic,
+// and Decrypt turns the panic into ErrInternal instead of ending the
+// process. Parse never builds such a section (TestPolicyRefusals).
+func TestDecryptRecoversPanics(t *testing.T) {
+	base, password := lightVector(t)
+	ks, err := Parse(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, kdf := range map[string]KDF{
+		"t=0": {T: 0, M: MinM, P: 1},
+		"p=0": {T: 1, M: MinM, P: 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := *ks.sealed
+			s.kdf = kdf
+			bad := &Keystore{Flavour: ks.Flavour, sealed: &s}
+			key, err := bad.Decrypt(NewPassword([]byte(password)))
+			if key != nil {
+				key.Zeroize()
+				t.Fatal("got a key")
+			}
+			if !errors.Is(err, ErrInternal) || !strings.Contains(err.Error(), "argon2") {
+				t.Fatalf("error %v, want ErrInternal from the recovered argon2 panic", err)
+			}
+		})
+	}
+}
+
 // TestFlavourShapes decrypts keystores of both shapes with the pubkey
 // field bare, 0x-prefixed or absent.
 func TestFlavourShapes(t *testing.T) {
