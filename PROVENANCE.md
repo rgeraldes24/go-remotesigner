@@ -277,6 +277,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/slashing/schema.go` | new |  |  |  |
 | `internal/slashing/slashing.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/SlashingProtection.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/slashing/slashingtest/eip3076.go` | new |  |  |  |
+| `internal/slashing/slashingtest/enabled.go` | new |  |  |  |
 | `internal/slashing/slashingtest/randao.go` | new |  |  |  |
 | `internal/slashing/slashingtest/slashingtest.go` | new |  |  |  |
 | `internal/slashing/slashingtest/slashingtest_test.go` | new |  |  |  |

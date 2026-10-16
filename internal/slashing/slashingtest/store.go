@@ -446,6 +446,7 @@ func runValidatorContract(t *testing.T, newStore Factory) {
 			return nil
 		}))
 	})
+	t.Run("enabled flag is serialised with transactions", func(t *testing.T) { runEnabledSerialisation(t, newStore) })
 }
 
 func runTransactionContract(t *testing.T, newStore Factory) {
