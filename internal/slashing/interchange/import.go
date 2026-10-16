@@ -94,17 +94,18 @@ func (r ImportResult) Failed() []ValidatorResult {
 // is written again validator by validator, so that only the failing ones are lost.
 //
 // A validator whose element imports is enabled; one whose element fails is disabled, so that its key cannot sign
-// without the history the file meant to give it, and it is reported in the result. Import returns an error, after
-// the validators it has already written, when the file stops being readable, when the roots differ, or when ctx
-// ends.
+// without the history the file meant to give it, and it is reported in the result. Import returns an error when the
+// file stops being readable, when the roots differ, or when ctx ends. The elements read before such an error are
+// still written, as far as the store allows: each is whole, and history only adds protection. An element that could
+// not be written is reported as failed, like any other.
 func Import(ctx context.Context, s slashing.Store, r io.Reader, opts ImportOptions) (ImportResult, error) {
 	im := &importer{ctx: ctx, s: s, batch: opts.Batch}
 	if im.batch <= 0 {
 		im.batch = DefaultBatch
 	}
 	err := Decode(r, im.metadata, im.entry)
-	if err == nil {
-		err = im.flush()
+	if ferr := im.flush(); err == nil {
+		err = ferr
 	}
 	im.disableFailed()
 	return ImportResult{Validators: im.results}, err
@@ -165,7 +166,8 @@ func (im *importer) entry(index int, e Entry, eerr *EntryError) error {
 	return nil
 }
 
-// flush writes the pending validators in one transaction, or one by one when that fails.
+// flush writes the pending validators in one transaction, or one by one when that fails. When it returns an error,
+// the pending validators it did not write are reported as failed.
 func (im *importer) flush() error {
 	pending := im.pending
 	im.pending, im.items = nil, 0
@@ -177,22 +179,37 @@ func (im *importer) flush() error {
 		pubkeys[i] = p.entry.PublicKey
 	}
 	if err := im.s.RegisterValidators(im.ctx, pubkeys); err != nil {
-		return fmt.Errorf("register validators: %w", err)
+		err = fmt.Errorf("register validators: %w", err)
+		im.abandon(pending, err)
+		return err
 	}
 	if err := im.write(pending); err == nil {
 		return nil
 	}
-	for _, p := range pending {
+	for i, p := range pending {
 		if err := im.ctx.Err(); err != nil {
+			im.abandon(pending[i:], err)
 			return err
 		}
 		if err := im.write([]pendingEntry{p}); err != nil {
-			res := &im.results[p.result]
-			res.Err, res.Blocks, res.Attestations = err, Counts{}, Counts{}
-			im.fail(p.result)
+			im.failPending(p, err)
 		}
 	}
 	return nil
+}
+
+// abandon reports pending validators that were not written because of err as failed.
+func (im *importer) abandon(pending []pendingEntry, err error) {
+	for _, p := range pending {
+		im.failPending(p, fmt.Errorf("not imported: %w", err))
+	}
+}
+
+// failPending reports a pending validator as failed with err, and as having written nothing.
+func (im *importer) failPending(p pendingEntry, err error) {
+	res := &im.results[p.result]
+	res.Err, res.Blocks, res.Attestations = err, Counts{}, Counts{}
+	im.fail(p.result)
 }
 
 // write imports entries in one transaction and records their counts.

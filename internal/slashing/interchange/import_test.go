@@ -127,10 +127,69 @@ func TestImportStopsOnFileErrors(t *testing.T) {
 		if !errors.Is(err, interchange.ErrFormat) || len(res.Validators) != 1 || len(res.Failed()) != 0 {
 			t.Fatalf("truncated file: %v %+v", err, res)
 		}
+		wantState(t, dump(t, s), 0, state{blocks: []slashing.SignedBlock{sb(1, slashingtest.RootPtr(1))}, low: lw(u64(1), nil, nil)})
 		ctx, cancel := context.WithCancel(bg)
 		cancel()
 		if _, err := interchange.Import(ctx, s, strings.NewReader(doc(gvr, jEntry{Pubkey: pk(1)})), interchange.ImportOptions{}); !errors.Is(err, context.Canceled) {
 			t.Fatalf("canceled import: %v", err)
+		}
+	})
+}
+
+// failingRegistration is a store whose RegisterValidators always fails.
+type failingRegistration struct{ slashing.Store }
+
+var errRegistration = errors.New("registration failed")
+
+func (failingRegistration) RegisterValidators(context.Context, [][]byte) error {
+	return errRegistration
+}
+
+// An element that was read but could not be written is reported as failed, never as imported.
+func TestImportReportsUnwrittenElements(t *testing.T) {
+	forEachStore(t, func(t *testing.T, s slashing.Store) {
+		res, err := interchange.Import(bg, failingRegistration{s}, strings.NewReader(doc(gvr,
+			jEntry{Pubkey: pk(0), Blocks: []jBlock{blk(1, root(1))}}, jEntry{Pubkey: pk(1)})), interchange.ImportOptions{})
+		if !errors.Is(err, errRegistration) {
+			t.Fatalf("import: %v", err)
+		}
+		failed := res.Failed()
+		if len(res.Validators) != 2 || len(failed) != 2 {
+			t.Fatalf("result %+v", res.Validators)
+		}
+		for _, v := range failed {
+			if !errors.Is(v.Err, errRegistration) || !strings.Contains(v.Err.Error(), "not imported") ||
+				v.Blocks != (interchange.Counts{}) {
+				t.Fatalf("data[%d]: %+v", v.Index, v)
+			}
+		}
+		if got := dump(t, s); len(got) != 0 {
+			t.Fatalf("the store holds %+v", got)
+		}
+	})
+}
+
+// A record that the store already holds at the same slot or target epoch is never written over (SP §18.2): one
+// without a signing root, or with the same root, is already covered; one with another root, or with a root where
+// the stored record has none, is a conflict. Neither fails the element.
+func TestImportOverExistingRecords(t *testing.T) {
+	forEachStore(t, func(t *testing.T, s slashing.Store) {
+		seed := jEntry{Pubkey: pk(0), Blocks: []jBlock{blk(10, root(1)), blk(11, nil)},
+			Atts: []jAtt{att(5, 6, root(1)), att(6, 7, nil)}}
+		importDoc(t, s, doc(gvr, seed))
+		before := dump(t, s)[0]
+
+		res := importDoc(t, s, doc(gvr, jEntry{Pubkey: pk(0),
+			Blocks: []jBlock{blk(10, nil), blk(10, root(1)), blk(10, root(9)), blk(11, root(2))},
+			Atts:   []jAtt{att(5, 6, nil), att(4, 6, root(1)), att(5, 6, root(9)), att(6, 7, root(2))}}))
+		v := res.Validators[0]
+		want := interchange.Counts{Duplicates: 2, Conflicts: 2}
+		if v.Err != nil || v.Blocks != want || v.Attestations != want {
+			t.Fatalf("result %+v, want %+v for blocks and attestations", v, want)
+		}
+		wantState(t, dump(t, s), 0, before)
+		if !enabled(t, s, 0).Enabled {
+			t.Fatal("the key is not enabled")
 		}
 	})
 }
