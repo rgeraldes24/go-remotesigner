@@ -72,10 +72,14 @@ const (
 
 // Subcommands of consensus and their flags.
 const (
-	MigrateCommand     = "migrate"
-	RandaoStateCommand = "randao-state"
-	ResetCommand       = "reset"
-	Key                = "key"
+	MigrateCommand       = "migrate"
+	RandaoStateCommand   = "randao-state"
+	ResetCommand         = "reset"
+	Key                  = "key"
+	KeystoreCommand      = "keystore"
+	VerifyCommand        = "verify"
+	KeystoreFile         = "keystore-file"
+	KeystorePasswordFile = "keystore-password-file"
 )
 
 // Defaults.
@@ -169,6 +173,14 @@ func Migrate() []cli.Flag {
 func RandaoStateReset() []cli.Flag {
 	return append(withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()}),
 		&cli.StringFlag{Name: Key, Usage: "Required. The key whose RANDAO frontier is cleared: its 0x public key or 0x sha256 of it"})
+}
+
+// KeystoreVerify returns the flags of `consensus keystore verify`.
+func KeystoreVerify() []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{Name: KeystoreFile, Usage: "Required. The keystore to check: qrysm's keystore v1 or a deposit CLI keystore (JSON)", TakesFile: true},
+		&cli.StringFlag{Name: KeystorePasswordFile, Usage: "Required. File holding the keystore's password; trailing line breaks are not part of it", TakesFile: true},
+	}
 }
 
 // withEnv sets each flag's environment variables, except for --config-file,

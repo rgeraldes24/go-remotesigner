@@ -6,6 +6,7 @@
 remotesigner [global flags] consensus [consensus flags]
 remotesigner [global flags] consensus [consensus flags] migrate [migrate flags]
 remotesigner [global flags] consensus [consensus flags] randao-state reset --key <id> [reset flags]
+remotesigner [global flags] consensus keystore verify --keystore-file <file> --keystore-password-file <file>
 ```
 
 Every flag can also be set:
@@ -85,6 +86,20 @@ location. Their flags are not read from the config file; `--slashing-protection-
 |---|---|---|---|---|
 | `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
 | `--key` | none | none | unset | Required. The key whose RANDAO frontier is cleared: its 0x public key or 0x sha256 of it |
+
+## Keystore commands
+
+`consensus keystore verify` decrypts one keystore with its password file through the signer's keystore
+decryptor and policy, and checks that the keystore's pubkey is the key its seed derives. It prints the key's
+identifier and exits 0, or names the refusal and exits 1. It needs no network, store or running signer. See
+[`../operations/keystores.md`](../operations/keystores.md).
+
+### consensus keystore verify
+
+| Flag | Environment | Config file | Default | Description |
+|---|---|---|---|---|
+| `--keystore-file` | none | none | unset | Required. The keystore to check: qrysm's keystore v1 or a deposit CLI keystore (JSON) |
+| `--keystore-password-file` | none | none | unset | Required. File holding the keystore's password; trailing line breaks are not part of it |
 
 ## Override flags
 

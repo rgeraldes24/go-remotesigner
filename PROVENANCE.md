@@ -178,6 +178,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/flags/flags_test.go` | new | | | |
 | `cmd/remotesigner/flavour_consensus.go` | new | | | |
 | `cmd/remotesigner/flavour_full.go` | new | | | |
+| `cmd/remotesigner/keystore.go` | new | | | |
+| `cmd/remotesigner/keystore_test.go` | new | | | |
 | `cmd/remotesigner/main.go` | new | | | |
 | `cmd/remotesigner/main_test.go` | new | | | |
 | `cmd/remotesigner/offline.go` | new | | | |
