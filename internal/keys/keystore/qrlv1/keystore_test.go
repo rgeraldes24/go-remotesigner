@@ -305,6 +305,39 @@ func TestCandidates(t *testing.T) {
 	}
 }
 
+// TestPasswordWipe checks that Wipe zeroes every candidate in place and
+// that a wiped password opens nothing.
+func TestPasswordWipe(t *testing.T) {
+	seed := testSeed(t, 4)
+	password := []byte("pässwörd")
+	pw := NewPassword(password)
+	data := encode(t, seal(t, QRLV1, lightKDF, pw.norm, seed))
+	key, err := Decrypt(data, pw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key.Zeroize()
+
+	held := [][]byte{pw.norm, pw.alt, pw.raw}
+	pw.Wipe()
+	for i, b := range held {
+		if len(b) == 0 || !bytes.Equal(b, make([]byte, len(b))) {
+			t.Errorf("candidate %d after Wipe: %q", i, b)
+		}
+	}
+	if !bytes.Equal(password, []byte("pässwörd")) {
+		t.Error("Wipe changed the caller's buffer, which NewPassword copied")
+	}
+	if got := pw.candidates(QRLV1); got != nil {
+		t.Errorf("wiped password candidates %q", got)
+	}
+	if _, err := Decrypt(data, pw); !errors.Is(err, ErrPassword) {
+		t.Errorf("wiped password: %v, want ErrPassword", err)
+	}
+	pw.Wipe()
+	(*Password)(nil).Wipe()
+}
+
 func TestTrimPassword(t *testing.T) {
 	for in, want := range map[string]string{
 		"secret":         "secret",

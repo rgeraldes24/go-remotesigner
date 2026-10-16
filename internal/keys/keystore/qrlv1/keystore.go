@@ -16,7 +16,7 @@
 //     Argon2id or GCM panic or allocate more than MaxM KiB.
 //   - Decrypt tries the password's deduplicated candidate set (Password),
 //     so an ASCII password costs one Argon2id run, and recovers any panic
-//     into ErrInternal.
+//     into ErrInternal. The caller wipes the Password when done with it.
 //   - The public key derived from the decrypted seed is compared with the
 //     keystore's pubkey field; the caller gets the derived key.
 //

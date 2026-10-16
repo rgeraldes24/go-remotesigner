@@ -69,7 +69,9 @@ func verifyKeystore(stdout io.Writer, ksFile, pwFile string) error {
 		return err
 	}
 	defer mldsa87.Wipe(password)
-	key, err := ks.Decrypt(qrlv1.NewPassword(qrlv1.TrimPassword(password)))
+	pw := qrlv1.NewPassword(qrlv1.TrimPassword(password))
+	defer pw.Wipe()
+	key, err := ks.Decrypt(pw)
 	if err != nil {
 		return fmt.Errorf("%s: %w", ksFile, err)
 	}
