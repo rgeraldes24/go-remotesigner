@@ -99,7 +99,8 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/vectorgen/go.sum
-      - name: vectorgen vet and tests (includes the go-qrl replace check)
+            tools/vectorgen/contract/go.sum
+      - name: vectorgen and vectorgen contract vet and tests (include the replace checks)
         run: make vectors-test
       - name: Regenerate the golden vectors and embedded networks
         run: make vectors
@@ -131,6 +132,30 @@ jobs:
         env:
           REMOTESIGNER_BINARY: ${{ github.workspace }}/bin/remotesigner
         run: make vectors-verify-binary
+
+  vectors-contract:
+    # L3 contract (DESIGN §7.1): qrysm's own remote-web3signer keymanager, at
+    # the commit tools/vectorgen/contract pins, drives the built signer
+    # (interop keys, both end-to-end networks): capabilities, publicKeys, one
+    # sign request per SignRequest oneof and one RANDAO reveal, each answer
+    # checked with qrysm's verifiers. Then a DTO renamed on either side must
+    # fail it. tools/vectorgen/contract links qrysm (GPL-3.0); it runs here
+    # and is never shipped.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: |
+            go.sum
+            tools/vectorgen/contract/go.sum
+      - name: Build the signer (static)
+        run: make build
+      - name: vectorgen contract against the built signer
+        env:
+          REMOTESIGNER_BINARY: ${{ github.workspace }}/bin/remotesigner
+        run: make vectors-contract
 
   compliance:
     runs-on: ubuntu-24.04

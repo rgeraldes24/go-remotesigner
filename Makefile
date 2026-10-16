@@ -19,7 +19,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test fuzz contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary docs acceptance b19 bench-e2e clean
+.PHONY: all build build-consensus test fuzz contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e clean
 
 all: build build-consensus
 
@@ -69,7 +69,7 @@ licenses:
 vuln:
 	$(GOVULNCHECK) ./...
 
-## nogpl: the signer module links no qrysm package, in either flavour (only tools/vectorgen may)
+## nogpl: the signer module links no qrysm package, in either flavour (only the tools/vectorgen modules may)
 ## The dependency list is captured first, so a failing go list fails the gate instead of feeding grep nothing.
 nogpl:
 	@for tags in '' noexecution; do \
@@ -84,9 +84,10 @@ nogpl:
 vectors:
 	cd tools/vectorgen && $(GO) run . gen
 
-## vectors-test: vet and test tools/vectorgen (its own module)
+## vectors-test: vet and test tools/vectorgen and tools/vectorgen/contract (each its own module)
 vectors-test:
 	cd tools/vectorgen && $(GO) vet ./... && $(GO) test -short ./...
+	cd tools/vectorgen/contract && $(GO) vet ./... && $(GO) test ./...
 
 ## vectors-verify: check a running signer against the golden vectors (SIGNER, TOKEN_FILE)
 SIGNER     ?= http://127.0.0.1:9000
@@ -98,6 +99,13 @@ vectors-verify:
 ## end-to-end networks and check it with `vectorgen verify` (builds tools/vectorgen, which links qrysm)
 vectors-verify-binary:
 	REMOTESIGNER_VECTORS_VERIFY=1 $(GO) test -count=1 -run '^TestVectorgenVerify$$' -v ./test/acceptance/
+
+## vectors-contract: vectorgen contract mode (DESIGN §7.1, L3 contract): build the binary (or use
+## REMOTESIGNER_BINARY), run it with the interop keys on both end-to-end networks and drive it with qrysm's own
+## remote-web3signer keymanager at the commit tools/vectorgen/contract pins; then check that a deliberate DTO rename
+## on either side fails the run (builds tools/vectorgen/contract, which links qrysm)
+vectors-contract:
+	REMOTESIGNER_VECTORS_CONTRACT=1 $(GO) test -count=1 -run '^TestVectorgenContract' -v ./test/acceptance/
 
 ## docs: regenerate docs/reference/flags.md with tools/flagdoc
 docs:
