@@ -6,10 +6,14 @@ package qrlv1
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/logging"
 	"github.com/rgeraldes24/go-remotesigner/internal/vectors"
 )
 
@@ -336,6 +340,55 @@ func TestPasswordWipe(t *testing.T) {
 	}
 	pw.Wipe()
 	(*Password)(nil).Wipe()
+}
+
+// TestPasswordRedacted checks that a Password is a secret type (DESIGN
+// §3.11): every fmt verb, on the pointer, the value or a field holding it,
+// and log/slog print logging.Redacted, and marshalling it fails.
+func TestPasswordRedacted(t *testing.T) {
+	const secret = "hunter2-pässwörd"
+	pw := NewPassword([]byte(secret))
+	defer pw.Wipe()
+	// The password as text, as hex and as a list of decimal bytes.
+	leaks := []string{"hunter2", "68756e74657232", "104 117 110 116 101 114 50", "0x68, 0x75"}
+	check := func(what, out string) {
+		t.Helper()
+		if !strings.Contains(out, logging.Redacted) {
+			t.Errorf("%s = %q, want it to show %s", what, out, logging.Redacted)
+		}
+		for _, l := range leaks {
+			if strings.Contains(out, l) {
+				t.Errorf("%s = %q shows the password (%q)", what, out, l)
+			}
+		}
+	}
+	holder := struct{ Password *Password }{pw}
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q", "%x", "%X", "%d", "%10.3v"} {
+		check("Sprintf("+verb+", pw)", fmt.Sprintf(verb, pw))
+		check("Sprintf("+verb+", *pw)", fmt.Sprintf(verb, *pw))
+		check("Sprintf("+verb+", holder)", fmt.Sprintf(verb, holder))
+	}
+	check("String", pw.String())
+	check("GoString", pw.GoString())
+	check("Sprint", fmt.Sprint(pw))
+
+	for name, h := range map[string]func(*bytes.Buffer) slog.Handler{
+		"text": func(b *bytes.Buffer) slog.Handler { return slog.NewTextHandler(b, nil) },
+		"json": func(b *bytes.Buffer) slog.Handler { return slog.NewJSONHandler(b, nil) },
+	} {
+		var buf bytes.Buffer
+		slog.New(h(&buf)).Info("decrypt", "password", pw, "holder", holder)
+		check("slog "+name, buf.String())
+	}
+
+	for name, v := range map[string]any{"pointer": pw, "value": *pw, "field": holder} {
+		if b, err := json.Marshal(v); !errors.Is(err, logging.ErrSecretMarshal) {
+			t.Errorf("json.Marshal(%s) = %q, %v; want ErrSecretMarshal", name, b, err)
+		}
+	}
+	if b, err := pw.MarshalText(); !errors.Is(err, logging.ErrSecretMarshal) || b != nil {
+		t.Errorf("MarshalText = %q, %v; want ErrSecretMarshal", b, err)
+	}
 }
 
 func TestTrimPassword(t *testing.T) {

@@ -5,8 +5,12 @@ package qrlv1
 
 import (
 	"bytes"
+	"fmt"
+	"io"
+	"log/slog"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
+	"github.com/rgeraldes24/go-remotesigner/internal/logging"
 )
 
 // Password is the candidate set of one password:
@@ -18,10 +22,34 @@ import (
 //
 // One Password can open many keystores, concurrently. The caller wipes it
 // when it has opened the last one.
+//
+// A Password is a secret (logging.Secret): every fmt verb, String, GoString
+// and log/slog print logging.Redacted, and marshalling it to JSON or text
+// fails, so it cannot reach a log line or a response by accident.
 type Password struct {
 	norm, alt, raw []byte
 	wiped          bool
 }
+
+// String returns logging.Redacted.
+func (Password) String() string { return logging.Redacted }
+
+// GoString returns logging.Redacted, for %#v.
+func (Password) GoString() string { return logging.Redacted }
+
+// Format prints logging.Redacted for every verb and flag, so that no verb
+// (%d, %x, %+v, ...) prints the candidates' bytes.
+func (Password) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, logging.Redacted) }
+
+// LogValue returns logging.Redacted, for log/slog.
+func (Password) LogValue() slog.Value { return slog.StringValue(logging.Redacted) }
+
+// MarshalJSON always fails with logging.ErrSecretMarshal.
+func (Password) MarshalJSON() ([]byte, error) { return nil, logging.ErrSecretMarshal }
+
+// MarshalText always fails with logging.ErrSecretMarshal, so that encoders
+// that fall back to text cannot print the password either.
+func (Password) MarshalText() ([]byte, error) { return nil, logging.ErrSecretMarshal }
 
 // NewPassword returns the candidate set of p, taken as given. Passwords
 // read from a file go through TrimPassword first.
