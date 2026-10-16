@@ -35,6 +35,7 @@ func Run(t *testing.T, newStore Factory) {
 	t.Run("Randao", func(t *testing.T) { RunRandao(t, newStore) })
 	t.Run("Schema", func(t *testing.T) { RunSchema(t, newStore) })
 	t.Run("Stress", func(t *testing.T) { RunStress(t, newStore) })
+	t.Run("History", func(t *testing.T) { RunHistory(t, newStore) })
 }
 
 // RunSchema checks that a new store reports the current schema version.

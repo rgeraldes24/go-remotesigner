@@ -7,8 +7,10 @@
 package memstore
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"sync"
 
@@ -32,6 +34,7 @@ type Store struct {
 
 type validator struct {
 	mu      sync.Mutex
+	pubkey  []byte
 	enabled bool
 	blocks  map[uint64]*slashing.Root
 	atts    map[uint64]slashing.SignedAttestation
@@ -125,6 +128,7 @@ func (s *Store) RegisterValidators(ctx context.Context, pubkeys [][]byte) error 
 		id := slashing.KeyIDOf(pk)
 		if _, ok := s.validators[id]; !ok {
 			s.validators[id] = &validator{
+				pubkey:  slices.Clone(pk),
 				enabled: true,
 				blocks:  make(map[uint64]*slashing.Root),
 				atts:    make(map[uint64]slashing.SignedAttestation),
@@ -158,15 +162,54 @@ func (s *Store) SetValidatorEnabled(ctx context.Context, id slashing.KeyID, enab
 // UpdateBlocks runs fn in a block transaction for one validator.
 func (s *Store) UpdateBlocks(ctx context.Context, id slashing.KeyID, fn func(slashing.BlockTx) error) error {
 	return s.withValidator(ctx, id, func(v *validator) error {
-		return runTx(&tx{s: s, v: v}, func(t *tx) error { return fn(t) })
+		return runTx(&tx{s: s, v: v, j: &journal{}}, func(t *tx) error { return fn(t) })
 	})
 }
 
 // UpdateAttestations runs fn in an attestation transaction for one validator.
 func (s *Store) UpdateAttestations(ctx context.Context, id slashing.KeyID, fn func(slashing.AttestationTx) error) error {
 	return s.withValidator(ctx, id, func(v *validator) error {
-		return runTx(&tx{s: s, v: v}, func(t *tx) error { return fn(t) })
+		return runTx(&tx{s: s, v: v, j: &journal{}}, func(t *tx) error { return fn(t) })
 	})
+}
+
+// UpdateHistory runs fn for each of ids with one undo journal, so that an error undoes every validator's writes.
+// It holds the mutex of each distinct validator, taken in KeyID order.
+func (s *Store) UpdateHistory(ctx context.Context, ids []slashing.KeyID, fn func(slashing.KeyID, slashing.HistoryTx) error) error {
+	if err := s.read(ctx); err != nil {
+		return err
+	}
+	defer s.mu.RUnlock()
+	vs := make([]*validator, len(ids))
+	for i, id := range ids {
+		v, ok := s.validators[id]
+		if !ok {
+			return slashing.ErrValidatorNotRegistered
+		}
+		vs[i] = v
+	}
+	for _, id := range sortedIDs(ids) {
+		v := s.validators[id]
+		v.mu.Lock()
+		defer v.mu.Unlock()
+	}
+	j := &journal{}
+	for i, id := range ids {
+		if err := fn(id, &tx{s: s, v: vs[i], j: j}); err != nil {
+			j.rollback()
+			return err
+		}
+	}
+	return nil
+}
+
+// ViewHistory runs fn with s.mu held for writing, so that no validator changes while fn reads.
+func (s *Store) ViewHistory(ctx context.Context, fn func(slashing.HistoryView) error) error {
+	if err := s.write(ctx); err != nil {
+		return err
+	}
+	defer s.mu.Unlock()
+	return fn(view{s})
 }
 
 // RandaoState returns the validator's RANDAO frontier, if one is stored.
@@ -256,19 +299,28 @@ func (s *Store) withValidator(ctx context.Context, id slashing.KeyID, fn func(*v
 	return fn(v)
 }
 
-// tx applies writes in place and keeps an undo log, so that a failed transaction leaves no trace. Its methods
-// run with s.mu held for reading and v.mu held.
+// tx applies writes in place and records how to undo them in its journal, so that a failed transaction leaves no
+// trace. Its methods run with s.mu held for reading and v.mu held.
 type tx struct {
-	s    *Store
-	v    *validator
-	undo []func()
+	s *Store
+	v *validator
+	j *journal
+}
+
+// journal is the undo log of one transaction, which may span several validators.
+type journal struct{ undo []func() }
+
+func (j *journal) add(u func()) { j.undo = append(j.undo, u) }
+
+func (j *journal) rollback() {
+	for _, u := range slices.Backward(j.undo) {
+		u()
+	}
 }
 
 func runTx(t *tx, fn func(*tx) error) error {
 	if err := fn(t); err != nil {
-		for _, u := range slices.Backward(t.undo) {
-			u()
-		}
+		t.j.rollback()
 		return err
 	}
 	return nil
@@ -299,7 +351,7 @@ func (t *tx) InsertBlock(b slashing.SignedBlock) error {
 		return slashing.ErrDuplicateRecord
 	}
 	t.v.blocks[b.Slot] = clone(b.SigningRoot)
-	t.undo = append(t.undo, func() { delete(t.v.blocks, b.Slot) })
+	t.j.add(func() { delete(t.v.blocks, b.Slot) })
 	return nil
 }
 
@@ -309,7 +361,7 @@ func (t *tx) RaiseSlotLowWatermark(slot uint64) error {
 	}
 	if cur := t.v.low.Slot; cur == nil || slot >= *cur {
 		t.v.low.Slot = &slot
-		t.undo = append(t.undo, func() { t.v.low.Slot = cur })
+		t.j.add(func() { t.v.low.Slot = cur })
 	}
 	return nil
 }
@@ -356,7 +408,7 @@ func (t *tx) InsertAttestation(a slashing.SignedAttestation) error {
 	}
 	a.SigningRoot = clone(a.SigningRoot)
 	t.v.atts[a.TargetEpoch] = a
-	t.undo = append(t.undo, func() { delete(t.v.atts, a.TargetEpoch) })
+	t.j.add(func() { delete(t.v.atts, a.TargetEpoch) })
 	return nil
 }
 
@@ -367,9 +419,163 @@ func (t *tx) RaiseEpochLowWatermarks(source, target uint64) error {
 	curSource, curTarget := t.v.low.SourceEpoch, t.v.low.TargetEpoch
 	if curSource == nil || (source >= *curSource && target >= *curTarget) {
 		t.v.low.SourceEpoch, t.v.low.TargetEpoch = &source, &target
-		t.undo = append(t.undo, func() { t.v.low.SourceEpoch, t.v.low.TargetEpoch = curSource, curTarget })
+		t.j.add(func() { t.v.low.SourceEpoch, t.v.low.TargetEpoch = curSource, curTarget })
 	}
 	return nil
+}
+
+func (t *tx) LastBlock() (slashing.SignedBlock, bool, error) {
+	return t.block(func(slot, best uint64) bool { return slot > best }, func(uint64) bool { return true })
+}
+
+func (t *tx) NearestBlock(slot uint64) (slashing.SignedBlock, bool, error) {
+	return t.block(func(s, best uint64) bool { return s < best }, func(s uint64) bool { return s >= slot })
+}
+
+// block returns the recorded block that match accepts and that is better than every other accepted one.
+func (t *tx) block(better func(slot, best uint64) bool, match func(slot uint64) bool) (slashing.SignedBlock, bool, error) {
+	var (
+		best  slashing.SignedBlock
+		found bool
+	)
+	for slot, root := range t.v.blocks {
+		if match(slot) && (!found || better(slot, best.Slot)) {
+			best, found = slashing.SignedBlock{Slot: slot, SigningRoot: root}, true
+		}
+	}
+	best.SigningRoot = clone(best.SigningRoot)
+	return best, found, nil
+}
+
+func (t *tx) PruneBlocks() (int, error) {
+	low := t.v.low.Slot
+	if low == nil {
+		return 0, nil
+	}
+	n := 0
+	for slot, root := range t.v.blocks {
+		if slot < *low {
+			delete(t.v.blocks, slot)
+			t.j.add(func() { t.v.blocks[slot] = root })
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (t *tx) LastAttestation() (slashing.SignedAttestation, bool, error) {
+	return t.highestTarget(func(slashing.SignedAttestation) bool { return true })
+}
+
+func (t *tx) NearestAttestation(target uint64) (slashing.SignedAttestation, bool, error) {
+	var (
+		best  slashing.SignedAttestation
+		found bool
+	)
+	for _, a := range t.v.atts {
+		if a.TargetEpoch >= target && (!found || a.TargetEpoch < best.TargetEpoch) {
+			best, found = a, true
+		}
+	}
+	best.SigningRoot = clone(best.SigningRoot)
+	return best, found, nil
+}
+
+func (t *tx) PruneAttestations() (int, error) {
+	low := t.v.low.TargetEpoch
+	if low == nil {
+		return 0, nil
+	}
+	n := 0
+	for target, a := range t.v.atts {
+		if target < *low {
+			delete(t.v.atts, target)
+			t.j.add(func() { t.v.atts[target] = a })
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (t *tx) SetEnabled(enabled bool) error {
+	cur := t.v.enabled
+	t.v.enabled = enabled
+	t.j.add(func() { t.v.enabled = cur })
+	return nil
+}
+
+// view reads the store for ViewHistory, with s.mu held for writing.
+type view struct{ s *Store }
+
+func (v view) GenesisValidatorsRoot() (slashing.Root, bool, error) {
+	if v.s.gvr == nil {
+		return slashing.Root{}, false, nil
+	}
+	return *v.s.gvr, true, nil
+}
+
+func (v view) Validators(fn func(slashing.KeyID, []byte) error) error {
+	ids := make([]slashing.KeyID, 0, len(v.s.validators))
+	for id := range v.s.validators {
+		ids = append(ids, id)
+	}
+	for _, id := range sortedIDs(ids) {
+		if err := fn(id, slices.Clone(v.s.validators[id].pubkey)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v view) validator(id slashing.KeyID) (*validator, error) {
+	val, ok := v.s.validators[id]
+	if !ok {
+		return nil, slashing.ErrValidatorNotRegistered
+	}
+	return val, nil
+}
+
+func (v view) LowWatermark(id slashing.KeyID) (slashing.LowWatermark, error) {
+	val, err := v.validator(id)
+	if err != nil {
+		return slashing.LowWatermark{}, err
+	}
+	return (&tx{v: val}).LowWatermark()
+}
+
+func (v view) Blocks(id slashing.KeyID, fn func(slashing.SignedBlock) error) error {
+	val, err := v.validator(id)
+	if err != nil {
+		return err
+	}
+	for _, slot := range slices.Sorted(maps.Keys(val.blocks)) {
+		if err := fn(slashing.SignedBlock{Slot: slot, SigningRoot: clone(val.blocks[slot])}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v view) Attestations(id slashing.KeyID, fn func(slashing.SignedAttestation) error) error {
+	val, err := v.validator(id)
+	if err != nil {
+		return err
+	}
+	for _, target := range slices.Sorted(maps.Keys(val.atts)) {
+		a := val.atts[target]
+		a.SigningRoot = clone(a.SigningRoot)
+		if err := fn(a); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sortedIDs returns the distinct ids in KeyID order.
+func sortedIDs(ids []slashing.KeyID) []slashing.KeyID {
+	sorted := slices.Clone(ids)
+	slices.SortFunc(sorted, func(a, b slashing.KeyID) int { return bytes.Compare(a[:], b[:]) })
+	return slices.Compact(sorted)
 }
 
 func copyHigh(h slashing.HighWatermark) slashing.HighWatermark {
