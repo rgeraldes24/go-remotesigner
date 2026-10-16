@@ -380,9 +380,9 @@ func TestPasswordWipe(t *testing.T) {
 	(*Password)(nil).Wipe()
 }
 
-// TestPasswordRedacted checks that a Password is a secret type (DESIGN
-// §3.11): every fmt verb, on the pointer, the value or a field holding it,
-// and log/slog print logging.Redacted, and marshalling it fails.
+// TestPasswordRedacted checks that a Password is a secret type: every fmt
+// verb, on the pointer, the value or a field holding it, and log/slog print
+// logging.Redacted, and marshalling it fails.
 func TestPasswordRedacted(t *testing.T) {
 	const secret = "hunter2-pässwörd"
 	pw := NewPassword([]byte(secret))

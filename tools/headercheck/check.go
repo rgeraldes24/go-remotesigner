@@ -61,8 +61,9 @@ const (
 	// §4(c); PROVENANCE.md, "QRL code").
 	wealdKeystore = "pkg/go-qrl-wallet-encryptor-keystore/"
 
-	// qrlv1Dir is the hardened copy of the QRL keystore, whose files DESIGN
-	// §6.2 holds to the mit-derived header.
+	// qrlv1Dir is the hardened copy of the QRL keystore. Its files must be
+	// mit-derived copies unless qrlv1New lists them (PROVENANCE.md, "QRL
+	// code").
 	qrlv1Dir = "internal/keys/keystore/qrlv1/"
 )
 
