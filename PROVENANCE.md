@@ -97,7 +97,9 @@ qrysm's Go source while writing them. The facts, with their sources, are recorde
 `testdata/vectors/` holds golden vectors, and `internal/network/embedded/*.yaml` the named networks, both written by
 `tools/vectorgen`. That nested module links qrysm at the pinned commit (`cyyber/qrysm` `0b9cdf25`) and
 uses its code as the oracle: hash-tree-roots, domains and signing roots, deterministic ML-DSA-87 signatures, the
-RANDAO onion, the interop genesis, `ConfigToYaml`, and the keystore encoders.
+RANDAO onion, the interop genesis, `ConfigToYaml`, the keystore encoders, and its validator's EIP-3076
+slashing-protection export and import (`validator/slashing-protection-history`), which give the interchange fixture
+and the round-trip check `vectorgen interchange-check`.
 
 - **The tool.** Its source files are this project's (class `new`, Apache-2.0). A binary built from it is a GPL-3.0
   combined work, so it is a development tool that is never built into a shipped artefact; `tools/vectorgen/README.md`
@@ -105,9 +107,10 @@ RANDAO onion, the interop genesis, `ConfigToYaml`, and the keystore encoders.
 - **Its output.** The generated files are program output, not program text (GPL FAQ, "Is there some way that I can
   GPL the output people get from use of my program?"), and none reproduces qrysm source. They are dedicated to the
   public domain under CC0-1.0, as `testdata/vectors/README.md` and every file's `description` state, and each file
-  records the module versions that generated it in its `generator` object. The exception is the keystore files of
-  `testdata/vectors/keystores/`, which keep their native keystore format; `keystores/index.json` and the README carry
-  their CC0 dedication and generator record. JSON files outside `deploy/` carry no header row; the generated
+  records the module versions that generated it in its `generator` object. The exceptions are the keystore files of
+  `testdata/vectors/keystores/` and `testdata/vectors/interchange/qrysm-export.json`, which keep their native
+  formats (a keystore; the EIP-3076 file qrysm's validator writes); `keystores/index.json`, `interchange/index.json`
+  and the README carry their CC0 dedication and generator record. JSON files outside `deploy/` carry no header row; the generated
   YAMLs carry the class `new` header.
 - **Contract mode.** `tools/vectorgen/contract` is a second nested module of the same kind: class `new` sources, a
   GPL-3.0 combined work when built, never shipped, never imported by the signer module. It links qrysm at
@@ -181,6 +184,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/flags/flags_test.go` | new | | | |
 | `cmd/remotesigner/flavour_consensus.go` | new | | | |
 | `cmd/remotesigner/flavour_full.go` | new | | | |
+| `cmd/remotesigner/interchange.go` | new | | | |
+| `cmd/remotesigner/interchange_test.go` | new | | | |
 | `cmd/remotesigner/keystore.go` | new | | | |
 | `cmd/remotesigner/keystore_test.go` | new | | | |
 | `cmd/remotesigner/main.go` | new | | | |
@@ -193,6 +198,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/api/apierr/messages.go` | new | | | |
 | `internal/api/consensus/capabilities.go` | new | | | |
 | `internal/api/consensus/consensus_test.go` | new | | | |
+| `internal/api/consensus/highwatermark.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/HighWatermarkHandler.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/api/consensus/highwatermark_test.go` | new | | | |
 | `internal/api/consensus/identifier.go` | new | | | |
 | `internal/api/consensus/publickeys.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/PublicKeysListHandler.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/api/consensus/randao.go` | new | | | |
@@ -283,6 +290,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/randao/onion/onion_test.go` | new | | | |
 | `internal/randao/service.go` | new | | | |
 | `internal/randao/service_test.go` | new | | | |
+| `internal/runner/prune.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbPrunerRunner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/runner/prune_test.go` | new | | | |
 | `internal/runner/randao_test.go` | new | | | |
 | `internal/runner/runner.go` | new | | | |
 | `internal/runner/runner_test.go` | new | | | |
@@ -314,10 +323,12 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/signer/provider/provider_test.go` | new | | | |
 | `internal/signer/signer.go` | new | | | |
 | `internal/signer/signer_test.go` | new | | | |
+| `internal/slashing/boltstore/b14_test.go` | new | | | |
 | `internal/slashing/boltstore/boltstore.go` | new | | | |
 | `internal/slashing/boltstore/boltstore_test.go` | new | | | |
 | `internal/slashing/boltstore/encoding.go` | new | | | |
 | `internal/slashing/boltstore/encoding_test.go` | new | | | |
+| `internal/slashing/boltstore/history.go` | new | | | |
 | `internal/slashing/boltstore/migrate.go` | new | | | |
 | `internal/slashing/boltstore/migrate_test.go` | new | | | |
 | `internal/slashing/boltstore/migrate_testmigration.go` | new | | | |
@@ -326,19 +337,35 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/slashing/engine.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbSlashingProtection.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/RegisteredValidators.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/BlockValidator.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/AttestationValidator.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/validator/GenesisValidatorRootValidator.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/slashing/engine_test.go` | new |  |  |  |
 | `internal/slashing/engine_w3s_test.go` | w3s-derived | Web3Signer | `slashing-protection/src/test/java/tech/pegasys/web3signer/slashingprotection/DbSlashingProtectionTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/interchange/decode.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/model/Metadata.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/model/SignedBlock.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/model/SignedAttestation.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/InterchangeJsonProvider.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/interchange/decode_test.go` | new | | | |
+| `internal/slashing/interchange/export.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/InterchangeV5Exporter.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/EmptyDataIncrementalInterchangeV5Exporter.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/interchange/export_test.go` | new | | | |
+| `internal/slashing/interchange/export_w3s_test.go` | w3s-derived | Web3Signer | `slashing-protection/src/integration-test/java/tech/pegasys/web3signer/slashingprotection/InterchangeExportIntegrationTestBase.java`<br>`slashing-protection/src/test/java/tech/pegasys/web3signer/slashingprotection/interchange/InterchangeV5ExporterTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/interchange/fuzz_test.go` | new | | | |
+| `internal/slashing/interchange/helpers_test.go` | new | | | |
+| `internal/slashing/interchange/import.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/InterchangeV5Importer.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/BlockImporter.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/AttestationImporter.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/OptionalMinValueTracker.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/interchange/import_test.go` | new | | | |
+| `internal/slashing/interchange/import_w3s_test.go` | w3s-derived | Web3Signer | `slashing-protection/src/integration-test/java/tech/pegasys/web3signer/slashingprotection/InterchangeImportConflictsIntegrationTestBase.java`<br>`slashing-protection/src/integration-test/java/tech/pegasys/web3signer/slashingprotection/InterchangeImportBadJsonFormattingIntegrationTestBase.java`<br>`slashing-protection/src/integration-test/java/tech/pegasys/web3signer/slashingprotection/InterchangeImportBadLogicalContentIntegrationTestBase.java`<br>`slashing-protection/src/integration-test/java/tech/pegasys/web3signer/slashingprotection/WatermarkImportingIntegrationTestBase.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/interchange/qrysm_test.go` | new | | | |
 | `internal/slashing/memstore/memstore.go` | new |  |  |  |
 | `internal/slashing/memstore/memstore_test.go` | new |  |  |  |
+| `internal/slashing/prune.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbPruner.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DBSlashingProtectionPruner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/prune_w3s_test.go` | w3s-derived | Web3Signer | `slashing-protection/src/integration-test/java/tech/pegasys/web3signer/slashingprotection/PruningIntegrationTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/slashing/randao.go` | new |  |  |  |
 | `internal/slashing/schema.go` | new |  |  |  |
 | `internal/slashing/slashing.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/SlashingProtection.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/slashing/slashingtest/eip3076.go` | new |  |  |  |
 | `internal/slashing/slashingtest/enabled.go` | new |  |  |  |
+| `internal/slashing/slashingtest/history.go` | new | | | |
 | `internal/slashing/slashingtest/randao.go` | new |  |  |  |
 | `internal/slashing/slashingtest/slashingtest.go` | new |  |  |  |
 | `internal/slashing/slashingtest/slashingtest_test.go` | new |  |  |  |
 | `internal/slashing/slashingtest/store.go` | w3s-derived | Web3Signer | `slashing-protection/src/test/java/tech/pegasys/web3signer/slashingprotection/dao/SignedBlocksDaoTest.java`<br>`slashing-protection/src/test/java/tech/pegasys/web3signer/slashingprotection/dao/SignedAttestationsDaoTest.java`<br>`slashing-protection/src/test/java/tech/pegasys/web3signer/slashingprotection/dao/LowWatermarkDaoTest.java`<br>`slashing-protection/src/test/java/tech/pegasys/web3signer/slashingprotection/dao/MetadataDaoTest.java`<br>`slashing-protection/src/test/java/tech/pegasys/web3signer/slashingprotection/dao/ValidatorsDaoTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/slashing/slashingtest/stress.go` | new |  |  |  |
 | `internal/slashing/store.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/SignedBlocksDao.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/SignedAttestationsDao.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/LowWatermarkDao.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/MetadataDao.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/ValidatorsDao.java`<br>`slashing-protection/src/main/resources/migrations/postgresql/V00012__add_highwatermark_metadata.sql` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/watermark.go` | w3s-derived | Web3Signer | `commandline/src/main/java/tech/pegasys/web3signer/commandline/subcommands/Eth2WatermarkRepairSubCommand.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/watermark_test.go` | new | | | |
 | `internal/ssz/merkleize.go` | new | | | |
 | `internal/ssz/merkleize_test.go` | new | | | |
 | `internal/ssz/types.go` | new | | | |
@@ -351,6 +378,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/e2e_test.go` | new | | | |
 | `test/acceptance/harness_test.go` | new | | | |
 | `test/acceptance/hygiene_linux_test.go` | new | | | |
+| `test/acceptance/interchange_test.go` | new | | | |
 | `test/acceptance/metrics_test.go` | new | | | |
 | `test/acceptance/migrate_test.go` | new | | | |
 | `test/acceptance/server_test.go` | new | | | |
@@ -381,6 +409,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `tools/vectorgen/contract/vectors.go` | new | | | |
 | `tools/vectorgen/fixtures.go` | new | | | |
 | `tools/vectorgen/gen.go` | new | | | |
+| `tools/vectorgen/interchange.go` | new | | | |
+| `tools/vectorgen/interchange_test.go` | new | | | |
 | `tools/vectorgen/jsonout.go` | new | | | |
 | `tools/vectorgen/keys.go` | new | | | |
 | `tools/vectorgen/keystore.go` | new | | | |
