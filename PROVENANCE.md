@@ -54,9 +54,22 @@ notice.
 The copy under `third_party/` stays pristine, so the Weald lineage is recorded here, in `NOTICE` and in
 `third_party/qrl-keystore/README.md` instead of in its files.
 
-The hardened copy that is compiled into the signer will live in `internal/keys/keystore/qrlv1/` and is recorded as
-`mit-derived`. Because it modifies Apache-2.0 code, its headers must restore Weald's copyright line and the Apache
-notice next to the QRL MIT line (Apache-2.0 §4(c)), and `LICENSES/Apache-2.0.txt` covers that part.
+The hardened copy that is compiled into the signer is `internal/keys/keystore/qrlv1/`. Two of its files are copies,
+recorded as `mit-derived`: `decrypt.go` (from upstream `decrypt.go` and the keystore types of `encryptor.go`) and
+`norm.go` (from `norm.go`, unchanged apart from the package name). Because they modify Apache-2.0 code, their headers
+restore Weald's per-file copyright line from `v1.4.1` ("Copyright © 2019 - 2023 Weald Technology Trading." for
+`decrypt.go` and `encryptor.go`, "Copyright © 2020, 2021 Weald Technology Trading" for `norm.go`) and the Apache
+notice next to the QRL MIT line, under `SPDX-License-Identifier: MIT AND Apache-2.0` (Apache-2.0 §4(c));
+`LICENSES/Apache-2.0.txt` and `LICENSES/MIT.txt` hold the texts. `headercheck` requires this header of every
+`mit-derived` row whose upstream path is in the QRL keystore. Upstream `encrypt.go` is not copied: the signer never
+writes keystores. The package's other files (the keystore format, the password candidates and the tests) were
+written for this project and are classed `new`.
+
+qrysm's keystore package imports neither `pkg/go-qrl-wallet-types` (tree `19f25ac100399096af79b50e65ded092a8078ae3`)
+nor `pkg/go-qrl-types` (tree `fc5b262a3483358cbd4ce6f7bd7ea0ce20306dfd`) at `0b9cdf25`. Only its test
+`encryptor_test.go` imports the former, to assert that the encryptor implements the wallet `Encryptor` interface, and
+the latter reaches the keystore only as a dependency of the former. The hardened copy decrypts only and implements no
+wallet interface, so neither package is vendored or copied.
 
 ## Written from facts
 
@@ -126,7 +139,7 @@ attribution line below our header.
 |---|---|---|
 | `new` | Written for this project | `Copyright <year> The go-remotesigner Authors.` and `SPDX-License-Identifier: Apache-2.0`; no ConsenSys line |
 | `w3s-derived` | Written while consulting a specific Web3Signer file, including ported tests | The original `Copyright <year> ConsenSys AG.` line(s), our copyright line, the Apache short notice, `SPDX-License-Identifier: Apache-2.0`, and "Modified by The go-remotesigner Authors, <year>: translated from Java to Go and adapted for QRL. Derived from `<upstream path>` at commit `<commit>`." |
-| `mit-derived` | Modified copies of MIT code | The original MIT copyright line, `SPDX-License-Identifier: MIT`, and a "Modified by" line; for the keystore, also Weald's copyright line and the Apache notice (see "QRL code") |
+| `mit-derived` | Modified copies of MIT code | The original MIT copyright line, `SPDX-License-Identifier: MIT` (or `MIT AND Apache-2.0` together with the Apache notice), and a "Modified by" line; copies of the QRL keystore must carry Weald's copyright line, the Apache notice and `MIT AND Apache-2.0` (see "QRL code") |
 | `vendored` | Pristine upstream trees under `third_party/` | No added header; the directory must hash to the recorded git tree id |
 
 `headercheck` checks `.go`, `.sql`, `.yaml`/`.yml`, `.sh`, `Dockerfile*` and `deploy/**/*.json` files (JSON files carry
@@ -228,6 +241,16 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/crypto/mldsa87/selftest.go` | new | | | |
 | `internal/keys/keyconfig/keyconfig.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/SignerLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/parser/YamlSignerParser.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileRawSigningMetadata.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/keyconfig/keyconfig_test.go` | new | | | |
+| `internal/keys/keystore/qrlv1/bench_test.go` | new | | | |
+| `internal/keys/keystore/qrlv1/decrypt.go` | mit-derived | `cyyber/qrysm` (MIT), from `wealdtech/go-eth2-wallet-encryptor-keystorev4` `v1.4.1` (Apache-2.0) | `pkg/go-qrl-wallet-encryptor-keystore/decrypt.go`<br>`pkg/go-qrl-wallet-encryptor-keystore/encryptor.go` | `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` |
+| `internal/keys/keystore/qrlv1/fuzz_test.go` | new | | | |
+| `internal/keys/keystore/qrlv1/golden_test.go` | new | | | |
+| `internal/keys/keystore/qrlv1/helpers_test.go` | new | | | |
+| `internal/keys/keystore/qrlv1/keystore.go` | new | | | |
+| `internal/keys/keystore/qrlv1/keystore_test.go` | new | | | |
+| `internal/keys/keystore/qrlv1/norm.go` | mit-derived | `cyyber/qrysm` (MIT), from `wealdtech/go-eth2-wallet-encryptor-keystorev4` `v1.4.1` (Apache-2.0) | `pkg/go-qrl-wallet-encryptor-keystore/norm.go` | `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` |
+| `internal/keys/keystore/qrlv1/norm_test.go` | new | | | |
+| `internal/keys/keystore/qrlv1/password.go` | new | | | |
 | `internal/logging/logging.go` | new | | | |
 | `internal/logging/logging_test.go` | new | | | |
 | `internal/logging/secret.go` | new | | | |
