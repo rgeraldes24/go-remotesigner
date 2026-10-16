@@ -49,6 +49,9 @@ writes the validators in batches, each batch in one transaction:
   target epoch, counts as already covered;
 - a record that differs from the one the store holds at the same slot or target epoch is not written and is reported
   as a conflict (the stored record keeps refusing anything else there);
+- an attestation whose source epoch is after its target, or that surrounds or is surrounded by another recorded
+  attestation, is written like any other (it only adds protection), and a warning on stderr names the validator: its
+  key has already signed slashable messages, which qrysm would blocklist;
 - the low watermarks are raised to the lowest newly written slot and epochs, so nothing older than the imported
   history is ever signed. A watermark is never lowered.
 

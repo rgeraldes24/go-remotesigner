@@ -23,10 +23,13 @@
 package interchange
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"slices"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 )
@@ -54,6 +57,11 @@ type Counts struct {
 	// Conflicts differ from the record the store holds at that slot or target epoch; they are not written, and the
 	// stored record keeps refusing anything else there.
 	Conflicts int
+	// Slashable are imported records that make the history slashable: attestations whose source epoch is after
+	// their target epoch, or that surround or are surrounded by another recorded attestation. They are written like
+	// any other, since a record only adds protection, but the key has then signed slashable messages. Blocks have
+	// none: a second block at a slot is a conflict and is not written.
+	Slashable int
 }
 
 // ValidatorResult is the outcome of one data element.
@@ -308,13 +316,19 @@ func importBlocks(tx slashing.HistoryTx, blocks []slashing.SignedBlock) (Counts,
 }
 
 // importAttestations inserts the attestations the store does not cover and raises each epoch watermark, on its own,
-// to the lowest inserted epoch when that is higher. Attestations that surround or are surrounded by recorded ones
-// are imported like any other: they only make the history stricter.
+// to the lowest inserted epoch when that is higher. Attestations that surround or are surrounded by recorded ones,
+// or whose source is after their target, are imported like any other, since they only make the history stricter,
+// and counted as slashable.
 func importAttestations(tx slashing.HistoryTx, atts []slashing.SignedAttestation) (Counts, error) {
 	var (
 		c                    Counts
 		minSource, minTarget minTracker
+		inserted             []slashing.SignedAttestation
 	)
+	_, stored, err := tx.LastAttestation() // whether the validator held attestations before
+	if err != nil {
+		return c, err
+	}
 	for _, a := range atts {
 		existing, found, err := tx.AttestationAt(a.TargetEpoch)
 		if err != nil {
@@ -328,11 +342,15 @@ func importAttestations(tx slashing.HistoryTx, atts []slashing.SignedAttestation
 			return c, err
 		}
 		c.Imported++
+		inserted = append(inserted, a)
 		minSource.track(a.SourceEpoch)
 		minTarget.track(a.TargetEpoch)
 	}
-	if !minSource.set {
+	if len(inserted) == 0 {
 		return c, nil
+	}
+	if c.Slashable, err = countSlashable(tx, inserted, stored); err != nil {
+		return c, err
 	}
 	low, err := tx.LowWatermark()
 	if err != nil {
@@ -346,6 +364,56 @@ func importAttestations(tx slashing.HistoryTx, atts []slashing.SignedAttestation
 		source, target = max(source, *low.SourceEpoch), max(target, *low.TargetEpoch)
 	}
 	return c, tx.RaiseEpochLowWatermarks(source, target)
+}
+
+// countSlashable counts the inserted attestations that are slashable within the validator's whole recorded
+// history: their source is after their target, or they surround or are surrounded by another recorded attestation.
+// The history is the inserted attestations alone when the validator held none before (stored is false); otherwise it
+// is read from the store. In target order, an attestation surrounds an earlier one exactly when its source is below
+// that one's, and is surrounded by a later one exactly when its source is above that one's, so one pass each way
+// finds them all.
+func countSlashable(tx slashing.HistoryTx, inserted []slashing.SignedAttestation, stored bool) (int, error) {
+	history, isNew := inserted, func(uint64) bool { return true }
+	if stored {
+		targets := make(map[uint64]bool, len(inserted))
+		for _, a := range inserted {
+			targets[a.TargetEpoch] = true
+		}
+		isNew = func(target uint64) bool { return targets[target] }
+		history = nil
+		for target := uint64(0); ; target++ {
+			a, found, err := tx.NearestAttestation(target)
+			if err != nil {
+				return 0, err
+			}
+			if !found {
+				break
+			}
+			history = append(history, a)
+			if target = a.TargetEpoch; target == math.MaxUint64 {
+				break
+			}
+		}
+	} else {
+		slices.SortFunc(history, func(a, b slashing.SignedAttestation) int { return cmp.Compare(a.TargetEpoch, b.TargetEpoch) })
+	}
+	// surrounded[i]: a later attestation (higher target) has a lower source.
+	surrounded := make([]bool, len(history))
+	minLater := uint64(math.MaxUint64)
+	for i := len(history) - 1; i >= 0; i-- {
+		surrounded[i] = history[i].SourceEpoch > minLater
+		minLater = min(minLater, history[i].SourceEpoch)
+	}
+	n, maxEarlier := 0, uint64(0)
+	for i, a := range history {
+		// An earlier attestation (lower target) has a higher source.
+		surrounds := i > 0 && a.SourceEpoch < maxEarlier
+		maxEarlier = max(maxEarlier, a.SourceEpoch)
+		if isNew(a.TargetEpoch) && (a.SourceEpoch > a.TargetEpoch || surrounds || surrounded[i]) {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // covers reports whether a stored record makes an imported one with the same slot or target redundant: the

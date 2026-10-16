@@ -6,11 +6,14 @@ package interchange_test
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/interchange"
+	"github.com/rgeraldes24/go-remotesigner/internal/slashing/memstore"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/slashingtest"
 )
 
@@ -288,4 +291,79 @@ func TestImportThroughARetriedTransaction(t *testing.T) {
 			}
 		}
 	})
+}
+
+// Imported attestations that make the history slashable are written, and counted: Web3Signer logs each one, and
+// qrysm blocklists such keys. A slashable pair the store already held before the import is not counted again.
+func TestImportCountsSlashableAttestations(t *testing.T) {
+	forEachStore(t, func(t *testing.T, s slashing.Store) {
+		importDoc(t, s, doc(gvr, jEntry{Pubkey: pk(0), Atts: []jAtt{att(3, 10, root(1))}},
+			jEntry{Pubkey: pk(1), Atts: []jAtt{att(3, 10, root(1)), att(4, 8, root(1))}}))
+		res := importDoc(t, s, doc(gvr,
+			// (4, 8) is surrounded by the stored (3, 10), (2, 12) surrounds it, (6, 5) has its source after its target
+			// (and (3, 10) surrounds it), and (12, 13) is clean.
+			jEntry{Pubkey: pk(0), Atts: []jAtt{att(4, 8, root(2)), att(2, 12, root(2)), att(6, 5, root(2)), att(12, 13, root(2))}},
+			// Key 1's stored pair is slashable already; the import adds a clean attestation.
+			jEntry{Pubkey: pk(1), Atts: []jAtt{att(12, 13, root(2))}}))
+		if c := res.Validators[0].Attestations; c != (interchange.Counts{Imported: 4, Slashable: 3}) {
+			t.Fatalf("key 0: %+v", c)
+		}
+		if c := res.Validators[1].Attestations; c != (interchange.Counts{Imported: 1}) {
+			t.Fatalf("key 1: %+v", c)
+		}
+	})
+}
+
+// The count matches a direct check of every pair, over random histories.
+func TestImportSlashableCountMatchesPairs(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2))
+	random := func(n int) []jAtt {
+		out := make([]jAtt, n)
+		for i := range out {
+			out[i] = att(rng.Uint64N(12), rng.Uint64N(12), root(rng.Uint64N(2)))
+		}
+		return out
+	}
+	for trial := range 300 {
+		s := memstore.New()
+		seed, file := random(rng.IntN(5)), random(rng.IntN(8))
+		importDoc(t, s, doc(gvr, jEntry{Pubkey: pk(0), Atts: seed}))
+		res := importDoc(t, s, doc(gvr, jEntry{Pubkey: pk(0), Atts: file}))
+		// The import writes a file attestation only at a target the store, and the file before it, have not used.
+		stored := map[string]bool{}
+		for _, a := range seed {
+			stored[a.Target] = true
+		}
+		var inserted []jAtt
+		for _, a := range file {
+			if !stored[a.Target] {
+				stored[a.Target] = true
+				inserted = append(inserted, a)
+			}
+		}
+		history := dump(t, s)[0].atts
+		want := 0
+		for _, a := range inserted {
+			as, at := mustU64(t, a.Source), mustU64(t, a.Target)
+			bad := as > at
+			for _, r := range history {
+				if (r.SourceEpoch < as && r.TargetEpoch > at) || (r.SourceEpoch > as && r.TargetEpoch < at) {
+					bad = true
+				}
+			}
+			if bad {
+				want++
+			}
+		}
+		if got := res.Validators[0].Attestations.Slashable; got != want {
+			t.Fatalf("trial %d: seed %v, file %v: %d slashable, want %d", trial, seed, file, got, want)
+		}
+	}
+}
+
+func mustU64(t *testing.T, s string) uint64 {
+	t.Helper()
+	v, err := strconv.ParseUint(s, 10, 64)
+	must(t, err)
+	return v
 }

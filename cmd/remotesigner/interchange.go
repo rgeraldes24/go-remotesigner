@@ -97,6 +97,11 @@ func reportImport(stdout, stderr io.Writer, path string, res interchange.ImportR
 				"store's record at the same slot or target epoch and were not imported\n",
 				v.Index, slashing.KeyIDOf(v.PublicKey), v.Blocks.Conflicts, v.Attestations.Conflicts)
 		}
+		if v.Err == nil && v.Attestations.Slashable > 0 {
+			_, _ = fmt.Fprintf(stderr, "warning: data[%d] (key %s): %d imported attestation(s) have a source after their "+
+				"target, or surround or are surrounded by another recorded attestation: the key's history is already "+
+				"slashable\n", v.Index, slashing.KeyIDOf(v.PublicKey), v.Attestations.Slashable)
+		}
 	}
 	failed := res.Failed()
 	_, _ = fmt.Fprintf(stdout, "imported %d of %d validator(s) into %s: %d block(s) and %d attestation(s) written; "+

@@ -182,10 +182,14 @@ func TestImportBadLogicalContent(t *testing.T) {
 		})
 	})
 	// Like Web3Signer, an attestation whose source is after its target is imported: it can only make the history
-	// stricter, and the rule engine refuses such a request anyway.
+	// stricter, and the rule engine refuses such a request anyway. Web3Signer logs a warning; here it is counted as
+	// slashable, and the command warns.
 	t.Run("an attestation with source after target", func(t *testing.T) {
 		forEachStore(t, func(t *testing.T, s slashing.Store) {
-			importDoc(t, s, doc(gvr, jEntry{Pubkey: pk(0), Atts: []jAtt{att(6, 5, root(1))}}))
+			res := importDoc(t, s, doc(gvr, jEntry{Pubkey: pk(0), Atts: []jAtt{att(6, 5, root(1))}}))
+			if c := res.Validators[0].Attestations; c != (interchange.Counts{Imported: 1, Slashable: 1}) {
+				t.Fatalf("counts %+v", c)
+			}
 			wantState(t, dump(t, s), 0, state{atts: []slashing.SignedAttestation{sa(6, 5, slashingtest.RootPtr(1))},
 				low: lw(nil, u64(6), u64(5))})
 		})

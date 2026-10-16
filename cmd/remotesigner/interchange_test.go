@@ -129,6 +129,15 @@ func TestImportCommand(t *testing.T) {
 		t.Fatalf("key 1 after a clean import: %+v", st)
 	}
 	closeStore(t, s)
+
+	// A history that is already slashable imports, with a warning: (2, 5) surrounds (3, 4).
+	slashable := interchangeFile(t, gvrHex, entry(3, ``, `{"source_epoch":"2","target_epoch":"5"},{"source_epoch":"3","target_epoch":"4"}`))
+	if code, stdout, stderr := runCLI(t, "--data-path="+data, "consensus", "import", "--from="+slashable); code != exitOK ||
+		!strings.Contains(stdout, "imported 1 of 1 validator(s)") ||
+		!strings.Contains(stderr, "data[0] (key "+slashing.KeyIDOf(slashingtest.Key(3)).String()+"): 2 imported attestation(s)") ||
+		!strings.Contains(stderr, "already slashable") {
+		t.Fatalf("slashable import: exit %d %s %s", code, stdout, stderr)
+	}
 }
 
 func TestImportCommandRefusals(t *testing.T) {
