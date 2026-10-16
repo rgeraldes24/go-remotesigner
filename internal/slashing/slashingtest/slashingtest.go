@@ -8,14 +8,18 @@
 //		slashingtest.Run(t, func(t *testing.T) slashing.Store { return memstore.New() })
 //	}
 //
-// The suite drives the stores through slashing.Engine with 2,592-byte keys, so it checks the rule engine and the
-// store contract together.
+// RunEIP3076 and RunStress drive the stores through slashing.Engine with 2,592-byte keys, so they check the rule
+// engine and the store together. RunStoreContract and RunRandao call the Store and transaction methods directly and
+// pin down the contract a backend must meet on its own. A new backend needs only a Factory: every call must return an
+// independent, empty store, and the suite never runs two tests at once.
 package slashingtest
 
 import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
@@ -27,6 +31,7 @@ type Factory func(t *testing.T) slashing.Store
 // Run runs the whole conformance suite against stores from newStore.
 func Run(t *testing.T, newStore Factory) {
 	t.Run("EIP3076", func(t *testing.T) { RunEIP3076(t, newStore) })
+	t.Run("StoreContract", func(t *testing.T) { RunStoreContract(t, newStore) })
 	t.Run("Randao", func(t *testing.T) { RunRandao(t, newStore) })
 	t.Run("Schema", func(t *testing.T) { RunSchema(t, newStore) })
 	t.Run("Stress", func(t *testing.T) { RunStress(t, newStore) })
@@ -155,4 +160,19 @@ func must(t *testing.T, err error) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func fmtLow(w slashing.LowWatermark) string {
+	return fmt.Sprintf("{slot %s, source %s, target %s}", fmtU64(w.Slot), fmtU64(w.SourceEpoch), fmtU64(w.TargetEpoch))
+}
+
+func fmtHigh(h slashing.HighWatermark) string {
+	return fmt.Sprintf("{epoch %s, slot %s}", fmtU64(h.Epoch), fmtU64(h.Slot))
+}
+
+func fmtU64(p *uint64) string {
+	if p == nil {
+		return "unset"
+	}
+	return strconv.FormatUint(*p, 10)
 }
