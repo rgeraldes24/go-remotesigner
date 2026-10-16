@@ -19,11 +19,13 @@ Third-party software in the binaries
 
 The remotesigner and remotesigner-consensus binaries link the Go standard
 library and the Go modules below. Both flavours link the same set;
-github.com/prometheus/procfs is linked on Linux only. Each entry gives the
-copyright notice of the component and its licence. The licence texts are in
-LICENSES/ (Apache-2.0.txt, MIT.txt, BSD-2-Clause.txt, BSD-3-Clause.txt); each
-component's own LICENSE file is part of its source at the version recorded in
-go.sum, and release archives will carry those files in third_party_licenses/.
+github.com/prometheus/procfs is not linked on Windows or macOS. Each entry
+gives the copyright notice of the component, as its source states it, and its
+licence. LICENSES/ holds the generic texts of these licences (Apache-2.0.txt,
+MIT.txt, BSD-2-Clause.txt, BSD-3-Clause.txt). Each component's exact licence,
+with its own copyright notice and wording, is the LICENSE file in its source
+at the version recorded in go.sum; release archives will carry those files in
+third_party_licenses/.
 
 MIT License (LICENSES/MIT.txt):
 
@@ -34,7 +36,8 @@ MIT License (LICENSES/MIT.txt):
   github.com/cpuguy83/go-md2man/v2
     Copyright (c) 2014 Brian Goff
   github.com/xrash/smetrics
-    Copyright (C) 2016 Felipe da Cunha Gonçalves. All Rights Reserved.
+    Copyright (C) 2016 Felipe da Cunha Gonçalves
+    All Rights Reserved.
   github.com/sirupsen/logrus
     Copyright (c) 2014 Simon Eskildsen
     alt_exit.go is derived from https://github.com/tebeka/atexit,
@@ -49,18 +52,21 @@ MIT License (LICENSES/MIT.txt):
     Copyright (c) 2015 Björn Rabenstein
   gopkg.in/yaml.v3, the files ported from libyaml (apic.go, emitterc.go,
   parserc.go, readerc.go, scannerc.go, writerc.go, yamlh.go, yamlprivateh.go)
+    Copyright (c) 2011-2019 Canonical Ltd
     Copyright (c) 2006-2010 Kirill Simonov
     Copyright (c) 2006-2011 Kirill Simonov
 
 BSD 2-Clause License (LICENSES/BSD-2-Clause.txt):
 
   github.com/russross/blackfriday/v2
-    Copyright © 2011 Russ Ross. All rights reserved.
+    Copyright © 2011 Russ Ross
+    All rights reserved.
 
 BSD 3-Clause License (LICENSES/BSD-3-Clause.txt):
 
-  The Go standard library and runtime, including the golang.org/x/crypto,
-  golang.org/x/net and golang.org/x/text packages vendored into it
+  The Go standard library and runtime, including the packages of
+  golang.org/x/crypto, golang.org/x/net, golang.org/x/sys and golang.org/x/text
+  vendored into it
     Copyright 2009 The Go Authors.
   golang.org/x/net
     Copyright 2009 The Go Authors.
@@ -68,23 +74,24 @@ BSD 3-Clause License (LICENSES/BSD-3-Clause.txt):
     Copyright 2009 The Go Authors.
   google.golang.org/protobuf
     Copyright (c) 2018 The Go Authors. All rights reserved.
-    types/known/timestamppb: Copyright 2008 Google Inc. All rights reserved.
+  google.golang.org/protobuf, file types/known/timestamppb/timestamp.pb.go
+    Copyright 2008 Google Inc.  All rights reserved.
   github.com/prometheus/client_golang, package
   internal/github.com/golang/gddo/httputil (from github.com/golang/gddo)
     Copyright (c) 2013 The Go Authors. All rights reserved.
   github.com/munnerz/goautoneg
-    Copyright (c) 2011, Open Knowledge Foundation Ltd. All rights reserved.
+    Copyright (c) 2011, Open Knowledge Foundation Ltd.
+    All rights reserved.
 
 Apache License, Version 2.0 (LICENSES/Apache-2.0.txt):
 
-  github.com/prometheus/client_golang
-  github.com/prometheus/client_model
-  github.com/prometheus/common
-  github.com/prometheus/procfs
-  gopkg.in/yaml.v3 (all files except the libyaml ports above)
+  github.com/prometheus/client_golang, github.com/prometheus/client_model,
+  github.com/prometheus/common and github.com/prometheus/procfs
+    Their copyright notices are in their NOTICE files below.
+  gopkg.in/yaml.v3, the files not ported from libyaml
     Copyright (c) 2011-2019 Canonical Ltd
 
-Their NOTICE files follow.
+The NOTICE files of these Apache-2.0 modules follow.
 
 --- github.com/prometheus/client_golang NOTICE ---
 Prometheus instrumentation library for Go applications
@@ -162,10 +169,6 @@ go-eth2-wallet-encryptor-keystorev4
 (https://github.com/wealdtech/go-eth2-wallet-encryptor-keystorev4),
 Copyright © 2019 - 2023 Weald Technology Trading, licensed under the
 Apache License, Version 2.0. See LICENSES/Apache-2.0.txt.
-
-The hardened keystore that the signer will compile, under
-internal/keys/keystore/qrlv1/, is a modified copy of that code; once it is
-linked, the two paragraphs above apply to the binaries as well.
 
 internal/consensus/types/fastssz_mirror_htr_test.go is output of the sszgen
 generator of fastssz (https://github.com/ferranbt/fastssz), whose templates

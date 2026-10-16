@@ -296,6 +296,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/metrics_test.go` | new | | | |
 | `test/acceptance/migrate_test.go` | new | | | |
 | `test/acceptance/server_test.go` | new | | | |
+| `test/repo/notice_test.go` | new | | | |
 | `test/repo/public_test.go` | new | | | |
 | `test/repo/repo_test.go` | new | | | |
 | `third_party/qrl-keystore/README.md` | new | | | sha256 `b62799d6df0bdbbb39c3110d2f4ffe98e9e4508cc6f45ea618f943d29184b19c` |
