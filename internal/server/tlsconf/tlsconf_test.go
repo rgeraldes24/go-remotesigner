@@ -96,7 +96,6 @@ func TestLoadKnownClients(t *testing.T) {
 		"one field":   a.String() + "\n",
 		"three":       "x " + a.String() + " y\n",
 		"short":       "x 00:11\n",
-		"empty":       "# nobody\n\n",
 		"not hex":     "x " + strings.Repeat("zz", 32) + "\n",
 		"second line": "x " + a.String() + "\ny\n",
 	}
@@ -109,6 +108,31 @@ func TestLoadKnownClients(t *testing.T) {
 	}
 	if _, err := loadKnownClients(filepath.Join(dir, "missing")); err == nil {
 		t.Fatal("missing file accepted")
+	}
+	// A file that lists nobody parses to an empty set; New refuses it at
+	// startup (TestNewRefusesEmptyTrust), and a reload accepts it.
+	if known, err := loadKnownClients(writeFile(t, filepath.Join(dir, "nobody"), []byte("# nobody\n\n"))); err != nil || known == nil || len(known) != 0 {
+		t.Fatalf("a file listing nobody: %v, %v", known, err)
+	}
+}
+
+// At startup a known-clients file that lists nobody, or a CA file without a
+// certificate, is a mistake and refuses the start.
+func TestNewRefusesEmptyTrust(t *testing.T) {
+	dir := t.TempDir()
+	certFile, keyFile := writePEM(t, dir, "server", serverPair(t))
+	empty := writeFile(t, filepath.Join(dir, "empty"), []byte("# nobody yet\n"))
+	for _, tt := range []struct {
+		cfg  Config
+		want string
+	}{
+		{Config{KnownClientsFile: empty}, "lists no client"},
+		{Config{ClientCAFile: empty}, "no PEM certificate"},
+	} {
+		tt.cfg.CertFile, tt.cfg.KeyFile = certFile, keyFile
+		if _, err := New(tt.cfg, Options{RequireClientCert: true}); err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("New(%+v) = %v, want %q", tt.cfg, err, tt.want)
+		}
 	}
 }
 
@@ -616,11 +640,157 @@ func TestReload(t *testing.T) {
 	if err := os.WriteFile(keyFile, []byte("garbage"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Reload(); err == nil {
-		t.Fatal("a broken key reloaded")
+	_, err = s.Reload()
+	if re := (*ReloadError)(nil); !errors.As(err, &re) || re.Certificate == nil || re.ClientTrust != nil {
+		t.Fatalf("a broken key reloaded: %v", err)
 	}
 	if peer() != second.fingerprint() || s.Info().Fingerprint != second.fingerprint() {
 		t.Fatal("a failed reload replaced the certificate")
+	}
+}
+
+// Removing the last client by a reload revokes it. Emptying the trust file
+// is a valid reload that accepts nobody; a trust file that fails to load
+// (deleted, or a line that does not parse) fails closed and refuses every
+// client. Either way the removed client can neither handshake nor resume,
+// and VerifyClient refuses its open connections; a later good reload
+// restores it.
+func TestReloadRevokesTheLastClient(t *testing.T) {
+	for _, mode := range []string{"known-clients", "ca", "known-clients+ca"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			ca := issue(t, nil, "ca", true, 0)
+			client := clientPair(t, &ca, "vc")
+			knownPath, caPath := filepath.Join(dir, "known"), filepath.Join(dir, "ca.pem")
+			var cfg Config
+			// trust lists the client in every configured file, or nobody.
+			trust := func(withClient bool) {
+				if mode != "ca" {
+					cfg.KnownClientsFile = knownPath
+					if withClient {
+						knownClientsFile(t, knownPath, client)
+					} else {
+						writeFile(t, knownPath, []byte("# vc revoked\n"))
+					}
+				}
+				if mode != "known-clients" {
+					cfg.ClientCAFile = caPath
+					if withClient {
+						writeFile(t, caPath, certPEM(ca.cert))
+					} else {
+						writeFile(t, caPath, []byte("# no CA\n"))
+					}
+				}
+			}
+			trust(true)
+			s, srv, addr := mtlsServer(t, cfg)
+			cc := client.tlsCert(ca)
+			clientCfg := clientConfig(srv, &cc)
+			cache := &countingCache{ClientSessionCache: tls.NewLRUClientSessionCache(4)}
+			clientCfg.ClientSessionCache = cache
+			open := &tls.ConnectionState{PeerCertificates: []*x509.Certificate{client.cert, ca.cert}}
+			accepted := func(when string) {
+				t.Helper()
+				if _, err := connect(addr, clientCfg); err != nil {
+					t.Fatalf("%s: handshake: %v", when, err)
+				}
+				if err := s.VerifyClient(open); err != nil {
+					t.Fatalf("%s: VerifyClient = %v", when, err)
+				}
+			}
+			refused := func(when string) {
+				t.Helper()
+				before := cache.offered.Load()
+				if _, err := connect(addr, clientCfg); !isRefused(err) {
+					t.Fatalf("%s: resumed handshake %v, want refused", when, err)
+				}
+				if cache.offered.Load() == before {
+					t.Fatalf("%s: the client offered no session, so resumption was not exercised", when)
+				}
+				if _, err := connect(addr, clientConfig(srv, &cc)); !isRefused(err) {
+					t.Fatalf("%s: full handshake %v, want refused", when, err)
+				}
+				if err := s.VerifyClient(open); !errors.Is(err, ErrUnknownClient) {
+					t.Fatalf("%s: VerifyClient on an open connection = %v, want %v", when, err, ErrUnknownClient)
+				}
+			}
+			accepted("start")
+			accepted("resumed") // leaves a session ticket in the cache
+
+			trust(false)
+			info, err := s.Reload()
+			if err != nil || info.KnownClients != 0 || info.ClientCAs != 0 || info.ClientAuth != s.Info().ClientAuth || info.ClientAuth == ClientAuthRefused {
+				t.Fatalf("reload of an emptied trust: %+v %v", info, err)
+			}
+			refused("emptied")
+
+			trust(true)
+			if _, err := s.Reload(); err != nil {
+				t.Fatal(err)
+			}
+			accepted("restored")
+
+			broken := map[string]func(){
+				"deleted": func() { _ = os.Remove(knownPath); _ = os.Remove(caPath) },
+				"garbage": func() {
+					if mode != "ca" {
+						writeFile(t, knownPath, []byte("vc not-a-fingerprint\n"))
+					}
+					if mode != "known-clients" {
+						writeFile(t, caPath, []byte("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"))
+					}
+				},
+			}
+			for _, name := range []string{"deleted", "garbage"} {
+				broken[name]()
+				info, err := s.Reload()
+				var re *ReloadError
+				if !errors.As(err, &re) || re.ClientTrust == nil || re.Certificate != nil {
+					t.Fatalf("%s: reload error %v, want a client-trust ReloadError", name, err)
+				}
+				if info.ClientAuth != ClientAuthRefused || s.Info().ClientAuth != ClientAuthRefused || info.Fingerprint != srv.fingerprint() {
+					t.Fatalf("%s: Info %+v", name, info)
+				}
+				refused(name)
+				trust(true)
+				if _, err := s.Reload(); err != nil {
+					t.Fatal(err)
+				}
+				accepted(name + ", then restored")
+			}
+		})
+	}
+}
+
+// A certificate that fails to reload keeps the previous one, while the
+// client trust reloaded with it still takes effect.
+func TestReloadBrokenCertificateStillAppliesTrust(t *testing.T) {
+	dir := t.TempDir()
+	client := clientPair(t, nil, "vc")
+	known := knownClientsFile(t, filepath.Join(dir, "known"), client)
+	srv := serverPair(t)
+	certFile, keyFile := writePEM(t, dir, "server", srv)
+	s, err := New(Config{CertFile: certFile, KeyFile: keyFile, KnownClientsFile: known}, Options{RequireClientCert: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := serve(t, s.TLSConfig())
+	cc := client.tlsCert()
+	if _, err := connect(addr, clientConfig(srv, &cc)); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, keyFile, []byte("garbage"))
+	writeFile(t, known, []byte("# vc revoked\n"))
+	info, err := s.Reload()
+	var re *ReloadError
+	if !errors.As(err, &re) || re.Certificate == nil || re.ClientTrust != nil {
+		t.Fatalf("reload error %v, want a certificate ReloadError", err)
+	}
+	if info.Fingerprint != srv.fingerprint() || info.KnownClients != 0 || info.ClientAuth != ClientAuthKnownClients {
+		t.Fatalf("Info %+v", info)
+	}
+	if _, err := connect(addr, clientConfig(srv, &cc)); !isRefused(err) {
+		t.Fatalf("the revoked client connected: %v", err)
 	}
 }
 

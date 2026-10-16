@@ -118,7 +118,9 @@ enough.
 
 The client check runs on every handshake, a resumed TLS session included, and again on every request against the
 trust in force at that moment. A client removed from either file by a reload (section 5) can neither open a new
-connection nor resume its session, and its open connections get 401 `UNAUTHENTICATED` from their next request.
+connection nor resume its session, and its open connections get 401 `UNAUTHENTICATED` from their next request. This
+holds for the last client too: a reload of a known-clients file that lists nobody, or of a CA file without a
+certificate, trusts nobody. At startup such a file refuses the start instead, as a mistake.
 
 The validator client presents its certificate with `--validators-external-signer-tls-client-cert-file` and
 `--validators-external-signer-tls-client-key-file`.
@@ -148,16 +150,29 @@ missing. A validator client in `token+mtls` gets both the certificate flags and
   `<data-path>/tls/`, generating a new pair when both files were deleted;
 - the known-clients file and the client CA file.
 
-Tokens and TLS files reload independently. If either set fails to load, for example an invalid token, two equal
-tokens, a broken key or a known-clients line that does not parse, the signer logs an ERROR and keeps the previous set
-in force, so a mistake never leaves it without credentials. Handshakes that start after a successful reload use the
-new certificate and client trust; established connections keep the certificate they negotiated. The log confirms
-each reload with the new fingerprint:
+The tokens, the certificate and the client trust reload independently, and fail differently:
+
+- **Tokens and the certificate keep the previous set.** An invalid token, two equal tokens or a broken key is logged
+  as an ERROR, and the previous tokens or certificate stay in force, so a mistake never leaves the signer without
+  credentials.
+- **The client trust fails closed.** If the known-clients file or the client CA file cannot be read or does not parse
+  (deleted, a line that is not `<label> <fingerprint>`, a broken certificate), the signer logs an ERROR and refuses
+  every client certificate, on new handshakes and on open connections, until a reload succeeds. Keeping the previous
+  trust would keep the client the edit was meant to revoke. Fix the file and send SIGHUP again.
+
+Handshakes that start after a reload use the new certificate and client trust; established connections keep the
+certificate they negotiated, and their requests are checked against the new trust. The log confirms each reload with
+the new fingerprint, or names what failed:
 
 ```
 level=info msg="Token files reloaded"
 level=info msg="TLS files reloaded" client-auth=known-clients known-clients=2 sha256-fingerprint="…" source=pem
+level=error msg="Reloading the TLS client trust failed; every client certificate is refused, on open connections too,
+  until a reload succeeds" client-auth=refused error="--tls-known-clients-file: open …: no such file or directory" …
 ```
+
+To revoke a client, remove its line from the known-clients file (or its CA from the CA file) and send SIGHUP; this
+works for the last client too, which leaves a trust that accepts nobody and logs a WARN saying so.
 
 To rotate a token, write a new one (`0x` and at least 64 hex characters) into its file, or delete the file, and send
 SIGHUP; then give the new sign token to the validator clients. The old token stops working at once, so update the

@@ -233,11 +233,8 @@ loop:
 				log.Info("Token files reloaded")
 			}
 			if tlsSrv != nil {
-				if info, err := tlsSrv.Reload(); err != nil {
-					log.WithError(err).Error("Reloading the TLS files failed; the previous certificate and client trust stay in force")
-				} else {
-					logTLS(log, cfg, info, true)
-				}
+				info, err := tlsSrv.Reload()
+				logTLSReload(log, cfg, info, err)
 			}
 		case serveErr = <-served:
 			serving--
@@ -300,10 +297,8 @@ func applyHygiene(h hygiene.Config, log *logrus.Logger) error {
 	return nil
 }
 
-// logTLS records the TLS configuration at startup and after each reload:
-// where the certificate comes from, its SHA-256 fingerprint (for pinning)
-// and how clients are checked.
-func logTLS(log *logrus.Logger, cfg *config.Config, info tlsconf.Info, reloaded bool) {
+// tlsFields are the log fields of a TLS configuration.
+func tlsFields(info tlsconf.Info) logrus.Fields {
 	f := logrus.Fields{
 		"source":             info.Source,
 		"certificate":        info.Path,
@@ -311,9 +306,52 @@ func logTLS(log *logrus.Logger, cfg *config.Config, info tlsconf.Info, reloaded 
 		"not-after":          info.NotAfter.UTC().Format(time.RFC3339),
 		"client-auth":        info.ClientAuth,
 	}
-	if info.ClientAuth != tlsconf.ClientAuthNone {
+	if info.ClientAuth != tlsconf.ClientAuthNone && info.ClientAuth != tlsconf.ClientAuthRefused {
 		f["known-clients"], f["client-cas"] = info.KnownClients, info.ClientCAs
 	}
+	return f
+}
+
+// logTLSReload records the outcome of a SIGHUP reload of the TLS files. A
+// certificate that failed to load leaves the previous one in force; a
+// client trust that failed to load refuses every client (tlsconf.Reload).
+func logTLSReload(log *logrus.Logger, cfg *config.Config, info tlsconf.Info, err error) {
+	if err == nil {
+		logTLS(log, cfg, info, true)
+		return
+	}
+	var re *tlsconf.ReloadError
+	if !errors.As(err, &re) {
+		log.WithFields(tlsFields(info)).WithError(err).Error("Reloading the TLS files failed")
+		return
+	}
+	if re.Certificate != nil {
+		log.WithFields(tlsFields(info)).WithError(re.Certificate).Error("Reloading the TLS certificate failed; " +
+			"the previous certificate stays in force")
+	}
+	if re.ClientTrust != nil {
+		log.WithFields(tlsFields(info)).WithError(re.ClientTrust).Error("Reloading the TLS client trust failed; " +
+			"every client certificate is refused, on open connections too, until a reload succeeds")
+	} else {
+		warnEmptyTrust(log, info)
+	}
+}
+
+// warnEmptyTrust warns when a reload left a client trust that lists
+// nobody: every client is then refused, which is how the last client is
+// revoked.
+func warnEmptyTrust(log *logrus.Logger, info tlsconf.Info) {
+	if info.ClientAuth != tlsconf.ClientAuthNone && info.ClientAuth != tlsconf.ClientAuthRefused &&
+		info.KnownClients+info.ClientCAs == 0 {
+		log.Warn("The TLS client trust lists no client and no CA: every client certificate is refused")
+	}
+}
+
+// logTLS records the TLS configuration at startup and after each reload:
+// where the certificate comes from, its SHA-256 fingerprint (for pinning)
+// and how clients are checked.
+func logTLS(log *logrus.Logger, cfg *config.Config, info tlsconf.Info, reloaded bool) {
+	f := tlsFields(info)
 	switch {
 	case info.Generated:
 		log.WithFields(f).Info("Generated a self-signed TLS certificate: give its file to the validator client " +
@@ -331,6 +369,7 @@ func logTLS(log *logrus.Logger, cfg *config.Config, info tlsconf.Info, reloaded 
 	if cfg.TLS.GenerateSelfSigned && info.Source != tlsconf.SourceSelfSigned && !reloaded {
 		log.Info("--tls-generate-self-signed has no effect: a certificate is configured")
 	}
+	warnEmptyTrust(log, info)
 }
 
 // newPolicy builds the request policy from the consensus flags, loading

@@ -24,8 +24,13 @@
 // check to every request, which closes connections a removed client had
 // already open.
 //
-// Reload (SIGHUP) re-reads every file and swaps the whole configuration
-// at once; on any error the previous one stays in force.
+// Reload (SIGHUP) re-reads every file and swaps the new configuration in
+// at once. A certificate that fails to load leaves the previous one in
+// force. The client trust fails closed instead: when the known-clients
+// file or the CA file fails to load, every client is refused until a
+// reload succeeds, so that a reload meant to revoke a client never leaves
+// it trusted. On a reload, a file that lists no client (or no CA) is valid
+// and accepts nobody, which is how the last client is revoked.
 package tlsconf
 
 import (
@@ -34,6 +39,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -66,6 +72,9 @@ const (
 	ClientAuthKnownClients   = "known-clients"
 	ClientAuthCA             = "ca"
 	ClientAuthKnownClientsCA = "known-clients+ca"
+	// ClientAuthRefused: the client trust failed to reload, and every
+	// client certificate is refused until a reload succeeds.
+	ClientAuthRefused = "refused"
 )
 
 // Info describes the loaded configuration, for the startup and reload
@@ -99,6 +108,39 @@ var (
 	errNotEnabled    = errors.New("tlsconf: no certificate configured")
 )
 
+// ReloadError is the error of a Reload that could not load every file.
+// The configuration in force afterwards keeps the previous certificate
+// when Certificate is set, and refuses every client when ClientTrust is.
+type ReloadError struct {
+	// Certificate is why the certificate did not load.
+	Certificate error
+	// ClientTrust is why the known-clients file or the CA file did not
+	// load.
+	ClientTrust error
+}
+
+func (e *ReloadError) Error() string {
+	var parts []string
+	if e.Certificate != nil {
+		parts = append(parts, "the certificate did not load, so the previous one stays in force: "+e.Certificate.Error())
+	}
+	if e.ClientTrust != nil {
+		parts = append(parts, "the client trust did not load, so every client is refused: "+e.ClientTrust.Error())
+	}
+	return "tlsconf: reload: " + strings.Join(parts, "; ")
+}
+
+// Unwrap returns the errors that failed the reload.
+func (e *ReloadError) Unwrap() []error {
+	var errs []error
+	for _, err := range []error{e.Certificate, e.ClientTrust} {
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errs
+}
+
 // Server holds the API listener's TLS configuration. It is safe for
 // concurrent use.
 type Server struct {
@@ -110,13 +152,16 @@ type Server struct {
 
 // generation is one load of every file; it never changes once built.
 type generation struct {
+	cert   tls.Certificate
 	config *tls.Config
 	trust  *trust // nil when no client certificate is required
 	info   Info
 }
 
 // New loads the certificate and the client trust, generating the
-// self-signed certificate when that is configured and none exists yet.
+// self-signed certificate when that is configured and none exists yet. A
+// known-clients file that lists no client, or a CA file without a
+// certificate, is refused here as a mistake.
 func New(cfg Config, opts Options) (*Server, error) {
 	if err := cfg.Validate(opts.RequireClientCert); err != nil {
 		return nil, err
@@ -131,11 +176,15 @@ func New(cfg Config, opts Options) (*Server, error) {
 		opts.Now = time.Now
 	}
 	s := &Server{cfg: cfg, opts: opts}
-	g, err := s.load()
+	cert, info, err := s.loadCertificate()
 	if err != nil {
 		return nil, err
 	}
-	s.cur.Store(g)
+	t, err := s.loadTrust(&info, true)
+	if err != nil {
+		return nil, err
+	}
+	s.cur.Store(s.build(cert, info, t))
 	s.base = &tls.Config{
 		MinVersion: tls.VersionTLS13,
 		GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
@@ -155,14 +204,39 @@ func (s *Server) TLSConfig() *tls.Config { return s.base }
 func (s *Server) Info() Info { return s.cur.Load().info }
 
 // Reload re-reads the certificate, the known-clients file and the CA file,
-// and swaps them in together. On error the previous configuration stays in
-// force.
+// and swaps them in together. It returns the configuration now in force
+// and, when a file did not load, a *ReloadError:
+//
+//   - a certificate that fails to load leaves the previous one in force,
+//     so a broken rotation does not take the listener down;
+//   - a client trust file that fails to load (missing, unreadable, a line
+//     that does not parse) fails closed: every client is refused, on new
+//     handshakes and through VerifyClient on open connections, until a
+//     reload succeeds. Keeping the previous trust would keep a client the
+//     operator meant to revoke.
+//
+// A known-clients file that lists no client, or a CA file without a
+// certificate, is valid here and accepts nobody.
 func (s *Server) Reload() (Info, error) {
-	g, err := s.load()
+	prev := s.cur.Load()
+	var re ReloadError
+	cert, info, err := s.loadCertificate()
 	if err != nil {
-		return Info{}, err
+		re.Certificate = err
+		cert, info = prev.cert, prev.info
+		info.Generated = false
 	}
+	t, err := s.loadTrust(&info, false)
+	if err != nil {
+		re.ClientTrust = err
+		t = &trust{refused: err}
+		info.ClientAuth, info.KnownClients, info.ClientCAs = ClientAuthRefused, 0, 0
+	}
+	g := s.build(cert, info, t)
 	s.cur.Store(g)
+	if re.Certificate != nil || re.ClientTrust != nil {
+		return g.info, &re
+	}
 	return g.info, nil
 }
 
@@ -181,7 +255,10 @@ func (s *Server) VerifyClient(cs *tls.ConnectionState) error {
 	return t.verify(cs.PeerCertificates)
 }
 
-func (s *Server) load() (*generation, error) {
+// loadCertificate loads the server certificate, generating the
+// self-signed one when that is configured and none exists, and fills the
+// certificate fields of the Info.
+func (s *Server) loadCertificate() (tls.Certificate, Info, error) {
 	var (
 		cert tls.Certificate
 		info Info
@@ -202,12 +279,58 @@ func (s *Server) load() (*generation, error) {
 		}
 	}
 	if err != nil {
-		return nil, err
+		return cert, Info{}, err
 	}
 	info.Fingerprint = FingerprintOf(cert.Leaf.Raw)
 	info.NotAfter = cert.Leaf.NotAfter
+	return cert, info, nil
+}
 
+// loadTrust loads the client trust, nil when no client certificate is
+// required, and fills the client fields of info. At startup a trust file
+// that lists nobody is refused as a mistake; on a reload it is valid and
+// accepts nobody.
+func (s *Server) loadTrust(info *Info, startup bool) (*trust, error) {
+	info.ClientAuth, info.KnownClients, info.ClientCAs = ClientAuthNone, 0, 0
+	if !s.opts.RequireClientCert {
+		return nil, nil
+	}
+	t := &trust{now: s.opts.Now}
+	if path := s.cfg.KnownClientsFile; path != "" {
+		known, err := loadKnownClients(path)
+		if err != nil {
+			return nil, err
+		}
+		if startup && len(known) == 0 {
+			return nil, fmt.Errorf("--tls-known-clients-file %s lists no client", path)
+		}
+		t.known, info.KnownClients = known, len(known)
+	}
+	if path := s.cfg.ClientCAFile; path != "" {
+		pool, n, err := loadClientCAs(path)
+		if err != nil {
+			return nil, err
+		}
+		if startup && n == 0 {
+			return nil, fmt.Errorf("--tls-client-ca-file %s: no PEM certificate", path)
+		}
+		t.pool, info.ClientCAs = pool, n
+	}
+	switch {
+	case t.known == nil:
+		info.ClientAuth = ClientAuthCA
+	case t.pool == nil:
+		info.ClientAuth = ClientAuthKnownClients
+	default:
+		info.ClientAuth = ClientAuthKnownClientsCA
+	}
+	return t, nil
+}
+
+// build assembles a generation from a certificate and a client trust.
+func (s *Server) build(cert tls.Certificate, info Info, t *trust) *generation {
 	g := &generation{
+		cert: cert,
 		config: &tls.Config{
 			MinVersion:   tls.VersionTLS13,
 			Certificates: []tls.Certificate{cert},
@@ -215,43 +338,25 @@ func (s *Server) load() (*generation, error) {
 			ClientAuth:   tls.NoClientCert,
 			Time:         s.opts.Now,
 		},
-		info: info,
+		trust: t,
+		info:  info,
 	}
-	g.info.ClientAuth = ClientAuthNone
-	if !s.opts.RequireClientCert {
-		return g, nil
+	if t == nil {
+		return g
 	}
-	t := &trust{now: s.opts.Now}
-	if s.cfg.KnownClientsFile != "" {
-		if t.known, err = loadKnownClients(s.cfg.KnownClientsFile); err != nil {
-			return nil, err
-		}
-		g.info.KnownClients = len(t.known)
-	}
-	if s.cfg.ClientCAFile != "" {
-		if t.pool, g.info.ClientCAs, err = loadClientCAs(s.cfg.ClientCAFile); err != nil {
-			return nil, err
-		}
-	}
-	switch {
-	case t.known == nil:
+	if t.refused == nil && t.known == nil && t.pool != nil {
 		// CA mode: Go verifies the chain against the explicit pool, which
 		// must never be nil (nil would mean the system roots).
-		g.info.ClientAuth = ClientAuthCA
 		g.config.ClientAuth = tls.RequireAndVerifyClientCert
 		g.config.ClientCAs = t.pool
-	case t.pool == nil:
-		g.info.ClientAuth = ClientAuthKnownClients
-		g.config.ClientAuth = tls.RequireAnyClientCert
-	default:
-		// Either check may accept the client, so the chain is verified in
-		// VerifyConnection rather than by Go.
-		g.info.ClientAuth = ClientAuthKnownClientsCA
+	} else {
+		// Fingerprints, both checks (either may accept the client, so the
+		// chain is verified in VerifyConnection rather than by Go), or a
+		// trust that refuses everyone.
 		g.config.ClientAuth = tls.RequireAnyClientCert
 	}
 	g.config.VerifyConnection = func(cs tls.ConnectionState) error { return t.verify(cs.PeerCertificates) }
-	g.trust = t
-	return g, nil
+	return g
 }
 
 // trust is one generation's client trust.
@@ -259,11 +364,17 @@ type trust struct {
 	known map[Fingerprint]struct{}
 	pool  *x509.CertPool
 	now   func() time.Time
+	// refused is set when the trust failed to reload: every client is
+	// refused.
+	refused error
 }
 
 // verify accepts a client chain whose leaf is a known client, or that
 // chains to a CA of the pool with the client-auth usage.
 func (t *trust) verify(chain []*x509.Certificate) error {
+	if t.refused != nil {
+		return fmt.Errorf("%w: the client trust failed to reload, so every client is refused", ErrUnknownClient)
+	}
 	if len(chain) == 0 {
 		return ErrNoClientCert
 	}

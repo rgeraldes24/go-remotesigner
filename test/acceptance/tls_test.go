@@ -415,6 +415,95 @@ func TestMTLSScopeMatrix(t *testing.T) {
 	}
 }
 
+// Revoking the only client with SIGHUP. Emptying the known-clients file
+// (or the client CA file) is a valid reload that trusts nobody, and
+// deleting it fails closed: either way the client's new handshakes are
+// refused and the connection it already has open gets 401, and the log
+// says why. Restoring the file lets the client back in on the same
+// connection.
+func TestMTLSRevokeTheOnlyClient(t *testing.T) {
+	srv := serverCert(t, false)
+	ca := newPair(t, certSpec{cn: "ca", ca: true})
+	vc := clientCertOf(t, "vc", &ca)
+	for _, flag := range []string{"--tls-known-clients-file", "--tls-client-ca-file"} {
+		t.Run(strings.TrimPrefix(flag, "--tls-"), func(t *testing.T) {
+			dir := t.TempDir()
+			cf, kf := writePEMPair(t, dir, "server", srv)
+			trust := filepath.Join(dir, "trust")
+			restore := func() {
+				if flag == "--tls-known-clients-file" {
+					writeKnownClients(t, trust, vc)
+				} else {
+					writeTestFile(t, trust, pemCerts(ca.cert))
+				}
+			}
+			restore()
+			s := start(t, options{global: []string{"--http-auth-mode=mtls", "--tls-cert-file=" + cf, "--tls-key-file=" + kf,
+				flag + "=" + trust}})
+			roots := poolOf(srv.cert)
+			vcCert := vc.tls()
+			open := tlsClient(roots, &vcCert, nil)
+			s.waitReadyTLS(open)
+			const keys = "/api/v1/consensus/publicKeys"
+			// waitOpen polls path on the client's open connection until it
+			// answers want. A 401 can only come over that connection: a new
+			// handshake would be refused.
+			waitOpen := func(path string, want int) {
+				t.Helper()
+				deadline := time.Now().Add(5 * time.Second)
+				for {
+					code, _, err := call(open, http.MethodGet, s.tlsBase()+path, "")
+					if err == nil && code == want {
+						return
+					}
+					if time.Now().After(deadline) {
+						t.Fatalf("%s on the open connection: %d %v, want %d\n%s", path, code, err, want, s.output.String())
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+			}
+			waitLog := func(want string) {
+				t.Helper()
+				deadline := time.Now().Add(5 * time.Second)
+				for !strings.Contains(s.output.String(), want) {
+					if time.Now().After(deadline) {
+						t.Fatalf("the log lacks %q:\n%s", want, s.output.String())
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+			}
+			revocations := []struct {
+				name   string
+				revoke func()
+				log    string
+			}{
+				{"emptied", func() { writeTestFile(t, trust, []byte("# vc revoked\n")) },
+					"The TLS client trust lists no client and no CA"},
+				{"deleted", func() {
+					if err := os.Remove(trust); err != nil {
+						t.Fatal(err)
+					}
+				}, "Reloading the TLS client trust failed"},
+			}
+			for _, r := range revocations {
+				r.revoke()
+				s.signal(syscall.SIGHUP)
+				waitOpen(keys, 401)
+				waitLog(r.log)
+				if code, _, err := call(tlsClient(roots, &vcCert, nil), http.MethodGet, s.tlsBase()+keys, ""); err == nil {
+					t.Fatalf("%s: the revoked client opened a new connection: %d", r.name, code)
+				}
+				restore()
+				s.signal(syscall.SIGHUP)
+				waitOpen(keys, 200)
+				if code, _, err := call(tlsClient(roots, &vcCert, nil), http.MethodGet, s.tlsBase()+keys, ""); err != nil || code != 200 {
+					t.Fatalf("%s, then restored: a new connection got %d %v", r.name, code, err)
+				}
+			}
+		})
+	}
+}
+
 // CA mode accepts the clients of --tls-client-ca-file only, and SIGHUP
 // reloads the server certificate.
 func TestTLSClientCAAndCertificateReload(t *testing.T) {

@@ -180,8 +180,10 @@ func withLeaf(cert tls.Certificate) (tls.Certificate, error) {
 	return cert, nil
 }
 
-// loadClientCAs reads a PEM bundle of client CAs into a fresh pool. The
-// pool never includes the system roots.
+// loadClientCAs reads a PEM bundle of client CAs into a fresh pool and
+// counts them. The pool never includes the system roots, and is never nil:
+// a bundle without a certificate gives an empty pool, which accepts no
+// client.
 func loadClientCAs(path string) (*x509.CertPool, int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -204,9 +206,6 @@ func loadClientCAs(path string) (*x509.CertPool, int, error) {
 		}
 		pool.AddCert(c)
 		n++
-	}
-	if n == 0 {
-		return nil, 0, fmt.Errorf("--tls-client-ca-file %s: no PEM certificate", path)
 	}
 	return pool, n, nil
 }
@@ -250,7 +249,7 @@ func ParseFingerprint(s string) (Fingerprint, error) {
 // "<label> <fingerprint>" per line, where the label (Web3Signer writes the
 // client's host, optionally with a port) is for the operator and only the
 // fingerprint is matched. Blank lines and lines starting with # are
-// skipped. A file that lists no client is an error.
+// skipped. A file that lists no client gives an empty, non-nil set.
 func loadKnownClients(path string) (map[Fingerprint]struct{}, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -275,9 +274,6 @@ func loadKnownClients(path string) (map[Fingerprint]struct{}, error) {
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("--tls-known-clients-file %s: %w", path, err)
-	}
-	if len(known) == 0 {
-		return nil, fmt.Errorf("--tls-known-clients-file %s lists no client", path)
 	}
 	return known, nil
 }
