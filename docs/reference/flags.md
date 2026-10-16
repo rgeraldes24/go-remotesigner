@@ -52,7 +52,7 @@ missing `--network` and an invalid config file), 1 when the signer refuses to st
 | `--metrics-host-allowlist` | `REMOTESIGNER_METRICS_HOST_ALLOWLIST` | `metrics-host-allowlist` | `localhost,127.0.0.1` | Host header names the metrics listener accepts; \* or all accepts any, none refuses all |
 | `--metrics-auth-token-file` | `REMOTESIGNER_METRICS_AUTH_TOKEN_FILE` | `metrics-auth-token-file` | unset | Bearer token file the metrics listener requires (generated 0600 when missing; re-read on SIGHUP); unset leaves /metrics open |
 | `--disable-core-dumps` | `REMOTESIGNER_DISABLE_CORE_DUMPS` | `disable-core-dumps` | `true` | On Linux, make the process non-dumpable (no core dumps, no ptrace or /proc memory reads by other processes) and set its core-file limit to 0 |
-| `--mlock-all` | `REMOTESIGNER_MLOCK_ALL` | `mlock-all` | `false` | On Linux, lock all process memory so that keys are never swapped out (needs CAP_IPC_LOCK) |
+| `--mlock-all` | `REMOTESIGNER_MLOCK_ALL` | `mlock-all` | `false` | On Linux, lock all process memory so that keys are never swapped out (needs CAP_IPC_LOCK or an unlimited RLIMIT_MEMLOCK; refused otherwise) |
 
 ## Consensus flags
 

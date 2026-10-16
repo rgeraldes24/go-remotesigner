@@ -224,7 +224,15 @@ other platforms the flags have no effect (`--mlock-all` logs a WARN there).
 | Flag | Default | Effect |
 |---|---|---|
 | `--disable-core-dumps` | `true` | `prctl(PR_SET_DUMPABLE, 0)`: no core dumps, and other processes of the same user can neither attach a debugger nor read the signer's memory through `/proc`. `RLIMIT_CORE` is set to 0, soft and hard. |
-| `--mlock-all` | `false` | `mlockall(MCL_CURRENT \| MCL_FUTURE)`: no page of the process, keys included, is ever written to swap. Needs `CAP_IPC_LOCK` or an `RLIMIT_MEMLOCK` above the process size; when the call fails, the start is refused. |
+| `--mlock-all` | `false` | `mlockall(MCL_CURRENT \| MCL_FUTURE)`: no page of the process, keys included, is ever written to swap. Needs `CAP_IPC_LOCK` or an unlimited `RLIMIT_MEMLOCK`; with neither, or when the call fails, the start is refused. |
+
+A finite `RLIMIT_MEMLOCK` is refused even when it is larger than the process at startup: `MCL_FUTURE` locks every
+later allocation too, so the limit would run out once the heap grows (a burst of requests, a keystore reload) and the
+process would die with a Go runtime `out of memory` error. Either lift the limit (`docker run --ulimit memlock=-1`,
+`LimitMEMLOCK=infinity` in systemd), or grant the capability: `AmbientCapabilities=CAP_IPC_LOCK` in systemd, or
+`docker run --cap-add IPC_LOCK` for a container that runs as root (a non-root container user does not get the added
+capability in its effective set). In a rootless container the kernel does not let the capability lift the limit, so
+lift the limit there.
 
 The startup log records the result:
 

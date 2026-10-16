@@ -148,7 +148,7 @@ func Global() []cli.Flag {
 		&cli.StringSliceFlag{Name: MetricsHostAllowlist, Value: cli.NewStringSlice(DefaultMetricsHostAllowlist...), Usage: "Host header names the metrics listener accepts; * or all accepts any, none refuses all"},
 		&cli.StringFlag{Name: MetricsAuthTokenFile, Usage: "Bearer token file the metrics listener requires (generated 0600 when missing; re-read on SIGHUP); unset leaves /metrics open", TakesFile: true},
 		&cli.BoolFlag{Name: DisableCoreDumps, Value: true, Usage: "On Linux, make the process non-dumpable (no core dumps, no ptrace or /proc memory reads by other processes) and set its core-file limit to 0"},
-		&cli.BoolFlag{Name: MlockAll, Usage: "On Linux, lock all process memory so that keys are never swapped out (needs CAP_IPC_LOCK)"},
+		&cli.BoolFlag{Name: MlockAll, Usage: "On Linux, lock all process memory so that keys are never swapped out (needs CAP_IPC_LOCK or an unlimited RLIMIT_MEMLOCK; refused otherwise)"},
 	})
 }
 

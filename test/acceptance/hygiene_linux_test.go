@@ -117,13 +117,13 @@ func procStatusField(t *testing.T, pid, name string) string {
 // (linux/capability.h).
 const capIPCLock = 14
 
-// --mlock-all locks the signer's memory when the process may lock all of
-// it: with CAP_IPC_LOCK, or with an unlimited RLIMIT_MEMLOCK (as Docker's
-// default is), the signer starts with locked pages (VmLck) and logs it.
-// With neither, and a limit far below the size of a Go process, mlockall
-// fails and the start is refused, naming what the flag needs. A large
-// finite limit could go either way, so it accepts both outcomes and checks
-// that each is consistent.
+// --mlock-all starts only when the lock can hold for the life of the
+// process. With CAP_IPC_LOCK, or with an unlimited RLIMIT_MEMLOCK, the
+// signer starts with locked pages (VmLck) and logs it. Under any finite
+// limit without the capability, however large, the start is refused with
+// exit code 1, naming both options: MCL_FUTURE counts every later
+// allocation against the limit, so a process that started would die once
+// its heap outgrew it.
 func TestMlockAllLinux(t *testing.T) {
 	limit, _ := procLimit(t, "self", "Max locked memory")
 	capEff, err := strconv.ParseUint(procStatusField(t, "self", "CapEff"), 16, 64)
@@ -132,10 +132,6 @@ func TestMlockAllLinux(t *testing.T) {
 	}
 	hasCap := capEff&(1<<capIPCLock) != 0
 	canLock := hasCap || limit == "unlimited"
-	mustRefuse := false
-	if n, err := strconv.ParseUint(limit, 10, 64); err == nil && !hasCap {
-		mustRefuse = n < 64<<20
-	}
 	t.Logf("CAP_IPC_LOCK %v, RLIMIT_MEMLOCK %s", hasCap, limit)
 
 	s := launch(t, options{global: []string{"--mlock-all"}})
@@ -147,8 +143,9 @@ func TestMlockAllLinux(t *testing.T) {
 			if canLock {
 				t.Fatalf("--mlock-all with CAP_IPC_LOCK or no lock limit did not start: %v\n%s", s.waitErr, s.output.String())
 			}
-			if code := s.exitCode(time.Second); code != 1 || !strings.Contains(s.output.String(), "--mlock-all needs CAP_IPC_LOCK") {
-				t.Fatalf("refused --mlock-all: exit %d\n%s", code, s.output.String())
+			const want = "--mlock-all needs CAP_IPC_LOCK or an unlimited RLIMIT_MEMLOCK"
+			if code := s.exitCode(time.Second); code != 1 || !strings.Contains(s.output.String(), want) {
+				t.Fatalf("refused --mlock-all: exit %d, want 1 and %q\n%s", code, want, s.output.String())
 			}
 			return
 		default:
@@ -161,8 +158,8 @@ func TestMlockAllLinux(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if mustRefuse {
-		t.Fatalf("--mlock-all started without CAP_IPC_LOCK under a %s-byte lock limit\n%s", limit, s.output.String())
+	if !canLock {
+		t.Fatalf("--mlock-all started without CAP_IPC_LOCK under a finite %s-byte lock limit\n%s", limit, s.output.String())
 	}
 	locked := strings.Fields(procStatusField(t, strconv.Itoa(s.cmd.Process.Pid), "VmLck"))
 	if len(locked) != 2 || locked[0] == "0" || locked[1] != "kB" {
