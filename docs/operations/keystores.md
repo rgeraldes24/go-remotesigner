@@ -126,7 +126,8 @@ Missing or extra arguments exit 2. Every flag is in [`../reference/flags.md`](..
    `--backup-public-keys`, whose argument length is limited.
 2. Unzip it. Entry names repeat across backups (`keystore-0.json`, …), so rename them (for example
    `<wallet>-keystore-<i>.json`) before putting several backups in one directory.
-3. Write the backup password to a file, `chmod 0400` both, and run `consensus keystore verify` on each keystore.
+3. Write the backup password to a file, make it and the keystores readable by their owner only (`chmod 0400`), and
+   run `consensus keystore verify` on each keystore.
 
 The wallet's stored public keys are copied into the backup as they are, not re-derived. A keystore that `verify`
 refuses with "pubkey does not match" comes from a wallet whose stored key and seed disagree; do not load it.
