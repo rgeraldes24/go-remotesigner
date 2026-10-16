@@ -68,7 +68,12 @@ the file and its key's short id; the other validators are imported. A disabled k
 `VALIDATOR_DISABLED` for blocks, attestations and new RANDAO layers, so it cannot sign without the history the file
 meant to give it. Fix the element (or export it again from the client) and import that file: a
 clean import of the key enables it again. An element without a valid public key cannot be tied to a key; it is
-reported and nothing is written for it.
+reported and nothing is written for it. A key that could not be disabled either (the store refused that write too)
+is reported as such: do not start the signer with it until an import of it succeeds.
+
+An import that stops part-way, because the store refused a write (a full disk, for example), still reports the
+elements it read, failed and disabled keys included, and exits 1 saying that it stopped: fix the cause and run the
+same import again, which skips what was already written.
 
 Importing the same file twice is harmless: the second run writes nothing and reports every record as already
 covered. Importing several files (for example one per old client) merges them.

@@ -13,8 +13,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/urfave/cli/v2"
+
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/boltstore"
+	"github.com/rgeraldes24/go-remotesigner/internal/slashing/interchange"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/slashingtest"
 )
 
@@ -378,4 +381,64 @@ func TestSetHighWatermarkCommand(t *testing.T) {
 		t.Fatalf("high watermark after --remove: %+v %v", h, err)
 	}
 	closeStore(t, s)
+}
+
+// An import that stopped with an error after elements were read reports them before it exits: which keys are
+// disabled, and which could not be.
+func TestFinishImport(t *testing.T) {
+	stopped := errors.New("import x into y: disk full")
+	key := func(i int) []byte { return slashingtest.Key(i) }
+	res := interchange.ImportResult{Validators: []interchange.ValidatorResult{
+		{Index: 0, PublicKey: key(0), Blocks: interchange.Counts{Imported: 2}},
+		{Index: 1, PublicKey: key(1), Err: errors.New("not imported: disk full"), Disabled: true},
+		{Index: 2, PublicKey: key(2), Err: errors.New("not imported: disk full; disabling the key also failed: disk full")},
+	}}
+	for _, tc := range []struct {
+		name               string
+		res                interchange.ImportResult
+		err                error
+		code               int
+		exit, out, errText []string
+	}{
+		{name: "nothing read", err: stopped, code: exitStartup, exit: []string{stopped.Error()}},
+		{name: "stopped after some elements", res: res, err: stopped, code: exitStartup,
+			exit: []string{"disk full; the import stopped after 3 element(s): run it again", "2 validator(s) failed to import",
+				"1 of their keys could not be disabled"},
+			out: []string{"imported 1 of 3 validator(s) into db: 2 block(s)"},
+			errText: []string{"data[1] (key " + slashing.KeyIDOf(key(1)).String() + "): not imported: disk full; the key is disabled",
+				"data[2] (key " + slashing.KeyIDOf(key(2)).String() + "): not imported", "the key could not be disabled either"}},
+		{name: "complete", res: interchange.ImportResult{Validators: res.Validators[:1]}, code: exitOK,
+			out: []string{"imported 1 of 1 validator(s)"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr strings.Builder
+			err := finishImport(&stdout, &stderr, "db", tc.res, tc.err)
+			code, msg := exitOK, ""
+			if err != nil {
+				var ec cli.ExitCoder
+				if !errors.As(err, &ec) {
+					t.Fatalf("not an exit: %v", err)
+				}
+				code, msg = ec.ExitCode(), err.Error()
+			}
+			if code != tc.code {
+				t.Fatalf("exit %d %q, want %d", code, msg, tc.code)
+			}
+			for _, want := range tc.exit {
+				if !strings.Contains(msg, want) {
+					t.Errorf("exit message %q lacks %q", msg, want)
+				}
+			}
+			for _, want := range tc.out {
+				if !strings.Contains(stdout.String(), want) {
+					t.Errorf("stdout %q lacks %q", stdout.String(), want)
+				}
+			}
+			for _, want := range tc.errText {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("stderr %q lacks %q", stderr.String(), want)
+				}
+			}
+		})
+	}
 }

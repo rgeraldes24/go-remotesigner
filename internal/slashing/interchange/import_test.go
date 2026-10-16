@@ -31,7 +31,8 @@ func TestImportFailureDisablesOnlyThatKey(t *testing.T) {
 			jEntry{Pubkey: pk(3), Atts: []jAtt{att(5, 6, root(1))}}))
 		failed := res.Failed()
 		if len(failed) != 2 || failed[0].Index != 1 || failed[1].Index != 2 ||
-			!errors.Is(failed[0].Err, slashing.ErrWatermarkConflict) || !errors.Is(failed[1].Err, slashing.ErrWatermarkConflict) {
+			!errors.Is(failed[0].Err, slashing.ErrWatermarkConflict) || !errors.Is(failed[1].Err, slashing.ErrWatermarkConflict) ||
+			!failed[0].Disabled || !failed[1].Disabled {
 			t.Fatalf("failures %+v", failed)
 		}
 		got := dump(t, s)
@@ -381,6 +382,32 @@ func TestImportDisablesTheKeyTheElementNames(t *testing.T) {
 		}
 		if st := enabled(t, s, 3); st.Registered {
 			t.Fatalf("key 3: %+v, want untouched", st)
+		}
+	})
+}
+
+// failingDisable is a store that cannot change an enabled flag.
+type failingDisable struct{ slashing.Store }
+
+var errDisable = errors.New("flag write failed")
+
+func (failingDisable) SetValidatorEnabled(context.Context, slashing.KeyID, bool) error {
+	return errDisable
+}
+
+// A key that could not be disabled is reported as such, with the reason, on every failed element of that key.
+func TestImportReportsAKeyThatCouldNotBeDisabled(t *testing.T) {
+	forEachStore(t, func(t *testing.T, s slashing.Store) {
+		bad := `{"pubkey":"` + pk(0) + `","signed_blocks":[{"slot":"x"}]}`
+		res := importDoc(t, failingDisable{s}, doc(gvr, bad, bad))
+		failed := res.Failed()
+		if len(failed) != 2 {
+			t.Fatalf("failures %+v", failed)
+		}
+		for _, v := range failed {
+			if v.Disabled || !errors.Is(v.Err, errDisable) || !strings.Contains(v.Err.Error(), "disabling the key also failed") {
+				t.Fatalf("data[%d]: %+v", v.Index, v)
+			}
 		}
 	})
 }

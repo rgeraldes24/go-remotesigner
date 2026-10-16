@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/urfave/cli/v2"
 
@@ -48,12 +49,36 @@ func importCommand(stdout, stderr io.Writer) *cli.Command {
 				return usageError(err)
 			}
 			res, err := importFile(c.Context, path, from, root)
-			if err != nil {
-				return cli.Exit(err.Error(), exitStartup)
-			}
-			return reportImport(stdout, stderr, path, res)
+			return finishImport(stdout, stderr, path, res, err)
 		},
 	}
+}
+
+// finishImport reports an import and returns the command's exit. An import that stopped with an error after
+// elements were read (a store write that failed, for example) still reports them, so that the operator sees which
+// keys were disabled, and which could not be.
+func finishImport(stdout, stderr io.Writer, path string, res interchange.ImportResult, importErr error) error {
+	if importErr != nil && len(res.Validators) == 0 {
+		return cli.Exit(importErr.Error(), exitStartup)
+	}
+	failed, enabled := reportImport(stdout, stderr, path, res)
+	var msgs []string
+	if importErr != nil {
+		msgs = append(msgs, fmt.Sprintf("%v; the import stopped after %d element(s): run it again once the cause is "+
+			"fixed", importErr, len(res.Validators)))
+	}
+	if failed > 0 {
+		msgs = append(msgs, fmt.Sprintf("%d validator(s) failed to import; their keys stay disabled until an import of "+
+			"them succeeds", failed))
+	}
+	if enabled > 0 {
+		msgs = append(msgs, fmt.Sprintf("%d of their keys could not be disabled: do not start the signer with them "+
+			"before an import of them succeeds", enabled))
+	}
+	if len(msgs) > 0 {
+		return cli.Exit(strings.Join(msgs, "; "), exitStartup)
+	}
+	return nil
 }
 
 // importFile checks the whole file, then imports it into the store at path.
@@ -83,7 +108,9 @@ func importFile(ctx context.Context, path, from string, root *slashing.Root) (in
 	return res, nil
 }
 
-func reportImport(stdout, stderr io.Writer, path string, res interchange.ImportResult) error {
+// reportImport prints the import's counts, warnings and failures. It returns how many elements failed, and how
+// many of those have a key that could not be disabled.
+func reportImport(stdout, stderr io.Writer, path string, res interchange.ImportResult) (failed, enabled int) {
 	var blocks, atts interchange.Counts
 	for _, v := range res.Validators {
 		blocks.Imported += v.Blocks.Imported
@@ -103,24 +130,25 @@ func reportImport(stdout, stderr io.Writer, path string, res interchange.ImportR
 				"slashable\n", v.Index, slashing.KeyIDOf(v.PublicKey), v.Attestations.Slashable)
 		}
 	}
-	failed := res.Failed()
+	failures := res.Failed()
 	_, _ = fmt.Fprintf(stdout, "imported %d of %d validator(s) into %s: %d block(s) and %d attestation(s) written; "+
 		"%d block(s) and %d attestation(s) already covered; %d block(s) and %d attestation(s) conflicting, not written\n",
-		len(res.Validators)-len(failed), len(res.Validators), path, blocks.Imported, atts.Imported,
+		len(res.Validators)-len(failures), len(res.Validators), path, blocks.Imported, atts.Imported,
 		blocks.Duplicates, atts.Duplicates, blocks.Conflicts, atts.Conflicts)
-	for _, v := range failed {
-		if v.PublicKey == nil {
+	for _, v := range failures {
+		switch {
+		case v.PublicKey == nil:
 			_, _ = fmt.Fprintf(stderr, "error: data[%d]: %v (no valid public key)\n", v.Index, v.Err)
-			continue
+		case v.Disabled:
+			_, _ = fmt.Fprintf(stderr, "error: data[%d] (key %s): %v; the key is disabled\n", v.Index,
+				slashing.KeyIDOf(v.PublicKey), v.Err)
+		default:
+			enabled++
+			_, _ = fmt.Fprintf(stderr, "error: data[%d] (key %s): %v; the key could not be disabled either\n", v.Index,
+				slashing.KeyIDOf(v.PublicKey), v.Err)
 		}
-		_, _ = fmt.Fprintf(stderr, "error: data[%d] (key %s): %v; the key is disabled\n", v.Index,
-			slashing.KeyIDOf(v.PublicKey), v.Err)
 	}
-	if len(failed) > 0 {
-		return cli.Exit(fmt.Sprintf("%d validator(s) failed to import; their keys stay disabled until an import of "+
-			"them succeeds", len(failed)), exitStartup)
-	}
-	return nil
+	return len(failures), enabled
 }
 
 func exportCommand(stdout, stderr io.Writer) *cli.Command {

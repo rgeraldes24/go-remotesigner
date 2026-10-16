@@ -74,6 +74,9 @@ type ValidatorResult struct {
 	Attestations Counts
 	// Err is why the element was not imported. The key, when known, is then disabled.
 	Err error
+	// Disabled reports that the key of a failed element was disabled. It is false when the element has no valid
+	// key, or when disabling the key failed too (Err then says so).
+	Disabled bool
 }
 
 // ImportResult reports an import, element by element in file order.
@@ -258,22 +261,24 @@ func (im *importer) fail(result int) {
 // a key with a failed element stays disabled even when another element for it imported. A key new to the store is
 // registered disabled, so it is never enabled on the way. A failure to disable is added to the element's error.
 func (im *importer) disableFailed() {
-	done := map[slashing.KeyID]bool{}
+	outcome := map[slashing.KeyID]error{}
 	for _, i := range im.failed {
 		res := &im.results[i]
 		id := slashing.KeyIDOf(res.PublicKey)
-		if done[id] {
-			continue
-		}
-		done[id] = true
-		// The disabling must happen even after ctx has ended.
-		ctx := context.WithoutCancel(im.ctx)
-		err := im.s.RegisterValidatorsDisabled(ctx, [][]byte{res.PublicKey})
-		if err == nil {
-			err = im.s.SetValidatorEnabled(ctx, id, false)
+		err, done := outcome[id]
+		if !done {
+			// The disabling must happen even after ctx has ended.
+			ctx := context.WithoutCancel(im.ctx)
+			err = im.s.RegisterValidatorsDisabled(ctx, [][]byte{res.PublicKey})
+			if err == nil {
+				err = im.s.SetValidatorEnabled(ctx, id, false)
+			}
+			outcome[id] = err
 		}
 		if err != nil {
 			res.Err = errors.Join(res.Err, fmt.Errorf("disabling the key also failed: %w", err))
+		} else {
+			res.Disabled = true
 		}
 	}
 }
