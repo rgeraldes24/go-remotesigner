@@ -103,6 +103,8 @@ type options struct {
 	// noNetwork leaves --network and --network-genesis-time off the command
 	// line, for tests that set them through other sources.
 	noNetwork bool
+	// bin is the binary to run; empty means the one TestMain built.
+	bin string
 }
 
 // defaultArgs is the e2e invocation shape on an ephemeral port.
@@ -125,7 +127,11 @@ func launch(t *testing.T, o options) *signer {
 	if s.keys == "" {
 		s.keys = t.TempDir()
 	}
-	s.cmd = exec.Command(binary, defaultArgs(t, s.data, s.keys, o)...)
+	bin := binary
+	if o.bin != "" {
+		bin = o.bin
+	}
+	s.cmd = exec.Command(bin, defaultArgs(t, s.data, s.keys, o)...)
 	s.cmd.Env = append(os.Environ(), o.env...)
 	s.cmd.Stdout, s.cmd.Stderr = s.output, s.output
 	s.started = time.Now()
