@@ -178,6 +178,8 @@ func TestPruningFlags(t *testing.T) {
 		"--slashing-protection-pruning-epochs-to-keep=0": "--slashing-protection-pruning-epochs-to-keep must be at least 1",
 		"--slashing-protection-pruning-interval=0s":      "--slashing-protection-pruning-interval must be positive",
 		"--slashing-protection-pruning-interval=-1h":     "--slashing-protection-pruning-interval must be positive",
+		// Web3Signer's number of hours is not a duration (X50).
+		"--slashing-protection-pruning-interval=12": "invalid value \"12\" for flag -slashing-protection-pruning-interval",
 	} {
 		if _, code, stderr := capture(t, "consensus", "--network=e2e", arg); code != exitUsage || !strings.Contains(stderr, want) {
 			t.Errorf("%s: exit %d %q, want a usage error %q", arg, code, stderr, want)

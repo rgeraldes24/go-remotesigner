@@ -185,7 +185,7 @@ func Consensus() []cli.Flag {
 		slashingProtectionDBURL(),
 		&cli.BoolFlag{Name: SlashingProtectionMigrate, Usage: "Upgrade an older slashing-protection store to this release's schema before starting (a backup <file>.v<old>.bak is written first)"},
 		&cli.Uint64Flag{Name: PruningEpochsToKeep, Value: DefaultPruningEpochs, Usage: "Epochs of block and attestation history each validator keeps below its newest record (slots per epoch come from the network); older records are pruned"},
-		&cli.DurationFlag{Name: PruningInterval, Value: DefaultPruningEvery, Usage: "Time between two slashing-protection pruning runs; the first runs at startup"},
+		&cli.DurationFlag{Name: PruningInterval, Value: DefaultPruningEvery, Usage: "Time between two slashing-protection pruning runs, as a duration such as 12h or 90m (Web3Signer's bare number of hours is refused); the first runs at startup"},
 		&cli.Uint64Flag{Name: RandaoMaxLayers, Value: DefaultRandaoLayers, Usage: "Onion layers searched from x_0 when locating a RANDAO commitment; a commitment deeper in a longer onion is unknown"},
 		&cli.Uint64Flag{Name: RandaoReorgWindow, Value: DefaultReorgWindow, Usage: "Layers above a key's released frontier searched for a re-reveal before the slow-path scan"},
 		&cli.DurationFlag{Name: RandaoFullScanMinInterval, DefaultText: "SECONDS_PER_SLOT", Usage: "Minimum time between two slow-path RANDAO scans of one key (first use, gap advance, deep reorg); sooner gets 429 RANDAO_SCAN_RATE_LIMITED"},

@@ -632,6 +632,12 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
   - The response cache answers a repeated request after every check of the request and before slashing
     protection, and only with a signature that passed verify-before-release
     ([section 15](#15-selection-proofs-and-signing-modes)).
+- Known gaps, to be closed by the next version (the signer already behaves this way at `1.0.0`):
+  - `GET …/highWatermark` answers 500 `STORE_UNAVAILABLE` when the slashing-protection store cannot be read, a
+    status its operation does not list. The next version adds it.
+  - A store that holds only one part of a high watermark is served with that field alone, which the `HighWatermark`
+    schema (both fields or none) does not allow. No command writes such a watermark: `set-high-watermark` takes both
+    `--epoch` and `--slot`. The next version makes the store refuse one.
 
 ## 21. Deviations from Web3Signer
 
