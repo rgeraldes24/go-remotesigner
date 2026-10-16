@@ -8,8 +8,10 @@
 //		slashingtest.Run(t, func(t *testing.T) slashing.Store { return memstore.New() })
 //	}
 //
-// The suite drives the stores through slashing.Engine with 2,592-byte keys, so it checks the rule engine and the
-// store contract together.
+// RunEIP3076 and RunStress drive the stores through slashing.Engine with 2,592-byte keys, so they check the rule
+// engine and the store together. RunStoreContract and RunRandao call the Store and transaction methods directly and
+// pin down the contract a backend must meet on its own. A new backend needs only a Factory: every call must return an
+// independent, empty store, and the suite never runs two tests at once.
 package slashingtest
 
 import (
