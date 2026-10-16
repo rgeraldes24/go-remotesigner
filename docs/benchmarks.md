@@ -94,20 +94,23 @@ other work.
 
 ## End-to-end bursts and RANDAO reveals (B7-B9, the built binary)
 
-**B7, B8 and B9: met on the development machine**, pending the reference VMs.
+**B7, B8 and B9: met on the development machine in Run F**, pending the reference VMs. Run H (S7), on the same
+machine under a much heavier load, missed the B7 and B9 latency bounds; see below.
 
 ```
-make bench-e2e     # REMOTESIGNER_BENCH=1 go test -run '^TestB[789]' ./test/acceptance/
+make bench-e2e     # REMOTESIGNER_BENCH=1 go test -run '^TestB([789]|20)' ./test/acceptance/
 ```
 
 Each test starts the built binary on loopback with token auth and bbolt slashing protection, and drives it with a Go
 client on `http.DefaultTransport`; latencies are measured by the client, so they include the loopback round trip.
-B7 sends the t = 20 s burst of the e2e network at once: 32 `ATTESTATION` requests, one per key so that every one is
-recorded in the store, and 126 `SYNC_COMMITTEE_MESSAGE` requests over the same 32 keys. B8 sends 16 copies of the
+B7 sends the t = 20 s burst of the e2e network at once: 32 `ATTESTATION` requests, each recorded in the store, and
+126 `SYNC_COMMITTEE_MESSAGE` requests. Since S7 every request is for a key of its own (158 keys): with the response
+cache, a repeat of a key and signing root would be answered without signing, and the burst would no longer measure
+158 signatures; until S7 the 126 messages shared the attestations' 32 keys. B8 sends 16 copies of the
 mainnet-preset 128-signature contribution (1,197,210 bytes) at once, so eight wait for a large-body slot, and reads
 the process RSS with `ps` before and after. B9 sends four concurrent first reveals (each a scan of up to 2^20
 layers) while the B7 burst runs, then an unknown commitment twice: the second answer must come from the negative
-cache. This release has no TLS, so B7 runs without it; the TLS variant is benchmarked once TLS support lands.
+cache. B7 runs over plaintext HTTP here; its TLS variants are part of B20 below.
 
 | ID | Test | Threshold | Development-machine results (5 runs) | Verdict |
 |---|---|---|---|---|
@@ -115,7 +118,15 @@ cache. This release has no TLS, so B7 runs without it; the TLS variant is benchm
 | B8 | `TestB8ContributionBurst` | each ≤ 250 ms; RSS increase ≤ 128 MiB | slowest 31-33 ms; RSS +28-33 MiB | met on dev machine |
 | B9 | `TestB9RandaoReveal` | reveal p99 ≤ 0.5 s; unknown ≤ 0.6 s and cached on retry; B7 signing p99 unaffected (≤ 500 ms) | 4 concurrent first reveals p99 203-224 ms; unknown 54-115 ms, retry 0.21-0.30 ms; signing p99 alongside 159-259 ms | met on dev machine |
 
-Run F, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), load average 2.6-3.4 from other work.
+Run F, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), load average 2.6-3.4 from other work, with the
+32-key B7 of S5b.
+
+Run H, 2026-10-16, Go 1.26.9, the same machine under a load average of 9-20 from other work (the machine is shared,
+and no quieter window came during the milestone), with the 158-key B7 and the response cache (B7 five runs, B8 and B9
+three): B7 last response 526-1,491 ms, p99 520-1,480 ms, 0 errors; B8 slowest 40-78 ms, RSS +32-35 MiB; B9 first
+reveals p99 542-635 ms, unknown 69-99 ms, retry 0.36-0.51 ms, signing p99 alongside 461-821 ms. B7 and B9 miss their
+latency bounds in Run H, by an amount that tracks the load; they are re-measured on a quiet machine or the reference
+VMs before v1.0, together with B20's TLS variants.
 
 ## Argon2id keystore decryption (B10, `internal/keys/keystore/qrlv1`)
 
@@ -163,3 +174,31 @@ five rounds per P at load average 16-25 from other work. RSS: one run of two rou
 - **Open before v1.0.** B10 gates v1.0. Either the RSS bound is revised to 512 MiB per decrypt, the slot size of the
   keystore loader's Argon2id semaphore, or a mitigation (such as a garbage collection after each run, inside the
   semaphore slot) is added in the keystore loader and B10's RSS rows are measured again with it.
+
+## TLS handshake storm (B20, the built binary)
+
+**B20: met on the development machine** (the storm, under load), pending the reference VMs. The B7-over-TLS
+variants are recorded alongside; they miss B7's bounds in the same runs as plaintext B7 does.
+
+```
+make bench-e2e     # or: REMOTESIGNER_BENCH=1 go test -run '^TestB20' -v ./test/acceptance/
+```
+
+`TestB20TLSHandshakeStorm` starts the built binary with token auth over TLS 1.3, once with an ECDSA P-256 and once
+with an RSA-2048 certificate (PEM files), and opens 160 connections at once, each a full handshake (no session
+cache, so nothing resumes), timing dial plus handshake at the client and keeping every connection open until all
+are done. It then replays the B7 burst over TLS against a fresh signer twice: on HTTP/1.1, where a client with its
+own TLS configuration (as qrysm's is) opens a connection, and so a handshake, per concurrent request, and on h2
+(Go's default transport), which multiplexes the burst over one connection.
+
+| ID | Test | Threshold | Development-machine results (5 runs) | Verdict |
+|---|---|---|---|---|
+| B20 | storm, P-256 | p99 handshake ≤ 200 ms on 4 vCPU | p50 15.7-32.5 ms, p99 24.2-47.0 ms, max 49.4 ms | met on dev machine |
+| B20 | storm, RSA-2048 | as above | p50 33.8-54.8 ms, p99 63.3-103.8 ms, max 104.1 ms | met on dev machine |
+| B20 | B7 over TLS, HTTP/1.1, P-256 / RSA-2048 | B7's: last ≤ 1 s, p99 ≤ 500 ms, 0 errors | P-256 last 404-915 ms, p99 398-904 ms; RSA-2048 last 360-1,083 ms, p99 353-1,072 ms; 0 errors | pending: plaintext B7 misses in the same runs |
+| B20 | B7 over TLS, h2, P-256 / RSA-2048 | as above | P-256 last 232-1,228 ms, p99 226-1,211 ms; RSA-2048 last 361-2,066 ms, p99 354-2,056 ms; 0 errors | pending: plaintext B7 misses in the same runs |
+
+Run H as above (load average 9-20). The handshake itself is cheap: even RSA-2048, whose server-side signature is
+the expensive part, stays at half the bound with every core busy elsewhere. The TLS bursts are as fast as the
+plaintext one in the same runs, within the noise, so TLS adds no measurable cost to B7 here; the HTTP/1.1 variant's
+160 handshakes cost less than the scheduling delays of the loaded machine.

@@ -23,7 +23,8 @@ import (
 // a Go client on the default transport (docs/benchmarks.md):
 //
 //   - B7, the t = 20 s burst: 32 ATTESTATION and 126 SYNC_COMMITTEE_MESSAGE
-//     requests at once, slashing protection on. Last response ≤ 1 s,
+//     requests at once, each for its own key (so that the response cache
+//     answers none of them), slashing protection on. Last response ≤ 1 s,
 //     p99 ≤ 500 ms, no errors.
 //   - B8, the t = 40 s burst: 16 concurrent 1.2 MB contributions. Each
 //     ≤ 250 ms; RSS grows by ≤ 128 MiB.
@@ -71,8 +72,13 @@ type burstRequest struct {
 	body  []byte
 }
 
-// b7Requests builds the B7 burst over ids: 32 attestations, one per key so
-// that slashing protection records each, and 126 sync committee messages.
+// b7Keys is the number of keys the B7 burst needs: one per request.
+const b7Keys = 32 + 126
+
+// b7Requests builds the B7 burst over ids: 32 attestations, so that
+// slashing protection records each, and 126 sync committee messages. With
+// b7Keys ids every request is for its own key, so each one is signed: the
+// response cache would answer a repeat of a key and root.
 func b7Requests(t *testing.T, ids []string) []burstRequest {
 	t.Helper()
 	var att, msg []byte
@@ -95,17 +101,21 @@ func b7Requests(t *testing.T, ids []string) []burstRequest {
 		out = append(out, burstRequest{ids[i%len(ids)], att})
 	}
 	for i := range 126 {
-		out = append(out, burstRequest{ids[i%len(ids)], msg})
+		out = append(out, burstRequest{ids[(32+i)%len(ids)], msg})
 	}
 	return out
 }
 
-// burst sends every request at once and returns the latencies; any
-// non-200 answer or transport error fails the test.
+// burst sends every request at once over plaintext HTTP and returns the
+// latencies; any non-200 answer or transport error fails the test.
 func burst(t *testing.T, s *signer, reqs []burstRequest) (lat []time.Duration, wall time.Duration) {
 	t.Helper()
-	client := &http.Client{Transport: http.DefaultTransport.(*http.Transport).Clone()}
-	tok := s.signToken()
+	return burstWith(t, &http.Client{Transport: http.DefaultTransport.(*http.Transport).Clone()}, s.base, s.signToken(), reqs)
+}
+
+// burstWith sends every request at once with client to base.
+func burstWith(t *testing.T, client *http.Client, base, tok string, reqs []burstRequest) (lat []time.Duration, wall time.Duration) {
+	t.Helper()
 	lat = make([]time.Duration, len(reqs))
 	var wg sync.WaitGroup
 	start := time.Now()
@@ -113,7 +123,7 @@ func burst(t *testing.T, s *signer, reqs []burstRequest) (lat []time.Duration, w
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			code, d, err := timedPost(client, s.base+"/api/v1/consensus/sign/"+r.ident, tok, r.body)
+			code, d, err := timedPost(client, base+"/api/v1/consensus/sign/"+r.ident, tok, r.body)
 			if err != nil || code != 200 {
 				t.Errorf("request %d: %d %v", i, code, err)
 			}
@@ -127,7 +137,7 @@ func burst(t *testing.T, s *signer, reqs []burstRequest) (lat []time.Duration, w
 func TestB7AttestationBurst(t *testing.T) {
 	benchEnabled(t)
 	keys := t.TempDir()
-	ids := writeKeys(t, keys, 32)
+	ids := writeKeys(t, keys, b7Keys)
 	s := start(t, options{keys: keys})
 	s.waitReady()
 	lat, wall := burst(t, s, b7Requests(t, ids))
@@ -184,7 +194,7 @@ func TestB9RandaoReveal(t *testing.T) {
 	benchEnabled(t)
 	keysDir := t.TempDir()
 	keys := writeInteropKeys(t, keysDir)
-	extra := writeKeys(t, keysDir, 32)
+	extra := writeKeys(t, keysDir, b7Keys)
 	s := start(t, options{keys: keysDir})
 	s.waitReady()
 	var forkInfo string
