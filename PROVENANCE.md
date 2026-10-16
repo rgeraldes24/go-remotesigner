@@ -65,7 +65,8 @@ under `SPDX-License-Identifier: MIT AND Apache-2.0` (Apache-2.0 §4(c)); `LICENS
 is in the QRL keystore. Of upstream `encrypt.go` only the constants `algoArgon2id`, `cipherAes256Gcm` and `ivSize`
 are taken, with their comments; its encryption code is not copied, because the signer never writes keystores. The
 package's other files (the keystore format, the password candidates and the tests) were written for this project and
-are classed `new`.
+are classed `new`. `headercheck` lists them by name and refuses any class but `mit-derived` for any other file under
+`qrlv1/`, so that a file copied from upstream later cannot be recorded as `new`.
 
 qrysm's keystore package imports neither `pkg/go-qrl-wallet-types` (tree `19f25ac100399096af79b50e65ded092a8078ae3`)
 nor `pkg/go-qrl-types` (tree `fc5b262a3483358cbd4ce6f7bd7ea0ce20306dfd`) at `0b9cdf25`. Only its test
@@ -141,7 +142,7 @@ attribution line below our header.
 |---|---|---|
 | `new` | Written for this project | `Copyright <year> The go-remotesigner Authors.` and `SPDX-License-Identifier: Apache-2.0`; no ConsenSys line |
 | `w3s-derived` | Written while consulting a specific Web3Signer file, including ported tests | The original `Copyright <year> ConsenSys AG.` line(s), our copyright line, the Apache short notice, `SPDX-License-Identifier: Apache-2.0`, and "Modified by The go-remotesigner Authors, <year>: translated from Java to Go and adapted for QRL. Derived from `<upstream path>` at commit `<commit>`." |
-| `mit-derived` | Modified copies of MIT code | The original MIT copyright line, `SPDX-License-Identifier: MIT` (or `MIT AND Apache-2.0` together with the Apache notice), and a "Modified by" line; copies of the QRL keystore must carry Weald's copyright line, the Apache notice and `MIT AND Apache-2.0` (see "QRL code") |
+| `mit-derived` | Modified copies of MIT code | The original MIT copyright line, `SPDX-License-Identifier: MIT` (or `MIT AND Apache-2.0` together with the Apache notice), and a "Modified by" line; copies of the QRL keystore must carry Weald's copyright line, the Apache notice and `MIT AND Apache-2.0` (see "QRL code"); every file under `internal/keys/keystore/qrlv1/` is `mit-derived` except those `headercheck` lists as written for this project |
 | `vendored` | Pristine upstream trees under `third_party/` | No added header; the directory must hash to the recorded git tree id |
 
 `headercheck` checks `.go`, `.sql`, `.yaml`/`.yml`, `.sh`, `Dockerfile*` and `deploy/**/*.json` files (JSON files carry

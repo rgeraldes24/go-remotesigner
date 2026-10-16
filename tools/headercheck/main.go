@@ -11,9 +11,16 @@
 //   - new: our copyright line and SPDX Apache-2.0, and no ConsenSys line;
 //   - w3s-derived: a ConsenSys line, our line, SPDX Apache-2.0, a
 //     "Modified by" line and a "Derived from" line naming the upstream paths;
-//   - mit-derived: the original MIT copyright line, SPDX MIT and "Modified by";
+//   - mit-derived: the original MIT copyright line, SPDX MIT (or SPDX
+//     "MIT AND Apache-2.0" together with the Apache-2.0 notice) and a
+//     "Modified by" line; a row whose upstream path is in the QRL keystore
+//     (pkg/go-qrl-wallet-encryptor-keystore/) needs Weald Technology's
+//     copyright line, the Apache-2.0 notice and SPDX "MIT AND Apache-2.0";
 //   - vendored: the directory must hash to the recorded git tree id, i.e. be
 //     byte-identical to upstream.
+//
+// Every row under internal/keys/keystore/qrlv1/ must be mit-derived, except
+// for the files written for this project that qrlv1New lists.
 //
 // A row whose revision is "sha256 <hex>" pins the file's content; every file
 // under third_party/ outside a vendored tree must be pinned that way, so no

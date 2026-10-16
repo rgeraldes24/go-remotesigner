@@ -366,6 +366,50 @@ func TestMITHeaders(t *testing.T) {
 	}
 }
 
+// TestQRLV1Classes checks the directory rule for the hardened keystore copy:
+// a file under qrlv1/ that headercheck does not list as written for this
+// project must be mit-derived, whatever its row says.
+func TestQRLV1Classes(t *testing.T) {
+	for _, tt := range []struct {
+		name, file, content, class, want string
+	}{
+		{"listed new file", "keystore.go", newGo, "new", ""},
+		{"listed test classed new", "keystore_test.go", newGo, "new", ""},
+		{"unlisted file recorded as new", "encrypt.go", newGo, "new", "encrypt.go: new: files under internal/keys/keystore/qrlv1/ are mit-derived copies"},
+		{"unlisted test recorded as new", "decrypt_test.go", newGo, "new", "decrypt_test.go: new: files under internal/keys/keystore/qrlv1/ are mit-derived copies"},
+		{"unlisted file in a subdirectory", "sub/password.go", newGo, "new", "sub/password.go: new: files under"},
+		{"unlisted mit-derived copy", "encrypt.go", mitGo, "mit-derived", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := fixture(t)
+			rel := "internal/keys/keystore/qrlv1/" + tt.file
+			writeFile(t, filepath.Join(dir, filepath.FromSlash(rel)), tt.content, 0o644)
+			upstream, revision := "", ""
+			if tt.class == "mit-derived" {
+				upstream, revision = "`pkg/go-qrl-wallet-encryptor-keystore/encrypt.go`", "`0b9cdf25`"
+			}
+			prov := filepath.Join(dir, "PROVENANCE.md")
+			data, err := os.ReadFile(prov)
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := "| `" + rel + "` | " + tt.class + " | | " + upstream + " | " + revision + " |\n"
+			writeFile(t, prov, strings.Replace(string(data), endMarker, row+endMarker, 1), 0o644)
+			res, err := check(dir, "PROVENANCE.md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := strings.Join(res.problems, "\n")
+			switch {
+			case tt.want == "" && got != "":
+				t.Fatalf("unexpected problems:\n%s", got)
+			case tt.want != "" && !strings.Contains(got, tt.want):
+				t.Fatalf("problems do not mention %q:\n%s", tt.want, got)
+			}
+		})
+	}
+}
+
 func TestCheckMissingProvenance(t *testing.T) {
 	if _, err := check(t.TempDir(), "PROVENANCE.md"); err == nil {
 		t.Fatal("check succeeded without a PROVENANCE.md")

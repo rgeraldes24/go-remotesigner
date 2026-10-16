@@ -60,7 +60,27 @@ const (
 	// Weald's notices removed. Copies of it restore them (Apache-2.0
 	// §4(c); PROVENANCE.md, "QRL code").
 	wealdKeystore = "pkg/go-qrl-wallet-encryptor-keystore/"
+
+	// qrlv1Dir is the hardened copy of the QRL keystore, whose files DESIGN
+	// §6.2 holds to the mit-derived header.
+	qrlv1Dir = "internal/keys/keystore/qrlv1/"
 )
+
+// qrlv1New lists the files of qrlv1Dir that were written for this project
+// and may be recorded with a class other than mit-derived. Every other file
+// there must be a mit-derived copy, so that a file copied from upstream
+// later cannot pass as new work on its PROVENANCE.md row alone. A file
+// written for the package is added here, in the same reviewed change.
+var qrlv1New = []string{
+	"bench_test.go",
+	"fuzz_test.go",
+	"golden_test.go",
+	"helpers_test.go",
+	"keystore.go",
+	"keystore_test.go",
+	"norm_test.go",
+	"password.go",
+}
 
 // check verifies the tree at root against the PROVENANCE file prov (relative
 // to root). It returns an error only when the check cannot run at all.
@@ -125,6 +145,9 @@ func check(root, prov string) (result, error) {
 		r, listed := byPath[rel]
 		if listed {
 			seen[rel] = true
+		}
+		if name, ok := strings.CutPrefix(rel, qrlv1Dir); ok && listed && r.class != classMIT && !slices.Contains(qrlv1New, name) {
+			problemf("%s: %s: files under %s are mit-derived copies of the QRL keystore; only the files written for this project that headercheck's qrlv1New lists may be classed otherwise", rel, r.class, qrlv1Dir)
 		}
 		inThirdParty := strings.HasPrefix(rel, thirdParty)
 		switch {
