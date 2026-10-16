@@ -27,6 +27,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
@@ -112,6 +113,16 @@ func runAttestationContract(t *testing.T, newStore Factory) {
 		wantSurround(t, s, 0, true, 1, 7, nil)  // source outside
 		wantSurround(t, s, 0, true, 1, 10, nil) // both outside
 		wantSurround(t, s, 1, true, 3, 7, nil)  // another validator
+	})
+	t.Run("returns the match with the highest target, whatever its source or insertion order", func(t *testing.T) {
+		s := openWithKeys(t, newStore, 1)
+		// Inserted highest target first; the highest target has the higher source in both pairs.
+		must(t, ImportAttestations(bg, s, id(0), sa(2, 10, RootPtr(1)), sa(1, 9, RootPtr(2))))
+		must(t, ImportAttestations(bg, s, id(0), sa(13, 15, RootPtr(3)), sa(12, 14, RootPtr(4))))
+		surrounding := sa(2, 10, RootPtr(1))
+		wantSurround(t, s, 0, true, 3, 7, &surrounding)
+		surrounded := sa(13, 15, RootPtr(3))
+		wantSurround(t, s, 0, false, 11, 16, &surrounded)
 	})
 	t.Run("finds a surrounded attestation", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 2)
@@ -199,6 +210,38 @@ func runLowWatermarkContract(t *testing.T, newStore Factory) {
 		raiseEpochs(t, s, 0, 2, 3, slashing.ErrWatermarkConflict)
 		wantLow(t, s, 0, slashing.LowWatermark{})
 	})
+	t.Run("a slot-only high watermark leaves the epochs free", func(t *testing.T) {
+		s := openWithKeys(t, newStore, 1)
+		pin(t, s)
+		must(t, s.SetHighWatermark(bg, slashing.HighWatermark{Slot: U64(5)}))
+		raiseEpochs(t, s, 0, 100, 200, nil)
+		raiseSlot(t, s, 0, 6, slashing.ErrWatermarkConflict)
+		wantLow(t, s, 0, slashing.LowWatermark{SourceEpoch: U64(100), TargetEpoch: U64(200)})
+	})
+	t.Run("an epoch-only high watermark leaves the slot free", func(t *testing.T) {
+		s := openWithKeys(t, newStore, 1)
+		pin(t, s)
+		must(t, s.SetHighWatermark(bg, slashing.HighWatermark{Epoch: U64(5)}))
+		raiseSlot(t, s, 0, 100, nil)
+		raiseEpochs(t, s, 0, 6, 6, slashing.ErrWatermarkConflict)
+		wantLow(t, s, 0, slashing.LowWatermark{Slot: U64(100)})
+	})
+	t.Run("zero is a value, not unset", func(t *testing.T) {
+		s := openWithKeys(t, newStore, 1)
+		pin(t, s)
+		zero := slashing.HighWatermark{Epoch: U64(0), Slot: U64(0)}
+		must(t, s.SetHighWatermark(bg, zero))
+		wantHigh(t, s, zero)
+		raiseSlot(t, s, 0, 0, nil)
+		raiseEpochs(t, s, 0, 0, 0, nil)
+		raiseSlot(t, s, 0, 1, slashing.ErrWatermarkConflict)
+		wantLow(t, s, 0, slashing.LowWatermark{Slot: U64(0), SourceEpoch: U64(0), TargetEpoch: U64(0)})
+		for _, h := range []slashing.HighWatermark{{Slot: U64(0)}, {Epoch: U64(0)}} {
+			if err := s.SetHighWatermark(bg, h); !errors.Is(err, slashing.ErrWatermarkConflict) {
+				t.Errorf("SetHighWatermark(%s) over zero low watermarks: %v, want ErrWatermarkConflict", fmtHigh(h), err)
+			}
+		}
+	})
 }
 
 func runMetadataContract(t *testing.T, newStore Factory) {
@@ -235,6 +278,36 @@ func runMetadataContract(t *testing.T, newStore Factory) {
 		}
 		must(t, s.SetHighWatermark(bg, slashing.HighWatermark{}))
 		wantHigh(t, s, slashing.HighWatermark{})
+		if got, ok, err := s.GenesisValidatorsRoot(bg); err != nil || !ok || got != GVR {
+			t.Fatalf("root after high-watermark updates: %x, %v, %v", got, ok, err)
+		}
+	})
+	t.Run("concurrent pins agree on one root", func(t *testing.T) {
+		s := open(t, newStore)
+		const n = 16
+		var (
+			wg   sync.WaitGroup
+			got  [n]slashing.Root
+			errs [n]error
+		)
+		start := make(chan struct{})
+		for i := range n {
+			wg.Go(func() {
+				<-start
+				got[i], errs[i] = s.PinGenesisValidatorsRoot(bg, RootOf(uint64(i)))
+			})
+		}
+		close(start)
+		wg.Wait()
+		pinned, ok, err := s.GenesisValidatorsRoot(bg)
+		if err != nil || !ok {
+			t.Fatalf("root after concurrent pins: present %v, err %v", ok, err)
+		}
+		for i := range n {
+			if errs[i] != nil || got[i] != pinned {
+				t.Errorf("pin %d returned %x, %v; want the pinned root %x", i, got[i], errs[i], pinned)
+			}
+		}
 	})
 	t.Run("high watermark needs a genesis validators root", func(t *testing.T) {
 		// Web3Signer's UPDATE silently changes nothing here; the QRL store refuses.
@@ -244,6 +317,8 @@ func runMetadataContract(t *testing.T, newStore Factory) {
 			t.Fatalf("SetHighWatermark before a pin: %v, want ErrNoGenesisValidatorsRoot", err)
 		}
 		wantHigh(t, s, slashing.HighWatermark{})
+		// Removing a high watermark that was never set needs no root.
+		must(t, s.SetHighWatermark(bg, slashing.HighWatermark{}))
 	})
 	t.Run("high watermark must exceed every low watermark", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 2)
@@ -268,6 +343,46 @@ func runMetadataContract(t *testing.T, newStore Factory) {
 		must(t, s.SetHighWatermark(bg, h))
 		wantHigh(t, s, h)
 	})
+	t.Run("a partial high watermark is checked on its own field only", func(t *testing.T) {
+		for _, tc := range []struct {
+			name        string
+			slot        uint64
+			source, tgt uint64
+			high        slashing.HighWatermark
+		}{
+			{"slot only, below the epochs", 1, 9, 10, slashing.HighWatermark{Slot: U64(2)}},
+			{"epoch only, below the slot", 10, 1, 2, slashing.HighWatermark{Epoch: U64(3)}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				s := openWithKeys(t, newStore, 1)
+				pin(t, s)
+				raiseSlot(t, s, 0, tc.slot, nil)
+				raiseEpochs(t, s, 0, tc.source, tc.tgt, nil)
+				must(t, s.SetHighWatermark(bg, tc.high))
+				wantHigh(t, s, tc.high)
+			})
+		}
+	})
+	t.Run("transactions read the high watermark", func(t *testing.T) {
+		s := openWithKeys(t, newStore, 1)
+		pin(t, s)
+		h := slashing.HighWatermark{Epoch: U64(4), Slot: U64(40)}
+		must(t, s.SetHighWatermark(bg, h))
+		must(t, s.UpdateBlocks(bg, id(0), func(tx slashing.BlockTx) error {
+			got, err := tx.HighWatermark()
+			if err == nil && !reflect.DeepEqual(got, h) {
+				t.Errorf("BlockTx.HighWatermark = %s, want %s", fmtHigh(got), fmtHigh(h))
+			}
+			return err
+		}))
+		must(t, s.UpdateAttestations(bg, id(0), func(tx slashing.AttestationTx) error {
+			got, err := tx.HighWatermark()
+			if err == nil && !reflect.DeepEqual(got, h) {
+				t.Errorf("AttestationTx.HighWatermark = %s, want %s", fmtHigh(got), fmtHigh(h))
+			}
+			return err
+		}))
+	})
 }
 
 func runValidatorContract(t *testing.T, newStore Factory) {
@@ -283,9 +398,10 @@ func runValidatorContract(t *testing.T, newStore Factory) {
 		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true})
 		wantStatus(t, s, 1, slashing.ValidatorStatus{Registered: true, Enabled: true})
 
-		// Registering again never re-enables a key.
-		register(t, s, 2)
+		// Registering again never re-enables a key; new keys in the same call are registered enabled.
+		register(t, s, 3)
 		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true})
+		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true, Enabled: true})
 
 		must(t, s.SetValidatorEnabled(bg, id(0), true))
 		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true, Enabled: true})
@@ -362,7 +478,21 @@ func runTransactionContract(t *testing.T, newStore Factory) {
 		wantAttestation(t, s, 0, 2, &slashing.SignedAttestation{SourceEpoch: 1, TargetEpoch: 2, SigningRoot: RootPtr(1)})
 		wantLow(t, s, 0, slashing.LowWatermark{SourceEpoch: U64(1), TargetEpoch: U64(2)})
 	})
-	t.Run("a transaction sees its own writes", func(t *testing.T) {
+	t.Run("a block transaction sees its own writes", func(t *testing.T) {
+		s := openWithKeys(t, newStore, 1)
+		must(t, s.UpdateBlocks(bg, id(0), func(tx slashing.BlockTx) error {
+			must(t, tx.InsertBlock(sb(5, RootPtr(1))))
+			if got, ok, err := tx.BlockAt(5); err != nil || !ok || !reflect.DeepEqual(got, sb(5, RootPtr(1))) {
+				t.Errorf("BlockAt after insert: %+v, %v, %v", got, ok, err)
+			}
+			must(t, tx.RaiseSlotLowWatermark(5))
+			if low, err := tx.LowWatermark(); err != nil || !reflect.DeepEqual(low, slashing.LowWatermark{Slot: U64(5)}) {
+				t.Errorf("LowWatermark after raise: %s, %v", fmtLow(low), err)
+			}
+			return nil
+		}))
+	})
+	t.Run("an attestation transaction sees its own writes", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 1)
 		must(t, s.UpdateAttestations(bg, id(0), func(tx slashing.AttestationTx) error {
 			must(t, tx.InsertAttestation(sa(3, 8, RootPtr(1))))
@@ -371,6 +501,14 @@ func runTransactionContract(t *testing.T, newStore Factory) {
 			}
 			if _, ok, err := tx.SurroundingAttestation(4, 7); err != nil || !ok {
 				t.Errorf("SurroundingAttestation after insert: %v, %v", ok, err)
+			}
+			if _, ok, err := tx.SurroundedAttestation(2, 9); err != nil || !ok {
+				t.Errorf("SurroundedAttestation after insert: %v, %v", ok, err)
+			}
+			must(t, tx.RaiseEpochLowWatermarks(3, 8))
+			want := slashing.LowWatermark{SourceEpoch: U64(3), TargetEpoch: U64(8)}
+			if low, err := tx.LowWatermark(); err != nil || !reflect.DeepEqual(low, want) {
+				t.Errorf("LowWatermark after raise: %s, %v", fmtLow(low), err)
 			}
 			return nil
 		}))
