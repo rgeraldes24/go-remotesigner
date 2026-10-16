@@ -47,6 +47,9 @@ type ExportResult struct {
 	Validators   int
 	Blocks       int
 	Attestations int
+	// Watermarks counts the records, included in Blocks and Attestations, that stand for a low watermark no stored
+	// record sits at (as after a watermark repair). They have no signing root.
+	Watermarks int
 	// Missing are the requested keys that the store has no history for: unknown keys, and keys without a low
 	// watermark.
 	Missing []slashing.KeyID
@@ -56,9 +59,15 @@ type ExportResult struct {
 //
 // The metadata always carries a genesis validators root: the store's, or opts.GenesisValidatorsRoot for a store
 // that has none; with neither, Export fails with slashing.ErrNoGenesisValidatorsRoot before writing anything.
-// Validators are written in KeyID order. A validator without a low watermark has no history and is left out. Only
-// records at or above the low watermark are written: blocks from the slot watermark, attestations whose source and
-// target epochs are both at or above theirs. The high watermark is not exported; the format has no field for it.
+// Validators are written in KeyID order. A validator without a low watermark has no history and is left out.
+//
+// The file carries what an importing signer needs to refuse what this one refuses. Blocks are written from the slot
+// watermark up, and attestations from the target watermark up whatever their source epoch: an attestation with a
+// source below the source watermark still rules out a double vote at its target. Records below the watermarks are
+// left out, since an importer takes its watermarks from the oldest records it imports. A watermark that no stored
+// record sits at, as after a watermark repair, is written as a record of its own without a signing root (the slot
+// watermark as a block, the two epoch watermarks as an attestation), so that the importer refuses everything at and
+// below it, as this signer does. The high watermark is not exported; the format has no field for it.
 func Export(ctx context.Context, s slashing.Store, w io.Writer, opts ExportOptions) (ExportResult, error) {
 	var res ExportResult
 	var want map[slashing.KeyID]bool
@@ -99,31 +108,51 @@ func Export(ctx context.Context, s slashing.Store, w io.Writer, opts ExportOptio
 			out.str("\n    {\n      \"pubkey\": \"").hex(pk).str("\",\n      \"signed_blocks\": [")
 			n := 0
 			if low.Slot != nil {
+				// pending: no record at or above the watermark has been written yet.
+				at, pending := *low.Slot, true
 				err = v.Blocks(id, func(b slashing.SignedBlock) error {
-					if b.Slot >= *low.Slot {
-						out.item(n).str(`{"slot": "`).u64(b.Slot).root(b.SigningRoot).str("}")
-						n++
+					if b.Slot < at {
+						return out.err
 					}
+					if pending && b.Slot != at {
+						n = out.block(n, at, nil)
+						res.Watermarks++
+					}
+					pending = false
+					n = out.block(n, b.Slot, b.SigningRoot)
 					return out.err
 				})
 				if err != nil {
 					return err
+				}
+				if pending {
+					n = out.block(n, at, nil)
+					res.Watermarks++
 				}
 			}
 			res.Blocks += n
 			out.end(n).str(",\n      \"signed_attestations\": [")
 			n = 0
 			if low.SourceEpoch != nil {
+				at, pending := *low.TargetEpoch, true
 				err = v.Attestations(id, func(a slashing.SignedAttestation) error {
-					if a.SourceEpoch >= *low.SourceEpoch && a.TargetEpoch >= *low.TargetEpoch {
-						out.item(n).str(`{"source_epoch": "`).u64(a.SourceEpoch).str(`", "target_epoch": "`).
-							u64(a.TargetEpoch).root(a.SigningRoot).str("}")
-						n++
+					if a.TargetEpoch < at {
+						return out.err
 					}
+					if pending && a.TargetEpoch != at {
+						n = out.attestation(n, *low.SourceEpoch, at, nil)
+						res.Watermarks++
+					}
+					pending = false
+					n = out.attestation(n, a.SourceEpoch, a.TargetEpoch, a.SigningRoot)
 					return out.err
 				})
 				if err != nil {
 					return err
+				}
+				if pending {
+					n = out.attestation(n, *low.SourceEpoch, at, nil)
+					res.Watermarks++
 				}
 			}
 			res.Attestations += n
@@ -208,6 +237,18 @@ func (o *writer) root(r *slashing.Root) *writer {
 		return o.str(`"`)
 	}
 	return o.str(`", "signing_root": "`).hex(r[:]).str(`"`)
+}
+
+// block writes the n-th element of signed_blocks and returns n+1.
+func (o *writer) block(n int, slot uint64, r *slashing.Root) int {
+	o.item(n).str(`{"slot": "`).u64(slot).root(r).str("}")
+	return n + 1
+}
+
+// attestation writes the n-th element of signed_attestations and returns n+1.
+func (o *writer) attestation(n int, source, target uint64, r *slashing.Root) int {
+	o.item(n).str(`{"source_epoch": "`).u64(source).str(`", "target_epoch": "`).u64(target).root(r).str("}")
+	return n + 1
 }
 
 // item starts the n-th element of a record array.

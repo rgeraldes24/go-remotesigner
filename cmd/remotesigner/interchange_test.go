@@ -294,6 +294,18 @@ func TestWatermarkRepairCommand(t *testing.T) {
 	}
 	closeStore(t, s)
 
+	// The keys have no records at the repaired watermarks: an export writes the watermarks as records of their own.
+	out := filepath.Join(t.TempDir(), "export.json")
+	code, stdout, stderr = runCLI(t, "--data-path="+data, "consensus", "export", "--to="+out)
+	if code != exitOK || !strings.Contains(stdout, "exported 2 validator(s), 2 block(s) and 2 attestation(s)") ||
+		!strings.Contains(stderr, "4 of the records stand for a low watermark") {
+		t.Fatalf("export after the repair: exit %d %s %s", code, stdout, stderr)
+	}
+	if got, _ := os.ReadFile(out); strings.Count(string(got), `{"slot": "64"}`) != 2 ||
+		strings.Count(string(got), `{"source_epoch": "10", "target_epoch": "10"}`) != 2 {
+		t.Fatalf("export after the repair:\n%s", got)
+	}
+
 	// The repair stays below the high watermark.
 	if code, _, stderr := runCLI(t, "--data-path="+data, "consensus", "set-high-watermark", "--epoch=20",
 		"--slot=128"); code != exitOK {

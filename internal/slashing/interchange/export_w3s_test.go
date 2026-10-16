@@ -24,6 +24,7 @@ package interchange_test
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
@@ -168,14 +169,28 @@ func TestExportOnlyBlocksAtOrAboveTheWatermark(t *testing.T) {
 	})
 }
 
-func TestExportOnlyAttestationsAtOrAboveBothWatermarks(t *testing.T) {
+// Web3Signer writes only the attestations whose source and target epochs are both at or above the watermarks. Here
+// the target watermark alone filters (X54): an attestation with a source below the source watermark still rules
+// out a double vote at its target, and leaving it out let the importing signer sign another one there.
+func TestExportAttestationsFromTheTargetWatermark(t *testing.T) {
+	// The store holds the attestations (a, a+10) for a in 0..5.
+	ladder := func(from uint64) []slashing.SignedAttestation {
+		var out []slashing.SignedAttestation
+		for a := from; a < 6; a++ {
+			out = append(out, sa(a, a+10, slashingtest.RootPtr(100)))
+		}
+		return out
+	}
 	for _, tc := range []struct {
 		name           string
 		source, target uint64
-		want           int
+		want           []slashing.SignedAttestation
+		watermarks     int
 	}{
-		{"source watermark", 3, 0, 3},  // attestations (a, a+10) for a in 0..5; three have source >= 3
-		{"target watermark", 0, 12, 4}, // four have target >= 12
+		{"the source watermark does not filter", 3, 10, ladder(0), 0},
+		{"the target watermark filters", 0, 12, ladder(2), 0},
+		{"a target watermark no record sits at is written as an attestation of its own", 3, 9,
+			append([]slashing.SignedAttestation{sa(3, 9, nil)}, ladder(0)...), 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			forEachStore(t, func(t *testing.T, s slashing.Store) {
@@ -189,12 +204,12 @@ func TestExportOnlyAttestationsAtOrAboveBothWatermarks(t *testing.T) {
 							return err
 						}
 					}
-					// Illegal watermarks, so that only one of the two epochs filters.
+					// Watermarks that signing alone would not produce, so that each epoch is tested on its own.
 					return tx.RaiseEpochLowWatermarks(tc.source, tc.target)
 				}))
-				got, _ := export(t, s, interchange.ExportOptions{})
-				if n := len(byKey(t, got)[1].Attestations); n != tc.want {
-					t.Fatalf("%d attestations exported, want %d", n, tc.want)
+				got, res := export(t, s, interchange.ExportOptions{})
+				if atts := byKey(t, got)[1].Attestations; !reflect.DeepEqual(atts, tc.want) || res.Watermarks != tc.watermarks {
+					t.Fatalf("exported %+v (%d watermark records), want %+v (%d)", atts, res.Watermarks, tc.want, tc.watermarks)
 				}
 			})
 		})

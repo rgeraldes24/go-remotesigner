@@ -137,15 +137,17 @@ bin/remotesigner-consensus --data-path=/var/lib/remotesigner consensus --network
   store never bound to one, the root `--network` gives. qrysm refuses a file without one.
 - `--keys` takes public keys or their `0x` sha256 identifiers. qrysm imports everything in a file, so export only the
   keys being moved. A requested key the store has no history for is noted on stderr.
-- Only records at or above each validator's low watermark are written; a validator without a watermark has no
-  history and is left out. The high watermark and the RANDAO frontier are not exported (EIP-3076 has no field for
-  them).
+- Blocks are written from each validator's slot watermark up, and attestations from its target watermark up,
+  whatever their source epoch; older records are left out, and a validator without a watermark has no history and
+  is left out too. A watermark that no signed record sits at (after a watermark repair, section 8) is written as a
+  record of its own without a signing root, and noted on stderr: the importing side takes its watermarks from the
+  oldest records in the file, so it then refuses everything this signer refuses at and below them. The high
+  watermark and the RANDAO frontier are not exported (EIP-3076 has no field for them).
 - The file is written next to `--to` and renamed into place when complete, so a failed export leaves no partial
   file.
 
 On the qrysm side: `validator slashing-protection-history import --datadir=<wallet-dir>/direct
---slashing-protection-json-file=<file>`, before the client starts with the keys. A low watermark repaired above
-every record (section 8) exports no history for that validator; repair the client's side the same way.
+--slashing-protection-json-file=<file>`, before the client starts with the keys.
 
 ## 8. No history to import
 

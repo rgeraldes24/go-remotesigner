@@ -163,6 +163,11 @@ func exportCommand(stdout, stderr io.Writer) *cli.Command {
 			for _, k := range res.Missing {
 				_, _ = fmt.Fprintf(stderr, "note: the store has no history for key %s\n", k)
 			}
+			if res.Watermarks > 0 {
+				_, _ = fmt.Fprintf(stderr, "note: %d of the records stand for a low watermark that no signed record sits "+
+					"at (raised by watermark-repair) and have no signing root, so that the importing side refuses what "+
+					"this signer refuses\n", res.Watermarks)
+			}
 			_, _ = fmt.Fprintf(stdout, "exported %d validator(s), %d block(s) and %d attestation(s) from %s to %s\n",
 				res.Validators, res.Blocks, res.Attestations, path, to)
 			return nil
