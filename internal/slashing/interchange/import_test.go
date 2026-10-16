@@ -259,3 +259,33 @@ func TestImportOverExistingRecords(t *testing.T) {
 		}
 	})
 }
+
+// A backend may run an UpdateHistory function again when it retries the transaction (Postgres, DESIGN §3.7). The
+// import's history and counts are then the same as without the retry.
+func TestImportThroughARetriedTransaction(t *testing.T) {
+	forEachStore(t, func(t *testing.T, s slashing.Store) {
+		var entries []any
+		for i := range 5 {
+			entries = append(entries, jEntry{Pubkey: pk(i), Blocks: []jBlock{blk(uint64(i), root(1))},
+				Atts: []jAtt{att(uint64(i), uint64(i+1), root(2))}})
+		}
+		res, err := interchange.Import(bg, slashingtest.Retrying(s), strings.NewReader(doc(gvr, entries...)),
+			interchange.ImportOptions{Batch: 3})
+		must(t, err)
+		one := interchange.Counts{Imported: 1}
+		for _, v := range res.Validators {
+			if v.Err != nil || v.Blocks != one || v.Attestations != one {
+				t.Fatalf("data[%d]: %+v", v.Index, v)
+			}
+		}
+		got := dump(t, s)
+		for i := range 5 {
+			wantState(t, got, i, state{blocks: []slashing.SignedBlock{sb(uint64(i), slashingtest.RootPtr(1))},
+				atts: []slashing.SignedAttestation{sa(uint64(i), uint64(i+1), slashingtest.RootPtr(2))},
+				low:  lw(u64(uint64(i)), u64(uint64(i)), u64(uint64(i+1)))})
+			if !enabled(t, s, i).Enabled {
+				t.Fatalf("key %d is not enabled", i)
+			}
+		}
+	})
+}

@@ -215,16 +215,18 @@ func (im *importer) failPending(p pendingEntry, err error) {
 	im.fail(p.result)
 }
 
-// write imports entries in one transaction and records their counts.
+// write imports entries, whose keys differ, in one transaction and records their counts. The function finds its
+// entry by id and sets the counts rather than adding to them, so a backend that retries the transaction gets the
+// same result.
 func (im *importer) write(entries []pendingEntry) error {
 	ids := make([]slashing.KeyID, len(entries))
+	byID := make(map[slashing.KeyID]pendingEntry, len(entries))
 	for i, p := range entries {
 		ids[i] = p.id
+		byID[p.id] = p
 	}
-	next := 0
-	return im.s.UpdateHistory(im.ctx, ids, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
-		p := entries[next]
-		next++
+	return im.s.UpdateHistory(im.ctx, ids, func(id slashing.KeyID, tx slashing.HistoryTx) error {
+		p := byID[id]
 		res := &im.results[p.result]
 		var err error
 		if res.Blocks, err = importBlocks(tx, p.entry.Blocks); err != nil {

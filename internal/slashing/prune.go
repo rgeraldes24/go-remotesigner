@@ -80,22 +80,25 @@ func Prune(ctx context.Context, s Store, cfg PruneConfig) (PruneResult, error) {
 			return res, err
 		}
 		chunk := ids[start:min(start+batch, len(ids))]
-		var blocks, atts int
-		err := s.UpdateHistory(ctx, chunk, func(_ KeyID, tx HistoryTx) error {
+		// The counts are kept per validator and set, not added, so a retried transaction does not count twice.
+		deleted := make(map[KeyID][2]int, len(chunk))
+		err := s.UpdateHistory(ctx, chunk, func(id KeyID, tx HistoryTx) error {
 			b, err := pruneBlocks(tx, slotsToKeep)
 			if err != nil {
 				return err
 			}
 			a, err := pruneAttestations(tx, cfg.EpochsToKeep)
-			blocks, atts = blocks+b, atts+a
+			deleted[id] = [2]int{b, a}
 			return err
 		})
 		if err != nil {
 			return res, fmt.Errorf("prune slashing-protection history: %w", err)
 		}
 		res.Validators += len(chunk)
-		res.Blocks += blocks
-		res.Attestations += atts
+		for _, d := range deleted {
+			res.Blocks += d[0]
+			res.Attestations += d[1]
+		}
 	}
 	return res, nil
 }

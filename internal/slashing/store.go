@@ -116,7 +116,10 @@ type Store interface {
 	// attestation lock of every validator in ids, taken validator by validator in KeyID order and, for each, block
 	// before attestation, so it is serialised with UpdateBlocks, UpdateAttestations and SetValidatorEnabled. An id
 	// may appear more than once. When fn returns an error, nothing written for any id is kept. It returns
-	// ErrValidatorNotRegistered, without calling fn, when any id is unregistered.
+	// ErrValidatorNotRegistered, without calling fn, when any id is unregistered. A backend that retries the
+	// transaction (Postgres after a serialisation failure or a deadlock) rolls it back and runs fn again for every
+	// id, from the first: fn must derive what it writes and reports from id and tx alone, and set its results per id
+	// rather than add to them, so that a retry neither breaks nor double-counts it.
 	UpdateHistory(ctx context.Context, ids []KeyID, fn func(id KeyID, tx HistoryTx) error) error
 	// ViewHistory runs fn with a read-only, consistent snapshot of the store, for the interchange export and the
 	// maintenance commands. The view is valid only until fn returns, and fn must not call the store.
