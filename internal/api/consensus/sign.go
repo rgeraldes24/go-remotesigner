@@ -45,15 +45,15 @@ type GVRPinner interface {
 //     bound (policy.Check: 403, 400, 412);
 //   - key lookup (404, 503 KEY_QUARANTINED);
 //   - the trust-on-first-use GVR pin, when one is pending;
+//   - the response cache: a repeat of a request whose signature was released
+//     within two epochs gets the same bytes, without signing or a slashing
+//     check (the repeat of a released signature adds nothing to sign);
 //   - slashing check-and-record for blocks and attestations (412), committed
 //     before anything is signed;
 //   - sign in the type's mode, verify before release (500 SIGNATURE_FAULT
 //     and quarantine), respond.
 //
-// A refused request never reaches the key. The response cache of step 9
-// is not part of this release, so a repeated hedged request is signed
-// again (a repeat of a recorded block or attestation is allowed by
-// slashing protection without a new record).
+// A refused request never reaches the key or the cache.
 type Sign struct {
 	Policy *policy.Policy
 	Signer *signer.Signer
@@ -80,9 +80,10 @@ type exchange struct {
 	w http.ResponseWriter
 	r *http.Request
 
-	typ  signingroot.ArtifactType // "" until decoded
-	key  string                   // log form of the key, once known
-	body []byte
+	typ    signingroot.ArtifactType // "" until decoded
+	key    string                   // log form of the key, once known
+	body   []byte
+	cached bool // answered from the response cache
 }
 
 func (x *exchange) serve() {
@@ -130,6 +131,11 @@ func (x *exchange) serve() {
 			x.fail(e)
 			return
 		}
+	}
+	if sig, ok := x.h.Signer.Cached(id, x.typ, d.SigningRoot); ok {
+		x.cached = true
+		x.respond(sig)
+		return
 	}
 	if x.h.Protector != nil && d.Protection != policy.ProtectionNone {
 		if e := x.protect(d, pk[:]); e != nil {
@@ -261,6 +267,9 @@ func (x *exchange) record(status int, e *apierr.Error) {
 	}
 	if e != nil {
 		f["reason"] = e.Reason
+	}
+	if x.cached {
+		f["cached"] = true
 	}
 	l := x.h.Log.WithFields(f)
 	switch {

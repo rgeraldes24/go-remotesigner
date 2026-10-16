@@ -19,6 +19,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
+	"github.com/rgeraldes24/go-remotesigner/internal/server/tlsconf"
 )
 
 // noRun fails the test if the signer would start.
@@ -134,6 +135,34 @@ func TestSigningAndMetricsFlags(t *testing.T) {
 	}
 }
 
+// The TLS, metrics-token and process-hygiene flags: TLS off, core dumps
+// disabled and memory unlocked by default.
+func TestTLSAndHygieneFlags(t *testing.T) {
+	cfg, code, stderr := capture(t, "consensus", "--network=e2e")
+	if code != exitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if cfg.TLS != (tlsconf.Config{}) || cfg.Metrics.AuthTokenFile != "" || !cfg.Hygiene.DisableCoreDumps || cfg.Hygiene.MlockAll {
+		t.Fatalf("defaults: TLS %+v, metrics token %q, hygiene %+v", cfg.TLS, cfg.Metrics.AuthTokenFile, cfg.Hygiene)
+	}
+	cfg, code, stderr = capture(t, "--http-auth-mode=token+mtls", "--tls-cert-file=/tls/c.pem", "--tls-key-file=/tls/k.pem",
+		"--tls-known-clients-file=/tls/known", "--tls-client-ca-file=/tls/ca.pem", "--tls-generate-self-signed",
+		"--metrics-auth-token-file=/m", "--disable-core-dumps=false", "--mlock-all", "consensus", "--network=e2e")
+	if code != exitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	want := tlsconf.Config{CertFile: "/tls/c.pem", KeyFile: "/tls/k.pem", KnownClientsFile: "/tls/known", ClientCAFile: "/tls/ca.pem", GenerateSelfSigned: true}
+	if cfg.TLS != want || cfg.HTTP.AuthMode != auth.ModeTokenMTLS || cfg.Metrics.AuthTokenFile != "/m" ||
+		cfg.Hygiene.DisableCoreDumps || !cfg.Hygiene.MlockAll {
+		t.Fatalf("flags: TLS %+v, mode %s, metrics token %q, hygiene %+v", cfg.TLS, cfg.HTTP.AuthMode, cfg.Metrics.AuthTokenFile, cfg.Hygiene)
+	}
+	cfg, code, stderr = capture(t, "--http-auth-mode=mtls", "--tls-keystore-file=/k.p12", "--tls-keystore-password-file=/pw",
+		"--tls-client-ca-file=/ca.pem", "consensus", "--network=e2e")
+	if code != exitOK || cfg.TLS.KeystoreFile != "/k.p12" || cfg.TLS.KeystorePasswordFile != "/pw" || cfg.HTTP.AuthMode != auth.ModeMTLS {
+		t.Fatalf("PKCS#12: exit %d %s %+v", code, stderr, cfg)
+	}
+}
+
 func TestHostAllowlistWords(t *testing.T) {
 	for args, want := range map[string][]string{
 		"--http-host-allowlist=all":  {"*"},
@@ -211,8 +240,17 @@ func TestUsageErrors(t *testing.T) {
 		{name: "missing --network", args: []string{"consensus"}, want: "--network is required"},
 		{name: "unknown consensus flag", args: []string{"consensus", "--network=e2e", "--nope"}, want: "nope"},
 		{name: "positional argument", args: []string{"consensus", "--network=e2e", "extra"}, want: `unexpected argument "extra"`},
-		{name: "unknown auth mode", args: []string{"--http-auth-mode=basic", "consensus", "--network=e2e"}, want: "want token or none"},
-		{name: "mtls without TLS", args: []string{"--http-auth-mode=mtls", "consensus", "--network=e2e"}, want: "needs TLS"},
+		{name: "unknown auth mode", args: []string{"--http-auth-mode=basic", "consensus", "--network=e2e"}, want: "want token, mtls, token+mtls or none"},
+		{name: "mtls without TLS", args: []string{"--http-auth-mode=mtls", "consensus", "--network=e2e"}, want: "need TLS"},
+		{name: "token+mtls without client trust", args: []string{"--http-auth-mode=token+mtls", "--tls-generate-self-signed", "consensus", "--network=e2e"},
+			want: "need --tls-known-clients-file or --tls-client-ca-file"},
+		{name: "cert without key", args: []string{"--tls-cert-file=/c", "consensus", "--network=e2e"}, want: "together with --tls-key-file"},
+		{name: "keystore without password", args: []string{"--tls-keystore-file=/k.p12", "consensus", "--network=e2e"},
+			want: "--tls-keystore-file must be specified together with --tls-keystore-password-file"},
+		{name: "PEM and PKCS#12", args: []string{"--tls-cert-file=/c", "--tls-key-file=/k", "--tls-keystore-file=/p", "--tls-keystore-password-file=/pw", "consensus", "--network=e2e"},
+			want: "not both"},
+		{name: "known clients in token mode", args: []string{"--tls-generate-self-signed", "--tls-known-clients-file=/kc", "consensus", "--network=e2e"},
+			want: "only with --http-auth-mode=mtls or token+mtls"},
 		{name: "bad log level", args: []string{"--logging=LOUD", "consensus", "--network=e2e"}, want: "level"},
 		{name: "bad log format", args: []string{"--logging-format=xml", "consensus", "--network=e2e"}, want: "format"},
 		{name: "port out of range", args: []string{"--http-listen-port=70000", "consensus", "--network=e2e"}, want: "not a TCP port"},

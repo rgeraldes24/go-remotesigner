@@ -244,6 +244,10 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/crypto/mldsa87/mldsa87.go` | new | | | |
 | `internal/crypto/mldsa87/mldsa87_test.go` | new | | | |
 | `internal/crypto/mldsa87/selftest.go` | new | | | |
+| `internal/hygiene/hygiene.go` | new | | | |
+| `internal/hygiene/hygiene_linux.go` | new | | | |
+| `internal/hygiene/hygiene_other.go` | new | | | |
+| `internal/hygiene/hygiene_test.go` | new | | | |
 | `internal/keys/keyconfig/keyconfig.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/SignerLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/parser/YamlSignerParser.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileRawSigningMetadata.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/keyconfig/keyconfig_test.go` | new | | | |
 | `internal/keys/keystore/qrlv1/bench_test.go` | new | | | |
@@ -283,6 +287,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/runner/runner.go` | new | | | |
 | `internal/runner/runner_test.go` | new | | | |
 | `internal/runner/sign_test.go` | new | | | |
+| `internal/runner/tls_test.go` | new | | | |
 | `internal/server/auth/auth.go` | new | | | |
 | `internal/server/auth/auth_test.go` | new | | | |
 | `internal/server/body.go` | new | | | |
@@ -295,6 +300,16 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/server/router.go` | new | | | |
 | `internal/server/server.go` | new | | | |
 | `internal/server/server_test.go` | new | | | |
+| `internal/server/tls_test.go` | new | | | |
+| `internal/server/tlsconf/config.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Runner.java`<br>`commandline/src/main/java/tech/pegasys/web3signer/commandline/config/PicoCliTlsServerOptionsValidator.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/server/tlsconf/selfsigned.go` | new | | | |
+| `internal/server/tlsconf/selfsigned_other.go` | new | | | |
+| `internal/server/tlsconf/selfsigned_unix.go` | new | | | |
+| `internal/server/tlsconf/testcerts_test.go` | new | | | |
+| `internal/server/tlsconf/tlsconf.go` | new | | | |
+| `internal/server/tlsconf/tlsconf_test.go` | new | | | |
+| `internal/signer/cache.go` | new | | | |
+| `internal/signer/cache_test.go` | new | | | |
 | `internal/signer/provider/provider.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/DefaultArtifactSignerProvider.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/signer/provider/provider_test.go` | new | | | |
 | `internal/signer/signer.go` | new | | | |
@@ -330,13 +345,17 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/ssz/types_test.go` | new | | | |
 | `internal/vectors/vectors.go` | new | | | |
 | `test/acceptance/b19_test.go` | new | | | |
+| `test/acceptance/b20_test.go` | new | | | |
 | `test/acceptance/bursts_test.go` | new | | | |
 | `test/acceptance/contract_test.go` | new | | | |
 | `test/acceptance/e2e_test.go` | new | | | |
 | `test/acceptance/harness_test.go` | new | | | |
+| `test/acceptance/hygiene_linux_test.go` | new | | | |
 | `test/acceptance/metrics_test.go` | new | | | |
 | `test/acceptance/migrate_test.go` | new | | | |
 | `test/acceptance/server_test.go` | new | | | |
+| `test/acceptance/tls_test.go` | new | | | |
+| `test/acceptance/tls_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/tls/ServerSideTlsAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/tls/ServerSideTlsCaClientAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `test/repo/links_test.go` | new | | | |
 | `test/repo/notice_test.go` | new | | | |
 | `test/repo/public_test.go` | new | | | |

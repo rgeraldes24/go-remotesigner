@@ -195,6 +195,72 @@ func TestListenerHandler(t *testing.T) {
 	}
 }
 
+// With a metrics token, a scrape needs it (401 otherwise); the host
+// allowlist still runs first.
+func TestListenerToken(t *testing.T) {
+	dir := t.TempDir()
+	tok := "0x" + strings.Repeat("ab", 32)
+	tokenFile := dir + "/metrics-token"
+	if err := os.WriteFile(tokenFile, []byte(tok+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := auth.New(auth.Config{Mode: auth.ModeNone, MetricsTokenFile: tokenFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := NewListener(ListenerConfig{Addr: "127.0.0.1:0", HostAllowlist: []string{"localhost"}, Gatherer: newMetrics(t).Registry,
+		Auth: a, Log: quiet()})
+	tests := []struct {
+		name, host, auth string
+		status           int
+		body             string
+	}{
+		{"no token", "localhost", "", 401, "UNAUTHENTICATED"},
+		{"wrong token", "localhost", "Bearer 0x" + strings.Repeat("cd", 32), 401, "UNAUTHENTICATED"},
+		{"token", "localhost", "Bearer " + tok, 200, "signing_verify_failures_total 0"},
+		{"foreign Host with the token", "evil.example", "Bearer " + tok, 403, "HOST_NOT_ALLOWED"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, Path, nil)
+			r.Host = tt.host
+			if tt.auth != "" {
+				r.Header.Set("Authorization", tt.auth)
+			}
+			rec := httptest.NewRecorder()
+			l.Handler().ServeHTTP(rec, r)
+			if rec.Code != tt.status || !strings.Contains(rec.Body.String(), tt.body) {
+				t.Fatalf("%d %.200q, want %d containing %q", rec.Code, rec.Body.String(), tt.status, tt.body)
+			}
+			if tt.status == 401 && rec.Header().Get("WWW-Authenticate") != "Bearer" {
+				t.Fatal("no WWW-Authenticate: Bearer")
+			}
+		})
+	}
+}
+
+// No metric carries a key, identifier or URL label: every label name is
+// one of the documented ones, whatever has been recorded.
+func TestNoKeyLabels(t *testing.T) {
+	m := newMetrics(t)
+	for _, ty := range types.ArtifactTypes() {
+		m.SigningRequests.WithLabelValues(string(ty), ResultOK).Inc()
+		m.SigningDuration.WithLabelValues(string(ty)).Observe(0.001)
+	}
+	m.Prevented(slashing.ReasonDoubleVote).Inc()
+	m.RandaoReveals.WithLabelValues(RandaoFirstUse).Inc()
+	allowed := []string{"type", "result", "reason", "operation", "path", "version"}
+	for name, mf := range families(t, m.Registry) {
+		for _, metric := range mf.GetMetric() {
+			for _, l := range metric.GetLabel() {
+				if !slices.Contains(allowed, l.GetName()) {
+					t.Errorf("%s has label %s=%q", name, l.GetName(), l.GetValue())
+				}
+			}
+		}
+	}
+}
+
 func TestListenerServes(t *testing.T) {
 	m := newMetrics(t)
 	l := NewListener(ListenerConfig{Addr: "127.0.0.1:0", HostAllowlist: []string{"127.0.0.1"}, Gatherer: m.Registry, Log: quiet()})

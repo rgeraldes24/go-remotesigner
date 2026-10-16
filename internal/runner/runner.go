@@ -1,20 +1,26 @@
 // Copyright 2026 The go-remotesigner Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package runner runs `remotesigner consensus`: it binds the network, applies
-// the startup fail-safes and the signing self-test, opens the
-// slashing-protection store, loads the token files, starts the API listener
-// and, when enabled, the metrics listener, loads the keys in the background
-// and shuts everything down in order when its context ends.
+// Package runner runs `remotesigner consensus`: it applies the process
+// hygiene, binds the network, applies the startup fail-safes and the
+// signing self-test, opens the slashing-protection store, loads the TLS
+// configuration and the token files, starts the API listener and, when
+// enabled, the metrics listener, loads the keys in the background, reloads
+// the token and TLS files on SIGHUP, and shuts everything down in order
+// when its context ends.
 package runner
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -26,12 +32,14 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/policy"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
+	"github.com/rgeraldes24/go-remotesigner/internal/hygiene"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keyconfig"
 	"github.com/rgeraldes24/go-remotesigner/internal/metrics"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/randao"
 	"github.com/rgeraldes24/go-remotesigner/internal/server"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
+	"github.com/rgeraldes24/go-remotesigner/internal/server/tlsconf"
 	"github.com/rgeraldes24/go-remotesigner/internal/signer"
 	"github.com/rgeraldes24/go-remotesigner/internal/signer/provider"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
@@ -43,9 +51,12 @@ import (
 const ShutdownTimeout = 10 * time.Second
 
 // Run runs the signer until ctx ends, then shuts down gracefully and returns
-// nil. A value on hup re-reads the token files. Any error returned before
-// the listeners are up is a startup refusal.
+// nil. A value on hup re-reads the token files and the TLS files. Any error
+// returned before the listeners are up is a startup refusal.
 func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan struct{}) error {
+	if err := applyHygiene(cfg.Hygiene, log); err != nil {
+		return err
+	}
 	n, err := network.Load(cfg.Consensus.Network)
 	if err != nil {
 		return err
@@ -71,11 +82,33 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		}
 	}
 
-	authn, err := auth.New(auth.Config{
+	// TLS loads after the store opens. A second signer on the same data
+	// path never generates a certificate of its own: tlsconf generates
+	// the self-signed one under a lock on its directory, which also holds
+	// when the store's lock does not (no store, or a store elsewhere).
+	var tlsSrv *tlsconf.Server
+	authCfg := auth.Config{
 		Mode:           cfg.HTTP.AuthMode,
 		SignTokenFile:  cfg.SignTokenFile(),
 		AdminTokenFile: cfg.AdminTokenFile(),
-	})
+	}
+	if cfg.TLS.Enabled() {
+		tlsSrv, err = tlsconf.New(cfg.TLS, tlsconf.Options{
+			SelfSignedDir:     cfg.SelfSignedTLSPath(),
+			SelfSignedHosts:   cfg.HTTP.HostAllowlist,
+			RequireClientCert: cfg.HTTP.AuthMode.ClientCerts(),
+		})
+		if err != nil {
+			closeStore()
+			return fmt.Errorf("refusing to start: TLS: %w", err)
+		}
+		logTLS(log, cfg, tlsSrv.Info(), false)
+		authCfg.VerifyClient = tlsSrv.VerifyClient
+	}
+	if cfg.Metrics.Enabled {
+		authCfg.MetricsTokenFile = cfg.Metrics.AuthTokenFile
+	}
+	authn, err := auth.New(authCfg)
 	if err != nil {
 		closeStore()
 		return err
@@ -102,6 +135,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		SelectionProofMode: cfg.Consensus.SelectionProofMode,
 		Metrics:            m,
 		Log:                log,
+		CacheTTL:           signer.CacheTTL(n.Config.SecondsPerSlot, n.Config.SlotsPerEpoch),
 	})
 	reveals := newReveals(cfg, n, store, m, log)
 	loads := &loadState{}
@@ -113,8 +147,13 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		sign.Protector = engine
 	}
 	reveal := &consensus.RandaoReveal{Policy: pol, Signer: sig, Reveals: reveals, Pinner: store, Metrics: m, Log: log}
+	var serverTLS *tls.Config
+	if tlsSrv != nil {
+		serverTLS = tlsSrv.TLSConfig()
+	}
 	srv, err := server.New(server.Config{
 		Addr:           cfg.ListenAddr(),
+		TLS:            serverTLS,
 		HostAllowlist:  cfg.HTTP.HostAllowlist,
 		Auth:           authn,
 		Routes:         routes(cfg, n, pol, authn, keys, store, sign, reveal, loads, reloader, ready.Load, log),
@@ -138,7 +177,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	var ml *metrics.Listener
 	if cfg.Metrics.Enabled {
 		ml = metrics.NewListener(metrics.ListenerConfig{
-			Addr: cfg.Metrics.Addr(), HostAllowlist: cfg.Metrics.HostAllowlist, Gatherer: m.Registry, Log: log,
+			Addr: cfg.Metrics.Addr(), HostAllowlist: cfg.Metrics.HostAllowlist, Gatherer: m.Registry, Auth: authn, Log: log,
 		})
 		if err := ml.Listen(); err != nil {
 			_ = srv.Shutdown(context.Background())
@@ -162,12 +201,18 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	if ml != nil {
 		serving++
 		go func() { served <- ml.Serve() }()
-		log.WithField("address", ml.Addr().String()).Info("Metrics listener is listening")
+		log.WithFields(logrus.Fields{
+			"address": ml.Addr().String(), "token": cfg.Metrics.AuthTokenFile != "",
+		}).Info("Metrics listener is listening")
+	}
+	tlsStatus := "disabled"
+	if tlsSrv != nil {
+		tlsStatus = "enabled"
 	}
 	log.WithFields(logrus.Fields{
 		"address":   srv.Addr().String(),
 		"auth-mode": cfg.HTTP.AuthMode,
-		"tls":       "disabled",
+		"tls":       tlsStatus,
 	}).Info("remotesigner is listening; loading keys")
 
 	initial := reloader.Start()
@@ -188,6 +233,10 @@ loop:
 				log.WithError(err).Error("Reloading the token files failed; the previous tokens stay in force")
 			} else {
 				log.Info("Token files reloaded")
+			}
+			if tlsSrv != nil {
+				info, err := tlsSrv.Reload()
+				logTLSReload(log, cfg, info, err)
 			}
 		case serveErr = <-served:
 			serving--
@@ -228,6 +277,101 @@ loop:
 	}
 	log.Info("Shutdown complete")
 	return serveErr
+}
+
+// applyHygiene applies --disable-core-dumps and --mlock-all before anything
+// secret is in memory.
+func applyHygiene(h hygiene.Config, log *logrus.Logger) error {
+	if err := hygiene.Apply(h); err != nil {
+		return fmt.Errorf("refusing to start: %w", err)
+	}
+	if !hygiene.Supported {
+		if h.MlockAll {
+			log.Warnf("--mlock-all has no effect on %s; it locks memory on Linux only", runtime.GOOS)
+		}
+		return nil
+	}
+	f := logrus.Fields{"core-dumps-disabled": h.DisableCoreDumps, "memory-locked": h.MlockAll}
+	if dumpable, core, err := hygiene.State(); err == nil {
+		f["dumpable"], f["core-limit"] = dumpable, core
+	}
+	log.WithFields(f).Info("Process hygiene applied")
+	return nil
+}
+
+// tlsFields are the log fields of a TLS configuration.
+func tlsFields(info tlsconf.Info) logrus.Fields {
+	f := logrus.Fields{
+		"source":             info.Source,
+		"certificate":        info.Path,
+		"sha256-fingerprint": info.Fingerprint.String(),
+		"not-after":          info.NotAfter.UTC().Format(time.RFC3339),
+		"client-auth":        info.ClientAuth,
+	}
+	if info.ClientAuth != tlsconf.ClientAuthNone && info.ClientAuth != tlsconf.ClientAuthRefused {
+		f["known-clients"], f["client-cas"] = info.KnownClients, info.ClientCAs
+	}
+	return f
+}
+
+// logTLSReload records the outcome of a SIGHUP reload of the TLS files. A
+// certificate that failed to load leaves the previous one in force; a
+// client trust that failed to load refuses every client (tlsconf.Reload).
+func logTLSReload(log *logrus.Logger, cfg *config.Config, info tlsconf.Info, err error) {
+	if err == nil {
+		logTLS(log, cfg, info, true)
+		return
+	}
+	var re *tlsconf.ReloadError
+	if !errors.As(err, &re) {
+		log.WithFields(tlsFields(info)).WithError(err).Error("Reloading the TLS files failed")
+		return
+	}
+	if re.Certificate != nil {
+		log.WithFields(tlsFields(info)).WithError(re.Certificate).Error("Reloading the TLS certificate failed; " +
+			"the previous certificate stays in force")
+	}
+	if re.ClientTrust != nil {
+		log.WithFields(tlsFields(info)).WithError(re.ClientTrust).Error("Reloading the TLS client trust failed; " +
+			"every client certificate is refused, on open connections too, until a reload succeeds")
+	} else {
+		warnEmptyTrust(log, info)
+	}
+}
+
+// warnEmptyTrust warns when a reload left a client trust that lists
+// nobody: every client is then refused, which is how the last client is
+// revoked.
+func warnEmptyTrust(log *logrus.Logger, info tlsconf.Info) {
+	if info.ClientAuth != tlsconf.ClientAuthNone && info.ClientAuth != tlsconf.ClientAuthRefused &&
+		info.KnownClients+info.ClientCAs == 0 {
+		log.Warn("The TLS client trust lists no client and no CA: every client certificate is refused")
+	}
+}
+
+// logTLS records the TLS configuration at startup and after each reload:
+// where the certificate comes from, its SHA-256 fingerprint (for pinning)
+// and how clients are checked.
+func logTLS(log *logrus.Logger, cfg *config.Config, info tlsconf.Info, reloaded bool) {
+	f := tlsFields(info)
+	switch {
+	case info.Generated:
+		log.WithFields(f).Info("Generated a self-signed TLS certificate: give its file to the validator client " +
+			"(--validators-external-signer-tls-ca-file) and compare the fingerprint")
+	case reloaded:
+		log.WithFields(f).Info("TLS files reloaded")
+	default:
+		log.WithFields(f).Info("TLS enabled")
+	}
+	if len(info.Uncovered) > 0 {
+		log.WithField("names", strings.Join(info.Uncovered, ",")).Warnf("The self-signed TLS certificate is not valid "+
+			"for these --http-host-allowlist names, so clients connecting by them fail hostname verification; delete %s "+
+			"to generate a new one, then pin it again in every client", filepath.Dir(info.Path))
+	}
+	if cfg.TLS.GenerateSelfSigned && info.Source != tlsconf.SourceSelfSigned && !reloaded {
+		log.Info("--tls-generate-self-signed has no effect: a certificate is configured")
+	}
+	warnEmptyTrust(log, info)
 }
 
 // newPolicy builds the request policy from the consensus flags, loading

@@ -124,9 +124,10 @@ B19_DURATION ?= 1h
 b19:
 	REMOTESIGNER_B19_DURATION=$(B19_DURATION) $(GO) test -count=1 -run '^TestB19IdleConnectionRace$$' -timeout 90m -v ./test/acceptance/
 
-## bench-e2e: the end-to-end benchmarks B7 (attestation burst), B8 (contribution burst) and B9 (RANDAO reveals)
+## bench-e2e: the end-to-end benchmarks B7 (attestation burst), B8 (contribution burst), B9 (RANDAO reveals) and
+## B20 (TLS handshake storm)
 bench-e2e:
-	REMOTESIGNER_BENCH=1 $(GO) test -count=1 -run '^TestB[789]' -v ./test/acceptance/
+	REMOTESIGNER_BENCH=1 $(GO) test -count=1 -run '^TestB([789]|20)' -v ./test/acceptance/
 
 clean:
 	rm -rf $(BIN_DIR)

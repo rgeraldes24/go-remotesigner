@@ -205,6 +205,13 @@ func TestIntegrationEveryRequestType(t *testing.T) {
 	if strings.Contains(text, `prevented_signings_total{reason="slashing_double_proposal"} 1`) || strings.Contains(text, `code="500"`) {
 		t.Error("a prevented signing or a 5xx")
 	}
+	// No metric carries a key, after every request type and RANDAO outcome
+	// (contract §18).
+	pubkeys := make([]string, len(keys))
+	for i, k := range keys {
+		pubkeys[i] = k.Pubkey
+	}
+	assertNoKeyLabels(t, text, pubkeys...)
 
 	// The store is the signer's while it runs.
 	if code, out := runOffline(t, "--data-path="+data, "consensus", "randao-state", "reset", "--key="+k1.Pubkey); code != 1 ||

@@ -43,6 +43,16 @@ const (
 	MetricsHost             = "metrics-host"
 	MetricsPort             = "metrics-port"
 	MetricsHostAllowlist    = "metrics-host-allowlist"
+	MetricsAuthTokenFile    = "metrics-auth-token-file"
+	TLSCertFile             = "tls-cert-file"
+	TLSKeyFile              = "tls-key-file"
+	TLSKeystoreFile         = "tls-keystore-file"
+	TLSKeystorePasswordFile = "tls-keystore-password-file"
+	TLSKnownClientsFile     = "tls-known-clients-file"
+	TLSClientCAFile         = "tls-client-ca-file"
+	TLSGenerateSelfSigned   = "tls-generate-self-signed"
+	DisableCoreDumps        = "disable-core-dumps"
+	MlockAll                = "mlock-all"
 )
 
 // Consensus flag names.
@@ -118,17 +128,27 @@ func Global() []cli.Flag {
 		&cli.StringFlag{Name: HTTPListenHost, Value: DefaultListenHost, Usage: "Host the API listens on. A non-loopback host turns on the remote-listener fail-safes."},
 		&cli.UintFlag{Name: HTTPListenPort, Value: DefaultListenPort, Usage: "Port the API listens on; 0 picks a free port (see the ports file)"},
 		&cli.StringSliceFlag{Name: HTTPHostAllowlist, Value: cli.NewStringSlice(DefaultHostAllowlist...), Usage: "Host header names the API accepts (DNS-rebinding defence); * or all accepts any, none refuses all"},
-		&cli.StringFlag{Name: HTTPAuthMode, Value: DefaultAuthMode, Usage: "API authentication: token (bearer tokens) or none (loopback listeners only; the admin token is still required)"},
+		&cli.StringFlag{Name: HTTPAuthMode, Value: DefaultAuthMode, Usage: "API authentication: token (the sign token), mtls (a client certificate grants the sign scope), token+mtls (both) or none (loopback listeners only). Admin routes always need the admin token."},
 		&cli.StringFlag{Name: HTTPAuthTokenFile, Usage: "Sign-scope bearer token file (default <data-path>/auth-token, generated 0600 when missing; re-read on SIGHUP)", TakesFile: true},
 		&cli.StringFlag{Name: HTTPAdminTokenFile, Usage: "Admin-scope bearer token file (default <data-path>/admin-token, generated 0600 when missing; re-read on SIGHUP). Admin routes exist only with an admin token.", TakesFile: true},
 		&cli.IntFlag{Name: HTTPMaxConnections, Value: DefaultMaxConnections, Usage: "Maximum open API connections; further connections wait until one closes"},
 		&cli.UintFlag{Name: IdleConnectionTimeout, Value: DefaultIdleTimeout, Usage: "Seconds a kept-alive API connection may stay idle"},
 		&cli.BoolFlag{Name: AccessLogsEnabled, Usage: "Log every API request at INFO (route, status, duration; never paths or bodies)"},
 		&cli.BoolFlag{Name: AllowPlaintextTokenAuth, Hidden: true, Usage: "Allow bearer tokens over plaintext HTTP on a non-loopback listener"},
+		&cli.StringFlag{Name: TLSCertFile, Usage: "PEM certificate chain the API serves over TLS 1.3, with --tls-key-file (re-read on SIGHUP)", TakesFile: true},
+		&cli.StringFlag{Name: TLSKeyFile, Usage: "PEM private key of --tls-cert-file", TakesFile: true},
+		&cli.StringFlag{Name: TLSKeystoreFile, Usage: "PKCS#12 keystore with the API's TLS key and certificate chain, instead of PEM; with --tls-keystore-password-file (re-read on SIGHUP)", TakesFile: true},
+		&cli.StringFlag{Name: TLSKeystorePasswordFile, Usage: "File whose first line is the password of --tls-keystore-file", TakesFile: true},
+		&cli.BoolFlag{Name: TLSGenerateSelfSigned, Usage: "Serve TLS with a self-signed ECDSA P-256 certificate, generated 0600 into <data-path>/tls/ on first start for the --http-host-allowlist names and reused after; a configured certificate takes precedence"},
+		&cli.StringFlag{Name: TLSKnownClientsFile, Usage: "Client certificates the mtls modes accept: lines of \"<label> <SHA-256 fingerprint>\" (Web3Signer's format; re-read on SIGHUP)", TakesFile: true},
+		&cli.StringFlag{Name: TLSClientCAFile, Usage: "PEM CAs whose client certificates the mtls modes accept; the system roots are never used (re-read on SIGHUP)", TakesFile: true},
 		&cli.BoolFlag{Name: MetricsEnabled, Usage: "Serve Prometheus metrics at /metrics on a separate listener"},
 		&cli.StringFlag{Name: MetricsHost, Value: DefaultMetricsHost, Usage: "Host the metrics listener binds"},
 		&cli.UintFlag{Name: MetricsPort, Value: DefaultMetricsPort, Usage: "Port the metrics listener binds; 0 picks a free port (see the ports file)"},
 		&cli.StringSliceFlag{Name: MetricsHostAllowlist, Value: cli.NewStringSlice(DefaultMetricsHostAllowlist...), Usage: "Host header names the metrics listener accepts; * or all accepts any, none refuses all"},
+		&cli.StringFlag{Name: MetricsAuthTokenFile, Usage: "Bearer token file the metrics listener requires (generated 0600 when missing; re-read on SIGHUP); unset leaves /metrics open", TakesFile: true},
+		&cli.BoolFlag{Name: DisableCoreDumps, Value: true, Usage: "On Linux, make the process non-dumpable (no core dumps, no ptrace or /proc memory reads by other processes) and set its core-file limit to 0"},
+		&cli.BoolFlag{Name: MlockAll, Usage: "On Linux, lock all process memory so that keys are never swapped out (needs CAP_IPC_LOCK or an unlimited RLIMIT_MEMLOCK; refused otherwise)"},
 	})
 }
 

@@ -4,8 +4,9 @@
 // Package server is the API listener: an http.Server with the timeouts and
 // limits of docs/contract.md section 13, the fixed middleware order (access
 // log, host allowlist, Origin refusal, auth, content type, body limit), JSON
-// error responses with reason codes, a readiness gate, a connection cap and
-// graceful shutdown.
+// error responses with reason codes, a readiness gate, a connection cap,
+// optional TLS (HTTP/1.1 and h2; the configuration comes from package
+// tlsconf) and graceful shutdown.
 //
 // Handlers live in the api packages; this package only routes, guards and
 // renders errors.
@@ -13,6 +14,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
@@ -57,6 +59,9 @@ func WriteTimeout(secondsPerSlot uint64) time.Duration {
 type Config struct {
 	// Addr is the host:port to listen on.
 	Addr string
+	// TLS, when set, makes the listener serve TLS with this configuration
+	// (which provides the certificate); nil serves plaintext HTTP.
+	TLS *tls.Config
 	// HostAllowlist holds the accepted Host header names; "*" accepts any.
 	HostAllowlist []string
 	// Auth checks each route's scope.
@@ -148,6 +153,7 @@ func New(cfg Config) (*Server, error) {
 		IdleTimeout:       cfg.IdleTimeout,
 		MaxHeaderBytes:    MaxHeaderBytes,
 		ErrorLog:          log.New(errWriter, "", 0),
+		TLSConfig:         cfg.TLS,
 	}
 	return s, nil
 }
@@ -170,13 +176,18 @@ func (s *Server) Addr() *net.TCPAddr {
 	return s.listener.Addr().(*net.TCPAddr)
 }
 
-// Serve serves on the bound socket until Shutdown. It returns nil after a
-// clean shutdown.
+// Serve serves on the bound socket until Shutdown, over TLS when
+// Config.TLS is set. It returns nil after a clean shutdown.
 func (s *Server) Serve() error {
 	if s.listener == nil {
 		return errors.New("server: Serve before Listen")
 	}
-	err := s.http.Serve(s.listener)
+	var err error
+	if s.cfg.TLS != nil {
+		err = s.http.ServeTLS(s.listener, "", "")
+	} else {
+		err = s.http.Serve(s.listener)
+	}
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
