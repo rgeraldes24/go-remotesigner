@@ -620,6 +620,18 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
   ([`tools/vectorgen/README.md`](../tools/vectorgen/README.md#contract-pin)).
 - Metric names and label values in [section 18](#18-metric-label-values) change only together with the qrysm e2e
   evaluator.
+- A clarification of `1.0.0` is prose that changes no path, field, status code, reason code or encoding. It keeps
+  `info.version`, is listed here for the qrysm side to review, and is folded into the notes of the next version.
+  Milestone S7 (TLS, mTLS, response cache) added these:
+  - TLS on the API listener is TLS 1.3 only; an older client is refused in the handshake
+    ([section 2](#2-transport)).
+  - In `mtls` and `token+mtls` every connection needs an accepted client certificate, and every request is checked
+    again against the trust in force, `/upcheck` and `/healthcheck` included: a client removed by a SIGHUP reload
+    gets 401 `UNAUTHENTICATED` on a connection it already has open ([section 6](#6-authentication-and-scopes)).
+  - The optional metrics token on the metrics listener ([section 6](#6-authentication-and-scopes)).
+  - The response cache answers a repeated request after every check of the request and before slashing
+    protection, and only with a signature that passed verify-before-release
+    ([section 15](#15-selection-proofs-and-signing-modes)).
 
 ## 21. Deviations from Web3Signer
 
