@@ -4,7 +4,6 @@
 package repo
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -274,18 +273,18 @@ func sourceLine(s string) string {
 // readLines returns the normalised lines of the file at p, at most max lines
 // (all of them when max is 0).
 func readLines(p string, max int) ([]string, error) {
-	f, err := os.Open(p)
+	b, err := os.ReadFile(p)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	var out []string
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	for sc.Scan() && (max == 0 || len(out) < max) {
-		out = append(out, sourceLine(sc.Text()))
+	lines := strings.Split(string(b), "\n")
+	if max > 0 && len(lines) > max {
+		lines = lines[:max]
 	}
-	return out, sc.Err()
+	for i, l := range lines {
+		lines[i] = sourceLine(l)
+	}
+	return lines, nil
 }
 
 // isLicenceFile reports whether name is a licence or notice file.
