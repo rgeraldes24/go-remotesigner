@@ -8,7 +8,7 @@
 > artefact, and the signer module never imports it. Run it with `go run`; do not publish a binary.
 
 `vectorgen` is a separate Go module (its own `go.mod`), so qrysm, its dependency graph and its `replace` directives
-stay out of the signer's module. It has three jobs:
+stay out of the signer's module. It has four jobs:
 
 - **`gen`** writes the golden vectors under `testdata/vectors/` and the embedded network YAMLs under
   `internal/network/embedded/`, using qrysm's own code as the oracle. The output is data, dedicated to the public
@@ -17,6 +17,8 @@ stay out of the signer's module. It has three jobs:
 - **contract mode** drives a running signer with qrysm's own `remote-web3signer` keymanager, the client the qrysm
   validator signs through. It needs another qrysm commit than the golden vectors, so it is a second nested module,
   [`contract/`](#contract-mode), with its own pin; the same warning applies to it.
+- **`interchange-check`** imports an EIP-3076 file, the signer's export, into a new qrysm validator database and
+  checks it against the interchange fixture (section "Interchange round trip").
 
 ## Pins
 
@@ -166,3 +168,22 @@ carries them:
 3. Run `make vectors-test` and `make vectors-contract`. A failure is contract drift between the signer and that qrysm
    commit: fix the side that broke the contract (`docs/contract.md` section 20) rather than the check.
 4. Update the table above and the contract row of `PROVENANCE.md` ("Golden vectors").
+
+## Interchange round trip
+
+`gen` also writes `testdata/vectors/interchange/qrysm-export.json`: the file qrysm's validator writes
+(`ExportStandardProtectionJSON`, tab-indented as its CLI does) from a validator database holding a fixed history of
+interop keys 0-3, and `interchange/index.json`, which lists that history.
+
+```sh
+cd tools/vectorgen
+go run . interchange-check -file <export.json>
+```
+
+`interchange-check` imports the file into a new qrysm validator database with `ImportStandardProtectionJSON`, fails
+if qrysm refuses it or marks any key slashable, exports the database again and requires that export to equal
+`qrysm-export.json` byte for byte. Given the signer's export of the fixture, that proves the round trip: qrysm's
+history survives the signer's import and export unchanged. `make vectors-verify-binary` runs it on the built
+binary's `consensus import` and `consensus export` (`TestQrysmInterchangeRoundTrip` in `test/acceptance`); the
+signer's own tests import the fixture without qrysm.
+
