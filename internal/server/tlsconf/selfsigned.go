@@ -47,7 +47,17 @@ var ErrNoHostNames = errors.New("--tls-generate-self-signed needs the host names
 // The certificate file is written last, so a certificate file always has
 // its key; one without it is refused rather than replaced, because clients
 // may pin it.
+//
+// On Linux and macOS a directory its group or other users can write is
+// refused.
 func selfSigned(dir string, hosts []string, now time.Time) (cert tls.Certificate, generated bool, err error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return cert, false, err
+	}
+	if err := checkSelfSignedDir(dir); err != nil {
+		return cert, false, fmt.Errorf("--tls-generate-self-signed: %w", err)
+	}
+
 	certPath, keyPath := filepath.Join(dir, SelfSignedCertFile), filepath.Join(dir, SelfSignedKeyFile)
 	switch _, err := os.Stat(certPath); {
 	case err == nil:
@@ -94,9 +104,6 @@ func selfSigned(dir string, hosts []string, now time.Time) (cert tls.Certificate
 	}
 	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
-		return cert, false, err
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return cert, false, err
 	}
 	if err := writeFileAtomic(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})); err != nil {

@@ -343,6 +343,51 @@ func TestSelfSignedRefusals(t *testing.T) {
 	}
 }
 
+// A self-signed directory that its group or other users can write is
+// refused, before anything is generated or reused in it; one they can only
+// read is accepted.
+func TestSelfSignedLooseDirectory(t *testing.T) {
+	if !dirGuarded {
+		t.Skip("the self-signed directory is checked on Linux and macOS only")
+	}
+	hosts := []string{"localhost"}
+	for _, mode := range []os.FileMode{0o777, 0o770, 0o702, 0o777 | os.ModeSticky} {
+		t.Run(mode.String(), func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "tls")
+			if err := os.Mkdir(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(dir, mode); err != nil { // Chmod ignores the umask
+				t.Fatal(err)
+			}
+			if _, err := New(Config{GenerateSelfSigned: true}, Options{SelfSignedDir: dir, SelfSignedHosts: hosts}); err == nil ||
+				!strings.Contains(err.Error(), "writable by its group or by other users") {
+				t.Fatalf("New = %v, want the directory refused", err)
+			}
+			if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+				t.Fatalf("%d files were written into the refused directory", len(entries))
+			}
+		})
+	}
+	// Reuse is refused too: the files may have been replaced.
+	dir := filepath.Join(t.TempDir(), "tls")
+	if _, err := New(Config{GenerateSelfSigned: true}, Options{SelfSignedDir: dir, SelfSignedHosts: hosts}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(Config{GenerateSelfSigned: true}, Options{SelfSignedDir: dir, SelfSignedHosts: hosts}); err == nil {
+		t.Fatal("the certificate of a world-writable directory was reused")
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(Config{GenerateSelfSigned: true}, Options{SelfSignedDir: dir, SelfSignedHosts: hosts}); err != nil {
+		t.Fatalf("a directory others can only read: %v", err)
+	}
+}
+
 // Rotating the generated certificate: after both files are deleted, a
 // reload generates a new pair; a reload with the files in place keeps the
 // pinned certificate.
