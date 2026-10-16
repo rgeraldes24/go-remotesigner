@@ -163,6 +163,28 @@ func TestTLSAndHygieneFlags(t *testing.T) {
 	}
 }
 
+// Pruning keeps 512 epochs and runs every 12 h by default (DESIGN §3.7); both values must be positive.
+func TestPruningFlags(t *testing.T) {
+	cfg, code, stderr := capture(t, "consensus", "--network=e2e")
+	if code != exitOK || cfg.Consensus.Pruning != (config.Pruning{EpochsToKeep: 512, Interval: 12 * time.Hour}) {
+		t.Fatalf("defaults: exit %d %s, pruning %+v", code, stderr, cfg.Consensus.Pruning)
+	}
+	cfg, code, stderr = capture(t, "consensus", "--network=e2e", "--slashing-protection-pruning-epochs-to-keep=64",
+		"--slashing-protection-pruning-interval=30m")
+	if code != exitOK || cfg.Consensus.Pruning != (config.Pruning{EpochsToKeep: 64, Interval: 30 * time.Minute}) {
+		t.Fatalf("flags: exit %d %s, pruning %+v", code, stderr, cfg.Consensus.Pruning)
+	}
+	for arg, want := range map[string]string{
+		"--slashing-protection-pruning-epochs-to-keep=0": "--slashing-protection-pruning-epochs-to-keep must be at least 1",
+		"--slashing-protection-pruning-interval=0s":      "--slashing-protection-pruning-interval must be positive",
+		"--slashing-protection-pruning-interval=-1h":     "--slashing-protection-pruning-interval must be positive",
+	} {
+		if _, code, stderr := capture(t, "consensus", "--network=e2e", arg); code != exitUsage || !strings.Contains(stderr, want) {
+			t.Errorf("%s: exit %d %q, want a usage error %q", arg, code, stderr, want)
+		}
+	}
+}
+
 func TestHostAllowlistWords(t *testing.T) {
 	for args, want := range map[string][]string{
 		"--http-host-allowlist=all":  {"*"},

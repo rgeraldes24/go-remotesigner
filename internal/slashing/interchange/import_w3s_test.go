@@ -268,6 +268,13 @@ func TestWatermarkImporting(t *testing.T) {
 		{name: "only the source epoch rises",
 			seedAtts: [][2]uint64{{3, 6}, {7, 10}}, seedLow: lw(nil, u64(3), u64(6)), atts: [][2]uint64{{4, 5}},
 			want: &slashing.LowWatermark{SourceEpoch: u64(4), TargetEpoch: u64(6)}},
+		// The minima are taken over the records the import writes: a record the store already holds does not count.
+		{name: "the block watermark rises to the lowest newly written slot",
+			seedBlocks: []uint64{3, 10}, seedLow: lw(u64(3), nil, nil), blocks: []uint64{3, 8},
+			want: &slashing.LowWatermark{Slot: u64(8)}},
+		{name: "the attestation watermarks rise to the lowest newly written epochs",
+			seedAtts: [][2]uint64{{3, 4}}, seedLow: lw(nil, u64(3), u64(4)), atts: [][2]uint64{{3, 4}, {8, 10}},
+			want: &slashing.LowWatermark{SourceEpoch: u64(8), TargetEpoch: u64(10)}},
 		{name: "an empty import leaves the watermarks",
 			seedBlocks: []uint64{6}, seedAtts: [][2]uint64{{3, 4}}, seedLow: lw(u64(6), u64(3), u64(4)),
 			want: &slashing.LowWatermark{Slot: u64(6), SourceEpoch: u64(3), TargetEpoch: u64(4)}},

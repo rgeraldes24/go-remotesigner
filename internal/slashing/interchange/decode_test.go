@@ -6,8 +6,10 @@ package interchange_test
 import (
 	"bytes"
 	"errors"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/interchange"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/slashingtest"
@@ -151,5 +153,46 @@ func TestDecodeStopsAtCallbackErrors(t *testing.T) {
 		})
 	if !errors.Is(err, stop) {
 		t.Fatalf("metadata callback error: %v", err)
+	}
+}
+
+// Decode streams: an entry reaches its callback as soon as it has been read, before the rest of the file exists, so
+// a file of 2,592-byte keys is never held in memory whole.
+func TestDecodeStreams(t *testing.T) {
+	d := doc(gvr, jEntry{Pubkey: pk(0), Blocks: []jBlock{blk(1, root(1))}}, jEntry{Pubkey: pk(1)})
+	cut := strings.Index(d, `,{"pubkey":"`+pk(1))
+	pr, pw := io.Pipe()
+	got := make(chan int, 2)
+	done := make(chan error, 1)
+	go func() {
+		done <- interchange.Decode(pr, func(interchange.Metadata) error { return nil },
+			func(i int, _ interchange.Entry, eerr *interchange.EntryError) error {
+				if eerr != nil {
+					return eerr
+				}
+				got <- i
+				return nil
+			})
+	}()
+	if _, err := io.WriteString(pw, d[:cut]); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case i := <-got:
+		if i != 0 {
+			t.Fatalf("first entry delivered: %d", i)
+		}
+	case err := <-done:
+		t.Fatalf("Decode returned before the file ended: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first entry was not delivered before the rest of the file was written")
+	}
+	if _, err := io.WriteString(pw, d[cut:]); err != nil {
+		t.Fatal(err)
+	}
+	must(t, pw.Close())
+	must(t, <-done)
+	if i := <-got; i != 1 {
+		t.Fatalf("second entry delivered: %d", i)
 	}
 }

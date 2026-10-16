@@ -14,8 +14,8 @@ import (
 )
 
 // FuzzInterchange feeds arbitrary files to the importer (G4 S35). Whatever the input, the import must not panic,
-// and what the store then exports must import again without a failure and reach a fixed point after one more
-// round: a signer can always read back its own exports.
+// only 2,592-byte keys may reach the store, and what the store then exports must import again without a failure and
+// reach a fixed point after one more round: a signer can always read back its own exports.
 func FuzzInterchange(f *testing.F) {
 	f.Add([]byte(doc(gvr, jEntry{Pubkey: pk(0), Blocks: []jBlock{blk(1, root(1)), blk(1, root(2))},
 		Atts: []jAtt{att(1, 2, nil), att(0, 3, root(3))}})))
@@ -27,7 +27,8 @@ func FuzzInterchange(f *testing.F) {
 	f.Add([]byte(`{"metadata":{"interchange_format_version":"5"`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		s := memstore.New()
-		_, _ = interchange.Import(bg, s, bytes.NewReader(data), interchange.ImportOptions{Batch: 2})
+		res, _ := interchange.Import(bg, s, bytes.NewReader(data), interchange.ImportOptions{Batch: 2})
+		fuzzKeyLengths(t, s, res)
 		first, ok := fuzzExport(t, s)
 		if !ok {
 			return
@@ -37,6 +38,26 @@ func FuzzInterchange(f *testing.F) {
 			t.Fatalf("no fixed point:\n%s\n---\n%s", second, third)
 		}
 	})
+}
+
+// fuzzKeyLengths checks that only 2,592-byte keys reach the result and the store, whatever the file held.
+func fuzzKeyLengths(t *testing.T, s slashing.Store, res interchange.ImportResult) {
+	for _, v := range res.Validators {
+		if v.PublicKey != nil && len(v.PublicKey) != slashing.PublicKeyLength {
+			t.Fatalf("data[%d] has a %d-byte key", v.Index, len(v.PublicKey))
+		}
+	}
+	err := s.ViewHistory(bg, func(v slashing.HistoryView) error {
+		return v.Validators(func(_ slashing.KeyID, pk []byte) error {
+			if len(pk) != slashing.PublicKeyLength {
+				t.Fatalf("the store holds a %d-byte key", len(pk))
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		t.Fatalf("view: %v", err)
+	}
 }
 
 // fuzzExport exports s; it reports false when the store was never pinned to a network.
