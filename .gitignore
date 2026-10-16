@@ -5,8 +5,10 @@
 # `go build` in the repository root
 /remotesigner
 /headercheck
-# `go build` in tools/vectorgen: a GPL-3.0 combined work that must never be committed or shipped
+# `go build` in tools/vectorgen or tools/vectorgen/contract: GPL-3.0 combined works that must never be committed or
+# shipped
 /tools/vectorgen/vectorgen
+/tools/vectorgen/contract/contract
 
 # Go tooling
 *.test

@@ -314,6 +314,11 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `tools/headercheck/provenance_test.go` | new | | | |
 | `tools/vectorgen/blocks.go` | new | | | |
 | `tools/vectorgen/capabilities.go` | new | | | |
+| `tools/vectorgen/contract/contract.go` | new | | | |
+| `tools/vectorgen/contract/contract_test.go` | new | | | |
+| `tools/vectorgen/contract/main.go` | new | | | |
+| `tools/vectorgen/contract/requests.go` | new | | | |
+| `tools/vectorgen/contract/vectors.go` | new | | | |
 | `tools/vectorgen/fixtures.go` | new | | | |
 | `tools/vectorgen/gen.go` | new | | | |
 | `tools/vectorgen/jsonout.go` | new | | | |
