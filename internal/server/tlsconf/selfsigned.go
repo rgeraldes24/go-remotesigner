@@ -49,7 +49,9 @@ var ErrNoHostNames = errors.New("--tls-generate-self-signed needs the host names
 // may pin it.
 //
 // On Linux and macOS a directory its group or other users can write is
-// refused.
+// refused, and the whole check-then-generate runs under a lock on the
+// directory, so that concurrent first starts on one data path agree on a
+// single certificate: the later one reuses the earlier one's files.
 func selfSigned(dir string, hosts []string, now time.Time) (cert tls.Certificate, generated bool, err error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return cert, false, err
@@ -57,6 +59,11 @@ func selfSigned(dir string, hosts []string, now time.Time) (cert tls.Certificate
 	if err := checkSelfSignedDir(dir); err != nil {
 		return cert, false, fmt.Errorf("--tls-generate-self-signed: %w", err)
 	}
+	unlock, err := lockSelfSignedDir(dir)
+	if err != nil {
+		return cert, false, fmt.Errorf("--tls-generate-self-signed: %w", err)
+	}
+	defer unlock()
 
 	certPath, keyPath := filepath.Join(dir, SelfSignedCertFile), filepath.Join(dir, SelfSignedKeyFile)
 	switch _, err := os.Stat(certPath); {

@@ -65,6 +65,8 @@ Later starts reuse the two files; they are never regenerated while `cert.pem` ex
 gone refuses the start rather than being replaced, because clients have pinned it. If `<data-path>/tls/` already
 exists and its group or other users can write it (a volume mounted with loose permissions, say), the start is refused
 on Linux and macOS: they could replace the key the signer serves. `chmod 0700` the directory and check its files.
+Generation runs under a lock on the directory, so two signers started at once on the same data path end up with the
+same certificate.
 
 The certificate's names come from `--http-host-allowlist`, so set the allowlist to the names validator clients
 connect with before the first start, for example `--http-host-allowlist=signer.internal,10.0.0.5`. A wildcard

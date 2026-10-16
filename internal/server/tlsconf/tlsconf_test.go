@@ -388,6 +388,63 @@ func TestSelfSignedLooseDirectory(t *testing.T) {
 	}
 }
 
+// Concurrent first starts on one directory agree on one certificate:
+// exactly one generates it, and every one serves the certificate that is
+// on disk.
+func TestSelfSignedConcurrentFirstStart(t *testing.T) {
+	if !dirGuarded {
+		t.Skip("the self-signed directory is locked on Linux and macOS only")
+	}
+	const starts = 4
+	for iter := range 10 {
+		dir := filepath.Join(t.TempDir(), "tls")
+		var (
+			ready = make(chan struct{})
+			infos [starts]Info
+			errs  [starts]error
+			done  = make(chan int)
+		)
+		for i := range starts {
+			go func() {
+				<-ready
+				var s *Server
+				if s, errs[i] = New(Config{GenerateSelfSigned: true}, Options{SelfSignedDir: dir, SelfSignedHosts: []string{"localhost"}}); errs[i] == nil {
+					infos[i] = s.Info()
+				}
+				done <- i
+			}()
+		}
+		close(ready)
+		for range starts {
+			<-done
+		}
+		pemData, err := os.ReadFile(filepath.Join(dir, SelfSignedCertFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		block, _ := pem.Decode(pemData)
+		onDisk := FingerprintOf(block.Bytes)
+		generated := 0
+		for i := range starts {
+			if errs[i] != nil {
+				t.Fatalf("iteration %d, start %d: %v", iter, i, errs[i])
+			}
+			if infos[i].Fingerprint != onDisk {
+				t.Fatalf("iteration %d, start %d serves %s, but %s is on disk", iter, i, infos[i].Fingerprint, onDisk)
+			}
+			if infos[i].Generated {
+				generated++
+			}
+		}
+		if generated != 1 {
+			t.Fatalf("iteration %d: %d starts generated a certificate, want 1", iter, generated)
+		}
+		if _, err := tls.LoadX509KeyPair(filepath.Join(dir, SelfSignedCertFile), filepath.Join(dir, SelfSignedKeyFile)); err != nil {
+			t.Fatalf("iteration %d: the files on disk are not a pair: %v", iter, err)
+		}
+	}
+}
+
 // Rotating the generated certificate: after both files are deleted, a
 // reload generates a new pair; a reload with the files in place keeps the
 // pinned certificate.

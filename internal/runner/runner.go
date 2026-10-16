@@ -82,8 +82,10 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		}
 	}
 
-	// TLS loads after the store opens: the store's lock keeps a second
-	// signer on the same data path from generating a certificate too.
+	// TLS loads after the store opens. A second signer on the same data
+	// path never generates a certificate of its own: tlsconf generates
+	// the self-signed one under a lock on its directory, which also holds
+	// when the store's lock does not (no store, or a store elsewhere).
 	var tlsSrv *tlsconf.Server
 	authCfg := auth.Config{
 		Mode:           cfg.HTTP.AuthMode,

@@ -5,8 +5,10 @@
 
 package tlsconf
 
-// dirGuarded reports whether this platform checks the self-signed
-// directory: only Linux and macOS do.
+// dirGuarded reports whether this platform checks and locks the
+// self-signed directory: only Linux and macOS do.
 const dirGuarded = false
 
 func checkSelfSignedDir(string) error { return nil }
+
+func lockSelfSignedDir(string) (func(), error) { return func() {}, nil }
