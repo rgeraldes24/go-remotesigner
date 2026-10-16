@@ -45,10 +45,10 @@ const (
 	cipherAes256Gcm = "aes-256-gcm"
 )
 
-// The keystore policy (DESIGN §3.6.2). Every bound is checked on the decoded
-// int before any value reaches Argon2id, so that a keystore can neither make
-// it panic (t or p of 0, p truncated to uint8) nor allocate more than MaxM
-// KiB.
+// The keystore policy (docs/operations/keystores.md, section 2). Every bound
+// is checked on the decoded int before any value reaches Argon2id, so that a
+// keystore can neither make it panic (t or p of 0, p truncated to uint8) nor
+// allocate more than MaxM KiB.
 const (
 	MinT = 1      // Argon2id passes
 	MaxT = 16     //

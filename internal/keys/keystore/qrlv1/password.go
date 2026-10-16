@@ -5,7 +5,7 @@ package qrlv1
 
 import "bytes"
 
-// Password is the candidate set of one password (DESIGN §3.6.2, G3 §A.2):
+// Password is the candidate set of one password:
 // the NFKD-normalised password with the C0 controls and DEL stripped (what
 // qrysm's keystore v1 encrypts with), the older alternative normalisation
 // that qrysm's decryptor also tries, and the raw bytes (what the deposit

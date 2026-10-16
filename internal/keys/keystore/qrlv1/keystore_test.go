@@ -29,9 +29,9 @@ func lightVector(t testing.TB) ([]byte, string) {
 	return nil, ""
 }
 
-// TestPolicyRefusals covers the structure and KDF policy (G4 C7, S9, S10,
-// S12): each keystore is refused by Parse, before any Argon2id run, without
-// a panic and without a large allocation.
+// TestPolicyRefusals covers the structure and KDF policy: each keystore is
+// refused by Parse, before any Argon2id run, without a panic and without a
+// large allocation.
 func TestPolicyRefusals(t *testing.T) {
 	base, password := lightVector(t)
 	hexOf := func(n int) string { return strings.Repeat("ab", n) }
@@ -101,8 +101,8 @@ func TestPolicyRefusals(t *testing.T) {
 }
 
 // TestDecryptRefusals covers the refusals that need the KDF: a tampered
-// ciphertext (S9), a pubkey that belongs to another key (S11) and a wrong
-// password. Each costs Argon2id at the keystore's own, bounded parameters.
+// ciphertext, a pubkey that belongs to another key and a wrong password.
+// Each costs Argon2id at the keystore's own, bounded parameters.
 func TestDecryptRefusals(t *testing.T) {
 	base, password := lightVector(t)
 	ks, err := Parse(base)
@@ -272,8 +272,8 @@ func TestPasswordForms(t *testing.T) {
 }
 
 // TestCandidates checks the deduplicated candidate set and its order: an
-// ASCII password is a single candidate, so it costs one Argon2id run (G4
-// N17), and each flavour tries its producer's form first.
+// ASCII password is a single candidate, so it costs one Argon2id run, and
+// each flavour tries its producer's form first.
 func TestCandidates(t *testing.T) {
 	if got := NewPassword([]byte("testpassword")).candidates(QRLV1); len(got) != 1 || string(got[0]) != "testpassword" {
 		t.Fatalf("ASCII candidates %q", got)

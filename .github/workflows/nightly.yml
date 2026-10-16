@@ -29,7 +29,7 @@ jobs:
         run: make b19 B19_DURATION=1h
 
   fuzz-keystore:
-    name: Keystore decoder fuzz (30 min, G4 S9)
+    name: Keystore decoder fuzz (30 min)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

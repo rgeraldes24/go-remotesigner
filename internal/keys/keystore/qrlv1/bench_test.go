@@ -13,7 +13,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/vectors"
 )
 
-// BenchmarkB10Argon2idDecrypt is benchmark B10 (PLAN §5, G6 §8): decrypting
+// BenchmarkB10Argon2idDecrypt is benchmark B10 (docs/benchmarks.md): decrypting
 // the standard-KDF keystore (t=8, m=256 MiB, p=1) with P decrypts running
 // at once, P = 1, 2, 4, 8 and 16. One op is a round of P concurrent
 // decrypts. It reports the throughput (decrypts/s) and the per-decrypt

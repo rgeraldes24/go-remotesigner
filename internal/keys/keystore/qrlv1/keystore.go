@@ -7,8 +7,8 @@
 // with Argon2id and AES-256-GCM.
 //
 // The package is a hardened copy of qrysm's MIT keystore v1 decryptor
-// (third_party/qrl-keystore holds the pristine original). The hardening
-// (DESIGN §3.6.2, G4 C7 and C8):
+// (third_party/qrl-keystore holds the pristine original). The hardening,
+// which docs/operations/keystores.md describes for operators:
 //
 //   - Parse applies the structure and KDF policy before any Argon2id run:
 //     a KDF is required, argon2id only, t, m, p and dklen bounded, and the

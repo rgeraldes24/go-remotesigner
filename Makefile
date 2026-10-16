@@ -37,14 +37,14 @@ test:
 	CGO_ENABLED=1 $(GO) test -race -tags noexecution ./...
 
 ## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, the strict
-## request decoders, and the keystore decoder (G4 S9)
+## request decoders, and the keystore decoder
 FUZZTIME ?= 10s
 fuzz: fuzz-keystore
 	$(GO) test -run '^$$' -fuzz '^FuzzHashTreeRootDifferential$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeSignRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRandaoRevealRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 
-## fuzz-keystore: the keystore decoder fuzz alone (G4 S9); the nightly workflow runs it with FUZZTIME=30m
+## fuzz-keystore: the keystore decoder fuzz alone; the nightly workflow runs it with FUZZTIME=30m
 fuzz-keystore:
 	$(GO) test -run '^$$' -fuzz '^FuzzDecrypt$$' -fuzztime $(FUZZTIME) ./internal/keys/keystore/qrlv1/
 

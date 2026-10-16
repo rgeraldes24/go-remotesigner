@@ -16,9 +16,9 @@ import (
 // that the fuzzer stays fast; the policy alone caps their memory at MaxM.
 const fuzzKDFWork = 8 * MinM
 
-// FuzzDecrypt is G4 S9: arbitrary keystore JSON never panics, every
-// refusal is typed, whatever Parse accepts is within the policy, and
-// decrypting allocates no more than the keystore's own Argon2id block.
+// FuzzDecrypt checks that arbitrary keystore JSON never panics, that every
+// refusal is typed, that whatever Parse accepts is within the policy, and
+// that decrypting allocates no more than the keystore's own Argon2id block.
 func FuzzDecrypt(f *testing.F) {
 	base, password := lightVector(f)
 	for _, c := range vectors.Keystores(f) {
