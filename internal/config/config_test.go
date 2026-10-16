@@ -13,6 +13,7 @@ import (
 
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
+	"github.com/rgeraldes24/go-remotesigner/internal/server/tlsconf"
 )
 
 func base() *Config {
@@ -39,13 +40,26 @@ func fileNetwork(gvr, genesis bool) *network.Network {
 	return n
 }
 
-// The startup refusals on a non-loopback listener (DEVIATIONS.md X38).
+// The startup refusals on a non-loopback listener (DEVIATIONS.md X38), with
+// and without TLS.
 func TestCheckFailSafes(t *testing.T) {
 	known := fileNetwork(true, true)
 	remote := func(c *Config) {
 		c.HTTP.ListenHost = "0.0.0.0"
 		c.HTTP.HostAllowlist = []string{"signer.internal"}
 		c.AllowPlaintextTokenAuth = true
+	}
+	remoteTLS := func(c *Config) {
+		remote(c)
+		c.AllowPlaintextTokenAuth = false
+		c.TLS = tlsconf.Config{GenerateSelfSigned: true}
+	}
+	mtls := func(mode auth.Mode) func(*Config) {
+		return func(c *Config) {
+			remoteTLS(c)
+			c.HTTP.AuthMode = mode
+			c.TLS.KnownClientsFile = "/known-clients"
+		}
 	}
 	tests := []struct {
 		name   string
@@ -109,6 +123,45 @@ func TestCheckFailSafes(t *testing.T) {
 			c.Metrics = Metrics{Host: "0.0.0.0", HostAllowlist: []string{"localhost"}}
 			c.Consensus.SlashingProtectionEnabled = false
 		}, known, nil},
+		{"remote, token over TLS", remoteTLS, known, nil},
+		{"remote, token over a PEM certificate", func(c *Config) {
+			remote(c)
+			c.AllowPlaintextTokenAuth = false
+			c.TLS = tlsconf.Config{CertFile: "/c", KeyFile: "/k"}
+		}, known, nil},
+		{"remote, mtls", mtls(auth.ModeMTLS), known, nil},
+		{"remote, token+mtls", mtls(auth.ModeTokenMTLS), known, nil},
+		{"remote, auth none over TLS", func(c *Config) { remoteTLS(c); c.HTTP.AuthMode = auth.ModeNone }, known, []error{ErrAuthNoneNonLoopback}},
+		{"remote, TLS does not lift the other refusals", func(c *Config) {
+			remoteTLS(c)
+			c.HTTP.HostAllowlist = []string{"localhost"}
+			c.Consensus.SlashingProtectionEnabled = false
+		}, fileNetwork(false, false), []error{ErrLoopbackAllowlist, ErrProtectionDisabledNonLoopback, ErrGVRTOFUNonLoopback, ErrUnknownGenesisNonLoopback}},
+		{"mtls without TLS", func(c *Config) { c.HTTP.AuthMode = auth.ModeMTLS }, known, []error{tlsconf.ErrMTLSWithoutTLS}},
+		{"token+mtls without a trust source", func(c *Config) {
+			c.HTTP.AuthMode = auth.ModeTokenMTLS
+			c.TLS.GenerateSelfSigned = true
+		}, known, []error{tlsconf.ErrMTLSWithoutTrust}},
+		{"token+mtls without a sign token file", func(c *Config) {
+			mtls(auth.ModeTokenMTLS)(c)
+			c.HTTP.ListenHost = "127.0.0.1"
+			c.TLS = tlsconf.Config{CertFile: "/c", KeyFile: "/k", ClientCAFile: "/ca"}
+			c.DataPath = ""
+			c.Consensus.SlashingProtectionEnabled = false
+		}, known, []error{ErrNoSignToken}},
+		{"mtls needs no sign token file", func(c *Config) {
+			mtls(auth.ModeMTLS)(c)
+			c.HTTP.ListenHost = "127.0.0.1"
+			c.TLS = tlsconf.Config{CertFile: "/c", KeyFile: "/k", ClientCAFile: "/ca"}
+			c.DataPath = ""
+			c.Consensus.SlashingProtectionEnabled = false
+		}, known, nil},
+		{"self-signed without a data path", func(c *Config) {
+			c.TLS.GenerateSelfSigned = true
+			c.DataPath = ""
+			c.HTTP.AuthTokenFile = "/t"
+			c.Consensus.SlashingProtectionEnabled = false
+		}, known, []error{ErrSelfSignedNoDataPath}},
 		{"remote API and metrics, protection off: refused once", func(c *Config) {
 			remote(c)
 			c.Metrics = Metrics{Enabled: true, Host: "0.0.0.0", HostAllowlist: []string{"prometheus"}}
@@ -160,9 +213,12 @@ func TestDerivedPaths(t *testing.T) {
 		c.SlashingProtectionDB() != "/data/slashing-protection.db" || c.ListenAddr() != "127.0.0.1:9000" {
 		t.Fatalf("derived paths: %q %q %q %q", c.SignTokenFile(), c.AdminTokenFile(), c.SlashingProtectionDB(), c.ListenAddr())
 	}
+	if c.SelfSignedTLSPath() != "/data/tls" {
+		t.Fatalf("self-signed TLS directory %q", c.SelfSignedTLSPath())
+	}
 	c.HTTP.AuthTokenFile, c.DataPath, c.HTTP.ListenHost = "/s", "", "::1"
-	if c.SignTokenFile() != "/s" || c.AdminTokenFile() != "" || c.ListenAddr() != "[::1]:9000" {
-		t.Fatalf("explicit paths: %q %q %q", c.SignTokenFile(), c.AdminTokenFile(), c.ListenAddr())
+	if c.SignTokenFile() != "/s" || c.AdminTokenFile() != "" || c.ListenAddr() != "[::1]:9000" || c.SelfSignedTLSPath() != "" {
+		t.Fatalf("explicit paths: %q %q %q %q", c.SignTokenFile(), c.AdminTokenFile(), c.ListenAddr(), c.SelfSignedTLSPath())
 	}
 }
 

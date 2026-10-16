@@ -33,16 +33,26 @@ missing `--network` and an invalid config file), 1 when the signer refuses to st
 | `--http-listen-host` | `REMOTESIGNER_HTTP_LISTEN_HOST` | `http-listen-host` | `127.0.0.1` | Host the API listens on. A non-loopback host turns on the remote-listener fail-safes. |
 | `--http-listen-port` | `REMOTESIGNER_HTTP_LISTEN_PORT` | `http-listen-port` | `9000` | Port the API listens on; 0 picks a free port (see the ports file) |
 | `--http-host-allowlist` | `REMOTESIGNER_HTTP_HOST_ALLOWLIST` | `http-host-allowlist` | `localhost,127.0.0.1,::1` | Host header names the API accepts (DNS-rebinding defence); \* or all accepts any, none refuses all |
-| `--http-auth-mode` | `REMOTESIGNER_HTTP_AUTH_MODE` | `http-auth-mode` | `token` | API authentication: token (bearer tokens) or none (loopback listeners only; the admin token is still required) |
+| `--http-auth-mode` | `REMOTESIGNER_HTTP_AUTH_MODE` | `http-auth-mode` | `token` | API authentication: token (the sign token), mtls (a client certificate grants the sign scope), token+mtls (both) or none (loopback listeners only). Admin routes always need the admin token. |
 | `--http-auth-token-file` | `REMOTESIGNER_HTTP_AUTH_TOKEN_FILE` | `http-auth-token-file` | unset | Sign-scope bearer token file (default \<data-path>/auth-token, generated 0600 when missing; re-read on SIGHUP) |
 | `--http-admin-token-file` | `REMOTESIGNER_HTTP_ADMIN_TOKEN_FILE` | `http-admin-token-file` | unset | Admin-scope bearer token file (default \<data-path>/admin-token, generated 0600 when missing; re-read on SIGHUP). Admin routes exist only with an admin token. |
 | `--http-max-connections` | `REMOTESIGNER_HTTP_MAX_CONNECTIONS` | `http-max-connections` | `1024` | Maximum open API connections; further connections wait until one closes |
 | `--idle-connection-timeout-seconds` | `REMOTESIGNER_IDLE_CONNECTION_TIMEOUT_SECONDS` | `idle-connection-timeout-seconds` | `120` | Seconds a kept-alive API connection may stay idle |
 | `--access-logs-enabled` | `REMOTESIGNER_ACCESS_LOGS_ENABLED` | `access-logs-enabled` | `false` | Log every API request at INFO (route, status, duration; never paths or bodies) |
+| `--tls-cert-file` | `REMOTESIGNER_TLS_CERT_FILE` | `tls-cert-file` | unset | PEM certificate chain the API serves over TLS 1.3, with --tls-key-file (re-read on SIGHUP) |
+| `--tls-key-file` | `REMOTESIGNER_TLS_KEY_FILE` | `tls-key-file` | unset | PEM private key of --tls-cert-file |
+| `--tls-keystore-file` | `REMOTESIGNER_TLS_KEYSTORE_FILE` | `tls-keystore-file` | unset | PKCS#12 keystore with the API's TLS key and certificate chain, instead of PEM; with --tls-keystore-password-file (re-read on SIGHUP) |
+| `--tls-keystore-password-file` | `REMOTESIGNER_TLS_KEYSTORE_PASSWORD_FILE` | `tls-keystore-password-file` | unset | File whose first line is the password of --tls-keystore-file |
+| `--tls-generate-self-signed` | `REMOTESIGNER_TLS_GENERATE_SELF_SIGNED` | `tls-generate-self-signed` | `false` | Serve TLS with a self-signed ECDSA P-256 certificate, generated 0600 into \<data-path>/tls/ on first start for the --http-host-allowlist names and reused after; a configured certificate takes precedence |
+| `--tls-known-clients-file` | `REMOTESIGNER_TLS_KNOWN_CLIENTS_FILE` | `tls-known-clients-file` | unset | Client certificates the mtls modes accept: lines of "\<label> \<SHA-256 fingerprint>" (Web3Signer's format; re-read on SIGHUP) |
+| `--tls-client-ca-file` | `REMOTESIGNER_TLS_CLIENT_CA_FILE` | `tls-client-ca-file` | unset | PEM CAs whose client certificates the mtls modes accept; the system roots are never used (re-read on SIGHUP) |
 | `--metrics-enabled` | `REMOTESIGNER_METRICS_ENABLED` | `metrics-enabled` | `false` | Serve Prometheus metrics at /metrics on a separate listener |
 | `--metrics-host` | `REMOTESIGNER_METRICS_HOST` | `metrics-host` | `127.0.0.1` | Host the metrics listener binds |
 | `--metrics-port` | `REMOTESIGNER_METRICS_PORT` | `metrics-port` | `9001` | Port the metrics listener binds; 0 picks a free port (see the ports file) |
 | `--metrics-host-allowlist` | `REMOTESIGNER_METRICS_HOST_ALLOWLIST` | `metrics-host-allowlist` | `localhost,127.0.0.1` | Host header names the metrics listener accepts; \* or all accepts any, none refuses all |
+| `--metrics-auth-token-file` | `REMOTESIGNER_METRICS_AUTH_TOKEN_FILE` | `metrics-auth-token-file` | unset | Bearer token file the metrics listener requires (generated 0600 when missing; re-read on SIGHUP); unset leaves /metrics open |
+| `--disable-core-dumps` | `REMOTESIGNER_DISABLE_CORE_DUMPS` | `disable-core-dumps` | `true` | On Linux, make the process non-dumpable (no core dumps, no ptrace or /proc memory reads by other processes) and set its core-file limit to 0 |
+| `--mlock-all` | `REMOTESIGNER_MLOCK_ALL` | `mlock-all` | `false` | On Linux, lock all process memory so that keys are never swapped out (needs CAP_IPC_LOCK) |
 
 ## Consensus flags
 

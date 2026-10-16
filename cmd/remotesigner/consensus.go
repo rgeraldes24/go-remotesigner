@@ -20,15 +20,17 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/cmd/remotesigner/flags"
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
+	"github.com/rgeraldes24/go-remotesigner/internal/hygiene"
 	"github.com/rgeraldes24/go-remotesigner/internal/logging"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/runner"
 	"github.com/rgeraldes24/go-remotesigner/internal/server"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
+	"github.com/rgeraldes24/go-remotesigner/internal/server/tlsconf"
 )
 
 // runFunc runs the signer with a resolved configuration until ctx ends; a
-// value on hup re-reads the token files.
+// value on hup re-reads the token and TLS files.
 type runFunc func(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan struct{}) error
 
 // metaConfigFile is the App.Metadata key of the parsed --config-file.
@@ -90,7 +92,7 @@ func loadConfigFile(c *cli.Context) error {
 }
 
 // runWithSignals runs the signer, stopping it on SIGTERM or SIGINT and
-// reloading the token files on SIGHUP.
+// reloading the token and TLS files on SIGHUP.
 func runWithSignals(parent context.Context, cfg *config.Config, log *logrus.Logger, run runFunc) error {
 	ctx, stop := signal.NotifyContext(parent, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -130,14 +132,26 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 		},
 		HTTP: config.HTTP{
 			ListenHost:     c.String(flags.HTTPListenHost),
-			AuthMode:       auth.Mode(c.String(flags.HTTPAuthMode)),
 			AuthTokenFile:  c.String(flags.HTTPAuthTokenFile),
 			AdminTokenFile: c.String(flags.HTTPAdminTokenFile),
 			MaxConnections: c.Int(flags.HTTPMaxConnections),
 			IdleTimeout:    time.Duration(c.Uint(flags.IdleConnectionTimeout)) * time.Second,
 			AccessLogs:     c.Bool(flags.AccessLogsEnabled),
 		},
+		TLS: tlsconf.Config{
+			CertFile:             c.String(flags.TLSCertFile),
+			KeyFile:              c.String(flags.TLSKeyFile),
+			KeystoreFile:         c.String(flags.TLSKeystoreFile),
+			KeystorePasswordFile: c.String(flags.TLSKeystorePasswordFile),
+			KnownClientsFile:     c.String(flags.TLSKnownClientsFile),
+			ClientCAFile:         c.String(flags.TLSClientCAFile),
+			GenerateSelfSigned:   c.Bool(flags.TLSGenerateSelfSigned),
+		},
 		AllowPlaintextTokenAuth: c.Bool(flags.AllowPlaintextTokenAuth),
+		Hygiene: hygiene.Config{
+			DisableCoreDumps: c.Bool(flags.DisableCoreDumps),
+			MlockAll:         c.Bool(flags.MlockAll),
+		},
 		Consensus: config.Consensus{
 			Network: network.Sources{
 				Network:          c.String(flags.Network),
@@ -161,8 +175,9 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 			},
 		},
 		Metrics: config.Metrics{
-			Enabled: c.Bool(flags.MetricsEnabled),
-			Host:    c.String(flags.MetricsHost),
+			Enabled:       c.Bool(flags.MetricsEnabled),
+			Host:          c.String(flags.MetricsHost),
+			AuthTokenFile: c.String(flags.MetricsAuthTokenFile),
 		},
 	}
 	hosts, err := server.ParseHostAllowlist(c.StringSlice(flags.HTTPHostAllowlist))
@@ -183,12 +198,11 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 	if err := cfg.Logging.Validate(); err != nil {
 		return nil, err
 	}
-	switch cfg.HTTP.AuthMode {
-	case auth.ModeToken, auth.ModeNone:
-	case "mtls", "token+mtls":
-		return nil, fmt.Errorf("--%s=%s needs TLS, which this release does not have; use token or none", flags.HTTPAuthMode, cfg.HTTP.AuthMode)
-	default:
-		return nil, fmt.Errorf("--%s=%q: want token or none", flags.HTTPAuthMode, cfg.HTTP.AuthMode)
+	if cfg.HTTP.AuthMode, err = auth.ParseMode(c.String(flags.HTTPAuthMode)); err != nil {
+		return nil, fmt.Errorf("--%s=%w", flags.HTTPAuthMode, err)
+	}
+	if err := cfg.TLS.Validate(cfg.HTTP.AuthMode.ClientCerts()); err != nil {
+		return nil, err
 	}
 	port := c.Uint(flags.HTTPListenPort)
 	if port > 65535 {

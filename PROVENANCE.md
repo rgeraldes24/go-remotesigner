@@ -287,6 +287,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/runner/runner.go` | new | | | |
 | `internal/runner/runner_test.go` | new | | | |
 | `internal/runner/sign_test.go` | new | | | |
+| `internal/runner/tls_test.go` | new | | | |
 | `internal/server/auth/auth.go` | new | | | |
 | `internal/server/auth/auth_test.go` | new | | | |
 | `internal/server/body.go` | new | | | |
