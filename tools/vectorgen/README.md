@@ -186,4 +186,3 @@ if qrysm refuses it or marks any key slashable, exports the database again and r
 history survives the signer's import and export unchanged. `make vectors-verify-binary` runs it on the built
 binary's `consensus import` and `consensus export` (`TestQrysmInterchangeRoundTrip` in `test/acceptance`); the
 signer's own tests import the fixture without qrysm.
-
