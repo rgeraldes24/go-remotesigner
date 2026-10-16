@@ -305,6 +305,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/server/tlsconf/testcerts_test.go` | new | | | |
 | `internal/server/tlsconf/tlsconf.go` | new | | | |
 | `internal/server/tlsconf/tlsconf_test.go` | new | | | |
+| `internal/signer/cache.go` | new | | | |
+| `internal/signer/cache_test.go` | new | | | |
 | `internal/signer/provider/provider.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/DefaultArtifactSignerProvider.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/signer/provider/provider_test.go` | new | | | |
 | `internal/signer/signer.go` | new | | | |
