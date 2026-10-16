@@ -692,7 +692,7 @@ paths:
         At most 64 keystores per request. KDF parameters are bounded before decryption. The derived public key
         must equal the keystore `pubkey`. Per-key interchange failures leave the key inactive (`error`).
         Request bodies are never logged. Body limit 32 MiB. The keystore string in the example is abbreviated;
-        the keystore formats are specified with the keymanager milestone.
+        the keystore formats will be specified together with the keymanager implementation.
       security:
         - adminToken: []
       requestBody:

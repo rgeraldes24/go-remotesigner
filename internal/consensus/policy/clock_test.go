@@ -46,7 +46,7 @@ func checkErr(p *Policy, req *types.SignRequest) error {
 	return err
 }
 
-// S15: every type at its bound passes and one past it is refused with 412
+// Every type at its bound passes and one past it is refused with 412
 // CLOCK_BOUND, including both selection proofs at now_slot + skew + 1.
 func TestClockBounds(t *testing.T) {
 	for _, skew := range []uint64{0, 1, 3} {

@@ -25,6 +25,46 @@ const root = "../.."
 type textFile struct {
 	path string
 	text string
+	// prose is text with every run of 16 or more hex digits replaced by a
+	// space. The golden vectors and sums are mostly such runs, and no
+	// prose check looks inside one, so the checks scan prose instead.
+	prose string
+}
+
+// minHexRun is the shortest run of hex digits that stripHex removes.
+const minHexRun = 16
+
+// stripHex replaces each run of at least minHexRun hex digits in s with a
+// single space.
+func stripHex(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	start := -1 // start of the current run of hex digits
+	end := func(i int) {
+		if i-start >= minHexRun {
+			b.WriteByte(' ')
+		} else {
+			b.WriteString(s[start:i])
+		}
+		start = -1
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F' {
+			if start < 0 {
+				start = i
+			}
+			continue
+		}
+		if start >= 0 {
+			end(i)
+		}
+		b.WriteByte(c)
+	}
+	if start >= 0 {
+		end(len(s))
+	}
+	return b.String()
 }
 
 var (
@@ -77,7 +117,7 @@ func repoFiles(t *testing.T) []textFile {
 			if bytes.IndexByte(b, 0) >= 0 {
 				return nil
 			}
-			loaded = append(loaded, textFile{path: rel, text: string(b)})
+			loaded = append(loaded, textFile{path: rel, text: string(b), prose: stripHex(string(b))})
 			return nil
 		})
 	})
