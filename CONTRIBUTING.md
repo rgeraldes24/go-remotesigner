@@ -47,7 +47,7 @@ Signed-off-by: Jane Doe <jane@example.org>
 - **Never copy or import GPL code from qrysm** (`github.com/theQRL/qrysm`). `depguard` rejects any qrysm import.
   SSZ, signing roots, the RANDAO onion and the network loader are written from the CC0 specifications, the
   Apache-2.0-headed protos and the facts recorded in `PROVENANCE.md`; do not open qrysm's Go source while working on
-  them. Only the nested, never-shipped `tools/vectorgen` module may link qrysm.
+  them. Only the nested, never-shipped modules `tools/vectorgen` and `tools/vectorgen/contract` may link qrysm.
 - go-qrl (LGPL-3.0) may be imported only under the top-level `internal/execution/`, and never its `cmd/` or
   `internal/` packages (which are GPL-3.0).
 - New dependencies must carry one of: Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0 (weak copyleft:

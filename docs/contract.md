@@ -602,6 +602,10 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
 - Every contract change, in the same PR: bumps `info.version` (and `frozenVersion` in the contract tests), updates
   this page, regenerates the golden vectors, and lands together with the matching qrysm client and fixture
   test change.
+- CI's `vectors-contract` job (from S3b) drives the built signer with qrysm's own client at the commit
+  `tools/vectorgen/contract` pins, so a field renamed or added on one side alone fails the PR. A contract change
+  moves that pin to the matching qrysm commit in the same PR
+  ([`tools/vectorgen/README.md`](../tools/vectorgen/README.md#contract-pin)).
 - Metric names and label values in [section 18](#18-metric-label-values) change only together with the qrysm e2e
   evaluator.
 

@@ -8,12 +8,15 @@
 > artefact, and the signer module never imports it. Run it with `go run`; do not publish a binary.
 
 `vectorgen` is a separate Go module (its own `go.mod`), so qrysm, its dependency graph and its `replace` directives
-stay out of the signer's module. It has two jobs:
+stay out of the signer's module. It has three jobs:
 
 - **`gen`** writes the golden vectors under `testdata/vectors/` and the embedded network YAMLs under
   `internal/network/embedded/`, using qrysm's own code as the oracle. The output is data, dedicated to the public
   domain under CC0-1.0 (see `testdata/vectors/README.md` for the layout and the licence statement).
 - **`verify`** posts every fixture to a running signer and checks the answers with qrysm's own verifier.
+- **contract mode** drives a running signer with qrysm's own `remote-web3signer` keymanager, the client the qrysm
+  validator signs through. It needs another qrysm commit than the golden vectors, so it is a second nested module,
+  [`contract/`](#contract-mode), with its own pin; the same warning applies to it.
 
 ## Pins
 
@@ -76,3 +79,80 @@ on a skip the other run does not cover. It builds the binary itself unless `REMO
 
 `verify` exits 1 if any check fails. Its tests run it against a fake signer that answers from the fixtures, and
 against fakes that sign the wrong root or sign selection proofs in hedged mode, which it must catch.
+
+## Contract mode
+
+`contract/` is the L3 contract layer of DESIGN §7.1: it checks that the signer and the qrysm client it serves still
+speak the same JSON. It imports qrysm's revived `remote-web3signer` keymanager and, against a running signer:
+
+- calls `CheckCapabilities` with qrysm's configuration of the network, the interop genesis validators root and the
+  genesis time;
+- fetches the keys through the signer's `publicKeys` URL and looks for interop key 0;
+- signs one `SignRequest` per signing oneof (`block_zond`, `blinded_block_zond`, `attestation_data`,
+  `aggregate_attestation_and_proof`, `slot`, `exit`, `sync_message_block_root`, `sync_aggregator_selection_data`,
+  `contribution_and_proof`, `registration`: the nine artifact types) with key 0, over signing roots qrysm computes,
+  and checks each signature with qrysm's `ml_dsa_87.VerifySignature`; the keymanager verifies it too. The `epoch`
+  oneof must be refused by the client (RANDAO is a reveal, not a signature);
+- asks for one `RandaoReveal` at the current slot, which must pass qrysm's `randao.Verify` and, on a fresh signer,
+  equal key 0's first reveal.
+
+Both sides decode strictly (the signer refuses an unknown request field, the client an unknown response field), so a
+field renamed on one side alone fails here, even when that side's own tests were updated to match.
+
+```sh
+make vectors-contract   # builds the signer and runs everything below, as CI's vectors-contract job does
+```
+
+`make vectors-contract` runs `TestVectorgenContract` and `TestVectorgenContractCatchesDTORenames` in
+`test/acceptance`. The first starts the binary with the interop keys on each end-to-end network, bound to the
+interop GVR, with `--network-genesis-time=1760000000`, bbolt slashing protection and voluntary exits enabled, and
+requires all 14 checks to pass. The second shows that the run catches a deliberate DTO rename on either side,
+without a broken branch: it builds a signer whose `AGGREGATION_SLOT` payload key and reveal response key are renamed
+(`go build -overlay`), and a contract tool over a renamed copy of the pinned qrysm (`go build -modfile`) whose
+`VOLUNTARY_EXIT` payload key and capabilities `selection_proof_mode` field are renamed, and requires each mutant to
+fail exactly those two checks.
+
+Against a signer you started yourself (keys from `testdata/vectors/keys/interop.json`, genesis time set, exits
+enabled, on a fresh store so the reveal is a first use):
+
+```sh
+cd tools/vectorgen/contract
+go run . -signer http://127.0.0.1:9000 -token-file <data-path>/auth-token -network end-to-end -genesis-time 1760000000
+```
+
+### Contract pin
+
+The revived keymanager is on no theQRL or cyyber branch yet: it is qrysm PRs rgeraldes24/qrysm#61 (Q2, branch
+`remote-signer/q2-remote-keymanager`, `2e957846`) and #62 (Q3, `remote-signer/q3-vc-wiring`, `eefefe92`), stacked on
+`cyyber/qrysm` `0b9cdf25`, the commit the golden vectors pin. One module cannot hold two qrysm versions, and moving
+the golden-vector pin would change every fixture's generator record, so `contract/go.mod` pins qrysm on its own:
+
+| Module | Replaced by | Why |
+|---|---|---|
+| `github.com/theQRL/qrysm` | `github.com/rgeraldes24/qrysm v0.0.0-20261015164126-eefefe9230e1` | The tip of Q3: the revived keymanager (Q2) with the validator wiring on top, as the qrysm e2e runs it. A public fork, so CI fetches it through the module proxy |
+| `github.com/theQRL/go-qrl` | `github.com/cyyber/go-qrl v0.3.2-0.20260918165407-a9f196d809aa` | qrysm's own replace |
+| `github.com/grpc-ecosystem/grpc-gateway/v2` | `github.com/theQRL/grpc-gateway/v2 v2.0.0-20250214142603-49067762c97f` | qrysm's own replace |
+| `github.com/json-iterator/go` | `github.com/prestonvanloon/go v1.1.7-0.20190722034630-4f2e55fcf87b` | qrysm's own replace |
+
+`contract`'s `TestReplacesMirrorQrysm` fails when a replace differs from qrysm's `go.mod` at the pinned commit, and
+the tool checks at start that `testdata/vectors/networks.json` agrees with the pinned qrysm on each network's fork
+version and slot timing. It prints the qrysm module it was built with.
+
+To bump the pin, for example to a new Q3 tip or, once Q2 and Q3 merge, to the `theQRL` or `cyyber` commit that
+carries them:
+
+1. In `tools/vectorgen/contract`, point the replace at the full commit hash; `go mod tidy` rewrites it as a
+   pseudo-version:
+
+   ```sh
+   go mod edit -replace=github.com/theQRL/qrysm=github.com/rgeraldes24/qrysm@<commit>
+   go mod tidy
+   go mod edit -require=github.com/theQRL/qrysm@<that pseudo-version>   # a placeholder; keep it equal to the pin
+   ```
+
+   The commit must be in a public repository, so that the module proxy, and CI, can fetch it.
+2. Copy qrysm's own `replace` directives from its `go.mod` at that commit; `go test ./...` (`TestReplacesMirrorQrysm`)
+   names any that differ.
+3. Run `make vectors-test` and `make vectors-contract`. A failure is contract drift between the signer and that qrysm
+   commit: fix the side that broke the contract (`docs/contract.md` section 20) rather than the check.
+4. Update the table above and the contract row of `PROVENANCE.md` ("Golden vectors").
