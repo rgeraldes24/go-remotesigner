@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -102,13 +103,28 @@ func readCapped(path string, limit int64) ([]byte, error) {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	data, err := readLimited(f, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	if int64(len(data)) > limit {
-		mldsa87.Wipe(data)
-		return nil, fmt.Errorf("%s: larger than %d bytes", path, limit)
-	}
 	return data, nil
+}
+
+// readLimited reads r, which must hold at most limit bytes, into a single
+// buffer of limit+1 bytes. Unlike io.ReadAll, it never grows the buffer, so
+// no copy of a password is left behind, and it wipes what it read when r
+// fails or holds more than limit bytes.
+func readLimited(r io.Reader, limit int64) ([]byte, error) {
+	buf := make([]byte, limit+1)
+	n, err := io.ReadFull(r, buf)
+	switch {
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return buf[:n], nil
+	case err != nil:
+		mldsa87.Wipe(buf)
+		return nil, err
+	default: // buf is full
+		mldsa87.Wipe(buf)
+		return nil, fmt.Errorf("larger than %d bytes", limit)
+	}
 }

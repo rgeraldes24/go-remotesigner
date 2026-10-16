@@ -4,9 +4,12 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,6 +154,66 @@ func TestKeystoreVerifyRefusals(t *testing.T) {
 			}
 			if strings.Contains(stdout, "OK") {
 				t.Errorf("stdout %q", stdout)
+			}
+		})
+	}
+}
+
+// retainingReader serves data, then fails with err, and keeps the slices
+// of the caller's buffer it wrote into, so that a test can check that the
+// caller wiped them.
+type retainingReader struct {
+	data    []byte
+	err     error
+	written [][]byte
+}
+
+func (r *retainingReader) Read(p []byte) (int, error) {
+	if len(r.data) == 0 {
+		return 0, r.err
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	r.written = append(r.written, p[:n])
+	return n, nil
+}
+
+// TestReadLimitedWipes checks that the password file reader wipes what it
+// read when the read fails or the file is too large, and returns the
+// content otherwise.
+func TestReadLimitedWipes(t *testing.T) {
+	const limit = 64
+	for _, tt := range []struct {
+		name    string
+		data    string
+		err     error
+		wantErr string
+	}{
+		{"read error after part of the file", "hunter2-partial", errors.New("input/output error"), "input/output error"},
+		{"larger than the limit", strings.Repeat("hunter2!", limit/8+1), io.EOF, "larger than 64 bytes"},
+		{"exactly the limit", strings.Repeat("hunter2!", limit/8), io.EOF, ""},
+		{"short", "hunter2\n", io.EOF, ""},
+		{"empty", "", io.EOF, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &retainingReader{data: []byte(tt.data), err: tt.err}
+			got, err := readLimited(r, limit)
+			if tt.wantErr == "" {
+				if err != nil || string(got) != tt.data {
+					t.Fatalf("got %q, %v; want %q", got, err, tt.data)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) || got != nil {
+				t.Fatalf("got %q, %v; want an error mentioning %q", got, err, tt.wantErr)
+			}
+			if len(r.written) == 0 {
+				t.Fatal("the reader was never read")
+			}
+			for _, b := range r.written {
+				if !bytes.Equal(b, make([]byte, len(b))) {
+					t.Errorf("the buffer still holds %q", b)
+				}
 			}
 		})
 	}
