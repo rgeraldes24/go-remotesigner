@@ -128,14 +128,17 @@ go run . -signer http://127.0.0.1:9000 -token-file <data-path>/auth-token -netwo
 
 ### Contract pin
 
-The revived keymanager is on no theQRL or cyyber branch yet: it is qrysm PRs rgeraldes24/qrysm#61 (Q2, branch
-`remote-signer/q2-remote-keymanager`, `2e957846`) and #62 (Q3, `remote-signer/q3-vc-wiring`, `eefefe92`), stacked on
-`cyyber/qrysm` `0b9cdf25`, the commit the golden vectors pin. One module cannot hold two qrysm versions, and moving
-the golden-vector pin would change every fixture's generator record, so `contract/go.mod` pins qrysm on its own:
+The revived keymanager is on no theQRL or cyyber branch yet. It is the tip of a stack of three qrysm PRs on
+`cyyber/qrysm` `0b9cdf25`, the commit the golden vectors pin: rgeraldes24/qrysm#60 (Q1, branch
+`remote-signer/q1-randao-slot`, `8fc55fff`), which passes the proposal slot to `RandaoRevealer` (the tool's RANDAO
+check calls `RandaoReveal` with it), then #61 (Q2, `remote-signer/q2-remote-keymanager`, `2e957846`), the revived
+keymanager, then #62 (Q3, `remote-signer/q3-vc-wiring`, `eefefe92`), its validator wiring. One module cannot hold two
+qrysm versions, and moving the golden-vector pin would change every fixture's generator record, so `contract/go.mod`
+pins qrysm on its own:
 
 | Module | Replaced by | Why |
 |---|---|---|
-| `github.com/theQRL/qrysm` | `github.com/rgeraldes24/qrysm v0.0.0-20261015164126-eefefe9230e1` | The tip of Q3: the revived keymanager (Q2) with the validator wiring on top, as the qrysm e2e runs it. A public fork, so CI fetches it through the module proxy |
+| `github.com/theQRL/qrysm` | `github.com/rgeraldes24/qrysm v0.0.0-20261015164126-eefefe9230e1` | The tip of Q3: the RANDAO slot (Q1) and the revived keymanager (Q2) with the validator wiring on top, as the qrysm e2e runs it. A public fork, so CI fetches it through the module proxy |
 | `github.com/theQRL/go-qrl` | `github.com/cyyber/go-qrl v0.3.2-0.20260918165407-a9f196d809aa` | qrysm's own replace |
 | `github.com/grpc-ecosystem/grpc-gateway/v2` | `github.com/theQRL/grpc-gateway/v2 v2.0.0-20250214142603-49067762c97f` | qrysm's own replace |
 | `github.com/json-iterator/go` | `github.com/prestonvanloon/go v1.1.7-0.20190722034630-4f2e55fcf87b` | qrysm's own replace |
@@ -145,7 +148,7 @@ the tool checks at start that `testdata/vectors/networks.json` agrees with the p
 fork version and slot timing (`make vectors-contract` runs both networks). It prints the qrysm module it was built
 with.
 
-To bump the pin, for example to a new Q3 tip or, once Q2 and Q3 merge, to the `theQRL` or `cyyber` commit that
+To bump the pin, for example to a new Q3 tip or, once Q1-Q3 merge, to the `theQRL` or `cyyber` commit that
 carries them:
 
 1. In `tools/vectorgen/contract`, point the replace at the full commit hash; `go mod tidy` rewrites it as a
