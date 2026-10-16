@@ -17,6 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/server"
+	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
 )
 
 // Path is the one route of the metrics listener.
@@ -39,14 +40,17 @@ type ListenerConfig struct {
 	HostAllowlist []string
 	// Gatherer is scraped at Path.
 	Gatherer prometheus.Gatherer
+	// Auth checks the metrics scope (--metrics-auth-token-file); nil
+	// leaves the listener open.
+	Auth *auth.Authenticator
 	// Log receives refusals and listener errors.
 	Log *logrus.Logger
 }
 
 // Listener is the metrics listener: a separate http.Server, enabled by
-// --metrics-enabled, that serves GET /metrics behind the host allowlist and
-// answers 404 to every other path. It needs no token (a later release adds
-// an optional one).
+// --metrics-enabled, that serves GET /metrics behind the host allowlist and,
+// when a metrics token is configured, the bearer token (401 without it). It
+// answers 404 to every other path.
 type Listener struct {
 	http     *http.Server
 	listener net.Listener
@@ -61,12 +65,22 @@ func NewListener(cfg ListenerConfig) *Listener {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("GET "+Path, promhttp.HandlerFor(cfg.Gatherer, promhttp.HandlerOpts{}))
+	var h http.Handler = mux
+	if cfg.Auth != nil {
+		h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if e := cfg.Auth.Check(r, auth.ScopeMetrics); e != nil {
+				server.WriteError(w, cfg.Log, r, e)
+				return
+			}
+			mux.ServeHTTP(w, r)
+		})
+	}
 	errWriter := cfg.Log.WriterLevel(logrus.DebugLevel)
 	return &Listener{
 		addr:   cfg.Addr,
 		errLog: errWriter,
 		http: &http.Server{
-			Handler:           server.RequireAllowedHost(cfg.HostAllowlist, cfg.Log, mux),
+			Handler:           server.RequireAllowedHost(cfg.HostAllowlist, cfg.Log, h),
 			ReadHeaderTimeout: listenerReadTimeout,
 			ReadTimeout:       listenerReadTimeout,
 			WriteTimeout:      listenerWriteTimeout,

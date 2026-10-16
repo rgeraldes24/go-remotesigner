@@ -4,6 +4,9 @@
 package auth
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -240,8 +243,147 @@ func TestNewErrors(t *testing.T) {
 			}
 		})
 	}
-	if _, err := New(Config{Mode: "mtls"}); err == nil {
+	if _, err := New(Config{Mode: "mTLS"}); err == nil {
 		t.Fatal("New accepted an unknown mode")
+	}
+	if _, err := New(Config{Mode: ModeMTLS}); !errors.Is(err, ErrNoVerifyClient) {
+		t.Fatalf("mtls without a client check: %v", err)
+	}
+	if _, err := New(Config{Mode: ModeTokenMTLS, VerifyClient: acceptGood}); !errors.Is(err, ErrNoSignToken) {
+		t.Fatalf("token+mtls without a sign token file: %v", err)
+	}
+}
+
+// acceptGood is a client check that accepts the certificate named "good".
+func acceptGood(cs *tls.ConnectionState) error {
+	if len(cs.PeerCertificates) > 0 && cs.PeerCertificates[0].Subject.CommonName == "good" {
+		return nil
+	}
+	return errors.New("unknown client")
+}
+
+// withCert adds a TLS state carrying a client certificate named cn ("" for
+// a TLS connection without one; "-" for plaintext).
+func withCert(r *http.Request, cn string) *http.Request {
+	switch cn {
+	case "-":
+	case "":
+		r.TLS = &tls.ConnectionState{}
+	default:
+		r.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{{Subject: pkix.Name{CommonName: cn}}}}
+	}
+	return r
+}
+
+// The scope matrix of the mTLS modes (G4 S2; DESIGN §3.10): in mtls a
+// certificate is the sign credential and admin routes need the admin
+// token, a certificate alone getting 403; in token+mtls each scope needs
+// the certificate and its token.
+func TestMTLSScopeMatrix(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{
+		SignTokenFile:  writeToken(t, dir, "sign", signTok),
+		AdminTokenFile: writeToken(t, dir, "admin", adminTok),
+		VerifyClient:   acceptGood,
+	}
+	tests := []struct {
+		mode  Mode
+		scope Scope
+		cert  string // "good", "bad", "" (TLS, no certificate) or "-" (plaintext)
+		tok   string
+		want  apierr.Reason
+	}{
+		{ModeMTLS, ScopeSign, "good", "", ""},
+		{ModeMTLS, ScopeSign, "good", otherTok, ""},
+		{ModeMTLS, ScopeSign, "good", adminTok, ""},
+		{ModeMTLS, ScopeSign, "bad", "", apierr.Unauthenticated},
+		{ModeMTLS, ScopeSign, "", "", apierr.Unauthenticated},
+		{ModeMTLS, ScopeSign, "-", "", apierr.Unauthenticated},
+		{ModeMTLS, ScopeSign, "-", signTok, apierr.Unauthenticated},
+		{ModeMTLS, ScopeAdmin, "good", "", apierr.ForbiddenScope},
+		{ModeMTLS, ScopeAdmin, "good", otherTok, apierr.Unauthenticated},
+		{ModeMTLS, ScopeAdmin, "good", signTok, apierr.Unauthenticated}, // no sign token exists in mode mtls
+		{ModeMTLS, ScopeAdmin, "good", adminTok, ""},
+		{ModeMTLS, ScopeAdmin, "bad", adminTok, apierr.Unauthenticated},
+		{ModeMTLS, ScopeAdmin, "-", adminTok, apierr.Unauthenticated},
+		{ModeTokenMTLS, ScopeSign, "good", signTok, ""},
+		{ModeTokenMTLS, ScopeSign, "good", "", apierr.Unauthenticated},
+		{ModeTokenMTLS, ScopeSign, "good", adminTok, apierr.Unauthenticated},
+		{ModeTokenMTLS, ScopeSign, "bad", signTok, apierr.Unauthenticated},
+		{ModeTokenMTLS, ScopeSign, "", signTok, apierr.Unauthenticated},
+		{ModeTokenMTLS, ScopeSign, "-", signTok, apierr.Unauthenticated},
+		{ModeTokenMTLS, ScopeAdmin, "good", adminTok, ""},
+		{ModeTokenMTLS, ScopeAdmin, "good", "", apierr.Unauthenticated},
+		{ModeTokenMTLS, ScopeAdmin, "good", signTok, apierr.ForbiddenScope},
+		{ModeTokenMTLS, ScopeAdmin, "bad", adminTok, apierr.Unauthenticated},
+		{ModeTokenMTLS, ScopeAdmin, "-", adminTok, apierr.Unauthenticated},
+		{ModeTokenMTLS, ScopeNone, "-", "", ""},
+	}
+	for _, tt := range tests {
+		name := string(tt.mode) + "/" + tt.scope.String() + "/" + tt.cert + "/" + strings.TrimPrefix(tt.tok, "0x")[:min(4, len(tt.tok))]
+		t.Run(name, func(t *testing.T) {
+			c := cfg
+			c.Mode = tt.mode
+			a, err := New(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := reasonOf(a.Check(withCert(request(tt.tok), tt.cert), tt.scope)); got != tt.want {
+				t.Fatalf("Check = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// The metrics scope is open without a metrics token, needs it otherwise,
+// and is granted by no other credential.
+func TestMetricsScope(t *testing.T) {
+	dir := t.TempDir()
+	open, err := New(Config{Mode: ModeToken, SignTokenFile: writeToken(t, dir, "sign", signTok)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := open.Check(request(""), ScopeMetrics); e != nil {
+		t.Fatalf("no metrics token: %v", e)
+	}
+	metricsTok := "0x" + strings.Repeat("44", 32)
+	a, err := New(Config{
+		Mode: ModeToken, SignTokenFile: filepath.Join(dir, "sign"),
+		AdminTokenFile: writeToken(t, dir, "admin", adminTok), MetricsTokenFile: writeToken(t, dir, "metrics", metricsTok),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for tok, want := range map[string]apierr.Reason{"": apierr.Unauthenticated, signTok: apierr.Unauthenticated,
+		adminTok: apierr.Unauthenticated, metricsTok: ""} {
+		if got := reasonOf(a.Check(request(tok), ScopeMetrics)); got != want {
+			t.Errorf("token %.6s: %q, want %q", tok, got, want)
+		}
+	}
+	if a.Allows(request(metricsTok), ScopeSign) || a.Allows(request(metricsTok), ScopeAdmin) {
+		t.Fatal("the metrics token grants an API scope")
+	}
+	// A generated metrics token file is 0600.
+	gen := filepath.Join(dir, "gen", "metrics-token")
+	if _, err := New(Config{Mode: ModeNone, MetricsTokenFile: gen}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(gen); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("generated metrics token: %v %v", fi, err)
+	}
+	// The metrics token must differ from the API tokens, at start and on reload.
+	for _, other := range []string{filepath.Join(dir, "sign"), filepath.Join(dir, "admin")} {
+		_, err := New(Config{Mode: ModeToken, SignTokenFile: filepath.Join(dir, "sign"), AdminTokenFile: filepath.Join(dir, "admin"), MetricsTokenFile: other})
+		if !errors.Is(err, ErrSameMetricsToken) {
+			t.Errorf("metrics token file %s: %v", other, err)
+		}
+	}
+	writeToken(t, dir, "metrics", adminTok)
+	if err := a.Reload(); !errors.Is(err, ErrSameMetricsToken) {
+		t.Fatalf("reload to the admin token: %v", err)
+	}
+	if !a.Allows(request(metricsTok), ScopeMetrics) {
+		t.Fatal("a refused reload changed the metrics token")
 	}
 }
 
