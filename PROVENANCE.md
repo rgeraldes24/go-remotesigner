@@ -476,6 +476,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/bursts_test.go` | new | | | |
 | `test/acceptance/contract_test.go` | new | | | |
 | `test/acceptance/e2e_test.go` | new | | | |
+| `test/acceptance/execution_test.go` | new | | | |
+| `test/acceptance/execution_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/eth1rpc/PassThroughAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/eth1rpc/AccountManagementAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/eth1rpc/Eth1RpcReloadKeysTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/bulkloading/SecpV3KeystoresBulkLoadAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `test/acceptance/harness_test.go` | new | | | |
 | `test/acceptance/hygiene_linux_test.go` | new | | | |
 | `test/acceptance/interchange_test.go` | new | | | |
@@ -503,6 +505,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/release/version_test.go` | new | | | |
 | `test/repo/deploy_test.go` | new | | | |
 | `test/repo/docs_test.go` | new | | | |
+| `test/repo/flavour_test.go` | new | | | |
 | `test/repo/links_test.go` | new | | | |
 | `test/repo/notice_test.go` | new | | | |
 | `test/repo/provenance_test.go` | new | | | |

@@ -95,11 +95,14 @@ type signer struct {
 
 // options for one signer process.
 type options struct {
-	global    []string // before "consensus"
+	global    []string // before the command
 	consensus []string // after it
-	env       []string
-	keys      string // key-config directory; created when empty
-	data      string // --data-path; created when empty
+	// command is the mode: consensus when empty, or execution (which takes
+	// no --network).
+	command string
+	env     []string
+	keys    string // key-config directory; created when empty
+	data    string // --data-path; created when empty
 	// noNetwork leaves --network and --network-genesis-time off the command
 	// line, for tests that set them through other sources.
 	noNetwork bool
@@ -111,8 +114,12 @@ type options struct {
 func defaultArgs(t *testing.T, data, keys string, o options) []string {
 	args := []string{"--data-path=" + data, "--key-store-path=" + keys, "--http-listen-port=0", "--logging=DEBUG"}
 	args = append(args, o.global...)
-	args = append(args, "consensus")
-	if !o.noNetwork {
+	command := o.command
+	if command == "" {
+		command = "consensus"
+	}
+	args = append(args, command)
+	if command == "consensus" && !o.noNetwork {
 		args = append(args, "--network="+networkFile(t), "--network-genesis-time=1760000000")
 	}
 	return append(args, o.consensus...)
