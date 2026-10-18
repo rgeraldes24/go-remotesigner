@@ -1,0 +1,68 @@
+# Copyright 2026 The go-remotesigner Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# remotesigner as a systemd service, run as the unprivileged system user
+# remotesigner with its configuration in /etc/remotesigner/remotesigner.yaml
+# (for example deploy/config/single-host.yaml) and its data in
+# /var/lib/remotesigner. The walkthrough is docs/operations/deploy-systemd.md.
+
+[Unit]
+Description=remotesigner, remote signer for QRL validator clients
+Documentation=https://github.com/rgeraldes24/go-remotesigner/blob/main/docs/operations/deploy-systemd.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=remotesigner
+Group=remotesigner
+ExecStart=/usr/local/bin/remotesigner --config-file=/etc/remotesigner/remotesigner.yaml consensus
+# SIGHUP re-reads the token files, the TLS certificate and the client trust files.
+ExecReload=/bin/kill -HUP $MAINPID
+# SIGTERM: stop accepting, finish in-flight requests (up to 10 s), close the store, wipe the keys.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+# Exit code 2 is a usage error (a bad flag or config file), which a restart does not fix.
+RestartPreventExitStatus=2
+
+# /var/lib/remotesigner, owned by the service user and closed to everyone else: the generated tokens and TLS
+# certificate, the slashing-protection store and the ports file. Back it up.
+StateDirectory=remotesigner
+StateDirectoryMode=0700
+UMask=0077
+LimitCORE=0
+
+# Hardening. The signer needs no capabilities, no privileged system calls and no write access outside its state
+# directory. For --mlock-all, add LimitMEMLOCK=infinity.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+DevicePolicy=closed
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+KeyringMode=private
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

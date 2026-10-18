@@ -1,0 +1,75 @@
+# Copyright 2026 The go-remotesigner Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Example: one remotesigner and the qrysm validator client that signs through
+# it, which reaches it by its service name, https://signer:9000. The signer is
+# on an internal network only: nothing outside this project can reach it, and
+# it has no route out. The walkthrough, including how the validator client
+# gets the signer's certificate and sign token, is
+# docs/operations/deploy-docker.md.
+#
+# Next to this file:
+#   keys/                 the signer's key-config files (read-only in the container)
+#   network/config.yaml   the chain's qrysm-format config (read-only)
+#   validator/            signer-cert.pem, signer-auth-token and remote-keys.txt, copied
+#                         from the signer after its first start (read-only)
+#
+# Variables (a .env file next to this one works):
+#   GENESIS_TIME, GENESIS_VALIDATORS_ROOT   the chain's genesis time (Unix seconds) and
+#                                           genesis validators root (0x + 64 hex)
+#   QRYSM_VALIDATOR_IMAGE, BEACON_RPC_PROVIDER   the validator client's image and beacon node
+#   REMOTESIGNER_IMAGE                      defaults to the consensus-only image
+
+name: remotesigner
+
+services:
+  signer:
+    image: ${REMOTESIGNER_IMAGE:-ghcr.io/rgeraldes24/remotesigner-consensus:latest}
+    # The image's entrypoint binds 0.0.0.0 over TLS (a certificate generated into /data/tls on first start) and
+    # generates the tokens into /data. These arguments replace its default command.
+    command:
+      - --http-host-allowlist=signer
+      - --key-config-path=/keys
+      - consensus
+      - --network=/network/config.yaml
+      - --network-genesis-time=${GENESIS_TIME:?set GENESIS_TIME to the genesis time in Unix seconds}
+      - --network-genesis-validators-root=${GENESIS_VALIDATORS_ROOT:?set GENESIS_VALIDATORS_ROOT to 0x and 64 hex characters}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      # Tokens, TLS certificate and key, and the slashing-protection store: keep this volume and back it up.
+      - signer-data:/data
+      - ./keys:/keys:ro
+      - ./network:/network:ro
+    networks: [signer]
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  validator:
+    image: ${QRYSM_VALIDATOR_IMAGE:?set QRYSM_VALIDATOR_IMAGE to the qrysm validator client image}
+    depends_on: [signer]
+    command:
+      - --accept-terms-of-use
+      - --datadir=/data
+      - --chain-config-file=/network/config.yaml
+      - --beacon-rpc-provider=${BEACON_RPC_PROVIDER:?set BEACON_RPC_PROVIDER to the beacon node's gRPC address}
+      - --validators-external-signer-url=https://signer:9000
+      - --validators-external-signer-tls-ca-file=/signer/signer-cert.pem
+      - --validators-external-signer-auth-token-file=/signer/signer-auth-token
+      - --validators-external-signer-key-file=/signer/remote-keys.txt
+    volumes:
+      - validator-data:/data
+      - ./network:/network:ro
+      - ./validator:/signer:ro
+    # signer: to reach the signer; default: to reach the beacon node.
+    networks: [signer, default]
+    restart: unless-stopped
+
+networks:
+  signer:
+    internal: true
+
+volumes:
+  signer-data:
+  validator-data:
