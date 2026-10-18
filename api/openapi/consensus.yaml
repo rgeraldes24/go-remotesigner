@@ -571,7 +571,8 @@ paths:
       description: |
         Unauthenticated callers get only `status` and `outcome`. With a `sign` token the response includes
         `checks`. Check ids: `default-check`, `slashing-protection-db-health-check`,
-        `keys-check/config-files-loading`, `keys-check/keystores-bulk-loading`, `keys-check/randao`.
+        `keys-check/config-files-loading`, `keys-check/keystores-bulk-loading`, `keys-check/azure-bulk-loading`,
+        `keys-check/aws-bulk-loading`, `keys-check/gcp-bulk-loading`, `keys-check/randao`.
       security:
         - {}
         - signToken: []
