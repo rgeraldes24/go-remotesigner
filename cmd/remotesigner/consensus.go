@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/signal"
 	"strings"
@@ -38,17 +39,10 @@ const metaConfigFile = "config-file"
 
 func consensusCommand(run runFunc, stdout, stderr io.Writer) *cli.Command {
 	return &cli.Command{
-		Name:  flags.ConsensusCommand,
-		Usage: "run the consensus-layer remote signer for qrysm validator clients",
-		Flags: flags.Consensus(),
-		Before: func(c *cli.Context) error {
-			if src, ok := c.App.Metadata[metaConfigFile].(*config.YAMLSource); ok {
-				if err := src.Apply(c, c.Command.Flags, flags.ConsensusCommand); err != nil {
-					return usageError(err)
-				}
-			}
-			return nil
-		},
+		Name:            flags.ConsensusCommand,
+		Usage:           "run the consensus-layer remote signer for qrysm validator clients",
+		Flags:           flags.Consensus(),
+		Before:          applySection(flags.ConsensusCommand),
 		OnUsageError:    onUsageError,
 		HideHelpCommand: true,
 		Subcommands: []*cli.Command{
@@ -56,21 +50,41 @@ func consensusCommand(run runFunc, stdout, stderr io.Writer) *cli.Command {
 			watermarkRepairCommand(stdout), setHighWatermarkCommand(stdout), keystoreCommand(stdout, stderr),
 			disableValidatorCommand(stdout),
 		},
-		Action: func(c *cli.Context) error {
-			if c.NArg() > 0 {
-				return usageError(fmt.Errorf("unexpected argument %q", c.Args().First()))
-			}
-			cfg, err := configFrom(c)
-			if err != nil {
+		Action: modeAction(configFrom, run, stderr),
+	}
+}
+
+// modeAction is the action of a mode's command: it resolves the
+// configuration with resolve, sets up logging and runs the mode until a
+// signal stops it.
+func modeAction(resolve func(*cli.Context) (*config.Config, error), run runFunc, stderr io.Writer) cli.ActionFunc {
+	return func(c *cli.Context) error {
+		if c.NArg() > 0 {
+			return usageError(fmt.Errorf("unexpected argument %q", c.Args().First()))
+		}
+		cfg, err := resolve(c)
+		if err != nil {
+			return usageError(err)
+		}
+		log, closer, err := logging.New(cfg.Logging, stderr)
+		if err != nil {
+			return usageError(err)
+		}
+		defer func() { _ = closer.Close() }()
+		return runWithSignals(c.Context, cfg, log, run)
+	}
+}
+
+// applySection is a mode command's Before hook: it applies the mode's
+// section of --config-file.
+func applySection(section string) cli.BeforeFunc {
+	return func(c *cli.Context) error {
+		if src, ok := c.App.Metadata[metaConfigFile].(*config.YAMLSource); ok {
+			if err := src.Apply(c, c.Command.Flags, section); err != nil {
 				return usageError(err)
 			}
-			log, closer, err := logging.New(cfg.Logging, stderr)
-			if err != nil {
-				return usageError(err)
-			}
-			defer func() { _ = closer.Close() }()
-			return runWithSignals(c.Context, cfg, log, run)
-		},
+		}
+		return nil
 	}
 }
 
@@ -85,7 +99,9 @@ func loadConfigFile(c *cli.Context) error {
 	if err != nil {
 		return usageError(err)
 	}
-	if err := src.Validate(c.App.Flags, map[string][]cli.Flag{flags.ConsensusCommand: flags.Consensus()}); err != nil {
+	sections := map[string][]cli.Flag{flags.ConsensusCommand: flags.Consensus()}
+	maps.Copy(sections, flavourSections())
+	if err := src.Validate(c.App.Flags, sections); err != nil {
 		return usageError(err)
 	}
 	if err := src.Apply(c, c.App.Flags, ""); err != nil {
@@ -121,9 +137,9 @@ func runWithSignals(parent context.Context, cfg *config.Config, log *logrus.Logg
 	return run(ctx, cfg, log, hup)
 }
 
-// configFrom resolves the flags into a configuration. Its errors are usage
-// errors.
-func configFrom(c *cli.Context) (*config.Config, error) {
+// globalConfig resolves the global flags, which both modes share. Its
+// errors are usage errors.
+func globalConfig(c *cli.Context) (*config.Config, error) {
 	v, _ := release()
 	cfg := &config.Config{
 		Version:               v,
@@ -160,37 +176,6 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 			DisableCoreDumps: c.Bool(flags.DisableCoreDumps),
 			MlockAll:         c.Bool(flags.MlockAll),
 		},
-		Consensus: config.Consensus{
-			Network: network.Sources{
-				Network:          c.String(flags.Network),
-				GenesisStateFile: c.String(flags.NetworkGenesisState),
-			},
-			SlashingProtectionEnabled:   c.Bool(flags.SlashingProtectionEnabled),
-			KeyManagerAPIEnabled:        c.Bool(flags.KeyManagerAPIEnabled),
-			AllowUnknownGenesisTime:     c.Bool(flags.AllowUnknownGenesisTime),
-			AllowGVRTOFU:                c.Bool(flags.AllowGVRTOFU),
-			VoluntaryExitsEnabled:       c.Bool(flags.VoluntaryExitSigning),
-			FeeRecipientFile:            c.String(flags.RegistrationFeeRecipients),
-			ClockSkewSlots:              c.Uint64(flags.SigningClockSkewSlots),
-			SlashingProtectionDBMigrate: c.Bool(flags.SlashingProtectionMigrate),
-			Randao: config.Randao{
-				MaxLayers:            c.Uint64(flags.RandaoMaxLayers),
-				ReorgWindow:          c.Uint64(flags.RandaoReorgWindow),
-				FullScanMinInterval:  c.Duration(flags.RandaoFullScanMinInterval),
-				NewLayerBurst:        c.Uint64(flags.RandaoNewLayerBurst),
-				NewLayerRefillEpochs: c.Uint64(flags.RandaoRefillEpochs),
-				ProtectionRequired:   c.Bool(flags.RandaoProtectionRequired),
-			},
-			Pruning: config.Pruning{
-				EpochsToKeep: c.Uint64(flags.PruningEpochsToKeep),
-				Interval:     c.Duration(flags.PruningInterval),
-			},
-			Keystores: config.Keystores{
-				Path:          c.String(flags.KeystoresPath),
-				PasswordFile:  c.String(flags.KeystoresPasswordFile),
-				PasswordsPath: c.String(flags.KeystoresPasswordsPath),
-			},
-		},
 		Metrics: config.Metrics{
 			Enabled:       c.Bool(flags.MetricsEnabled),
 			Host:          c.String(flags.MetricsHost),
@@ -205,13 +190,6 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 	if cfg.Metrics.HostAllowlist, err = server.ParseHostAllowlist(c.StringSlice(flags.MetricsHostAllowlist)); err != nil {
 		return nil, fmt.Errorf("--%s: %w", flags.MetricsHostAllowlist, err)
 	}
-	if cfg.Consensus.SelectionProofMode, err = mldsa87.ParseMode(c.String(flags.SelectionProofSigning)); err != nil {
-		return nil, fmt.Errorf("--%s: %w", flags.SelectionProofSigning, err)
-	}
-	if cfg.Consensus.Network.Network == "" {
-		return nil, fmt.Errorf("--%s is required: a built-in name (%s) or a network config file",
-			flags.Network, strings.Join(network.Names(), ", "))
-	}
 	if err := cfg.Logging.Validate(); err != nil {
 		return nil, err
 	}
@@ -221,21 +199,73 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 	if err := cfg.TLS.Validate(cfg.HTTP.AuthMode.ClientCerts()); err != nil {
 		return nil, err
 	}
-	port := c.Uint(flags.HTTPListenPort)
-	if port > 65535 {
-		return nil, fmt.Errorf("--%s=%d: not a TCP port", flags.HTTPListenPort, port)
+	if cfg.HTTP.ListenPort, err = tcpPort(c, flags.HTTPListenPort); err != nil {
+		return nil, err
 	}
-	cfg.HTTP.ListenPort = uint16(port)
-	metricsPort := c.Uint(flags.MetricsPort)
-	if metricsPort > 65535 {
-		return nil, fmt.Errorf("--%s=%d: not a TCP port", flags.MetricsPort, metricsPort)
+	if cfg.Metrics.Port, err = tcpPort(c, flags.MetricsPort); err != nil {
+		return nil, err
 	}
-	cfg.Metrics.Port = uint16(metricsPort)
 	if cfg.HTTP.MaxConnections < 1 {
 		return nil, fmt.Errorf("--%s must be at least 1", flags.HTTPMaxConnections)
 	}
 	if cfg.HTTP.IdleTimeout < time.Second {
 		return nil, fmt.Errorf("--%s must be at least 1", flags.IdleConnectionTimeout)
+	}
+	if err := checkLoading(c); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// tcpPort reads a port flag, 0 to 65535.
+func tcpPort(c *cli.Context, name string) (uint16, error) {
+	port := c.Uint(name)
+	if port > 65535 {
+		return 0, fmt.Errorf("--%s=%d: not a TCP port", name, port)
+	}
+	return uint16(port), nil
+}
+
+// configFrom resolves the flags of `consensus` into a configuration. Its
+// errors are usage errors.
+func configFrom(c *cli.Context) (*config.Config, error) {
+	cfg, err := globalConfig(c)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Consensus = config.Consensus{
+		Network: network.Sources{
+			Network:          c.String(flags.Network),
+			GenesisStateFile: c.String(flags.NetworkGenesisState),
+		},
+		SlashingProtectionEnabled:   c.Bool(flags.SlashingProtectionEnabled),
+		KeyManagerAPIEnabled:        c.Bool(flags.KeyManagerAPIEnabled),
+		AllowUnknownGenesisTime:     c.Bool(flags.AllowUnknownGenesisTime),
+		AllowGVRTOFU:                c.Bool(flags.AllowGVRTOFU),
+		VoluntaryExitsEnabled:       c.Bool(flags.VoluntaryExitSigning),
+		FeeRecipientFile:            c.String(flags.RegistrationFeeRecipients),
+		ClockSkewSlots:              c.Uint64(flags.SigningClockSkewSlots),
+		SlashingProtectionDBMigrate: c.Bool(flags.SlashingProtectionMigrate),
+		Randao: config.Randao{
+			MaxLayers:            c.Uint64(flags.RandaoMaxLayers),
+			ReorgWindow:          c.Uint64(flags.RandaoReorgWindow),
+			FullScanMinInterval:  c.Duration(flags.RandaoFullScanMinInterval),
+			NewLayerBurst:        c.Uint64(flags.RandaoNewLayerBurst),
+			NewLayerRefillEpochs: c.Uint64(flags.RandaoRefillEpochs),
+			ProtectionRequired:   c.Bool(flags.RandaoProtectionRequired),
+		},
+		Pruning: config.Pruning{
+			EpochsToKeep: c.Uint64(flags.PruningEpochsToKeep),
+			Interval:     c.Duration(flags.PruningInterval),
+		},
+		Keystores: keystoresFrom(c),
+	}
+	if cfg.Consensus.SelectionProofMode, err = mldsa87.ParseMode(c.String(flags.SelectionProofSigning)); err != nil {
+		return nil, fmt.Errorf("--%s: %w", flags.SelectionProofSigning, err)
+	}
+	if cfg.Consensus.Network.Network == "" {
+		return nil, fmt.Errorf("--%s is required: a built-in name (%s) or a network config file",
+			flags.Network, strings.Join(network.Names(), ", "))
 	}
 	if err := checkRandao(&cfg.Consensus.Randao); err != nil {
 		return nil, err
@@ -244,9 +274,6 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 		return nil, err
 	}
 	if err := checkKeystores(cfg.Consensus.Keystores); err != nil {
-		return nil, err
-	}
-	if err := checkLoading(c); err != nil {
 		return nil, err
 	}
 	if err := storeConfig(c, &cfg.Consensus); err != nil {
@@ -264,6 +291,15 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 		cfg.Consensus.Network.GenesisValidatorsRoot = &gvr
 	}
 	return cfg, nil
+}
+
+// keystoresFrom reads a mode's keystore directory flags.
+func keystoresFrom(c *cli.Context) config.Keystores {
+	return config.Keystores{
+		Path:          c.String(flags.KeystoresPath),
+		PasswordFile:  c.String(flags.KeystoresPasswordFile),
+		PasswordsPath: c.String(flags.KeystoresPasswordsPath),
+	}
 }
 
 // maxRefillEpochs bounds --randao-new-layer-refill-epochs, so that the

@@ -3,10 +3,12 @@
 
 // Command remotesigner is a remote signing service for QRL validator clients.
 //
-// Usage: remotesigner [global flags] consensus [consensus flags]. The flags are
-// defined in package flags and documented in docs/reference/flags.md. Exit
-// codes: 0 after a clean shutdown, 2 for usage errors (including a missing
-// --network and an invalid --config-file), 1 for startup failures.
+// Usage: remotesigner [global flags] consensus [consensus flags], and in the
+// default flavour remotesigner [global flags] execution [execution flags].
+// The flags are defined in package flags and documented in
+// docs/reference/flags.md. Exit codes: 0 after a clean shutdown, 2 for usage
+// errors (including a missing --network and an invalid --config-file), 1 for
+// startup failures.
 package main
 
 import (
@@ -48,10 +50,11 @@ func main() {
 
 // run executes the CLI and maps its outcome to a process exit code.
 func run(args []string, stdout, stderr io.Writer) int {
-	return runWith(args, stdout, stderr, defaultRun)
+	return runWith(args, stdout, stderr, nil)
 }
 
-// runWith is run with the signer's run function injected, for tests.
+// runWith is run with the signer's run function injected, for tests: a
+// non-nil runSigner runs in place of every mode's own.
 func runWith(args []string, stdout, stderr io.Writer, runSigner runFunc) int {
 	err := newApp(stdout, stderr, runSigner).Run(args)
 	if err == nil {
@@ -66,6 +69,12 @@ func runWith(args []string, stdout, stderr io.Writer, runSigner runFunc) int {
 }
 
 func newApp(stdout, stderr io.Writer, runSigner runFunc) *cli.App {
+	pick := func(mode runFunc) runFunc {
+		if runSigner != nil {
+			return runSigner
+		}
+		return mode
+	}
 	return &cli.App{
 		Name:            binaryName,
 		Usage:           "remote signer for QRL validator clients",
@@ -76,7 +85,7 @@ func newApp(stdout, stderr io.Writer, runSigner runFunc) *cli.App {
 		Flags:           flags.Global(),
 		Metadata:        map[string]any{},
 		Before:          loadConfigFile,
-		Commands:        []*cli.Command{consensusCommand(runSigner, stdout, stderr)},
+		Commands:        append([]*cli.Command{consensusCommand(pick(defaultRun), stdout, stderr)}, flavourCommands(pick, stdout, stderr)...),
 		Action:          rootAction,
 		OnUsageError: func(_ *cli.Context, err error, _ bool) error {
 			return cli.Exit(fmt.Sprintf("usage error: %v", err), exitUsage)

@@ -59,50 +59,104 @@ type loadState struct {
 	keystores atomic.Int64
 }
 
-// keyLoader loads keys from the configured sources into the provider: the
+// KeyLoader loads keys from the configured sources into the provider: the
 // key-config files first, then the keystores, as Web3Signer orders its
 // sources. The first load is the startup load; every later one is a
-// POST /reload.
-type keyLoader struct {
+// POST /reload. Both modes use it; LoadHooks holds what a mode adds.
+type KeyLoader struct {
 	keyConfig *keyconfig.Config // nil without --key-config-path
 	keystores *keystores.Config // nil without --keystores-path
 	sem       *argon.Semaphore
 	timeout   time.Duration // of a reload; the startup load is unbounded
 
-	keys    *provider.Provider
-	engine  *slashing.Engine
-	sig     *signer.Signer
-	reveals *randao.Service
-	state   *loadState
-	log     logrus.FieldLogger
+	keys  *provider.Provider
+	hooks LoadHooks
+	state *loadState
+	log   logrus.FieldLogger
 
 	loaded atomic.Bool // the startup load has finished
 
 	refreshMu sync.Mutex // serialises refresh
 }
 
-func newKeyLoader(cfg *config.Config, sem *argon.Semaphore, keys *provider.Provider, engine *slashing.Engine,
-	sig *signer.Signer, reveals *randao.Service, state *loadState, log logrus.FieldLogger) *keyLoader {
-	policy := secretfile.Policy{Strict: cfg.StrictFilePermissions, Warn: func(path string, mode fs.FileMode) {
-		log.WithFields(logrus.Fields{"file": path, "mode": fmt.Sprintf("%04o", mode)}).
-			Warn("A secret file is readable by its group or other users; restrict it to its owner (chmod 0600)")
-	}}
-	l := &keyLoader{sem: sem, timeout: cfg.ReloadTimeout, keys: keys, engine: engine, sig: sig, reveals: reveals,
-		state: state, log: log}
+// LoadHooks are a mode's additions to a key load. Every hook may be nil.
+type LoadHooks struct {
+	// Register is called with the public keys new to the set before they
+	// enter it; when it fails, the load changes nothing.
+	Register func(ctx context.Context, pubkeys [][]byte) error
+	// Renew reports the loaded keys whose copy just derived replaces them.
+	Renew func(provider.ID) bool
+	// Applied runs once the new set is in force, after a load or a
+	// keymanager change, and returns the number of keys still quarantined.
+	// Its calls are serialised.
+	Applied func(ctx context.Context) int
+}
+
+// KeySources are the key sources of a mode: the global --key-config-path
+// and the mode's keystore directory. In execution mode both hold account
+// keys.
+type KeySources struct {
+	Keystores config.Keystores
+	Execution bool
+}
+
+// NewKeyLoader builds the loader of a mode's key sources.
+func NewKeyLoader(cfg *config.Config, src KeySources, sem *argon.Semaphore, keys *provider.Provider, hooks LoadHooks,
+	log logrus.FieldLogger) *KeyLoader {
+	policy := SecretPolicy(cfg, log)
+	l := &KeyLoader{sem: sem, timeout: cfg.ReloadTimeout, keys: keys, hooks: hooks, state: &loadState{}, log: log}
 	if cfg.KeyConfigPath != "" {
 		l.keyConfig = &keyconfig.Config{Dir: cfg.KeyConfigPath, Policy: policy, Decrypt: sem.Decrypt,
-			MaxFileSize: cfg.KeyConfigFileMaxSize}
+			MaxFileSize: cfg.KeyConfigFileMaxSize, Execution: src.Execution}
 	}
-	if ks := cfg.Consensus.Keystores; ks.Path != "" {
+	if ks := src.Keystores; ks.Path != "" {
 		l.keystores = &keystores.Config{Dir: ks.Path, PasswordFile: ks.PasswordFile, PasswordsDir: ks.PasswordsPath,
-			Policy: policy, Decrypt: sem.Decrypt}
+			Policy: policy, Decrypt: sem.Decrypt, Execution: src.Execution}
 	}
 	return l
 }
 
+// SecretPolicy is the --strict-file-permissions policy for secret files,
+// warning through log when it is off.
+func SecretPolicy(cfg *config.Config, log logrus.FieldLogger) secretfile.Policy {
+	return secretfile.Policy{Strict: cfg.StrictFilePermissions, Warn: func(path string, mode fs.FileMode) {
+		log.WithFields(logrus.Fields{"file": path, "mode": fmt.Sprintf("%04o", mode)}).
+			Warn("A secret file is readable by its group or other users; restrict it to its owner (chmod 0600)")
+	}}
+}
+
+// consensusHooks are the consensus mode's load hooks: new keys are
+// registered in slashing protection and quarantined keys are renewed. Once
+// the key set has changed, the RANDAO service tracks the loaded keys (and
+// forgets the precomputed layers of evicted ones), and the signer drops the
+// cached responses of evicted keys and lifts the quarantine of replaced
+// ones.
+func consensusHooks(keys *provider.Provider, engine *slashing.Engine, sig *signer.Signer, reveals *randao.Service,
+	log logrus.FieldLogger) LoadHooks {
+	return LoadHooks{
+		Register: func(ctx context.Context, pks [][]byte) error {
+			if err := engine.RegisterValidators(ctx, pks); err != nil {
+				return fmt.Errorf("register keys in slashing protection: %w", err)
+			}
+			return nil
+		},
+		Renew: sig.Quarantined,
+		Applied: func(ctx context.Context) int {
+			var ids []slashing.KeyID
+			for pk := range keys.PublicKeys() {
+				ids = append(ids, slashing.KeyID(pk.ID()))
+			}
+			if err := reveals.Track(ctx, ids); err != nil {
+				log.WithError(err).Error("Reading the RANDAO frontiers of the loaded keys failed")
+			}
+			return sig.Release()
+		},
+	}
+}
+
 // workers is the number of sources loaded at once. A reload runs while the
 // signer serves, so it leaves one CPU to signing.
-func (l *keyLoader) workers() int {
+func (l *KeyLoader) workers() int {
 	if !l.loaded.Load() {
 		return l.sem.Procs()
 	}
@@ -112,7 +166,7 @@ func (l *keyLoader) workers() int {
 // Load is the reloader's load function. It returns the number of sources
 // that failed to load, or an error when nothing changed because the new
 // keys could not be registered in slashing protection.
-func (l *keyLoader) Load(ctx context.Context) (int, error) {
+func (l *KeyLoader) Load(ctx context.Context) (int, error) {
 	defer l.loaded.Store(true)
 	loadCtx := ctx
 	if l.loaded.Load() && l.timeout > 0 {
@@ -126,14 +180,14 @@ func (l *keyLoader) Load(ctx context.Context) (int, error) {
 	return errs, err
 }
 
-func (l *keyLoader) load(ctx, loadCtx context.Context) (int, error) {
+func (l *KeyLoader) load(ctx, loadCtx context.Context) (int, error) {
 	if l.keyConfig == nil && l.keystores == nil {
 		l.log.Warn("No --key-config-path or --keystores-path: no keys are loaded")
 	}
 	// Sources the keymanager changes from here on keep what it made of
 	// them, whatever this load reads (provider.ApplySince).
 	since := l.keys.Generation()
-	unchanged := func(src, version string) bool { return l.keys.Unchanged(src, version, l.sig.Quarantined) }
+	unchanged := func(src, version string) bool { return l.keys.Unchanged(src, version, l.hooks.Renew) }
 	workers := l.workers()
 	decrypts, busy := l.sem.Stats()
 	var batches []provider.Batch
@@ -156,10 +210,13 @@ func (l *keyLoader) load(ctx, loadCtx context.Context) (int, error) {
 	}
 	// New keys are registered under ctx, not loadCtx: what was loaded before
 	// the reload timeout is still applied.
-	d, err := l.keys.ApplySince(since, batches,
-		func(pks [][]byte) error { return l.engine.RegisterValidators(ctx, pks) }, l.sig.Quarantined)
+	var register func([][]byte) error
+	if l.hooks.Register != nil {
+		register = func(pks [][]byte) error { return l.hooks.Register(ctx, pks) }
+	}
+	d, err := l.keys.ApplySince(since, batches, register, l.hooks.Renew)
 	if err != nil {
-		return kcErrs + ksErrs, fmt.Errorf("register keys in slashing protection: %w", err)
+		return kcErrs + ksErrs, err
 	}
 	// A source the keymanager changed meanwhile was read half-way through
 	// its change; what the load made of it does not count.
@@ -185,29 +242,23 @@ func (l *keyLoader) load(ctx, loadCtx context.Context) (int, error) {
 }
 
 // refresh brings what follows the key set up to date after it changed, by a
-// load or through the keymanager: the RANDAO service tracks the loaded keys
-// (and forgets the precomputed layers of evicted ones), and the signer
-// drops the cached responses of evicted keys and lifts the quarantine of
-// replaced ones. It returns the number of keys still quarantined. Calls
-// are serialised, and each reads the key set it runs with, so the last one
-// leaves the state of the latest key set.
-func (l *keyLoader) refresh(ctx context.Context) int {
+// load or through the keymanager, by running the mode's Applied hook. It
+// returns the number of keys still quarantined. Calls are serialised, and
+// each reads the key set it runs with, so the last one leaves the state of
+// the latest key set.
+func (l *KeyLoader) refresh(ctx context.Context) int {
+	if l.hooks.Applied == nil {
+		return 0
+	}
 	l.refreshMu.Lock()
 	defer l.refreshMu.Unlock()
-	var ids []slashing.KeyID
-	for pk := range l.keys.PublicKeys() {
-		ids = append(ids, slashing.KeyID(pk.ID()))
-	}
-	if err := l.reveals.Track(ctx, ids); err != nil {
-		l.log.WithError(err).Error("Reading the RANDAO frontiers of the loaded keys failed")
-	}
-	return l.sig.Release()
+	return l.hooks.Applied(ctx)
 }
 
 // collect appends a loader's batches and counts its errors, logging each.
 // A loader that failed as a whole counts one error, and every source it
 // had keeps its keys: a load error is never a removal.
-func (l *keyLoader) collect(batches, b []provider.Batch, err error, prefix, wholeMsg, oneMsg string) (
+func (l *KeyLoader) collect(batches, b []provider.Batch, err error, prefix, wholeMsg, oneMsg string) (
 	[]provider.Batch, int) {
 	if err != nil {
 		l.log.WithError(err).Error(wholeMsg)
@@ -227,7 +278,7 @@ func (l *keyLoader) collect(batches, b []provider.Batch, err error, prefix, whol
 }
 
 // progress logs the progress of a long load of what.
-func (l *keyLoader) progress(what string) func(done, total int) {
+func (l *KeyLoader) progress(what string) func(done, total int) {
 	start := time.Now()
 	return func(done, total int) {
 		f := logrus.Fields{"done": done, "total": total}
@@ -237,6 +288,20 @@ func (l *keyLoader) progress(what string) func(done, total int) {
 		}
 		l.log.WithFields(f).Info("Loading " + what)
 	}
+}
+
+// Checks returns the keys-check health checks of the loader's sources, as
+// Web3Signer has them: the key-config check always, the keystore check with
+// a keystore source.
+func (l *KeyLoader) Checks() []ops.Check {
+	st := l.state
+	checks := []ops.Check{{ID: checkConfigFiles,
+		Run: keysCheck(st, &st.keyConfig, func() int { return l.keys.Count(keyconfig.SourcePrefix) })}}
+	if l.keystores != nil {
+		checks = append(checks, ops.Check{ID: checkKeystores,
+			Run: keysCheck(st, &st.keystores, func() int { return l.keys.Count(keystores.SourcePrefix) })})
+	}
+	return checks
 }
 
 // keysCheck is a keys-check health check: DOWN until the first load, after
@@ -249,9 +314,9 @@ func keysCheck(st *loadState, errs *atomic.Int64, loaded func() int) func(contex
 	}
 }
 
-// logKeySources records the Argon2id sizing and the file-permission policy
+// LogKeySources records the Argon2id sizing and the file-permission policy
 // at startup.
-func logKeySources(log logrus.FieldLogger, cfg *config.Config, sz argon.Sizing) {
+func LogKeySources(log logrus.FieldLogger, cfg *config.Config, sz argon.Sizing) {
 	log.WithFields(logrus.Fields{"procs": sz.Procs, "budget-mib": sz.Budget >> 20, "budget-source": sz.Source}).
 		Info("Keystore decryption: " + sz.String())
 	if !cfg.StrictFilePermissions {
