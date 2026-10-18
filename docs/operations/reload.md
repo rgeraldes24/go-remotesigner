@@ -11,8 +11,14 @@ may use. Keystore formats and password files are in [`keystores.md`](keystores.m
 |---|---|---|
 | Key-config files | `--key-config-path` (alias `--key-store-path`): every non-hidden `*.yaml` or `*.yml` file directly in the directory | one file, with all its documents |
 | Keystore directory | `--keystores-path` with `--keystores-password-file` (one password for every keystore) or `--keystores-passwords-path` (`<name>.txt` for keystore `<name>.json`) | one keystore |
+| Azure Key Vault ([`azure-key-vault.md`](azure-key-vault.md)) | `--azure-vault-enabled`: the secrets of a vault with the `--azure-tags` | one secret |
+| AWS Secrets Manager ([`aws-secrets-manager.md`](aws-secrets-manager.md)) | `--aws-secrets-enabled`: the secrets the name prefixes and tags select | one secret |
+| GCP Secret Manager ([`gcp-secret-manager.md`](gcp-secret-manager.md)) | `--gcp-secrets-enabled`: the secrets of a project that the list filter selects | one secret |
 
-A key-config file holds one or more YAML documents of two types:
+The three secret-store bulk loaders read one hex seed per line of each secret; their SDKs are in the default flavour,
+`remotesigner`, only, and `remotesigner-consensus` refuses their flags (exit 2).
+
+A key-config file holds one or more YAML documents of these types:
 
 ```yaml
 type: file-raw
@@ -24,6 +30,13 @@ keyType: ML_DSA_87
 keystoreFile: keystores/keystore-0.json        # relative paths are relative to the key-config directory
 keystorePasswordFile: keystores/keystore-0.txt
 ```
+
+and the secret-store types, whose seed is the value of one secret, with Web3Signer's fields: `hashicorp`
+([`hashicorp-vault.md`](hashicorp-vault.md), in both flavours), `aws-secret`
+([`aws-secrets-manager.md`](aws-secrets-manager.md)), `azure-secret` ([`azure-key-vault.md`](azure-key-vault.md)) and
+`gcp-secret` ([`gcp-secret-manager.md`](gcp-secret-manager.md)), which Web3Signer lacks. The last three need the
+default flavour; `remotesigner-consensus` fails a file with one of them and says so. As in Web3Signer, the secrets of
+an unchanged key-config file are not fetched again on reload.
 
 A key-config file larger than `--key-store-config-file-max-size` (in bytes; default 104857600, 100 MiB, as in
 Web3Signer, which counts code points instead) fails to load before any of it is read.
@@ -44,15 +57,17 @@ The password file the CLI was given can be used as it is (its trailing line feed
 it is readable by its owner only (see "Secret files" below).
 
 `--keystores-path` needs exactly one of the two password flags, and they need it; any other combination is a usage
-error (exit 2). The key-config files are loaded first, then the keystores. A key that two sources provide is loaded
-once, from the first, with a WARN. With `--key-manager-api-enabled`, keys imported through the keymanager are
-written to the key-config directory as `<sha256 of the public key>.yaml` with its keystore and password file
+error (exit 2). The sources load in Web3Signer's order: the key-config files, Azure Key Vault, the keystores, AWS
+Secrets Manager, then GCP Secret Manager. A key that two sources provide is loaded once, from the first, with a WARN.
+With `--key-manager-api-enabled`, keys imported through the keymanager are written to the key-config directory as
+`<sha256 of the public key>.yaml` with its keystore and password file
 ([`keymanager.md`](keymanager.md#3-importing-keys)), so every later load reads them like any other key-config file; a
 load that is running when the keymanager imports or deletes a key does not undo that change.
 
 ### Secret files
 
-A password file, and a key-config file with a `file-raw` document (which holds a seed in the clear), is a secret
+A password file, a key-config file with a `file-raw` document (which holds a seed in the clear), and a key-config file
+with a secret-store credential (a Vault `token`, an AWS `secretAccessKey`, an Azure `clientSecret`) is a secret
 file. With `--strict-file-permissions` (the default) a secret file that its group or other users can read is
 refused: it fails to load like any other error (section 3), and the log names the file and its mode. With
 `--strict-file-permissions=false` it is loaded with a WARN. The mode is checked on the opened file, so the file read
@@ -107,10 +122,11 @@ timestamp granularity of its file system can keep both. Unchanged keystores are 
 keystores with one new keystore costs one Argon2id run, not 10,000.
 
 "Fails to load" covers every error: a file that cannot be read, invalid YAML or JSON, an unknown key, a wrong
-password, a keystore the policy refuses, a password file refused by `--strict-file-permissions`, and a source not
-reached before `--reload-timeout`. When a whole source kind fails (the key-config or keystore directory cannot be
-listed, or the shared `--keystores-password-file` cannot be read or is refused), every key it had stays loaded and it
-counts one error.
+password, a keystore the policy refuses, a password file refused by `--strict-file-permissions`, a secret store that
+cannot be reached or refuses access, a secret with a value that is not a seed (a bulk secret with one bad line fails as
+a whole), and a source not reached before `--reload-timeout`. When a whole source kind fails (the key-config or
+keystore directory cannot be listed, the shared `--keystores-password-file` cannot be read or is refused, or a bulk
+loader's store cannot be listed), every key it had stays loaded and it counts one error.
 
 New keys are registered in slashing protection before they can sign. If that registration fails, the reload changes
 nothing and ends `failed`.
@@ -147,6 +163,7 @@ including keys that merely failed to load ([`../../DEVIATIONS.md`](../../DEVIATI
 |---|---|---|
 | `keys-check/config-files-loading` | always | `keys-loaded`: keys from key-config files; `error-count`: files that failed in the last load |
 | `keys-check/keystores-bulk-loading` | with `--keystores-path` | `keys-loaded`: keys from the keystore directory; `error-count`: keystores that failed (1 when the whole directory failed) |
+| `keys-check/azure-bulk-loading`, `keys-check/aws-bulk-loading`, `keys-check/gcp-bulk-loading` | with `--azure-vault-enabled`, `--aws-secrets-enabled`, `--gcp-secrets-enabled` | `keys-loaded`: keys from the store's secrets; `error-count`: secrets that failed (1 when the listing failed) |
 
 A check is `DOWN` before the first load, after a `failed` load, and while its `error-count` is above 0; `/healthcheck`
 then answers 503. A failed source keeps its keys, so `keys-loaded` counts them while the check is `DOWN`. Fix the
