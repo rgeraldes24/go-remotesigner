@@ -220,7 +220,7 @@ func TestKeystoresQRLPackageSharedPasswordRefusedOnReload(t *testing.T) {
 		"--keystores-password-file=" + password,
 	}})
 	s.waitReadyWithin(2 * time.Minute)
-	att := attestation(t)
+	att := goldenAttestation(t)
 	signAll := func(when string) {
 		t.Helper()
 		if got := s.publicKeys(); !slices.Equal(got, keys) {

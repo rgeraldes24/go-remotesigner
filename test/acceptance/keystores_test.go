@@ -167,10 +167,10 @@ func goldenRequest(t *testing.T, typ string) []byte {
 // still signs.
 func selectionProof(t *testing.T) []byte { return goldenRequest(t, "AGGREGATION_SLOT") }
 
-// attestation is a golden ATTESTATION request, which a disabled key answers
-// with 412 VALIDATOR_DISABLED. Signing it again with the same key is a
-// repeat that slashing protection allows.
-func attestation(t *testing.T) []byte { return goldenRequest(t, "ATTESTATION") }
+// goldenAttestation is a golden ATTESTATION request, which a disabled key
+// answers with 412 VALIDATOR_DISABLED. Signing it again with the same key
+// is a repeat that slashing protection allows.
+func goldenAttestation(t *testing.T) []byte { return goldenRequest(t, "ATTESTATION") }
 
 // loadDecrypts waits until the signer has logged n "Keys loaded" lines and
 // returns the number of keystore decrypts the nth reports.
@@ -330,7 +330,7 @@ func TestKeystoresReloadRefusalAndRemoval(t *testing.T) {
 	}
 	s := start(t, options{consensus: []string{"--keystores-path=" + ks.dir, "--keystores-passwords-path=" + pwDir}})
 	s.waitReadyWithin(time.Minute)
-	att := attestation(t)
+	att := goldenAttestation(t)
 	signs := func(pk string, want int) {
 		t.Helper()
 		if code, out := s.post("/api/v1/consensus/sign/"+pk, s.signToken(), att); code != want {
