@@ -25,6 +25,10 @@ env:
   GO_LICENSES_VERSION: v2.0.1
   # renovate: datasource=go depName=golang.org/x/vuln
   GOVULNCHECK_VERSION: v1.9.0
+  # renovate: datasource=go depName=github.com/goreleaser/goreleaser/v2
+  GORELEASER_VERSION: v2.18.2
+  # renovate: datasource=github-releases depName=anchore/syft
+  SYFT_VERSION: v1.52.0
 
 jobs:
   test:
@@ -189,3 +193,75 @@ jobs:
         run: |
           go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
           make vuln GOVULNCHECK="$(go env GOPATH)/bin/govulncheck"
+
+  release-dry-run:
+    # The release dry run (.goreleaser.yaml): every archive, SBOM and image of
+    # both flavours, published and signed nowhere; then the release checks
+    # (test/release): licence files per flavour in every archive and image,
+    # no go-qrl in the consensus binaries, nonroot images.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+      - name: Install go-licenses
+        run: go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"
+      - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          syft-version: ${{ env.SYFT_VERSION }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: ${{ env.GORELEASER_VERSION }}
+          install-only: true
+      - name: Release dry run
+        run: make release-snapshot GORELEASER=goreleaser GO_LICENSES="$(go env GOPATH)/bin/go-licenses"
+      - name: Release checks
+        run: make release-check
+
+  docker-smoke:
+    # The image's real entrypoint in Docker, per flavour: a client container
+    # reaches https://signer:9000 by name, pinning the generated certificate
+    # by its logged fingerprint; the refusals; the compose example.
+    name: docker smoke (${{ matrix.flavour }})
+    strategy:
+      fail-fast: false
+      matrix:
+        flavour: [remotesigner, remotesigner-consensus]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+      - name: Install go-licenses
+        run: go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the image and run the smoke test
+        run: make docker-smoke FLAVOUR=${{ matrix.flavour }} GO_LICENSES="$(go env GOPATH)/bin/go-licenses"
+
+  systemd-smoke:
+    # deploy/systemd/remotesigner.service with deploy/config/single-host.yaml,
+    # installed as the systemd guide describes, in a privileged container
+    # that runs systemd: the hardened unit serves TLS, reloads and stops.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Run the unit under systemd
+        run: make systemd-smoke
