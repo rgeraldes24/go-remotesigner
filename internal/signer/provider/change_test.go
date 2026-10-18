@@ -114,8 +114,11 @@ func TestApplySinceKeepsLaterChanges(t *testing.T) {
 	if e, ok := p.Entry(imported[0].ID()); !ok || e.Key != imported[0] || imported[0].Zeroized() {
 		t.Fatal("a load that started before an Add dropped the added key")
 	}
-	if p.Len() != 2 || d.Kept != 1 || d.Removed != 0 {
+	if p.Len() != 2 || d.Kept != 1 || d.Removed != 0 || d.Superseded != 1 {
 		t.Fatalf("len %d, delta %+v", p.Len(), d)
+	}
+	if !p.ChangedSince(since, "deleted") || !p.ChangedSince(since, "imported") || p.ChangedSince(since, "kept") {
+		t.Fatal("ChangedSince does not name the changed sources")
 	}
 
 	// The next load lists "imported" without "deleted": both as usual.

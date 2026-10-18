@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io/fs"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -159,6 +160,17 @@ func (l *keyLoader) load(ctx, loadCtx context.Context) (int, error) {
 		func(pks [][]byte) error { return l.engine.RegisterValidators(ctx, pks) }, l.sig.Quarantined)
 	if err != nil {
 		return kcErrs + ksErrs, fmt.Errorf("register keys in slashing protection: %w", err)
+	}
+	// A source the keymanager changed meanwhile was read half-way through
+	// its change; what the load made of it does not count.
+	for _, b := range batches {
+		if b.Err != nil && l.keys.ChangedSince(since, b.Source) {
+			if strings.HasPrefix(b.Source, keyconfig.SourcePrefix) {
+				kcErrs--
+			} else {
+				ksErrs--
+			}
+		}
 	}
 	l.state.keyConfig.Store(int64(kcErrs))
 	l.state.keystores.Store(int64(ksErrs))

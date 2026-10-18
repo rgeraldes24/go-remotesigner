@@ -115,6 +115,9 @@ type Delta struct {
 	Unchanged int
 	// Errors counts the batches that failed.
 	Errors int
+	// Superseded counts the batches ApplySince ignored because Add or
+	// Remove changed their source during the load (see ChangedSince).
+	Superseded int
 }
 
 // Errors.
@@ -191,6 +194,15 @@ func (p *Provider) SourceLen(source string) int { return len(p.state.Load().bySo
 
 // Len returns the number of loaded keys.
 func (p *Provider) Len() int { return len(p.state.Load().byID) }
+
+// ChangedSince reports whether Add or Remove changed source after
+// generation since. After an ApplySince at since, it names the sources
+// whose batches that load had to ignore.
+func (p *Provider) ChangedSince(since uint64, source string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.changed[source] > since
+}
 
 // Generation returns the generation of the last Add or Remove. A load reads
 // it before it lists its sources and passes it to ApplySince.
@@ -340,6 +352,7 @@ func (p *Provider) ApplySince(since uint64, batches []Batch, register func(pubke
 	for _, b := range batches {
 		if later[b.Source] {
 			discard = append(discard, b.Keys...)
+			d.Superseded++
 			continue
 		}
 		if b.Err != nil || b.Keep {
