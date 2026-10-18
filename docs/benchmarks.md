@@ -173,7 +173,10 @@ five rounds per P at load average 16-25 from other work. RSS: one run of two rou
   therefore not reached, and a loader that runs decrypts concurrently has to count 512 MiB for each.
 - **Open before v1.0.** B10 gates v1.0. Either the RSS bound is revised to 512 MiB per decrypt, the slot size of the
   keystore loader's Argon2id semaphore, or a mitigation (such as a garbage collection after each run, inside the
-  semaphore slot) is added in the keystore loader and B10's RSS rows are measured again with it.
+  semaphore slot) is added in the keystore loader and B10's RSS rows are measured again with it. The loader already
+  counts 512 MiB for each standard-KDF decrypt it admits
+  ([`operations/reload.md`](operations/reload.md#6-memory-for-keystore-decryption)), so its memory stays within the
+  budget either way.
 
 ## TLS handshake storm (B20, the built binary)
 
@@ -230,3 +233,43 @@ the write lock, and the baseline p99 is the last of those commits. A prune trans
 as one more signer would, so signing during the run stays near its baseline (in all six measurements the baseline
 p99 was the higher one, within the noise of a loaded machine). Batching signing commits (`db.Batch`) was left out:
 the threshold is met without it.
+
+## Key loading and reload (B11, B12, the built binary)
+
+**B11 and B12: met on the development machine**, pending the reference VMs. The machine was shared with other
+heavy work throughout, so the absolute times below say more about that load than about the signer.
+
+```
+make bench-loading     # REMOTESIGNER_BENCH=1 go test -run '^TestB1[12]' ./test/acceptance/
+```
+
+B11 starts the built binary and measures, from process start, the time to `/upcheck` 200: once with 10,000 `file-raw`
+keys (then the full `GET /api/v1/consensus/publicKeys`, 51.9 MB), and once each with 100 and 1,000 standard-KDF
+deposit CLI keystores (Argon2id `t=8`, `m=262144` KiB) in `--keystores-path` with one password file. The keystore
+bound is 1.2 × N × t / P: P is the number of standard-KDF decrypts the signer's semaphore runs at once (from its
+startup log) and t the mean time of one decrypt at that concurrency, which the signer measures during the load and
+logs with "Keys loaded" (`decrypt-time` / `decrypts`). Measuring t during the load keeps the bound valid when other
+work on the machine changes speed during the run; t measured in the test process just after the load is logged
+beside it. B12 starts with 32 `file-raw` keys, runs the B7 burst four times (the first records the attestations; the
+median p99 of the other three is the baseline), adds 100 standard-KDF keystores, posts `/reload`, waits 2 s and runs
+the burst again while the reload decrypts. Peak RSS is sampled with `ps` every 100 ms.
+
+| ID | Test | Threshold | Development-machine results | Verdict |
+|---|---|---|---|---|
+| B11 | `TestB11StartupFileRaw` (10,000 keys) | ready ≤ 30 s; `publicKeys` ≤ 5 s | ready 1.09 s, `publicKeys` 554 ms, peak RSS 635 MiB (run I); ready 2.13 s, 813 ms, 617 MiB (run H) | met on dev machine |
+| B11 | `TestB11StartupKeystores/100` | ready ≤ 1.2 × N × t / P | P = 8, t = 2.76 s: ready 35 s, bound 41 s; peak RSS 4,120 MiB | met on dev machine |
+| B11 | `TestB11StartupKeystores/1000` | as above | P = 8, t = 9.61 s (4.09 s just after the load): ready 20 min 3 s, bound 24 min 1 s; peak RSS 4,380 MiB | met on dev machine |
+| B12 | `TestB12ReloadDuringBurst` | B7 p99 during the reload ≤ 2 × B7 p99 without | p99 256 ms without (median of 181, 256 and 278 ms), 322 ms during a reload of 100 standard-KDF keystores (bound 511 ms); last response 325 ms; the reload took 59 s at 4.0 s per decrypt | met on dev machine |
+
+Run I, 2026-10-18, Go 1.26.9, Apple M2 (4 performance and 4 efficiency cores, 16 GiB, darwin/arm64); load average 5
+at the start, 30-37 from other work during the 1,000-keystore load and B12. The signer sized its semaphore from half
+the RAM (7.5 GiB budget, P = 8, the CPU count). Run H, the same day, is the `file-raw` row of an earlier attempt at
+load average 50-60, whose keystore rows compared the ready time with t measured after the load and missed the bound
+(100 keystores: 4 min 53 s against 3 min 20 s, while the load average moved between 20 and 60); that is why t is now
+taken during the load.
+
+- **Memory.** The keystore runs peaked at about 8 × 512 MiB, the semaphore's budget for eight standard-KDF decrypts,
+  plus the process, as B10's memory note predicts. The 10,000 `file-raw` keys took about 620 MiB, about 60 KiB per
+  key ([`operations/reload.md`](operations/reload.md#6-memory-for-keystore-decryption)).
+- **Reload isolation.** A reload loads at most `GOMAXPROCS − 1` sources at once, so one CPU stays free for signing;
+  B12's p99 rose by a quarter during a reload that kept seven Argon2id runs busy.

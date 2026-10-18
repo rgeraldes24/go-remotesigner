@@ -189,6 +189,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/flavour_full.go` | new | | | |
 | `cmd/remotesigner/interchange.go` | new | | | |
 | `cmd/remotesigner/interchange_test.go` | new | | | |
+| `cmd/remotesigner/keys_test.go` | new | | | |
 | `cmd/remotesigner/keystore.go` | new | | | |
 | `cmd/remotesigner/keystore_test.go` | new | | | |
 | `cmd/remotesigner/main.go` | new | | | |

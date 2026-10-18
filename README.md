@@ -15,8 +15,10 @@ Pre-release. The HTTP contract with the qrysm validator client is [`docs/contrac
 [`docs/spec/`](docs/spec/README.md). `remotesigner consensus` signs all nine artifact types behind bbolt slashing
 protection, releases RANDAO reveals under the frontier rule, and serves `publicKeys`, `capabilities`, `/upcheck`,
 `/healthcheck`, `/reload` and a Prometheus metrics listener, with token authentication, the request guards and
-limits, and `file-raw` key loading. `remotesigner consensus keystore verify` checks a qrysm or deposit CLI keystore
-and its password file offline ([`docs/operations/keystores.md`](docs/operations/keystores.md)). To try the signer, see
+limits, and key loading from `file-raw` and `file-keystore` key files and from keystore directories, with reloads
+that never disable a key ([`docs/operations/reload.md`](docs/operations/reload.md)). `remotesigner consensus keystore
+verify` checks qrysm and deposit CLI keystores and their password files offline
+([`docs/operations/keystores.md`](docs/operations/keystores.md)). To try the signer, see
 [`docs/operations/quickstart.md`](docs/operations/quickstart.md); every flag is in
 [`docs/reference/flags.md`](docs/reference/flags.md).
 

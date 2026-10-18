@@ -30,7 +30,10 @@ missing `--network` and an invalid config file), 1 when the signer refuses to st
 |---|---|---|---|---|
 | `--config-file` | none | none | unset | YAML file of flag values: bare flag names, with an optional consensus: section. Unknown keys are rejected. |
 | `--data-path` | `REMOTESIGNER_DATA_PATH` | `data-path` | unset | Directory for the generated token files, the slashing-protection store and the ports file |
-| `--key-config-path`, `--key-store-path` | `REMOTESIGNER_KEY_CONFIG_PATH`, `REMOTESIGNER_KEY_STORE_PATH` | `key-config-path` | unset | Directory of key-config files (type file-raw, \*.yaml or \*.yml); unset loads no keys |
+| `--key-config-path`, `--key-store-path` | `REMOTESIGNER_KEY_CONFIG_PATH`, `REMOTESIGNER_KEY_STORE_PATH` | `key-config-path` | unset | Directory of key-config files (\*.yaml or \*.yml; types file-raw and file-keystore); unset loads none |
+| `--strict-file-permissions` | `REMOTESIGNER_STRICT_FILE_PERMISSIONS` | `strict-file-permissions` | `true` | Refuse secret files (password files, key-config files with a seed) that their group or other users can read; false loads them with a warning |
+| `--reload-timeout` | `REMOTESIGNER_RELOAD_TIMEOUT` | `reload-timeout` | `60` | Minutes a POST /reload may load keys; the sources not loaded by then keep their previous keys. The startup load is not bounded. |
+| `--signer-load-parallelism` | `REMOTESIGNER_SIGNER_LOAD_PARALLELISM` | `signer-load-parallelism` | `0 (from the memory limit)` | Keystore decrypts with the standard KDF that may run at once; 0 sizes the Argon2id budget from GOMEMLIMIT, the cgroup limit or half the RAM |
 | `--logging`, `-l` | `REMOTESIGNER_LOGGING`, `REMOTESIGNER_L` | `logging` | `INFO` | Log level: OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE or ALL |
 | `--logging-format`, `--log-format` | `REMOTESIGNER_LOGGING_FORMAT`, `REMOTESIGNER_LOG_FORMAT` | `logging-format` | `text` | Log format: text or json |
 | `--log-file` | `REMOTESIGNER_LOG_FILE` | `log-file` | unset | Write logs to this file instead of standard error |
@@ -82,6 +85,9 @@ missing `--network` and an invalid config file), 1 when the signer refuses to st
 | `--randao-new-layer-burst` | `REMOTESIGNER_CONSENSUS_RANDAO_NEW_LAYER_BURST` | `randao-new-layer-burst` or `consensus.randao-new-layer-burst` | `3` | Tokens in each key's RANDAO new-layer bucket: frontier-moving reveals allowed in a burst |
 | `--randao-new-layer-refill-epochs` | `REMOTESIGNER_CONSENSUS_RANDAO_NEW_LAYER_REFILL_EPOCHS` | `randao-new-layer-refill-epochs` or `consensus.randao-new-layer-refill-epochs` | `1` | Epochs per new-layer token refill; 0 turns the bucket off. Networks with fewer than about 4 x SLOTS_PER_EPOCH validators should raise the burst or use 0. |
 | `--randao-protection-required` | `REMOTESIGNER_CONSENSUS_RANDAO_PROTECTION_REQUIRED` | `randao-protection-required` or `consensus.randao-protection-required` | `false` | Refuse to start when RANDAO frontiers would be kept in memory only (--slashing-protection-enabled=false) |
+| `--keystores-path` | `REMOTESIGNER_CONSENSUS_KEYSTORES_PATH` | `keystores-path` or `consensus.keystores-path` | unset | Directory of keystores to load: every non-hidden \*.json file in it (deposit CLI or qrysm keystore v1) |
+| `--keystores-password-file` | `REMOTESIGNER_CONSENSUS_KEYSTORES_PASSWORD_FILE` | `keystores-password-file` or `consensus.keystores-password-file` | unset | File holding the password of every keystore in --keystores-path; not with --keystores-passwords-path |
+| `--keystores-passwords-path` | `REMOTESIGNER_CONSENSUS_KEYSTORES_PASSWORDS_PATH` | `keystores-passwords-path` or `consensus.keystores-passwords-path` | unset | Directory of password files, \<name>.txt for keystore \<name>.json; not with --keystores-password-file |
 
 ## Offline store commands
 
@@ -139,19 +145,37 @@ names it in the file of such a store. The history commands are described in
 | `--slot` | none | none | unset | Required unless --remove. The high watermark's slot: blocks at or above it are refused |
 | `--remove` | none | none | `false` | Remove the high watermark instead of setting one |
 
+### consensus disable-validator
+
+| Flag | Environment | Config file | Default | Description |
+|---|---|---|---|---|
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
+| `--key` | none | none | unset | Required. The key to disable: its 0x public key or 0x sha256 of it |
+
+`consensus disable-validator` persists `enabled=false` for a key, which then gets 412
+`VALIDATOR_DISABLED` for blocks, attestations and new RANDAO layers. Reloads never disable a key. See
+[`../operations/reload.md`](../operations/reload.md#5-disabling-a-validator).
+
 ## Keystore commands
 
-`consensus keystore verify` decrypts one keystore with its password file through the signer's keystore
-decryptor and policy, and checks that the keystore's pubkey is the key its seed derives. It prints the key's
-identifier and exits 0, or names the refusal and exits 1. It needs no network, store or running signer. See
+`consensus keystore verify` decrypts one keystore with its password file (`--file`, `--password-file`), or a
+keystore directory as the signer loads it (`--keystores-path` with `--keystores-password-file` or
+`--keystores-passwords-path`), through the signer's keystore decryptor, policy and file-permission rule, and
+checks that each keystore's pubkey is the key its seed derives. It prints each key's identifier and exits 0, or
+names the refusals and exits 1. It needs no network, store or running signer. Its own flags read no environment
+variables, so that a signer's `REMOTESIGNER_CONSENSUS_KEYSTORES_*` settings do not apply to it; the global
+`--strict-file-permissions` and `--signer-load-parallelism` do. See
 [`../operations/keystores.md`](../operations/keystores.md).
 
 ### consensus keystore verify
 
 | Flag | Environment | Config file | Default | Description |
 |---|---|---|---|---|
-| `--file` | none | none | unset | Required. The keystore to check: qrysm's keystore v1 or a deposit CLI keystore (JSON) |
-| `--password-file` | none | none | unset | Required. File holding the keystore's password; trailing line breaks are not part of it |
+| `--file` | none | none | unset | The keystore to check: qrysm's keystore v1 or a deposit CLI keystore (JSON); with --password-file |
+| `--password-file` | none | none | unset | File holding the keystore's password; trailing line breaks are not part of it |
+| `--keystores-path` | none | none | unset | Directory of keystores to load: every non-hidden \*.json file in it (deposit CLI or qrysm keystore v1) |
+| `--keystores-password-file` | none | none | unset | File holding the password of every keystore in --keystores-path; not with --keystores-passwords-path |
+| `--keystores-passwords-path` | none | none | unset | Directory of password files, \<name>.txt for keystore \<name>.json; not with --keystores-password-file |
 
 ## Override flags
 

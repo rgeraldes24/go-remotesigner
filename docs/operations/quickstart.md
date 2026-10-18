@@ -34,10 +34,16 @@ privateKey: "0x<96 hex characters>"
 - 32-byte keys, 51-byte extended seeds (execution mode) and 4,896-byte raw ML-DSA secret keys are refused with a
   message that says which one was found.
 - File names are free. Keys are identified by their public key, never by the file name.
-- Keep the directory readable by the signer's user only (`chmod 700`, files `0600`): the seed is the key.
+- Keep the directory readable by the signer's user only (`chmod 700`, files `0600`): the seed is the key. A key file
+  that its group or other users can read is refused unless `--strict-file-permissions=false` is given.
 
 A file that fails to load is logged at ERROR and counted in the `keys-check/config-files-loading` health check; the
 other files still load. On `POST /reload`, a file that now fails keeps the keys it had.
+
+Keystores load too: from a directory of deposit CLI or qrysm keystores (`--keystores-path` with
+`--keystores-password-file` or `--keystores-passwords-path`, after `consensus`) or from `type: file-keystore`
+documents in key files. [`reload.md`](reload.md) describes every key source, reloads, disabling a validator and the
+memory keystore decryption needs; [`keystores.md`](keystores.md) the formats and password files.
 
 ## 3. Network
 
@@ -105,9 +111,9 @@ curl -s -X POST -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/
 curl -s -H "Authorization: Bearer $TOKEN" localhost:9000/reload        # idle, running, completed, ...
 ```
 
-Keys removed from the directory are dropped from memory; their slashing-protection history stays in the store.
-The store is pruned at startup and every 12 hours to the last 512 epochs of each validator's history
-([`migration.md`](migration.md#6-pruning)).
+Keys removed from the directory are dropped from memory; their slashing-protection history stays in the store, and
+putting the file back loads them again ([`reload.md`](reload.md#3-reload)). The store is pruned at startup and every
+12 hours to the last 512 epochs of each validator's history ([`migration.md`](migration.md#6-pruning)).
 
 ## 6. Sign
 
