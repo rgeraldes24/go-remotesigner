@@ -24,7 +24,9 @@ remotesigner --key-config-path=/var/lib/remotesigner/keys --data-path=/var/lib/r
   directory is created with mode `0700`. An existing one that its group or other users can access (`0755`, for
   example, as `mkdir` makes it under the usual umask) is refused at startup under `--strict-file-permissions` (the
   default): `chmod 0700` it. With `--strict-file-permissions=false` the signer starts and logs a WARN naming the
-  directory and its mode. On Windows the directory's ACL governs access and no mode is checked.
+  directory and its mode. On Windows the directory's ACL governs access and no mode is checked. The signer must be
+  able to write there: the container examples of [`deploy-docker.md`](deploy-docker.md#3-volumes-and-keys) mount
+  `/keys` read-only, which makes every import an `error`; mount it read-write for the keymanager.
 - **Without the flag** the routes do not exist: they answer `404` once the caller has presented a token.
 
 The routes answer during the startup load as well, while `/upcheck` is still `503`. An import or a delete then changes
