@@ -359,6 +359,19 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/secretfile/secretfile.go` | new | | | |
 | `internal/keys/secretfile/secretfile_test.go` | new | | | |
 | `internal/keys/secretfile/secretfile_unix_test.go` | new | | | |
+| `internal/keys/secrets/bulk.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/common/SecretValueMapperUtil.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/common/MappedResults.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsAwsBulkLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsGcpBulkLoader.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/keys/secrets/cache.go` | new | | | |
+| `internal/keys/secrets/hashicorp/devserver_test.go` | new | | | |
+| `internal/keys/secrets/hashicorp/hashicorp.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/hashicorp/HashicorpConnection.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/hashicorp/HashicorpConnectionFactory.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/hashicorp/HashicorpKVResponseMapper.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/AbstractArtifactSignerFactory.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/keys/secrets/hashicorp/hashicorp_test.go` | new | | | |
+| `internal/keys/secrets/hashicorp/knownservers.go` | new | | | |
+| `internal/keys/secrets/http.go` | new | | | |
+| `internal/keys/secrets/secrets.go` | new | | | |
+| `internal/keys/secrets/secrets_test.go` | new | | | |
+| `internal/keys/secrets/secretstest/vault.go` | new | | | |
+| `internal/keys/secrets/seed.go` | new | | | |
+| `internal/keys/secrets/seed_test.go` | new | | | |
+| `internal/keys/secrets/spec.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/HashicorpSigningMetadata.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/AwsKeySigningMetadataDeserializer.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/AzureSecretSigningMetadataDeserializer.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/hashicorp/config/ConnectionParameters.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/hashicorp/config/KubernetesAuthOptions.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/azure/AzureOverrides.java`<br>`common/src/main/java/tech/pegasys/web3signer/common/config/AwsAuthenticationMode.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/AzureAuthenticationMode.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/source/identity_bsd.go` | new | | | |
 | `internal/keys/source/identity_linux.go` | new | | | |
 | `internal/keys/source/identity_other.go` | new | | | |
