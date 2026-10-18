@@ -154,7 +154,7 @@ func configFiles(dir string) ([]string, error) {
 // load loads one key-config file.
 func (c Config) load(ctx context.Context, start time.Time, path string, unchanged source.Unchanged) provider.Batch {
 	b := provider.Batch{Source: Source(path)}
-	keys, version, err := c.loadFile(ctx, start, path, func(version string) bool {
+	keys, metas, version, err := c.loadFile(ctx, start, path, func(version string) bool {
 		return unchanged != nil && unchanged(b.Source, version)
 	})
 	if err != nil {
@@ -162,7 +162,7 @@ func (c Config) load(ctx context.Context, start time.Time, path string, unchange
 		return b
 	}
 	b.Version = version
-	b.Keys = keys
+	b.Keys, b.Meta = keys, metas
 	b.Keep = keys == nil
 	return b
 }
@@ -170,36 +170,37 @@ func (c Config) load(ctx context.Context, start time.Time, path string, unchange
 // LoadFile loads the key-config file at path and builds its keys. Either
 // every document loads or the file fails as a whole.
 func (c Config) LoadFile(ctx context.Context, path string) ([]*mldsa87.Key, error) {
-	keys, _, err := c.loadFile(ctx, time.Now(), path, nil)
+	keys, _, _, err := c.loadFile(ctx, time.Now(), path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return keys, nil
 }
 
-// loadFile reads, checks and parses the file at path. It returns no keys
-// and no error when keep reports true for the file's version.
+// loadFile reads, checks and parses the file at path, and returns its keys
+// with their metadata. It returns no keys and no error when keep reports
+// true for the file's version.
 func (c Config) loadFile(ctx context.Context, start time.Time, path string, keep func(version string) bool) (
-	[]*mldsa87.Key, string, error) {
+	[]*mldsa87.Key, []provider.Meta, string, error) {
 	limit := c.MaxFileSize
 	if limit <= 0 {
 		limit = DefaultMaxFileSize
 	}
 	data, fi, err := secretfile.ReadInfo(path, limit)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	docs, err := parse(data, c.Dir)
 	mldsa87.Wipe(data)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	defer wipeDocs(docs)
 	keyFiles, passwords := []fs.FileInfo{fi}, []fs.FileInfo(nil)
 	for _, d := range docs {
 		if d.seed != nil {
 			if err := c.Policy.Check(path, fi); err != nil {
-				return nil, "", err
+				return nil, nil, "", err
 			}
 			break
 		}
@@ -210,68 +211,69 @@ func (c Config) loadFile(ctx context.Context, start time.Time, path string, keep
 		}
 		ksInfo, err := os.Stat(d.keystoreFile)
 		if err != nil {
-			return nil, "", fmt.Errorf("keystoreFile: %w", err)
+			return nil, nil, "", fmt.Errorf("keystoreFile: %w", err)
 		}
 		pwInfo, err := os.Stat(d.passwordFile)
 		if err == nil {
 			err = c.Policy.Check(d.passwordFile, pwInfo)
 		}
 		if err != nil {
-			return nil, "", fmt.Errorf("keystorePasswordFile: %w", err)
+			return nil, nil, "", fmt.Errorf("keystorePasswordFile: %w", err)
 		}
 		keyFiles, passwords = append(keyFiles, ksInfo), append(passwords, pwInfo)
 	}
 	version := source.Version(start, keyFiles, passwords...)
 	if keep != nil && keep(version) {
-		return nil, version, nil
+		return nil, nil, version, nil
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, "", fmt.Errorf("not loaded: %w", err)
+		return nil, nil, "", fmt.Errorf("not loaded: %w", err)
 	}
 	keys := make([]*mldsa87.Key, 0, len(docs))
+	metas := make([]provider.Meta, 0, len(docs))
 	for _, d := range docs {
-		k, err := c.build(ctx, d)
+		k, meta, err := c.build(ctx, d)
 		if err != nil {
 			zeroize(keys)
-			return nil, "", fmt.Errorf("document %d: %w", d.index, err)
+			return nil, nil, "", fmt.Errorf("document %d: %w", d.index, err)
 		}
-		keys = append(keys, k)
+		keys, metas = append(keys, k), append(metas, meta)
 	}
-	return keys, version, nil
+	return keys, metas, version, nil
 }
 
 // build derives the key of one document.
-func (c Config) build(ctx context.Context, d document) (*mldsa87.Key, error) {
+func (c Config) build(ctx context.Context, d document) (*mldsa87.Key, provider.Meta, error) {
 	if d.seed != nil {
 		k, err := mldsa87.FromSeed48(d.seed)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrPrivateKey, err)
+			return nil, provider.Meta{}, fmt.Errorf("%w: %v", ErrPrivateKey, err)
 		}
-		return k, nil
+		return k, provider.Meta{}, nil
 	}
 	if c.Decrypt == nil {
-		return nil, fmt.Errorf("%w: type %s is not supported here", ErrUnsupported, TypeFileKeystore)
+		return nil, provider.Meta{}, fmt.Errorf("%w: type %s is not supported here", ErrUnsupported, TypeFileKeystore)
 	}
 	data, err := secretfile.ReadCapped(d.keystoreFile, qrlv1.MaxSize)
 	if err != nil {
-		return nil, fmt.Errorf("keystoreFile: %w", err)
+		return nil, provider.Meta{}, fmt.Errorf("keystoreFile: %w", err)
 	}
 	ks, err := qrlv1.Parse(data)
 	if err != nil {
-		return nil, fmt.Errorf("keystoreFile %s: %w", d.keystoreFile, err)
+		return nil, provider.Meta{}, fmt.Errorf("keystoreFile %s: %w", d.keystoreFile, err)
 	}
 	pwData, err := secretfile.Read(d.passwordFile, keystores.MaxPasswordFile, c.Policy)
 	if err != nil {
-		return nil, fmt.Errorf("keystorePasswordFile: %w", err)
+		return nil, provider.Meta{}, fmt.Errorf("keystorePasswordFile: %w", err)
 	}
 	pw := qrlv1.NewPassword(qrlv1.TrimPassword(pwData))
 	mldsa87.Wipe(pwData)
 	defer pw.Wipe()
 	k, err := c.Decrypt(ctx, ks, pw)
 	if err != nil {
-		return nil, fmt.Errorf("keystoreFile %s: %w", d.keystoreFile, err)
+		return nil, provider.Meta{}, fmt.Errorf("keystoreFile %s: %w", d.keystoreFile, err)
 	}
-	return k, nil
+	return k, provider.Meta{DerivationPath: ks.Path, Keystore: true}, nil
 }
 
 // document is one parsed key document: a file-raw seed, or the absolute

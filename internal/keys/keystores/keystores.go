@@ -218,6 +218,7 @@ func (c Config) load(ctx context.Context, start time.Time, path string, shared *
 		return fail(err)
 	}
 	b.Keys = []*mldsa87.Key{key}
+	b.Meta = []provider.Meta{{DerivationPath: ks.Path, Keystore: true}}
 	return b
 }
 

@@ -238,6 +238,16 @@ func TestFileKeystore(t *testing.T) {
 	if pk := keys[0].PublicKey(); hex.EncodeToString(pk[:]) != want {
 		t.Fatal("the file-keystore document gave another key")
 	}
+	// The batch records that the key came from a keystore, with the
+	// derivation path the keystore records (the keymanager lists both).
+	res, err := c.Load(context.Background(), 1, nil, nil)
+	if err != nil || len(res) != 1 || res[0].Err != nil {
+		t.Fatalf("Load: %v %+v", err, res)
+	}
+	if m := res[0].Meta; len(m) != 1 || m[0] != (provider.Meta{DerivationPath: keystoretest.DepositPath(0), Keystore: true}) {
+		t.Fatalf("meta %+v", m)
+	}
+	zeroize(res[0].Keys)
 
 	// A world-readable YAML of keystore references is not a secret, but a
 	// world-readable password file is refused under the strict policy.

@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io/fs"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -75,6 +76,8 @@ type keyLoader struct {
 	log     logrus.FieldLogger
 
 	loaded atomic.Bool // the startup load has finished
+
+	refreshMu sync.Mutex // serialises refresh
 }
 
 func newKeyLoader(cfg *config.Config, sem *argon.Semaphore, keys *provider.Provider, engine *slashing.Engine,
@@ -126,6 +129,9 @@ func (l *keyLoader) load(ctx, loadCtx context.Context) (int, error) {
 	if l.keyConfig == nil && l.keystores == nil {
 		l.log.Warn("No --key-config-path or --keystores-path: no keys are loaded")
 	}
+	// Sources the keymanager changes from here on keep what it made of
+	// them, whatever this load reads (provider.ApplySince).
+	since := l.keys.Generation()
 	unchanged := func(src, version string) bool { return l.keys.Unchanged(src, version, l.sig.Quarantined) }
 	workers := l.workers()
 	decrypts, busy := l.sem.Stats()
@@ -149,21 +155,14 @@ func (l *keyLoader) load(ctx, loadCtx context.Context) (int, error) {
 	}
 	// New keys are registered under ctx, not loadCtx: what was loaded before
 	// the reload timeout is still applied.
-	d, err := l.keys.Apply(batches, func(pks [][]byte) error { return l.engine.RegisterValidators(ctx, pks) },
-		l.sig.Quarantined)
+	d, err := l.keys.ApplySince(since, batches,
+		func(pks [][]byte) error { return l.engine.RegisterValidators(ctx, pks) }, l.sig.Quarantined)
 	if err != nil {
 		return kcErrs + ksErrs, fmt.Errorf("register keys in slashing protection: %w", err)
 	}
 	l.state.keyConfig.Store(int64(kcErrs))
 	l.state.keystores.Store(int64(ksErrs))
-	var ids []slashing.KeyID
-	for pk := range l.keys.PublicKeys() {
-		ids = append(ids, slashing.KeyID(pk.ID()))
-	}
-	if err := l.reveals.Track(ctx, ids); err != nil {
-		l.log.WithError(err).Error("Reading the RANDAO frontiers of the loaded keys failed")
-	}
-	quarantined := l.sig.Release()
+	quarantined := l.refresh(ctx)
 	n, total := l.sem.Stats()
 	l.log.WithFields(logrus.Fields{
 		"loaded": l.keys.Len(), "added": d.Added, "removed": d.Removed, "renewed": d.Renewed, "unchanged": d.Unchanged,
@@ -171,6 +170,26 @@ func (l *keyLoader) load(ctx, loadCtx context.Context) (int, error) {
 		"decrypts": n - decrypts, "decrypt-time": (total - busy).Round(time.Millisecond),
 	}).Info("Keys loaded")
 	return kcErrs + ksErrs, nil
+}
+
+// refresh brings what follows the key set up to date after it changed, by a
+// load or through the keymanager: the RANDAO service tracks the loaded keys
+// (and forgets the precomputed layers of evicted ones), and the signer
+// drops the cached responses of evicted keys and lifts the quarantine of
+// replaced ones. It returns the number of keys still quarantined. Calls
+// are serialised, and each reads the key set it runs with, so the last one
+// leaves the state of the latest key set.
+func (l *keyLoader) refresh(ctx context.Context) int {
+	l.refreshMu.Lock()
+	defer l.refreshMu.Unlock()
+	var ids []slashing.KeyID
+	for pk := range l.keys.PublicKeys() {
+		ids = append(ids, slashing.KeyID(pk.ID()))
+	}
+	if err := l.reveals.Track(ctx, ids); err != nil {
+		l.log.WithError(err).Error("Reading the RANDAO frontiers of the loaded keys failed")
+	}
+	return l.sig.Release()
 }
 
 // collect appends a loader's batches and counts its errors, logging each.

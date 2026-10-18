@@ -349,6 +349,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/server/tlsconf/tlsconf_test.go` | new | | | |
 | `internal/signer/cache.go` | new | | | |
 | `internal/signer/cache_test.go` | new | | | |
+| `internal/signer/provider/change_test.go` | new | | | |
 | `internal/signer/provider/provider.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/DefaultArtifactSignerProvider.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/signer/provider/provider_test.go` | new | | | |
 | `internal/signer/signer.go` | new | | | |
@@ -372,6 +373,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/slashing/interchange/export.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/InterchangeV5Exporter.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/EmptyDataIncrementalInterchangeV5Exporter.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/slashing/interchange/export_test.go` | new | | | |
 | `internal/slashing/interchange/export_w3s_test.go` | w3s-derived | Web3Signer | `slashing-protection/src/integration-test/java/tech/pegasys/web3signer/slashingprotection/InterchangeExportIntegrationTestBase.java`<br>`slashing-protection/src/test/java/tech/pegasys/web3signer/slashingprotection/interchange/InterchangeV5ExporterTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/interchange/filter_test.go` | new | | | |
 | `internal/slashing/interchange/fuzz_test.go` | new | | | |
 | `internal/slashing/interchange/helpers_test.go` | new | | | |
 | `internal/slashing/interchange/import.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/InterchangeV5Importer.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/BlockImporter.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/AttestationImporter.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/OptionalMinValueTracker.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
