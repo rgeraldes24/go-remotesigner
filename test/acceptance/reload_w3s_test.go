@@ -35,7 +35,7 @@ import (
 // The cases of Web3Signer's ReloadAcceptanceTest, against the built binary
 // with ML-DSA-87 keys in the key-config directory. They assert the
 // deviation register where it differs from Web3Signer: the fixed messages
-// of X44, and X65 ("GET /reload before the first POST /reload"), the
+// of X44, and X66 ("GET /reload before the first POST /reload"), the
 // startup load reported by GET /reload.
 
 // rawKey writes key i of tag as a file-raw key-config file named name and
@@ -194,7 +194,7 @@ func TestReloadPicksUpFileSystemChanges(t *testing.T) {
 
 // Web3Signer loads its keys before it listens, so GET /reload is idle until
 // the first POST. This signer listens at once (X36) and reports the startup
-// load as the last operation (X65): completed, with its time, once the
+// load as the last operation (X66): completed, with its time, once the
 // keys are loaded.
 func TestReloadStatusReportsTheStartupLoad(t *testing.T) {
 	s := start(t, options{})
