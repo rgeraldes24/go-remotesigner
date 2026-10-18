@@ -390,6 +390,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/slashing/interchange/safety_test.go` | new | | | |
 | `internal/slashing/memstore/memstore.go` | new |  |  |  |
 | `internal/slashing/memstore/memstore_test.go` | new |  |  |  |
+| `internal/slashing/pgstore/concurrency_test.go` | new | | | |
 | `internal/slashing/pgstore/history.go` | new | | | |
 | `internal/slashing/pgstore/migrate.go` | new | | | |
 | `internal/slashing/pgstore/pgstore.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbLocker.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbConnection.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
