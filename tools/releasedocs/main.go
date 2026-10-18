@@ -11,7 +11,10 @@
 //     NOTICE.execution when the repository has one: that fragment holds the
 //     notices of the execution mode, which the consensus flavour never links;
 //   - LICENSES/: the generic licence texts, without the GPL and LGPL texts in
-//     the consensus flavour, which links permissively licensed code only;
+//     the consensus flavour, which links permissively licensed code only. A
+//     GNU GPL, LGPL or AGPL text that executionOnly does not list, found by
+//     its file name or its title line, is an error rather than shipped in
+//     the consensus flavour;
 //   - third_party_licenses/: `go-licenses save` of the flavour's binary, each
 //     linked module's own licence and notice files;
 //
@@ -40,6 +43,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -73,6 +77,15 @@ const (
 // ships: the texts of the LGPL code execution mode links and of the GPL it
 // refers to.
 var executionOnly = []string{"GPL-3.0-or-later.txt", "LGPL-3.0-or-later.txt"}
+
+var (
+	// gnuName matches the file name of a GNU GPL, LGPL or AGPL text.
+	gnuName = regexp.MustCompile(`(?i)gpl`)
+	// gnuTitle matches the title line of a GNU GPL, LGPL (or Library GPL) or
+	// AGPL text. Permissive texts that mention these licences (MPL-2.0's
+	// Secondary Licenses) do not write it in capitals.
+	gnuTitle = regexp.MustCompile(`GNU (?:LESSER |LIBRARY |AFFERO )?GENERAL PUBLIC LICENSE`)
+)
 
 func main() {
 	root := flag.String("root", ".", "repository root")
@@ -180,7 +193,9 @@ func noticeFor(root string, f flavour) ([]byte, error) {
 }
 
 // licenseTexts returns the names of the LICENSES/ files flavour f ships, in
-// name order.
+// name order. For the consensus flavour, a GNU GPL-family text left after
+// the executionOnly texts is an error: listing it is a decision, and
+// shipping it would break the flavour's permissive-only promise.
 func licenseTexts(root string, f flavour) ([]string, error) {
 	entries, err := os.ReadDir(filepath.Join(root, "LICENSES"))
 	if err != nil {
@@ -191,8 +206,18 @@ func licenseTexts(root string, f flavour) ([]string, error) {
 		if !e.Type().IsRegular() {
 			continue
 		}
-		if !f.execution && slices.Contains(executionOnly, e.Name()) {
-			continue
+		if !f.execution {
+			if slices.Contains(executionOnly, e.Name()) {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(root, "LICENSES", e.Name()))
+			if err != nil {
+				return nil, err
+			}
+			if gnuName.MatchString(e.Name()) || gnuTitle.Match(data) {
+				return nil, fmt.Errorf("LICENSES/%s is a GNU GPL-family text that executionOnly does not list; "+
+					"the consensus flavour ships permissive licence texts only", e.Name())
+			}
 		}
 		names = append(names, e.Name())
 	}

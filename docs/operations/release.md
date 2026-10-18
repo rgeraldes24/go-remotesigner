@@ -37,11 +37,12 @@ flavour from `go-licenses report` (for example `Apache-2.0 AND BSD-2-Clause AND 
   the repository has one, is appended: it will carry the go-qrl notice once execution mode exists. The consensus
   flavour's NOTICE is the repository's NOTICE only.
 - `LICENSES/`: the texts in [`LICENSES/`](../../LICENSES). `GPL-3.0-or-later.txt` and `LGPL-3.0-or-later.txt`, when
-  present, ship in the default flavour only.
+  present, ship in the default flavour only. Any other GNU GPL, LGPL or AGPL text, recognised by `GPL` in its file
+  name or by its GNU title line, makes `make release-docs` fail until it is listed as execution-only.
 
 Today both flavours link the same permissively licensed modules, so their files are identical. The release checks
-(section 4) enforce the split: an archive or image of the consensus flavour whose NOTICE mentions the LGPL, or whose
-`LICENSES/` holds a GPL or LGPL text, fails them.
+(section 4) enforce the split on what was built: an archive or image of the consensus flavour whose NOTICE mentions
+the LGPL, or whose `LICENSES/` holds a GNU GPL, LGPL or AGPL text by either test, whatever its name, fails them.
 
 ## 3. Verifying a release
 

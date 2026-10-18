@@ -19,6 +19,40 @@ func regular(data string) tarFile {
 	return tarFile{hdr: &tar.Header{Typeflag: tar.TypeReg, Mode: 0o644}, data: []byte(data)}
 }
 
+// A GNU text in the consensus flavour fails the check even when the
+// expected files list it, as they would if the list of execution-only texts
+// missed it, and whatever it is named.
+func TestLicenceProblemsGNUTexts(t *testing.T) {
+	for _, tt := range []struct{ name, data string }{
+		{"LGPL-3.0-only.txt", "LGPL"},
+		{"AGPL-3.0-or-later.txt", "AGPL"},
+		{"COPYING.txt", "                    GNU GENERAL PUBLIC LICENSE\n"},
+		{"LESSER.txt", "                   GNU LESSER GENERAL PUBLIC LICENSE\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			want := releaseDocs{license: []byte("Apache"), notice: []byte("go-remotesigner\n"),
+				texts: map[string][]byte{"Apache-2.0.txt": []byte("Apache"), tt.name: []byte(tt.data)}}
+			files := map[string]tarFile{
+				"LICENSE": regular("Apache"), "NOTICE": regular("go-remotesigner\n"),
+				"LICENSES/Apache-2.0.txt": regular("Apache"), "LICENSES/" + tt.name: regular(tt.data),
+				qrllibLicense: regular("MIT"),
+			}
+			got := licenceProblems(consensusFlavour, want, files)
+			if len(got) != 1 || !strings.Contains(got[0], "is a GNU GPL-family text") {
+				t.Errorf("consensus: problems %q, want one naming the GNU text", got)
+			}
+			if got := licenceProblems(fullFlavour, want, files); len(got) != 0 {
+				t.Errorf("default: problems %q, want none", got)
+			}
+		})
+	}
+	// MPL-2.0 mentions the GNU licences, but is not one.
+	mpl := "Mozilla Public License Version 2.0\n\"Secondary License\" means either the GNU General Public License, ...\n"
+	if gnuText("MPL-2.0.txt", []byte(mpl)) {
+		t.Error("MPL-2.0 counted as a GNU text")
+	}
+}
+
 func TestLicenceProblems(t *testing.T) {
 	want := releaseDocs{license: []byte("Apache"), notice: []byte("go-remotesigner\n"),
 		texts: map[string][]byte{"Apache-2.0.txt": []byte("Apache"), "MIT.txt": []byte("MIT")}}
@@ -43,7 +77,8 @@ func TestLicenceProblems(t *testing.T) {
 		{"LGPL in the consensus NOTICE", with(func(f map[string]tarFile) {
 			f["NOTICE"] = regular("go-remotesigner\nThis product links go-qrl (LGPL-3.0-or-later).\n")
 		}), "mentions the LGPL"},
-		{"a GPL text", with(func(f map[string]tarFile) { f["LICENSES/GPL-3.0-or-later.txt"] = regular("GPL") }), "LICENSES/GPL-3.0-or-later.txt is not one of"},
+		{"a GPL text", with(func(f map[string]tarFile) { f["LICENSES/GPL-3.0-or-later.txt"] = regular("GPL") }), "LICENSES/GPL-3.0-or-later.txt is a GNU"},
+		{"another text", with(func(f map[string]tarFile) { f["LICENSES/ISC.txt"] = regular("ISC") }), "LICENSES/ISC.txt is not one of"},
 		{"a missing text", with(func(f map[string]tarFile) { delete(f, "LICENSES/MIT.txt") }), "LICENSES/MIT.txt missing"},
 		{"no third-party licences", with(func(f map[string]tarFile) { delete(f, qrllibLicense) }), "third_party_licenses/"},
 	}

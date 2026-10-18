@@ -121,6 +121,46 @@ func TestLicenseTexts(t *testing.T) {
 	}
 }
 
+// A GNU text that executionOnly does not list stops the consensus flavour,
+// whatever its name, and the default flavour ships it.
+func TestLicenseTextsRefusesUnlistedGNUTexts(t *testing.T) {
+	tests := []struct {
+		name, file, content string
+	}{
+		{"LGPL under another name", "LGPL-3.0-only.txt", "LGPL\n"},
+		{"GPL-2.0", "GPL-2.0-or-later.txt", "GPL\n"},
+		{"AGPL", "AGPL-3.0-or-later.txt", "AGPL\n"},
+		{"lower case", "lgpl-2.1.txt", "LGPL\n"},
+		{"GPL by its title", "COPYING.txt", "                    GNU GENERAL PUBLIC LICENSE\n                       Version 3, 29 June 2007\n"},
+		{"LGPL by its title", "LICENSE-LESSER.txt", "                   GNU LESSER GENERAL PUBLIC LICENSE\n"},
+		{"Library GPL by its title", "LIBRARY.txt", "                  GNU LIBRARY GENERAL PUBLIC LICENSE\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := fakeRepo(t, true)
+			if err := os.WriteFile(filepath.Join(root, "LICENSES", tt.file), []byte(tt.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := licenseTexts(root, consensus); err == nil || !strings.Contains(err.Error(), tt.file) {
+				t.Errorf("consensus: texts %q, error %v; want an error naming %s", got, err, tt.file)
+			}
+			got, err := licenseTexts(root, full)
+			if err != nil || !slices.Contains(got, tt.file) {
+				t.Errorf("default: texts %q, error %v; want %s shipped", got, err, tt.file)
+			}
+		})
+	}
+	// MPL-2.0 names the GNU licences as its Secondary Licenses, but is not one.
+	root := fakeRepo(t, false)
+	mpl := "Mozilla Public License Version 2.0\n\"Secondary License\" means either the GNU General Public License, Version 2.0, the GNU Lesser General Public License, ...\n"
+	if err := os.WriteFile(filepath.Join(root, "LICENSES", "MPL-2.0.txt"), []byte(mpl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := licenseTexts(root, consensus); err != nil || !slices.Contains(got, "MPL-2.0.txt") {
+		t.Errorf("consensus with MPL-2.0: texts %q, error %v", got, err)
+	}
+}
+
 func TestAssemble(t *testing.T) {
 	root := fakeRepo(t, true)
 	for _, f := range flavours {

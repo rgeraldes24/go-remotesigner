@@ -48,9 +48,20 @@ var entrypoint = []string{"/usr/local/bin/remotesigner", "--data-path=/data", "-
 // spellings: the flag, its environment variable and its config-file key.
 var plaintextOverride = regexp.MustCompile(`(?i)allow[-_]plaintext[-_]token[-_]auth`)
 
-// executionOnlyTexts are the LICENSES/ texts that only the default flavour
-// may ship (with execution mode).
-var executionOnlyTexts = []string{"GPL-3.0-or-later.txt", "LGPL-3.0-or-later.txt"}
+// gnuText reports whether a LICENSES/ file is a GNU GPL, LGPL or AGPL
+// text, which only the default flavour may ship (with execution mode): by
+// its file name, or by its title line in capitals, which permissive texts
+// that mention these licences (MPL-2.0's Secondary Licenses) do not have.
+// It does not use tools/releasedocs's list of execution-only texts, so a
+// text that list misses is still caught.
+func gnuText(name string, data []byte) bool {
+	return gnuName.MatchString(name) || gnuTitle.Match(data)
+}
+
+var (
+	gnuName  = regexp.MustCompile(`(?i)gpl`)
+	gnuTitle = regexp.MustCompile(`GNU (?:LESSER |LIBRARY |AFFERO )?GENERAL PUBLIC LICENSE`)
+)
 
 // lgpl matches a NOTICE that mentions the LGPL.
 var lgpl = regexp.MustCompile(`(?i)LGPL|Lesser General Public`)
@@ -75,7 +86,7 @@ type releaseDocs struct {
 // wantDocs returns the licence files the flavour must ship, from the
 // repository: LICENSE; NOTICE, followed in the default flavour by
 // NOTICE.execution when the repository has that fragment; and the LICENSES/
-// texts, without the GPL and LGPL texts in the consensus flavour.
+// texts, without the GNU texts (gnuText) in the consensus flavour.
 func wantDocs(t *testing.T, flavour string) releaseDocs {
 	t.Helper()
 	d := releaseDocs{license: readRepo(t, "LICENSE"), notice: readRepo(t, "NOTICE"), texts: map[string][]byte{}}
@@ -100,10 +111,14 @@ func wantDocs(t *testing.T, flavour string) releaseDocs {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if !e.Type().IsRegular() || (flavour != fullFlavour && slices.Contains(executionOnlyTexts, e.Name())) {
+		if !e.Type().IsRegular() {
 			continue
 		}
-		d.texts[e.Name()] = readRepo(t, "LICENSES/"+e.Name())
+		data := readRepo(t, "LICENSES/"+e.Name())
+		if flavour != fullFlavour && gnuText(e.Name(), data) {
+			continue
+		}
+		d.texts[e.Name()] = data
 	}
 	return d
 }
@@ -147,7 +162,8 @@ const qrllibLicense = "third_party_licenses/github.com/theQRL/go-qrllib/LICENSE"
 
 // licenceProblems returns what files, a release's tree, lacks for the
 // flavour: LICENSE, the flavour's NOTICE (without any LGPL mention in the
-// consensus flavour), exactly the flavour's LICENSES/ texts, and the
+// consensus flavour), exactly the flavour's LICENSES/ texts and, in the
+// consensus flavour, no GNU text (gnuText) whatever want lists, and the
 // third-party licence files of go-licenses save.
 func licenceProblems(flavour string, want releaseDocs, files map[string]tarFile) []string {
 	var p []string
@@ -167,7 +183,11 @@ func licenceProblems(flavour string, want releaseDocs, files map[string]tarFile)
 	for name, f := range files {
 		if rest, ok := strings.CutPrefix(name, "LICENSES/"); ok && f.hdr.Typeflag == tar.TypeReg {
 			got = append(got, rest)
-			if w, ok := want.texts[rest]; !ok || !bytes.Equal(f.data, w) {
+			w, ok := want.texts[rest]
+			switch {
+			case flavour == consensusFlavour && gnuText(rest, f.data):
+				p = append(p, "LICENSES/"+rest+" is a GNU GPL-family text, which the consensus flavour never ships")
+			case !ok || !bytes.Equal(f.data, w):
 				p = append(p, "LICENSES/"+rest+" is not one of the "+flavour+" flavour's licence texts")
 			}
 		}
