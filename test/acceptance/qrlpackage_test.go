@@ -192,6 +192,76 @@ func TestKeystoresQRLPackageLayout(t *testing.T) {
 	}
 }
 
+// The package's layout on a running signer, with its one shared password
+// file. When the password file becomes readable by other users, a reload
+// refuses it as a whole: every key stays loaded and signs attestations (no
+// key is disabled), the reload ends completed_with_errors and the keystore
+// check is DOWN with one error. After the mode is fixed, a reload completes
+// without a single decrypt, and every key still signs.
+func TestKeystoresQRLPackageSharedPasswordRefusedOnReload(t *testing.T) {
+	const n = 8
+	validatorKeys, passwordFile := depositOutput(t, n)
+	out, keys := prepareSigner(t, validatorKeys, passwordFile)
+	password := filepath.Join(out, "password.txt")
+	// Written well before the signer starts, so that the startup load
+	// records versions the reloads can compare with.
+	old := time.Now().Add(-time.Hour)
+	files, err := filepath.Glob(filepath.Join(out, "keystores", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range append(files, password) {
+		if err := os.Chtimes(f, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := start(t, options{consensus: []string{
+		"--keystores-path=" + filepath.Join(out, "keystores"),
+		"--keystores-password-file=" + password,
+	}})
+	s.waitReadyWithin(2 * time.Minute)
+	att := attestation(t)
+	signAll := func(when string) {
+		t.Helper()
+		if got := s.publicKeys(); !slices.Equal(got, keys) {
+			t.Fatalf("%s: publicKeys lists %d keys, want the %d of keys.txt", when, len(got), len(keys))
+		}
+		for _, pk := range keys {
+			if code, resp := s.post("/api/v1/consensus/sign/"+pk, s.signToken(), att); code != 200 {
+				t.Fatalf("%s: attestation with %.20s: %d %s", when, pk, code, resp)
+			}
+		}
+	}
+	signAll("after the startup load")
+	if d := s.loadDecrypts(1); d != n {
+		t.Fatalf("the startup load ran %d decrypts, want %d", d, n)
+	}
+
+	if err := os.Chmod(password, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.reload("completed_with_errors", time.Minute)
+	signAll("after the refusal")
+	if code, h := keystoresHealth(t, s); code != 503 || h != fmt.Sprintf("DOWN keys-loaded=%d error-count=1", n) {
+		t.Fatalf("healthcheck after the refusal: %d %s", code, h)
+	}
+	if !strings.Contains(s.output.String(), "readable by group or other users") {
+		t.Error("the refusal is not logged")
+	}
+
+	if err := os.Chmod(password, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.reload("completed", time.Minute)
+	if d := s.loadDecrypts(3); d != 0 {
+		t.Errorf("the reload after the fix ran %d decrypts, want 0", d)
+	}
+	signAll("after the fix")
+	if code, h := keystoresHealth(t, s); code != 200 || h != fmt.Sprintf("UP keys-loaded=%d error-count=0", n) {
+		t.Fatalf("healthcheck after the fix: %d %s", code, h)
+	}
+}
+
 // What the package's preparation step avoids. Pointed at validator_keys/
 // itself, the signer treats every *.json file as a keystore, as Web3Signer
 // does: the deposit data fails to load and is reported, while every key

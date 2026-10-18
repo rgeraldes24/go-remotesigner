@@ -150,17 +150,46 @@ func (s *signer) waitReloadStatus(want string, within time.Duration) {
 	}
 }
 
-// selectionProof is a golden AGGREGATION_SLOT request; it names no key, so
-// any loaded key can sign it.
-func selectionProof(t *testing.T) []byte {
+// goldenRequest is the typical minimal-preset golden request of type typ.
+// The request names no key, so any loaded key can sign it.
+func goldenRequest(t *testing.T, typ string) []byte {
 	t.Helper()
 	for _, c := range vectors.Signing(t) {
-		if c.Preset == "minimal" && c.Type == "AGGREGATION_SLOT" && c.Name == "typical" {
+		if c.Preset == "minimal" && c.Type == typ && c.Name == "typical" {
 			return c.RequestJSON
 		}
 	}
-	t.Fatal("no golden selection proof")
+	t.Fatalf("no golden %s request", typ)
 	return nil
+}
+
+// selectionProof is a golden AGGREGATION_SLOT request, which a disabled key
+// still signs.
+func selectionProof(t *testing.T) []byte { return goldenRequest(t, "AGGREGATION_SLOT") }
+
+// attestation is a golden ATTESTATION request, which a disabled key answers
+// with 412 VALIDATOR_DISABLED. Signing it again with the same key is a
+// repeat that slashing protection allows.
+func attestation(t *testing.T) []byte { return goldenRequest(t, "ATTESTATION") }
+
+// loadDecrypts waits until the signer has logged n "Keys loaded" lines and
+// returns the number of keystore decrypts the nth reports.
+func (s *signer) loadDecrypts(n int) int {
+	s.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if all := loadedRE.FindAllStringSubmatch(s.output.String(), -1); len(all) >= n {
+			d, err := strconv.Atoi(all[n-1][2])
+			if err != nil {
+				s.t.Fatal(err)
+			}
+			return d
+		}
+		if time.Now().After(deadline) {
+			s.t.Fatalf("fewer than %d \"Keys loaded\" lines:\n%s", n, s.output.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // peakRSS samples the RSS of pid until stop is closed and returns the
@@ -283,11 +312,12 @@ func TestKeystoresDepositCLIOutput(t *testing.T) {
 }
 
 // A world-readable password file is refused on reload, and the key it
-// guards stays loaded from the previous load: it still signs, it is not
-// disabled (no 412), and the keystore health check reports the error.
-// After the mode is fixed, a reload completes and the key signs, with no
-// re-import. A keystore removed from the directory answers 404 after the
-// reload; POST /reload with the sign token is 403.
+// guards stays loaded from the previous load: it still signs attestations,
+// so it is not disabled (a disabled key answers 412), and the keystore
+// health check reports the error. After the mode is fixed, a reload
+// completes and the key signs, with no re-import. A keystore removed from
+// the directory answers 404 after the reload; POST /reload with the sign
+// token is 403.
 func TestKeystoresReloadRefusalAndRemoval(t *testing.T) {
 	ks := newKeystoreSet(t, "password", keystoretest.Cheapest)
 	pwDir := t.TempDir()
@@ -300,11 +330,11 @@ func TestKeystoresReloadRefusalAndRemoval(t *testing.T) {
 	}
 	s := start(t, options{consensus: []string{"--keystores-path=" + ks.dir, "--keystores-passwords-path=" + pwDir}})
 	s.waitReadyWithin(time.Minute)
-	body := selectionProof(t)
+	att := attestation(t)
 	signs := func(pk string, want int) {
 		t.Helper()
-		if code, out := s.post("/api/v1/consensus/sign/"+pk, s.signToken(), body); code != want {
-			t.Fatalf("sign with %.20s: %d %s, want %d", pk, code, out, want)
+		if code, out := s.post("/api/v1/consensus/sign/"+pk, s.signToken(), att); code != want {
+			t.Fatalf("attestation with %.20s: %d %s, want %d", pk, code, out, want)
 		}
 	}
 	guarded, removed := ks.pubkeys[0], ks.pubkeys[2]
