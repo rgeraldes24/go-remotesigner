@@ -86,8 +86,10 @@ func (c *Client) Fetch(ctx context.Context, s secrets.Spec) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("gcpsm: %w: not a GCP secret", secrets.ErrConfig)
 	}
+	// The client outlives this fetch, so it must not inherit the fetch's
+	// cancellation.
 	sm, err := c.clients.Get(g.EndpointOverride, func() (*secretmanager.Client, error) {
-		return newClient(ctx, g.EndpointOverride)
+		return newClient(context.WithoutCancel(ctx), g.EndpointOverride)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", g.Describe(), err)
