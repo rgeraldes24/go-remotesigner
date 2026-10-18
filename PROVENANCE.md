@@ -192,6 +192,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/main_test.go` | new | | | |
 | `cmd/remotesigner/offline.go` | new | | | |
 | `cmd/remotesigner/offline_test.go` | new | | | |
+| `deploy/docker/Dockerfile` | new | | | |
 | `deploy/prometheus/alerts.yml` | new | | | |
 | `internal/api/apierr/apierr.go` | new | | | |
 | `internal/api/apierr/apierr_test.go` | new | | | |
