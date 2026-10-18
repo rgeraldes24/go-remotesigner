@@ -26,10 +26,10 @@ import (
 //
 //   - B11, startup: 10,000 file-raw keys are ready (/upcheck 200) within
 //     30 s and /publicKeys (51.9 MB) is served within 5 s; 100 and 1,000
-//     standard-KDF keystores are ready within 1.2 × N × t_B10 / P (G6 §8),
-//     where P is the standard-KDF concurrency the signer chose and t_B10
-//     the per-decrypt time of P decrypts run together on this machine (the
-//     B10 measure). t_B10 is measured in the test process, apart from the
+//     standard-KDF keystores are ready within 1.2 × N × t_B10 / P, the
+//     threshold docs/benchmarks.md gives, where P is the standard-KDF
+//     concurrency the signer chose and t_B10 the per-decrypt time of P
+//     decrypts run together on this machine (the B10 measure). t_B10 is measured in the test process, apart from the
 //     signer's load: once before the signer starts and once after it
 //     stops, and the larger of the two is taken. The mean decrypt time the
 //     signer itself measured during the load (its "Keys loaded" line) is

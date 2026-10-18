@@ -237,7 +237,7 @@ the threshold is met without it.
 ## Key loading and reload (B11, B12, the built binary)
 
 **B11 and B12: met on the development machine**, pending the reference VMs. The keystore rows of B11 are met in run
-J, measured against G6 §8's bound; run I's 1,000-keystore load, on a machine loaded by other work, did not meet that
+J, measured against the threshold's bound; run I's 1,000-keystore load, on a machine loaded by other work, did not meet that
 bound. Every run shared the machine with other work, so the absolute times say much about that load.
 
 ```
@@ -247,7 +247,7 @@ make bench-loading     # REMOTESIGNER_BENCH=1 go test -run '^TestB1[12]' ./test/
 B11 starts the built binary and measures, from process start, the time to `/upcheck` 200: once with 10,000 `file-raw`
 keys (then the full `GET /api/v1/consensus/publicKeys`, 51.9 MB), and once each with 100 and 1,000 standard-KDF
 deposit CLI keystores (Argon2id `t=8`, `m=262144` KiB) in `--keystores-path` with one password file. The keystore
-bound is G6 §8's 1.2 × N × t_B10 / P. P is the number of standard-KDF decrypts the signer's semaphore runs at once,
+bound is the threshold's 1.2 × N × t_B10 / P. P is the number of standard-KDF decrypts the signer's semaphore runs at once,
 from its startup log (the test checks it against the sizing it computes from the same environment). t_B10 is the
 mean time of one decrypt when P run together, the B10 measure, taken in the test process apart from the load: once
 before the signer starts and once after it stops, and the larger of the two counts. The mean decrypt time the signer
@@ -269,7 +269,7 @@ Run J, 2026-10-18, Go 1.26.9, Apple M2 (4 performance and 4 efficiency cores, 16
 rows of B11 only, load average 2.4 at the start and 9-16 during the loads, which ran eight Argon2id decrypts at once
 themselves. Run I, the same day and machine: load average 5 at the start, 30-37 from other work during the
 1,000-keystore load and B12. It compared the ready time with a bound built from the decrypt time the signer
-measured during the load, which is not G6 §8's bound; against t measured after the load its 1,000-keystore load
+measured during the load, which is not the threshold's bound; against t measured after the load its 1,000-keystore load
 missed by about 2x, while the in-load decrypt time (9.61 s) shows that the other work slowed every decrypt. In both
 runs the signer sized its semaphore from half the RAM (7.5 GiB budget, P = 8, the CPU count). Run H, earlier the same
 day, is the `file-raw` row of an attempt at load average 50-60 whose keystore rows missed the bound (100 keystores:
