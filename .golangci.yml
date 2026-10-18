@@ -35,6 +35,14 @@ linters:
               desc: go-qrl is LGPL-3.0; import it only under internal/execution (see CONTRIBUTING.md)
             - pkg: github.com/theQRL/go-qrl/
               desc: go-qrl is LGPL-3.0; import it only under internal/execution (see CONTRIBUTING.md)
+        # HashiCorp Vault is read over plain HTTP, as Web3Signer reads it;
+        # test/repo checks the binaries too.
+        no-vault-sdk:
+          files:
+            - $all
+          deny:
+            - pkg: github.com/hashicorp/vault
+              desc: read Vault's KV v2 engine over plain HTTP (internal/keys/secrets/hashicorp); no Vault SDK is linked
         no-go-qrl-gpl:
           files:
             - $all

@@ -558,6 +558,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/release/systemd_test.go` | new | | | |
 | `test/release/version_test.go` | new | | | |
 | `test/repo/deploy_test.go` | new | | | |
+| `test/repo/deps_test.go` | new | | | |
 | `test/repo/docs_test.go` | new | | | |
 | `test/repo/flavour_test.go` | new | | | |
 | `test/repo/links_test.go` | new | | | |
