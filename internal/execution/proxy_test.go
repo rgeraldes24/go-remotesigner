@@ -6,8 +6,10 @@
 package execution
 
 import (
+	"bufio"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -135,6 +137,40 @@ func TestProxyResponseHeaders(t *testing.T) {
 	}
 	if got := w.Header().Values("Random"); len(got) != 2 {
 		t.Errorf("multi-value header: %v", got)
+	}
+}
+
+// A client cannot open a tunnel to the node: its Upgrade header is not
+// forwarded, and a 101 from the node is refused rather than relayed.
+func TestProxyRefusesUpgrades(t *testing.T) {
+	f := newFixture(t, 0, defaultAllow)
+	f.node.setHandler(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Connection", "Upgrade")
+		w.Header().Set("Upgrade", "websocket")
+		w.WriteHeader(http.StatusSwitchingProtocols)
+	})
+	srv := httptest.NewServer(f.handler)
+	defer srv.Close()
+	c, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	body := call(1, "qrl_blockNumber")
+	_, _ = fmt.Fprintf(c, "POST / HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nConnection: Upgrade\r\n"+
+		"Upgrade: websocket\r\nContent-Length: %d\r\n\r\n%s", len(body), body)
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	resp, err := http.ReadResponse(bufio.NewReader(c), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode == http.StatusSwitchingProtocols {
+		t.Fatal("a 101 from the node reached the client")
+	}
+	for _, r := range f.node.received() {
+		if r.header.Get("Upgrade") != "" || r.header.Get("Connection") != "" {
+			t.Fatalf("the node received %v", r.header)
+		}
 	}
 }
 

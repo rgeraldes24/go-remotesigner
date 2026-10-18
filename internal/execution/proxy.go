@@ -142,7 +142,9 @@ func (b *cappedBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// forward proxies one request whose body has been read and decoded.
+// forward proxies one request whose body has been read and decoded. The
+// rewritten request carries no Upgrade header, so ReverseProxy refuses a
+// 101 from the node instead of opening a tunnel past the method allowlist.
 func (p *proxy) forward(w http.ResponseWriter, r *http.Request, req *Request, body []byte) {
 	r = r.WithContext(context.WithValue(r.Context(), requestKey{}, req))
 	r.Body = io.NopCloser(bytes.NewReader(body))
@@ -225,11 +227,17 @@ func (p *proxy) exchange(ctx context.Context, in *http.Request, body []byte) ([]
 	return data, nil
 }
 
+// methodOf is the method a log line names: the client chose it, so it is
+// cut to 64 bytes.
 func methodOf(req *Request) string {
-	if req == nil {
+	switch {
+	case req == nil:
 		return "-"
+	case len(req.Method) > 64:
+		return strings.ToValidUTF8(req.Method[:64], "") + "…"
+	default:
+		return req.Method
 	}
-	return req.Method
 }
 
 // writeResponse writes a JSON-RPC response body.
