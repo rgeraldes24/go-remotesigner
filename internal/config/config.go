@@ -43,8 +43,17 @@ type Config struct {
 	// KeyConfigPath is the key-config directory; empty means no key-config
 	// source.
 	KeyConfigPath string
-	Logging       logging.Config
-	HTTP          HTTP
+	// StrictFilePermissions is --strict-file-permissions: refuse secret
+	// files readable by group or other users instead of warning.
+	StrictFilePermissions bool
+	// ReloadTimeout is --reload-timeout: how long a POST /reload may load
+	// keys before the sources not loaded yet keep their previous keys.
+	ReloadTimeout time.Duration
+	// SignerLoadParallelism is --signer-load-parallelism; 0 sizes the
+	// Argon2id semaphore from the memory limit.
+	SignerLoadParallelism int
+	Logging               logging.Config
+	HTTP                  HTTP
 	// TLS holds the API listener's --tls-* flags.
 	TLS tlsconf.Config
 	// AllowPlaintextTokenAuth is --Xallow-plaintext-token-auth.
@@ -112,6 +121,7 @@ type Consensus struct {
 	SlashingProtectionDBMigrate bool
 	Randao                      Randao
 	Pruning                     Pruning
+	Keystores                   Keystores
 }
 
 // Pruning holds the --slashing-protection-pruning-* settings.
@@ -120,6 +130,15 @@ type Pruning struct {
 	EpochsToKeep uint64
 	// Interval is the time between two pruning runs; the first runs at startup.
 	Interval time.Duration
+}
+
+// Keystores is the keystore bulk source: --keystores-path with one of
+// --keystores-password-file and --keystores-passwords-path. An empty Path
+// means no keystore source.
+type Keystores struct {
+	Path          string
+	PasswordFile  string
+	PasswordsPath string
 }
 
 // Randao holds the --randao-* settings of the reveal service.

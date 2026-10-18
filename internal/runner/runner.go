@@ -33,7 +33,9 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/hygiene"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/argon"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keyconfig"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystores"
 	"github.com/rgeraldes24/go-remotesigner/internal/metrics"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/randao"
@@ -138,8 +140,11 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		CacheTTL:           signer.CacheTTL(n.Config.SecondsPerSlot, n.Config.SlotsPerEpoch),
 	})
 	reveals := newReveals(cfg, n, store, m, log)
+	sem, sizing := argon.Auto(cfg.SignerLoadParallelism)
+	logKeySources(log, cfg, sizing)
 	loads := &loadState{}
-	reloader := ops.NewReloader(loadKeys(cfg.KeyConfigPath, keys, engine, sig, reveals, loads, log), log)
+	loader := newKeyLoader(cfg, sem, keys, engine, sig, reveals, loads, log)
+	reloader := ops.NewReloader(loader.Load, log)
 	var ready atomic.Bool
 
 	sign := &consensus.Sign{Policy: pol, Signer: sig, Pinner: store, Metrics: m, Log: log}
@@ -156,7 +161,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		TLS:            serverTLS,
 		HostAllowlist:  cfg.HTTP.HostAllowlist,
 		Auth:           authn,
-		Routes:         routes(cfg, n, pol, authn, keys, store, sign, reveal, loads, reloader, ready.Load, log),
+		Routes:         routes(cfg, n, pol, authn, keys, store, sign, reveal, loader, reloader, ready.Load, log),
 		Ready:          ready.Load,
 		MaxConnections: cfg.HTTP.MaxConnections,
 		ReadTimeout:    server.ReadTimeout(n.Config.SecondsPerSlot),
@@ -496,67 +501,9 @@ func newReveals(cfg *config.Config, n *network.Network, store slashing.Store, m 
 	return s
 }
 
-// loadState is what the keys-check/config-files-loading health check reads.
-type loadState struct {
-	done   atomic.Bool
-	failed atomic.Bool
-	errors atomic.Int64
-}
-
-// loadKeys returns the reloader's load function: read the key-config
-// directory, then apply it to the provider, registering new keys in
-// slashing protection first. Quarantined keys are renewed from the fresh
-// load, which lifts their quarantine.
-func loadKeys(dir string, keys *provider.Provider, engine *slashing.Engine, sig *signer.Signer, reveals *randao.Service,
-	st *loadState, log *logrus.Logger) ops.LoadFunc {
-	return func(ctx context.Context) (int, error) {
-		errs, err := loadOnce(ctx, dir, keys, engine, sig, reveals, log)
-		st.errors.Store(int64(errs))
-		st.failed.Store(err != nil)
-		st.done.Store(true)
-		return errs, err
-	}
-}
-
-func loadOnce(ctx context.Context, dir string, keys *provider.Provider, engine *slashing.Engine, sig *signer.Signer,
-	reveals *randao.Service, log *logrus.Logger) (int, error) {
-	var batches []provider.Batch
-	if dir == "" {
-		log.Warn("No --key-config-path: no keys are loaded")
-	} else {
-		results, err := keyconfig.Load(ctx, dir)
-		if err != nil {
-			return 0, err
-		}
-		for _, r := range results {
-			if r.Err != nil {
-				log.WithError(r.Err).Error("A key-config file failed to load; its previous keys stay loaded")
-			}
-			batches = append(batches, provider.Batch{Source: r.Path, Keys: r.Keys, Err: r.Err})
-		}
-	}
-	d, err := keys.Apply(batches, func(pks [][]byte) error { return engine.RegisterValidators(ctx, pks) }, sig.Quarantined)
-	if err != nil {
-		return d.Errors, fmt.Errorf("register keys in slashing protection: %w", err)
-	}
-	var ids []slashing.KeyID
-	for pk := range keys.PublicKeys() {
-		ids = append(ids, slashing.KeyID(pk.ID()))
-	}
-	if err := reveals.Track(ctx, ids); err != nil {
-		log.WithError(err).Error("Reading the RANDAO frontiers of the loaded keys failed")
-	}
-	quarantined := sig.Release()
-	log.WithFields(logrus.Fields{
-		"loaded": keys.Len(), "added": d.Added, "removed": d.Removed, "renewed": d.Renewed, "errors": d.Errors,
-		"quarantined": quarantined,
-	}).Info("Keys loaded")
-	return d.Errors, nil
-}
-
 func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *auth.Authenticator,
 	keys *provider.Provider, store slashing.Store, sign *consensus.Sign, reveal *consensus.RandaoReveal,
-	loads *loadState, reloader *ops.Reloader, ready func() bool, log *logrus.Logger) []server.Route {
+	loader *keyLoader, reloader *ops.Reloader, ready func() bool, log *logrus.Logger) []server.Route {
 	protection := consensus.ProtectionBolt
 	if !cfg.Consensus.SlashingProtectionEnabled {
 		protection = consensus.ProtectionDisabled
@@ -578,11 +525,15 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 			return err == nil, nil
 		}})
 	}
-	checks = append(checks, ops.Check{ID: ops.CheckConfigFilesLoading, Run: func(context.Context) (bool, map[string]any) {
-		errs := loads.errors.Load()
-		up := loads.done.Load() && !loads.failed.Load() && errs == 0
-		return up, map[string]any{"keys-loaded": keys.Len(), "error-count": errs}
-	}})
+	// As in Web3Signer, the key-config check is always there and the
+	// keystore check only with a keystore source.
+	st := loader.state
+	checks = append(checks, ops.Check{ID: checkConfigFiles,
+		Run: keysCheck(st, &st.keyConfig, func() int { return keys.Count(keyconfig.SourcePrefix) })})
+	if loader.keystores != nil {
+		checks = append(checks, ops.Check{ID: checkKeystores,
+			Run: keysCheck(st, &st.keystores, func() int { return keys.Count(keystores.SourcePrefix) })})
+	}
 	checks = append(checks, ops.Check{ID: ops.CheckRandao, Run: randaoCheck(n, reveal.Reveals)})
 
 	rs := []server.Route{

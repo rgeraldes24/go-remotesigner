@@ -29,10 +29,11 @@ import (
 
 // Check ids, as Web3Signer names them.
 const (
-	CheckDefault            = "default-check"
-	CheckSlashingProtection = "slashing-protection-db-health-check"
-	CheckConfigFilesLoading = "keys-check/config-files-loading"
-	CheckRandao             = "keys-check/randao"
+	CheckDefault              = "default-check"
+	CheckSlashingProtection   = "slashing-protection-db-health-check"
+	CheckConfigFilesLoading   = "keys-check/config-files-loading"
+	CheckKeystoresBulkLoading = "keys-check/keystores-bulk-loading"
+	CheckRandao               = "keys-check/randao"
 )
 
 // CheckTimeout bounds one check.

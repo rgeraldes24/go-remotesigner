@@ -15,19 +15,32 @@
 // Modified by The go-remotesigner Authors, 2026: translated from Java to Go and adapted for QRL.
 // Derived from Web3Signer
 // signing/src/main/java/tech/pegasys/web3signer/signing/config/SignerLoader.java,
-// signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/parser/YamlSignerParser.java and
-// signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileRawSigningMetadata.java
+// signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/parser/YamlSignerParser.java,
+// signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileRawSigningMetadata.java,
+// signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileKeyStoreMetadata.java and
+// signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/AbstractArtifactSignerFactory.java
 // at commit 30af06dc975ba5b8ed0e17e53cba8683ca50ec02.
 
 // Package keyconfig loads key-config files (--key-config-path, alias
 // --key-store-path): every non-hidden *.yaml or *.yml file directly in the
-// directory, each holding one or more YAML documents.
+// directory, each holding one or more YAML documents of two types:
 //
-// This build supports `type: file-raw` documents: `privateKey` is the
-// validator's 48-byte wallet seed (0x + 96 hex characters) and `keyType` is
-// ML_DSA_87, the default and only value. Unknown keys are rejected. A file
-// that fails to load is reported on its own and does not stop the others.
-// Error messages never contain key material.
+//   - `type: file-raw`: `privateKey` is the validator's 48-byte wallet seed
+//     (0x + 96 hex characters);
+//   - `type: file-keystore`: `keystoreFile` and `keystorePasswordFile` name
+//     a keystore and its password file, relative to the key-config
+//     directory unless absolute.
+//
+// `keyType` is ML_DSA_87, the default and only value. Unknown keys are
+// rejected. Each file is one source: either every document in it loads or
+// the file fails as a whole, keeping the keys it had, and the others still
+// load. A file is read again on every load, but its keys are derived again
+// only when it, or a keystore or password file it names, has changed.
+//
+// A file with a file-raw document holds seeds in the clear, so it is a
+// secret file, as is every keystore password file: the caller's
+// secretfile.Policy decides what happens when its group or other users can
+// read it. Error messages never contain key material.
 package keyconfig
 
 import (
@@ -37,14 +50,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystore/qrlv1"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystores"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/source"
+	"github.com/rgeraldes24/go-remotesigner/internal/signer/provider"
 )
 
 // Supported values.
@@ -54,6 +74,13 @@ const (
 	KeyTypeMLDSA87   = "ML_DSA_87"
 )
 
+// SourcePrefix starts the source name of every key-config file.
+const SourcePrefix = "key-config:"
+
+// MaxFileSize bounds a key-config file, as Web3Signer's default
+// --key-store-config-file-max-size does.
+const MaxFileSize = 100 << 20
+
 // Errors returned for a file. Callers match them with errors.Is.
 var (
 	ErrFormat      = errors.New("keyconfig: invalid key-config file")
@@ -61,33 +88,35 @@ var (
 	ErrPrivateKey  = errors.New("keyconfig: invalid privateKey")
 )
 
-// FileResult is the outcome of loading one file: its keys, or the error that
-// made the whole file fail.
-type FileResult struct {
-	Path string
-	Keys []*mldsa87.Key
-	Err  error
+// Config is a key-config source.
+type Config struct {
+	Dir string
+	// Policy is applied to files with a file-raw document and to keystore
+	// password files.
+	Policy secretfile.Policy
+	// Decrypt opens file-keystore keystores; nil refuses them.
+	Decrypt keystores.DecryptFunc
 }
 
-// Load reads every key-config file in dir, in name order. It fails only when
-// dir cannot be listed; per-file failures are in the results. It stops
-// early, returning ctx's error, when ctx ends.
-func Load(ctx context.Context, dir string) ([]FileResult, error) {
-	paths, err := configFiles(dir)
+// Source is the source name of the key-config file at path.
+func Source(path string) string { return SourcePrefix + path }
+
+// Load loads every key-config file in c.Dir, in name order, on up to
+// workers goroutines, and returns one batch per file: Keep when unchanged
+// reports its version (nil keeps nothing), else its keys or the error that
+// made the file fail. Files not reached before ctx ends fail with ctx's
+// error. Load fails as a whole only when the directory cannot be listed.
+func (c Config) Load(ctx context.Context, workers int, unchanged source.Unchanged,
+	report func(done, total int)) ([]provider.Batch, error) {
+	start := time.Now()
+	paths, err := configFiles(c.Dir)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]FileResult, 0, len(paths))
-	for _, p := range paths {
-		if err := ctx.Err(); err != nil {
-			for _, r := range out {
-				zeroize(r.Keys)
-			}
-			return nil, err
-		}
-		keys, err := LoadFile(p)
-		out = append(out, FileResult{Path: p, Keys: keys, Err: err})
-	}
+	out := make([]provider.Batch, len(paths))
+	source.Each(ctx, len(paths), workers, func(i int) {
+		out[i] = c.load(ctx, start, paths[i], unchanged)
+	}, report)
 	return out, nil
 }
 
@@ -118,63 +147,192 @@ func configFiles(dir string) ([]string, error) {
 	return out, nil
 }
 
-// LoadFile parses the key-config file at path and builds its keys. Either
-// every document loads or the file fails as a whole.
-func LoadFile(path string) ([]*mldsa87.Key, error) {
-	data, err := os.ReadFile(path)
+// load loads one key-config file.
+func (c Config) load(ctx context.Context, start time.Time, path string, unchanged source.Unchanged) provider.Batch {
+	b := provider.Batch{Source: Source(path)}
+	keys, version, err := c.loadFile(ctx, start, path, func(version string) bool {
+		return unchanged != nil && unchanged(b.Source, version)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		b.Err = fmt.Errorf("%s: %w", path, err)
+		return b
 	}
-	keys, err := Parse(data)
+	b.Version = version
+	b.Keys = keys
+	b.Keep = keys == nil
+	return b
+}
+
+// LoadFile loads the key-config file at path and builds its keys. Either
+// every document loads or the file fails as a whole.
+func (c Config) LoadFile(ctx context.Context, path string) ([]*mldsa87.Key, error) {
+	keys, _, err := c.loadFile(ctx, time.Now(), path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return keys, nil
 }
 
-// Parse builds the keys of a key-config file's content.
-func Parse(data []byte) ([]*mldsa87.Key, error) {
+// loadFile reads, checks and parses the file at path. It returns no keys
+// and no error when keep reports true for the file's version.
+func (c Config) loadFile(ctx context.Context, start time.Time, path string, keep func(version string) bool) (
+	[]*mldsa87.Key, string, error) {
+	data, fi, err := secretfile.ReadInfo(path, MaxFileSize)
+	if err != nil {
+		return nil, "", err
+	}
+	docs, err := parse(data, c.Dir)
+	mldsa87.Wipe(data)
+	if err != nil {
+		return nil, "", err
+	}
+	defer wipeDocs(docs)
+	infos := []fs.FileInfo{fi}
+	for _, d := range docs {
+		if d.seed != nil {
+			if err := c.Policy.Check(path, fi); err != nil {
+				return nil, "", err
+			}
+			break
+		}
+	}
+	for _, d := range docs {
+		if d.seed != nil {
+			continue
+		}
+		ksInfo, err := os.Stat(d.keystoreFile)
+		if err != nil {
+			return nil, "", fmt.Errorf("keystoreFile: %w", err)
+		}
+		pwInfo, err := os.Stat(d.passwordFile)
+		if err == nil {
+			err = c.Policy.Check(d.passwordFile, pwInfo)
+		}
+		if err != nil {
+			return nil, "", fmt.Errorf("keystorePasswordFile: %w", err)
+		}
+		infos = append(infos, ksInfo, pwInfo)
+	}
+	version := source.Version(start, infos...)
+	if keep != nil && keep(version) {
+		return nil, version, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, "", fmt.Errorf("not loaded: %w", err)
+	}
+	keys := make([]*mldsa87.Key, 0, len(docs))
+	for _, d := range docs {
+		k, err := c.build(ctx, d)
+		if err != nil {
+			zeroize(keys)
+			return nil, "", fmt.Errorf("document %d: %w", d.index, err)
+		}
+		keys = append(keys, k)
+	}
+	return keys, version, nil
+}
+
+// build derives the key of one document.
+func (c Config) build(ctx context.Context, d document) (*mldsa87.Key, error) {
+	if d.seed != nil {
+		k, err := mldsa87.FromSeed48(d.seed)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrPrivateKey, err)
+		}
+		return k, nil
+	}
+	if c.Decrypt == nil {
+		return nil, fmt.Errorf("%w: type %s is not supported here", ErrUnsupported, TypeFileKeystore)
+	}
+	data, err := secretfile.ReadCapped(d.keystoreFile, qrlv1.MaxSize)
+	if err != nil {
+		return nil, fmt.Errorf("keystoreFile: %w", err)
+	}
+	ks, err := qrlv1.Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("keystoreFile %s: %w", d.keystoreFile, err)
+	}
+	pwData, err := secretfile.Read(d.passwordFile, keystores.MaxPasswordFile, c.Policy)
+	if err != nil {
+		return nil, fmt.Errorf("keystorePasswordFile: %w", err)
+	}
+	pw := qrlv1.NewPassword(qrlv1.TrimPassword(pwData))
+	mldsa87.Wipe(pwData)
+	defer pw.Wipe()
+	k, err := c.Decrypt(ctx, ks, pw)
+	if err != nil {
+		return nil, fmt.Errorf("keystoreFile %s: %w", d.keystoreFile, err)
+	}
+	return k, nil
+}
+
+// document is one parsed key document: a file-raw seed, or the absolute
+// paths of a file-keystore's keystore and password file.
+type document struct {
+	index                      int // 1-based, among all documents of the file
+	seed                       *[mldsa87.SeedSize]byte
+	keystoreFile, passwordFile string
+}
+
+func wipeDocs(docs []document) {
+	for _, d := range docs {
+		if d.seed != nil {
+			mldsa87.Wipe(d.seed[:])
+		}
+	}
+}
+
+// parse reads the documents of a key-config file's content; relative
+// keystore paths are resolved against dir.
+func parse(data []byte, dir string) ([]document, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
-	var keys []*mldsa87.Key
-	for i := 0; ; i++ {
-		var doc yaml.Node
-		err := dec.Decode(&doc)
+	var docs []document
+	for i := 1; ; i++ {
+		var n yaml.Node
+		err := dec.Decode(&n)
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			zeroize(keys)
+			wipeDocs(docs)
 			return nil, fmt.Errorf("%w: not valid YAML", ErrFormat)
 		}
-		if len(doc.Content) == 0 || doc.Content[0].ShortTag() == "!!null" {
+		if len(n.Content) == 0 || n.Content[0].ShortTag() == "!!null" {
 			continue // an empty document
 		}
-		k, err := parseDocument(doc.Content[0])
+		d, err := parseDocument(n.Content[0], dir)
 		if err != nil {
-			zeroize(keys)
-			return nil, fmt.Errorf("document %d: %w", i+1, err)
+			wipeDocs(docs)
+			return nil, fmt.Errorf("document %d: %w", i, err)
 		}
-		keys = append(keys, k)
+		d.index = i
+		docs = append(docs, d)
 	}
-	if len(keys) == 0 {
+	if len(docs) == 0 {
 		return nil, fmt.Errorf("%w: no key documents", ErrFormat)
 	}
-	return keys, nil
+	return docs, nil
 }
 
-// parseDocument reads one `type: file-raw` mapping.
-func parseDocument(n *yaml.Node) (*mldsa87.Key, error) {
+// Allowed keys per type.
+var allowed = map[string][]string{
+	TypeFileRaw:      {"type", "keyType", "privateKey"},
+	TypeFileKeystore: {"type", "keyType", "keystoreFile", "keystorePasswordFile"},
+}
+
+// parseDocument reads one mapping.
+func parseDocument(n *yaml.Node, dir string) (document, error) {
 	if n.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("%w: a document must be a mapping", ErrFormat)
+		return document{}, fmt.Errorf("%w: a document must be a mapping", ErrFormat)
 	}
 	fields := map[string]*yaml.Node{}
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		k, v := n.Content[i], n.Content[i+1]
 		if k.Kind != yaml.ScalarNode || v.Kind != yaml.ScalarNode {
-			return nil, fmt.Errorf("%w: keys and values must be scalars", ErrFormat)
+			return document{}, fmt.Errorf("%w: keys and values must be scalars", ErrFormat)
 		}
 		if _, dup := fields[k.Value]; dup {
-			return nil, fmt.Errorf("%w: duplicate key %q", ErrFormat, k.Value)
+			return document{}, fmt.Errorf("%w: duplicate key %q", ErrFormat, k.Value)
 		}
 		fields[k.Value] = v
 	}
@@ -184,41 +342,58 @@ func parseDocument(n *yaml.Node) (*mldsa87.Key, error) {
 		typ = v.Value
 	}
 	switch typ {
-	case TypeFileRaw:
-	case TypeFileKeystore:
-		return nil, fmt.Errorf("%w: type %s is not supported by this build; use file-raw", ErrUnsupported, typ)
+	case TypeFileRaw, TypeFileKeystore:
 	case "":
-		return nil, fmt.Errorf("%w: missing type", ErrFormat)
+		return document{}, fmt.Errorf("%w: missing type", ErrFormat)
 	default:
-		return nil, fmt.Errorf("%w: unknown type %q", ErrUnsupported, truncate(typ))
+		return document{}, fmt.Errorf("%w: unknown type %q", ErrUnsupported, truncate(typ))
 	}
 	for k := range fields {
-		switch k {
-		case "type", "keyType", "privateKey":
-		default:
-			return nil, fmt.Errorf("%w: unknown key %q for type %s", ErrFormat, truncate(k), TypeFileRaw)
+		if !slices.Contains(allowed[typ], k) {
+			return document{}, fmt.Errorf("%w: unknown key %q for type %s", ErrFormat, truncate(k), typ)
 		}
 	}
 	if v, ok := fields["keyType"]; ok {
 		switch v.Value {
 		case KeyTypeMLDSA87:
 		case "BLS":
-			return nil, fmt.Errorf("%w: keyType BLS: QRL validators sign with ML-DSA-87; "+
+			return document{}, fmt.Errorf("%w: keyType BLS: QRL validators sign with ML-DSA-87; "+
 				"configure the validator's 48-byte ML-DSA-87 wallet seed with keyType %s", ErrUnsupported, KeyTypeMLDSA87)
 		default:
-			return nil, fmt.Errorf("%w: unknown keyType %q (want %s)", ErrUnsupported, truncate(v.Value), KeyTypeMLDSA87)
+			return document{}, fmt.Errorf("%w: unknown keyType %q (want %s)", ErrUnsupported, truncate(v.Value), KeyTypeMLDSA87)
 		}
+	}
+	if typ == TypeFileKeystore {
+		var d document
+		for _, f := range []struct {
+			key string
+			dst *string
+		}{{"keystoreFile", &d.keystoreFile}, {"keystorePasswordFile", &d.passwordFile}} {
+			v, ok := fields[f.key]
+			if !ok || v.Value == "" {
+				return document{}, fmt.Errorf("%w: missing %s", ErrFormat, f.key)
+			}
+			*f.dst = v.Value
+			if !filepath.IsAbs(v.Value) {
+				*f.dst = filepath.Join(dir, v.Value)
+			}
+		}
+		return d, nil
 	}
 	v, ok := fields["privateKey"]
 	if !ok {
-		return nil, fmt.Errorf("%w: missing privateKey", ErrFormat)
+		return document{}, fmt.Errorf("%w: missing privateKey", ErrFormat)
 	}
-	return keyFromSeedHex(v.Value)
+	seed, err := seedFromHex(v.Value)
+	if err != nil {
+		return document{}, err
+	}
+	return document{seed: seed}, nil
 }
 
-// keyFromSeedHex decodes a 48-byte seed and derives its key. Other common
-// lengths get a hint about what they are.
-func keyFromSeedHex(s string) (*mldsa87.Key, error) {
+// seedFromHex decodes a 48-byte seed. Other common lengths get a hint
+// about what they are.
+func seedFromHex(s string) (*[mldsa87.SeedSize]byte, error) {
 	h := strings.TrimPrefix(s, "0x")
 	switch len(h) {
 	case 2 * mldsa87.SeedSize:
@@ -233,16 +408,14 @@ func keyFromSeedHex(s string) (*mldsa87.Key, error) {
 	default:
 		return nil, fmt.Errorf("%w: want a 48-byte seed, 0x + 96 hex characters", ErrPrivateKey)
 	}
-	var seed [mldsa87.SeedSize]byte
-	defer mldsa87.Wipe(seed[:])
-	if _, err := hex.Decode(seed[:], []byte(h)); err != nil {
+	seed := new([mldsa87.SeedSize]byte)
+	hb := []byte(h)
+	defer mldsa87.Wipe(hb)
+	if _, err := hex.Decode(seed[:], hb); err != nil {
+		mldsa87.Wipe(seed[:])
 		return nil, fmt.Errorf("%w: not hex", ErrPrivateKey)
 	}
-	k, err := mldsa87.FromSeed48(&seed)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrPrivateKey, err)
-	}
-	return k, nil
+	return seed, nil
 }
 
 func zeroize(keys []*mldsa87.Key) {
