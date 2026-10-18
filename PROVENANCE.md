@@ -408,8 +408,13 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/harness_test.go` | new | | | |
 | `test/acceptance/hygiene_linux_test.go` | new | | | |
 | `test/acceptance/interchange_test.go` | new | | | |
+| `test/acceptance/keystores_test.go` | new | | | |
+| `test/acceptance/keystores_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/bulkloading/KeystoreAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `test/acceptance/loading_bench_test.go` | new | | | |
 | `test/acceptance/metrics_test.go` | new | | | |
 | `test/acceptance/migrate_test.go` | new | | | |
+| `test/acceptance/qrlpackage_test.go` | new | | | |
+| `test/acceptance/reload_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/reload/ReloadAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `test/acceptance/server_test.go` | new | | | |
 | `test/acceptance/tls_test.go` | new | | | |
 | `test/acceptance/tls_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/tls/ServerSideTlsAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/tls/ServerSideTlsCaClientAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |

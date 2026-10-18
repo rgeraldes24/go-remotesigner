@@ -21,7 +21,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test fuzz fuzz-keystore fuzz-interchange bench-b14 contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e release-docs release-snapshot release-check image docker-smoke systemd-smoke clean
+.PHONY: all build build-consensus test fuzz fuzz-keystore fuzz-interchange bench-b14 contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading release-docs release-snapshot release-check image docker-smoke systemd-smoke clean
 
 all: build build-consensus
 
@@ -197,6 +197,12 @@ docker-smoke: image
 ## hardened unit serves TLS, /upcheck and publicKeys, reloads and stops cleanly
 systemd-smoke:
 	REMOTESIGNER_SYSTEMD_SMOKE=1 $(GO) test -count=1 -run '^TestSystemdSmoke$$' -timeout 15m -v ./test/release/
+
+## bench-loading: the key-loading benchmarks B11 (startup with 10,000 file-raw keys, and with 100 and 1,000
+## standard-KDF keystores; REMOTESIGNER_B11_KEYSTORES=<n> runs one count) and B12 (a reload of 100 standard-KDF
+## keystores during the B7 burst)
+bench-loading:
+	REMOTESIGNER_BENCH=1 $(GO) test -count=1 -run '^TestB1[12]' -timeout 3h -v ./test/acceptance/
 
 clean:
 	rm -rf $(BIN_DIR) build
