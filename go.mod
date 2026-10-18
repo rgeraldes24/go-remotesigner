@@ -7,6 +7,7 @@ toolchain go1.26.9
 require (
 	github.com/ferranbt/fastssz v1.0.0
 	github.com/getkin/kin-openapi v0.149.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/prometheus/client_golang v1.22.0
 	github.com/prometheus/client_model v0.6.1
 	github.com/sirupsen/logrus v1.9.3
@@ -28,6 +29,9 @@ require (
 	github.com/emicklei/dot v1.6.2 // indirect
 	github.com/go-openapi/jsonpointer v0.22.5 // indirect
 	github.com/go-openapi/swag/jsonname v0.25.5 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect
@@ -40,6 +44,7 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
+	golang.org/x/sync v0.22.0 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
