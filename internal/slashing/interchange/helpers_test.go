@@ -17,6 +17,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/boltstore"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/interchange"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/memstore"
+	"github.com/rgeraldes24/go-remotesigner/internal/slashing/pgstore/pgtest"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/slashingtest"
 )
 
@@ -38,6 +39,8 @@ var stores = []struct {
 		}
 		return s
 	}},
+	// Skipped unless REMOTESIGNER_TEST_POSTGRES names a server.
+	{"pgstore", func(t *testing.T) slashing.Store { return pgtest.Store(t) }},
 }
 
 func forEachStore(t *testing.T, test func(t *testing.T, s slashing.Store)) {

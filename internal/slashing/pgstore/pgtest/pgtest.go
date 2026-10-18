@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/slashing/pgstore"
 )
 
 // Env names the variable that holds the server's admin URL.
@@ -166,3 +168,19 @@ func Random(t testing.TB, n int) string {
 
 // String describes the database for test logs.
 func (d *DB) String() string { return fmt.Sprintf("database %s", d.Name) }
+
+// Store opens a Postgres store on a fresh database with the current schema, as the admin role. The caller closes
+// it; the database is dropped when the test ends. It skips t unless a test server is configured.
+func Store(t testing.TB) *pgstore.Store {
+	t.Helper()
+	db := New(t)
+	cfg := pgstore.Config{URL: db.URL, Password: db.Password}
+	if _, err := pgstore.Migrate(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	s, err := pgstore.Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
