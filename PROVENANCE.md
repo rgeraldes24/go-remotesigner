@@ -413,6 +413,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/ssz/types.go` | new | | | |
 | `internal/ssz/types_test.go` | new | | | |
 | `internal/vectors/vectors.go` | new | | | |
+| `test/acceptance/b18_test.go` | new | | | |
 | `test/acceptance/b19_test.go` | new | | | |
 | `test/acceptance/b20_test.go` | new | | | |
 | `test/acceptance/bursts_test.go` | new | | | |
@@ -421,6 +422,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/harness_test.go` | new | | | |
 | `test/acceptance/hygiene_linux_test.go` | new | | | |
 | `test/acceptance/interchange_test.go` | new | | | |
+| `test/acceptance/keymanager_test.go` | new | | | |
+| `test/acceptance/keymanager_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/keymanager/ListKeysAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/keymanager/ImportKeystoresAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/keymanager/DeleteKeystoresAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/keymanager/KeyManagerTestBase.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/keymanager/SlashingProtectionDataChoice.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `test/acceptance/keystores_test.go` | new | | | |
 | `test/acceptance/keystores_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/bulkloading/KeystoreAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `test/acceptance/loading_bench_test.go` | new | | | |
