@@ -106,7 +106,7 @@ func TestDecodeReportsInvalidEntries(t *testing.T) {
 		"public key of 48 bytes": {`{"pubkey":"0x` + strings.Repeat("ab", 48) + `"}`, "pubkey: want 2592 bytes", false},
 		"public key not hex":     {`{"pubkey":"0x` + strings.Repeat("zz", 2592) + `"}`, "not hex", false},
 		"public key repeated":    {`{` + key + `,` + key + `}`, "appears twice", true},
-		// The key is taken from the exact "pubkey" field only, and never chosen between two (S8 review).
+		// The key is taken from the exact "pubkey" field only, and never chosen between two.
 		"another key in another case": {`{` + key + `,"PUBKEY":"` + pk(3) + `"}`, "unknown field PUBKEY", true},
 		"a key in another case only":  {`{"PubKey":"` + pk(1) + `"}`, "unknown field PubKey", false},
 		"two public keys":             {`{` + key + `,"pubkey":"` + pk(3) + `"}`, "appears twice", false},

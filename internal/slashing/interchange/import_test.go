@@ -239,7 +239,7 @@ func TestImportReportsUnwrittenElements(t *testing.T) {
 	})
 }
 
-// A record that the store already holds at the same slot or target epoch is never written over (SP §18.2): one
+// A record that the store already holds at the same slot or target epoch is never written over (X55): one
 // without a signing root, or with the same root, is already covered; one with another root, or with a root where
 // the stored record has none, is a conflict. Neither fails the element.
 func TestImportOverExistingRecords(t *testing.T) {
@@ -264,7 +264,7 @@ func TestImportOverExistingRecords(t *testing.T) {
 	})
 }
 
-// A backend may run an UpdateHistory function again when it retries the transaction (Postgres, DESIGN §3.7). The
+// A backend may run an UpdateHistory function again when it retries the transaction, as a Postgres store does. The
 // import's history and counts are then the same as without the retry.
 func TestImportThroughARetriedTransaction(t *testing.T) {
 	forEachStore(t, func(t *testing.T, s slashing.Store) {

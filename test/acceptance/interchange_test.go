@@ -141,7 +141,7 @@ func TestMigrationRunbook(t *testing.T) {
 	}
 }
 
-// The qrysm round trip with the built binary (PLAN S8): consensus import of qrysm's export, consensus export, and
+// The qrysm round trip with the built binary: consensus import of qrysm's export, consensus export, and
 // vectorgen interchange-check, which imports the signer's export into a new qrysm validator database and requires
 // qrysm's own export of it to equal the original. It builds tools/vectorgen, which links qrysm, so it runs only
 // when REMOTESIGNER_VECTORS_VERIFY is set (make vectors-verify-binary).

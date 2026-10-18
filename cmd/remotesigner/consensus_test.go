@@ -163,7 +163,7 @@ func TestTLSAndHygieneFlags(t *testing.T) {
 	}
 }
 
-// Pruning keeps 512 epochs and runs every 12 h by default (DESIGN §3.7); both values must be positive.
+// Pruning keeps 512 epochs and runs every 12 h by default; both values must be positive.
 func TestPruningFlags(t *testing.T) {
 	cfg, code, stderr := capture(t, "consensus", "--network=e2e")
 	if code != exitOK || cfg.Consensus.Pruning != (config.Pruning{EpochsToKeep: 512, Interval: 12 * time.Hour}) {
@@ -178,7 +178,7 @@ func TestPruningFlags(t *testing.T) {
 		"--slashing-protection-pruning-epochs-to-keep=0": "--slashing-protection-pruning-epochs-to-keep must be at least 1",
 		"--slashing-protection-pruning-interval=0s":      "--slashing-protection-pruning-interval must be positive",
 		"--slashing-protection-pruning-interval=-1h":     "--slashing-protection-pruning-interval must be positive",
-		// Web3Signer's number of hours is not a duration (X50).
+		// Web3Signer's number of hours is not a duration (X56).
 		"--slashing-protection-pruning-interval=12": "invalid value \"12\" for flag -slashing-protection-pruning-interval",
 	} {
 		if _, code, stderr := capture(t, "consensus", "--network=e2e", arg); code != exitUsage || !strings.Contains(stderr, want) {

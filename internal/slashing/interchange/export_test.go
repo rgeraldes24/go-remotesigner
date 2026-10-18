@@ -14,7 +14,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/slashingtest"
 )
 
-// An export always names its network, also when it holds no validator (PLAN S8; SP §18.2 fix 5).
+// An export always names its network, also when it holds no validator (DEVIATIONS.md X59).
 func TestEmptyExportCarriesTheGenesisValidatorsRoot(t *testing.T) {
 	want := `{
   "metadata": {
@@ -171,7 +171,7 @@ func decide(t *testing.T, e *slashing.Engine, r request) slashing.Decision {
 
 // A watermark repair raises the watermarks above the signed history. The export carries them: the signer that
 // imports the file refuses what this one refuses, including the double vote and the double proposal that the
-// signed records rule out, which Web3Signer's filter left out of the file (X54). The one request the importer
+// signed records rule out, which Web3Signer's filter left out of the file (X60). The one request the importer
 // allows that this signer refuses is an attestation with a source below the repaired epoch and a target above it,
 // next to a signed attestation at the repaired target; it neither double-votes nor surrounds a signed attestation.
 func TestRepairedWatermarksSurviveTheRoundTrip(t *testing.T) {

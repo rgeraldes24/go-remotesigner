@@ -48,9 +48,9 @@ fuzz: fuzz-keystore fuzz-interchange
 fuzz-keystore:
 	$(GO) test -run '^$$' -fuzz '^FuzzDecrypt$$' -fuzztime $(FUZZTIME) ./internal/keys/keystore/qrlv1/
 
-## fuzz-interchange: the EIP-3076 interchange import and export fuzz (G4 S35), FUZZTIME long; nightly runs it for
-## 30 min (DESIGN §7.1). Minimising a new input is capped at 5 s: inputs carry 5,186-character keys, and the default
-## 60 s stalls every worker while it minimises.
+## fuzz-interchange: the EIP-3076 interchange import and export fuzz, FUZZTIME long; nightly runs it for 30 min.
+## Minimising a new input is capped at 5 s: inputs carry 5,186-character keys, and the default 60 s stalls every
+## worker while it minimises.
 fuzz-interchange:
 	$(GO) test -run '^$$' -fuzz '^FuzzInterchange$$' -fuzztime $(FUZZTIME) -fuzzminimizetime 5s ./internal/slashing/interchange/
 

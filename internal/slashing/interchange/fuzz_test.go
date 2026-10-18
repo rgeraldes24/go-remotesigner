@@ -13,8 +13,8 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/memstore"
 )
 
-// FuzzInterchange feeds arbitrary files to the importer (G4 S35). Whatever the input, the import must not panic,
-// only 2,592-byte keys may reach the store, and what the store then exports must import again without a failure and
+// FuzzInterchange feeds arbitrary files to the importer. Whatever the input, the import must not panic, only
+// 2,592-byte keys may reach the store, and what the store then exports must import again without a failure and
 // reach a fixed point after one more round: a signer can always read back its own exports.
 func FuzzInterchange(f *testing.F) {
 	f.Add([]byte(doc(gvr, jEntry{Pubkey: pk(0), Blocks: []jBlock{blk(1, root(1)), blk(1, root(2))},

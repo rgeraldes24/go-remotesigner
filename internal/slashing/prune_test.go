@@ -10,7 +10,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/slashingtest"
 )
 
-// A backend may run an UpdateHistory function again when it retries the transaction (Postgres, DESIGN §3.7). The
+// A backend may run an UpdateHistory function again when it retries the transaction, as a Postgres store does. The
 // counts of a pruning run, and what it deletes, are then the same as without the retry.
 func TestPruneThroughARetriedTransaction(t *testing.T) {
 	forEachStore(t, func(t *testing.T, s slashing.Store) {

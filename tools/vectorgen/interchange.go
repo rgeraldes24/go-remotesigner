@@ -24,7 +24,7 @@ import (
 // The interchange fixtures: an EIP-3076 export written by qrysm's validator (validator slashing-protection-history
 // export) from a validator database with a known history, and the check that a file imports back into qrysm with
 // that same history. The signer's tests import the export, and `vectorgen interchange-check` imports the signer's
-// re-export into qrysm (PLAN S8, round trip with qrysm).
+// re-export into qrysm.
 
 const (
 	interchangeExport = "interchange/qrysm-export.json"

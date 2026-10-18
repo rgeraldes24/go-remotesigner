@@ -11,8 +11,8 @@ import (
 )
 
 // Retrying wraps s so that every UpdateHistory runs its function twice, as a backend that retries a transaction
-// after a serialisation failure or a deadlock does (Postgres, DESIGN §3.7): the first attempt calls fn for every id
-// and is rolled back, and the second calls it again from the first id. A caller of UpdateHistory must get the same
+// after a serialisation failure or a deadlock (a Postgres store) does: the first attempt calls fn for every id and
+// is rolled back, and the second calls it again from the first id. A caller of UpdateHistory must get the same
 // result through it as through s.
 func Retrying(s slashing.Store) slashing.Store { return retrying{s} }
 

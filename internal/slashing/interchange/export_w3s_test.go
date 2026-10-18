@@ -170,7 +170,7 @@ func TestExportOnlyBlocksAtOrAboveTheWatermark(t *testing.T) {
 }
 
 // Web3Signer writes only the attestations whose source and target epochs are both at or above the watermarks. Here
-// the target watermark alone filters (X54): an attestation with a source below the source watermark still rules
+// the target watermark alone filters (X60): an attestation with a source below the source watermark still rules
 // out a double vote at its target, and leaving it out let the importing signer sign another one there. The epoch
 // watermarks become an attestation of their own only above every record: below the oldest one, (3, 9) would be
 // surrounded by (0, 10) and the file would be slashable, while (0, 10) already gives the importer stricter

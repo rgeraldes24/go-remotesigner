@@ -32,7 +32,7 @@ import (
 
 // pruner runs slashing.Prune in the background: once at startup and then every interval. A failed run is logged
 // and the next one runs on schedule, as in Web3Signer's DbPrunerRunner; unlike it, the startup run is not optional
-// (DESIGN §3.7) and the window is in the network's slots per epoch.
+// (DEVIATIONS.md X56) and the window is in the network's slots per epoch.
 type pruner struct {
 	cancel context.CancelFunc
 	done   chan struct{}

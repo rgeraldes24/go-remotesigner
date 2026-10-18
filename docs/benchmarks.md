@@ -205,7 +205,7 @@ plaintext one in the same runs, within the noise, so TLS adds no measurable cost
 
 ## Slashing-protection pruning (B14, bbolt variant, `internal/slashing`)
 
-**B14 (bbolt): met on the development machine**, pending the reference VMs. The Postgres variant belongs to S9.
+**B14 (bbolt): met on the development machine**, pending the reference VMs. The Postgres variant comes with the Postgres store.
 
 ```
 make bench-b14     # REMOTESIGNER_BENCH=1 go test -run '^TestB14' ./internal/slashing/boltstore/
