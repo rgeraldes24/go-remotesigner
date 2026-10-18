@@ -171,7 +171,9 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 |---|---|---|---|---|
 | `.github/workflows/ci.yml` | new | | | |
 | `.github/workflows/nightly.yml` | new | | | |
+| `.github/workflows/release.yml` | new | | | |
 | `.golangci.yml` | new | | | |
+| `.goreleaser.yaml` | new | | | |
 | `api/openapi/consensus.yaml` | w3s-derived | `Consensys/web3signer` | `openapi-specs/eth2/web3signer.yaml`<br>`openapi-specs/eth2/signing/schemas.yaml`<br>`openapi-specs/eth2/signing/paths/sign.yaml`<br>`openapi-specs/eth2/signing/paths/public_keys.yaml`<br>`openapi-specs/eth2/signing/paths/high_watermark.yaml`<br>`openapi-specs/eth2/signing/paths/upcheck.yaml`<br>`openapi-specs/eth2/signing/paths/healthcheck.yaml`<br>`openapi-specs/eth2/signing/paths/reload.yaml`<br>`openapi-specs/eth2/keymanager/schemas.yaml`<br>`openapi-specs/eth2/keymanager/paths/keystores.yaml` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `api/openapi/docs_test.go` | new | | | |
 | `api/openapi/encoding_test.go` | new | | | |

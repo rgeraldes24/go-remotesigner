@@ -5,6 +5,7 @@ GO            ?= go
 GOLANGCI_LINT ?= golangci-lint
 GO_LICENSES   ?= go-licenses
 GOVULNCHECK   ?= govulncheck
+GORELEASER    ?= goreleaser
 DOCKER        ?= docker
 BIN_DIR       ?= bin
 
@@ -20,7 +21,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test fuzz fuzz-keystore fuzz-interchange bench-b14 contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e release-docs image clean
+.PHONY: all build build-consensus test fuzz fuzz-keystore fuzz-interchange bench-b14 contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e release-docs release-snapshot image clean
 
 all: build build-consensus
 
@@ -147,6 +148,13 @@ bench-e2e:
 RELEASE_DIR ?= build/release
 release-docs:
 	$(GO) run ./tools/releasedocs -out $(RELEASE_DIR) -go-licenses "$(GO_LICENSES)"
+
+## release-snapshot: the release dry run: goreleaser (v2) builds every archive, SBOM and image of both flavours into
+## dist/ and the local image store, and publishes and signs nothing. Signing is always skipped; add sbom to
+## RELEASE_SKIP when syft is not installed.
+RELEASE_SKIP ?= sign
+release-snapshot:
+	GO_LICENSES="$(GO_LICENSES)" $(GORELEASER) release --snapshot --clean --skip=$(RELEASE_SKIP)
 
 ## image: one image of FLAVOUR (remotesigner or remotesigner-consensus) for linux/IMAGE_ARCH (default: the Docker
 ## daemon's architecture), tagged IMAGE, built from deploy/docker/Dockerfile into the local image store
