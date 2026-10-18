@@ -1,0 +1,56 @@
+// Copyright 2026 The go-remotesigner Authors.
+// SPDX-License-Identifier: Apache-2.0
+
+//go:build !noexecution
+
+package runner
+
+import (
+	"context"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/config"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets/awssm"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets/azurekv"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets/gcpsm"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets/hashicorp"
+)
+
+// newStores returns the clients of every secret store: the default flavour
+// links the AWS, Azure and GCP SDKs.
+func newStores(cfg *config.Config) *stores {
+	hc, gcp := hashicorp.New(vaultClients), gcpsm.New()
+	ss := cfg.Consensus.SecretStores
+	st := &stores{
+		fetch: secrets.Stores{
+			secrets.KindHashicorp: hc,
+			secrets.KindAWS:       awssm.New(max(1, ss.AWSClientCacheSize)),
+			secrets.KindAzure:     azurekv.New(),
+			secrets.KindGCP:       gcp,
+		},
+		bulk:  map[string]func(context.Context) (secrets.Lister, func(), error){},
+		close: func() { hc.Close(); gcp.Close() },
+	}
+	if b := ss.Azure; b != nil {
+		st.bulk[secrets.KindAzure] = func(context.Context) (secrets.Lister, func(), error) {
+			store, err := azurekv.NewBulk(*b)
+			return store, func() {}, err
+		}
+	}
+	if b := ss.AWS; b != nil {
+		st.bulk[secrets.KindAWS] = func(ctx context.Context) (secrets.Lister, func(), error) {
+			store, err := awssm.NewBulk(ctx, *b)
+			return store, func() {}, err
+		}
+	}
+	if b := ss.GCP; b != nil {
+		st.bulk[secrets.KindGCP] = func(ctx context.Context) (secrets.Lister, func(), error) {
+			store, err := gcpsm.NewBulk(ctx, *b)
+			if err != nil {
+				return nil, nil, err
+			}
+			return store, func() { _ = store.Close() }, nil
+		}
+	}
+	return st
+}

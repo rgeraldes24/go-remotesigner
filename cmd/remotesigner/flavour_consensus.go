@@ -21,3 +21,9 @@ func flavourCommands(func(runFunc) runFunc, io.Writer, io.Writer) []*cli.Command
 // flavourSections: an execution section of --config-file is an unknown key
 // here.
 func flavourSections() map[string][]cli.Flag { return nil }
+
+// cloudSecretStores reports whether this flavour links the cloud SDKs of
+// the AWS, Azure and GCP secret stores. Like execution mode, they are in
+// the default flavour only, which keeps this one small; HashiCorp Vault,
+// read over plain HTTP, is in both.
+const cloudSecretStores = false

@@ -288,6 +288,7 @@ loop:
 		}
 	}
 	reloader.Close()
+	loader.Close()
 	reveals.Close()
 	prune.stop()
 	if errors.Is(err, server.ErrHandlersRunning) {
