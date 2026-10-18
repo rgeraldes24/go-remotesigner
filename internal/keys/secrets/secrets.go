@@ -15,7 +15,7 @@
 //     one seed per line (Bulk, Lister).
 //
 // This package holds what the stores share and needs no cloud SDK: the
-// seed formats of decision D18 (ParseSeed), the description of each
+// seed formats of each signer mode (ParseSeed), the description of each
 // secret (the Spec types), the bulk loader, the HTTP client every
 // store's requests go through (a timeout, no redirects, a bounded
 // response) and a bounded client cache. The stores themselves are in

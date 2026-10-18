@@ -14,7 +14,7 @@ import (
 
 // Mode is the signer mode a seed is for. The two modes take different
 // formats, so that a key of one mode can never be configured in the other
-// (decision D18: consensus and execution share a signing context).
+// (consensus and execution share a signing context).
 type Mode uint8
 
 const (
