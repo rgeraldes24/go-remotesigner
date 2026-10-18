@@ -51,7 +51,8 @@ file. With `--strict-file-permissions` (the default) a secret file that its grou
 refused: it fails to load like any other error (section 3), and the log names the file and its mode. With
 `--strict-file-permissions=false` it is loaded with a WARN. The mode is checked on the opened file, so the file read
 is the file checked. Keystores themselves are encrypted and are not checked. Keep secret files at `0600` or `0400`
-in `0700` directories.
+in `0700` directories. On Windows, whose files have no owner, group and other mode bits, the check is not made
+(only a path that is not a regular file is refused): restrict secret files there with their ACLs.
 
 ## 2. The startup load
 

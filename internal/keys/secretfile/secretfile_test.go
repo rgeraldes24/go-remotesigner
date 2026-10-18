@@ -11,9 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
-	"time"
 )
 
 func write(t *testing.T, data string, mode fs.FileMode) string {
@@ -31,6 +29,9 @@ func write(t *testing.T, data string, mode fs.FileMode) string {
 // A secret file readable by group or others is refused under the strict
 // policy and read with a warning otherwise; owner-only modes pass silently.
 func TestReadPolicy(t *testing.T) {
+	if !posixModes {
+		t.Skip("file modes carry no POSIX permissions on this platform")
+	}
 	for _, tt := range []struct {
 		mode   fs.FileMode
 		strict bool
@@ -89,38 +90,32 @@ func TestReadRefusals(t *testing.T) {
 	if _, err := Read(big, 64, Policy{Strict: true}); !errors.Is(err, ErrTooLarge) {
 		t.Errorf("a file over the limit: %v", err)
 	}
-	// A FIFO is refused at once instead of blocking the open until a
-	// writer comes.
-	fifo := filepath.Join(dir, "fifo.txt")
-	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { _, err := ReadCapped(fifo, 64); done <- err }()
-	select {
-	case err := <-done:
-		if !errors.Is(err, ErrNotRegular) {
-			t.Errorf("a FIFO: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("reading a FIFO blocked")
-	}
-	// A symlink is followed: the mode checked is the target's.
-	target := write(t, "pw", 0o644)
-	link := filepath.Join(dir, "link.txt")
-	if err := os.Symlink(target, link); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Read(link, 64, Policy{Strict: true}); !errors.Is(err, ErrInsecure) {
-		t.Errorf("a symlink to a world-readable file: %v", err)
-	}
-	// ReadCapped checks no mode.
-	if got, err := ReadCapped(target, 64); err != nil || string(got) != "pw" {
+	if got, err := ReadCapped(write(t, "pw", 0o600), 64); err != nil || string(got) != "pw" {
 		t.Errorf("ReadCapped = %q, %v", got, err)
 	}
-	// ReadInfo returns the mode it read the file with.
-	if _, fi, err := ReadInfo(target, 64); err != nil || fi.Mode().Perm() != 0o644 {
-		t.Errorf("ReadInfo = %v, %v", fi, err)
+}
+
+// Where file modes carry no POSIX permissions (Windows), the strict policy
+// refuses only what is not a regular file.
+func TestCheckWithoutPOSIXModes(t *testing.T) {
+	defer func(v bool) { posixModes = v }(posixModes)
+	posixModes = false
+	p := write(t, "pw", 0o644)
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	warned := false
+	pol := Policy{Strict: true, Warn: func(string, fs.FileMode) { warned = true }}
+	if err := pol.Check(p, fi); err != nil || warned {
+		t.Fatalf("Check = %v, warned %v", err, warned)
+	}
+	dir, err := os.Stat(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pol.Check("dir", dir); !errors.Is(err, ErrNotRegular) {
+		t.Fatalf("a directory: %v", err)
 	}
 }
 

@@ -8,7 +8,9 @@
 //
 // A secret file that its group or other users can read is refused under
 // the strict policy (--strict-file-permissions, the default) and loaded
-// with a warning otherwise.
+// with a warning otherwise. On Windows, whose files have no POSIX mode
+// bits (Go reports every file as 0666, or 0444 when it is read-only), that
+// check is not made: access there is governed by the file's ACL.
 package secretfile
 
 import (
@@ -17,6 +19,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"runtime"
 	"syscall"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
@@ -43,14 +46,19 @@ type Policy struct {
 	Warn func(path string, mode fs.FileMode)
 }
 
+// posixModes reports whether file modes carry the owner, group and other
+// permission bits; on Windows they do not.
+var posixModes = runtime.GOOS != "windows"
+
 // Check applies p to the file at path with info fi (which follows
 // symlinks, as os.Stat does): it fails for anything but a regular file,
-// and for a file readable by group or others under the strict policy.
+// and, where file modes carry POSIX permissions, for a file readable by
+// group or others under the strict policy.
 func (p Policy) Check(path string, fi fs.FileInfo) error {
 	if !fi.Mode().IsRegular() {
 		return fmt.Errorf("%s: %w", path, ErrNotRegular)
 	}
-	if fi.Mode().Perm()&0o044 == 0 {
+	if !posixModes || fi.Mode().Perm()&0o044 == 0 {
 		return nil
 	}
 	if p.Strict {

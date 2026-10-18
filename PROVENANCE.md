@@ -288,6 +288,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/keystoretest/keystoretest.go` | new | | | |
 | `internal/keys/secretfile/secretfile.go` | new | | | |
 | `internal/keys/secretfile/secretfile_test.go` | new | | | |
+| `internal/keys/secretfile/secretfile_unix_test.go` | new | | | |
 | `internal/keys/source/identity_bsd.go` | new | | | |
 | `internal/keys/source/identity_linux.go` | new | | | |
 | `internal/keys/source/identity_other.go` | new | | | |
