@@ -197,6 +197,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `deploy/config/single-host.yaml` | new | | | |
 | `deploy/docker/Dockerfile` | new | | | |
 | `deploy/docker/compose.yaml` | new | | | |
+| `deploy/grafana/remotesigner.json` | w3s-derived | Web3Signer | `dashboard/web3signer-eth2-dashboard-grafana.json` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `deploy/prometheus/alerts.yml` | new | | | |
 | `internal/api/apierr/apierr.go` | new | | | |
 | `internal/api/apierr/apierr_test.go` | new | | | |
@@ -275,6 +276,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/logging/logging.go` | new | | | |
 | `internal/logging/logging_test.go` | new | | | |
 | `internal/logging/secret.go` | new | | | |
+| `internal/metrics/dashboard_test.go` | new | | | |
 | `internal/metrics/listener.go` | new | | | |
 | `internal/metrics/metrics.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/metrics/HttpApiMetrics.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/metrics/SlashingProtectionMetrics.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/metrics/metrics_test.go` | new | | | |
