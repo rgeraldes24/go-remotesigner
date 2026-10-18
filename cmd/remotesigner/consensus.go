@@ -249,7 +249,7 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 	if err := checkLoading(c); err != nil {
 		return nil, err
 	}
-	if cfg.Consensus.SlashingProtectionDBPath, err = dbPath(c); err != nil {
+	if err := storeConfig(c, &cfg.Consensus); err != nil {
 		return nil, err
 	}
 	if c.IsSet(flags.NetworkGenesisTime) {
@@ -328,21 +328,35 @@ func checkLoading(c *cli.Context) error {
 	return nil
 }
 
-// dbPath returns the bbolt file of --slashing-protection-db-url, set on
-// the command or on any parent, or "" when it is not set.
-func dbPath(c *cli.Context) (string, error) {
-	for _, x := range c.Lineage() {
-		if !x.IsSet(flags.SlashingProtectionDBURL) {
-			continue
-		}
-		p, err := config.ParseDBURL(x.String(flags.SlashingProtectionDBURL))
-		if err != nil {
-			return "", fmt.Errorf("--%s: %w", flags.SlashingProtectionDBURL, err)
-		}
-		return p, nil
+// storeConfig resolves the store flags: the bbolt file or the Postgres database of --slashing-protection-db-url,
+// the Postgres user name and password file, which need a Postgres URL, and the health-check timing.
+func storeConfig(c *cli.Context, cc *config.Consensus) error {
+	u, err := dbURL(c)
+	if err != nil {
+		return err
 	}
-	return "", nil
+	cc.SlashingProtectionDBPath = u.Path
+	if u.Postgres == "" && (c.IsSet(flags.SlashingProtectionDBUser) || c.IsSet(flags.SlashingProtectionDBPass)) {
+		return fmt.Errorf("--%s and --%s need a postgres:// --%s", flags.SlashingProtectionDBUser,
+			flags.SlashingProtectionDBPass, flags.SlashingProtectionDBURL)
+	}
+	cc.Postgres = config.Postgres{
+		URL:                 u.Postgres,
+		Username:            c.String(flags.SlashingProtectionDBUser),
+		PasswordFile:        c.String(flags.SlashingProtectionDBPass),
+		HealthCheckTimeout:  time.Duration(c.Uint64(flags.DBHealthCheckTimeout)) * time.Millisecond,
+		HealthCheckInterval: time.Duration(c.Uint64(flags.DBHealthCheckInterval)) * time.Millisecond,
+	}
+	for _, f := range []string{flags.DBHealthCheckTimeout, flags.DBHealthCheckInterval} {
+		if v := c.Uint64(f); v < 1 || v > maxHealthCheckMillis {
+			return fmt.Errorf("--%s must be 1 to %d (milliseconds)", f, maxHealthCheckMillis)
+		}
+	}
+	return nil
 }
+
+// maxHealthCheckMillis bounds the health-check flags (a day), well below the range of a time.Duration.
+const maxHealthCheckMillis = 86_400_000
 
 func parseRoot(s string) ([32]byte, error) {
 	var r [32]byte

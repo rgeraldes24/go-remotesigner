@@ -158,12 +158,15 @@ cause and reload: the check is `UP` again when every source loads.
 remotesigner --data-path=/var/lib/remotesigner consensus disable-validator --key=0x<public key or its sha256>
 ```
 
-The command sets the key's `enabled` flag to false in the bbolt slashing-protection store. The signer then refuses
+The command sets the key's `enabled` flag to false in the slashing-protection store. The signer then refuses
 the key's blocks, attestations and new RANDAO layers with `412 VALIDATOR_DISABLED`; the other artifact types (such as
 selection proofs and sync-committee messages) still sign. Use it for a key that must never sign a block or an
 attestation again, for example one that has moved to another signer.
 
-- The signer must be stopped: the store is locked while it runs, and the command says so and changes nothing.
+- With bbolt the signer must be stopped: the store is locked while it runs, and the command says so and changes
+  nothing. With Postgres it runs online: it waits for the key's open block and attestation transactions on every
+  replica, and every replica refuses the key from its next request
+  ([`postgres.md`](postgres.md#6-store-commands-online)).
 - The key must be registered in the store (loaded at least once); `--slashing-protection-db-url=bolt:///path` names
   another store than `<data-path>/slashing-protection.db`.
 - It exits 0 and says so when the key is already disabled.

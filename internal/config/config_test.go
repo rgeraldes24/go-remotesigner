@@ -87,6 +87,9 @@ func TestCheckFailSafes(t *testing.T) {
 		{"remote, genesis unknown acknowledged", func(c *Config) { remote(c); c.Consensus.AllowUnknownGenesisTime = true }, fileNetwork(true, false), nil},
 		{"named network never TOFU", remote, &network.Network{Named: true, GenesisTimeSource: network.SourceNamed}, nil},
 		{"protection without data path", func(c *Config) { c.DataPath = ""; c.HTTP.AuthTokenFile = "/t" }, known, []error{ErrNoDataPath}},
+		{"protection in Postgres without data path", func(c *Config) {
+			c.DataPath, c.HTTP.AuthTokenFile, c.Consensus.Postgres.URL = "", "/t", "postgres://u@db/signer"
+		}, known, nil},
 		{"protection with a store URL and no data path", func(c *Config) {
 			c.DataPath = ""
 			c.HTTP.AuthTokenFile = "/t"
@@ -346,24 +349,30 @@ func TestYAMLSourceErrors(t *testing.T) {
 }
 
 func TestParseDBURL(t *testing.T) {
-	for raw, want := range map[string]string{
-		"bolt:///var/lib/signer/sp.db":    "/var/lib/signer/sp.db",
-		"bolt:///var/lib/signer/../sp.db": "/var/lib/sp.db",
+	for raw, want := range map[string]DBURL{
+		"bolt:///var/lib/signer/sp.db":                      {Path: "/var/lib/signer/sp.db"},
+		"bolt:///var/lib/signer/../sp.db":                   {Path: "/var/lib/sp.db"},
+		"postgres://u@db/signer?sslmode=verify-full":        {Postgres: "postgres://u@db/signer?sslmode=verify-full"},
+		"postgresql://db:5433/signer":                       {Postgres: "postgresql://db:5433/signer"},
+		"jdbc:postgresql://db/web3signer?sslmode=verify-ca": {Postgres: "postgresql://db/web3signer?sslmode=verify-ca"},
+		"jdbc:postgresql://u@db.internal:5432/remotesigner": {Postgres: "postgresql://u@db.internal:5432/remotesigner"},
 	} {
 		if got, err := ParseDBURL(raw); err != nil || got != want {
-			t.Errorf("%s: %q %v, want %q", raw, got, err, want)
+			t.Errorf("%s: %+v %v, want %+v", raw, got, err, want)
 		}
 	}
 	for raw, want := range map[string]string{
-		"postgres://u@db/signer":      "Postgres",
-		"jdbc:postgresql://db/signer": "Postgres",
-		"bolt://host/sp.db":           "no host",
-		"bolt:///sp.db?mode=ro":       "no host or query",
-		"bolt:relative.db":            "no host",
-		"bolt:///":                    "absolute file path",
-		"/var/lib/sp.db":              "unsupported scheme",
-		"sqlite:///var/lib/sp.db":     "unsupported scheme",
-		"bolt://%zz":                  "not a URL",
+		"postgres://u:secret@db/signer":          "password",
+		"jdbc:postgresql://db/signer?password=x": "password",
+		"postgres://db/signer?pool_max_conns=40": "pool profile is fixed",
+		"jdbc:mysql://db/signer":                 "unsupported scheme",
+		"bolt://host/sp.db":                      "no host",
+		"bolt:///sp.db?mode=ro":                  "no host or query",
+		"bolt:relative.db":                       "no host",
+		"bolt:///":                               "absolute file path",
+		"/var/lib/sp.db":                         "unsupported scheme",
+		"sqlite:///var/lib/sp.db":                "unsupported scheme",
+		"bolt://%zz":                             "not a URL",
 	} {
 		if _, err := ParseDBURL(raw); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v, want an error mentioning %q", raw, err, want)

@@ -8,7 +8,8 @@ file `--slashing-protection-db-url=bolt:///…` names). It holds, under the netw
 - each validator's RANDAO frontier `(m, R, last)` ([`randao.md`](randao.md#5-persistence));
 - the global high watermark, and the schema version.
 
-Keys, tokens and configuration live elsewhere and are backed up with them; the store holds no secret.
+Keys, tokens and configuration live elsewhere and are backed up with them; the store holds no secret. A Postgres
+store is backed up with the server's own tools ([`postgres.md`](postgres.md#8-backups)).
 
 ## 1. Taking a backup
 

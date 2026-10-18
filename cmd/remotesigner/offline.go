@@ -8,39 +8,44 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 
 	"github.com/urfave/cli/v2"
 
 	"github.com/rgeraldes24/go-remotesigner/cmd/remotesigner/flags"
 	"github.com/rgeraldes24/go-remotesigner/internal/api/consensus"
-	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/boltstore"
+	"github.com/rgeraldes24/go-remotesigner/internal/slashing/pgstore"
 )
 
-// The offline store commands (the history commands are in interchange.go).
-// bbolt allows one process per file, so they fail while a signer has the
-// store open; that refusal says what to do.
+// The store commands (the history commands are in interchange.go). bbolt
+// allows one process per file, so with bbolt they fail while a signer has
+// the store open, and that refusal says what to do; a Postgres database they
+// use online, under the advisory locks the signers take.
 
 // errStoreInUse is the startup-failure message for a locked store.
 const errStoreInUse = "the slashing-protection store %s is open in a running remotesigner: stop the signer first"
 
 func migrateCommand(stdout io.Writer) *cli.Command {
 	return &cli.Command{
-		Name:         flags.MigrateCommand,
-		Usage:        "upgrade the bbolt slashing-protection store to this release's schema (offline; the signer must be stopped)",
+		Name: flags.MigrateCommand,
+		Usage: "upgrade the slashing-protection store to this release's schema: a bbolt file offline (the signer must " +
+			"be stopped), after a backup; a Postgres database online, creating the schema in an empty one (needs a role " +
+			"that may create tables)",
 		Flags:        flags.Migrate(),
 		OnUsageError: onUsageError,
 		Action: func(c *cli.Context) error {
 			if c.NArg() > 0 {
 				return usageError(fmt.Errorf("unexpected argument %q", c.Args().First()))
 			}
-			path, err := storeFile(c)
+			target, err := targetOf(c, true)
 			if err != nil {
 				return usageError(err)
 			}
+			if target.postgres() {
+				return migratePostgres(c.Context, stdout, target)
+			}
+			path := target.path
 			m, err := boltstore.Migrate(path)
 			switch {
 			case errors.Is(err, boltstore.ErrLocked):
@@ -57,6 +62,26 @@ func migrateCommand(stdout io.Writer) *cli.Command {
 	}
 }
 
+// migratePostgres creates or upgrades the schema of a Postgres database, under the migration lock.
+func migratePostgres(ctx context.Context, stdout io.Writer, target storeTarget) error {
+	cfg, err := target.postgresConfig()
+	if err != nil {
+		return cli.Exit(err.Error(), exitStartup)
+	}
+	m, err := pgstore.Migrate(ctx, cfg)
+	switch {
+	case err != nil:
+		return cli.Exit(err.Error(), exitStartup)
+	case m.From == m.To:
+		_, _ = fmt.Fprintf(stdout, "%s is already at schema version %d; nothing to do\n", target, m.To)
+	case m.From == 0:
+		_, _ = fmt.Fprintf(stdout, "%s: slashing-protection schema version %d created\n", target, m.To)
+	default:
+		_, _ = fmt.Fprintf(stdout, "%s migrated from schema version %d to %d\n", target, m.From, m.To)
+	}
+	return nil
+}
+
 func randaoStateCommand(stdout io.Writer) *cli.Command {
 	return &cli.Command{
 		Name:            flags.RandaoStateCommand,
@@ -65,8 +90,9 @@ func randaoStateCommand(stdout io.Writer) *cli.Command {
 		OnUsageError:    onUsageError,
 		Subcommands: []*cli.Command{{
 			Name: flags.ResetCommand,
-			Usage: "clear one key's RANDAO frontier, so that its next reveal is a first use (offline with bbolt; " +
-				"while the signer runs use DELETE /api/v1/consensus/randao_state/{identifier} with the admin token)",
+			Usage: "clear one key's RANDAO frontier, so that its next reveal is a first use (offline with bbolt, where " +
+				"a running signer takes DELETE /api/v1/consensus/randao_state/{identifier} with the admin token instead; " +
+				"online with Postgres)",
 			Flags:        flags.RandaoStateReset(),
 			OnUsageError: onUsageError,
 			Action: func(c *cli.Context) error {
@@ -80,15 +106,15 @@ func randaoStateCommand(stdout io.Writer) *cli.Command {
 				if e != nil {
 					return usageError(fmt.Errorf("--%s: want 0x and the public key or its sha256 in hex", flags.Key))
 				}
-				path, err := storeFile(c)
+				target, err := targetOf(c, true)
 				if err != nil {
 					return usageError(err)
 				}
-				if err := resetRandaoState(c.Context, path, slashing.KeyID(id)); err != nil {
+				if err := resetRandaoState(c.Context, target, slashing.KeyID(id)); err != nil {
 					return cli.Exit(err.Error(), exitStartup)
 				}
 				_, _ = fmt.Fprintf(stdout, "RANDAO state of key %s cleared in %s; its next reveal is a first use\n",
-					slashing.KeyID(id), path)
+					slashing.KeyID(id), target)
 				return nil
 			},
 		}},
@@ -102,8 +128,9 @@ func disableValidatorCommand(stdout io.Writer) *cli.Command {
 	return &cli.Command{
 		Name: flags.DisableValidator,
 		Usage: "disable a key in slashing protection: the signer then refuses its blocks, attestations and new RANDAO " +
-			"layers with 412 VALIDATOR_DISABLED (offline with bbolt; the signer must be stopped). Reloads never disable " +
-			"a key; removing its files only unloads it.",
+			"layers with 412 VALIDATOR_DISABLED (offline with bbolt: the signer must be stopped; online with Postgres, " +
+			"where every replica refuses them from the next request). Reloads never disable a key; removing its files " +
+			"only unloads it.",
 		Flags:        flags.DisableValidatorFlags(),
 		OnUsageError: onUsageError,
 		Action: func(c *cli.Context) error {
@@ -117,32 +144,29 @@ func disableValidatorCommand(stdout io.Writer) *cli.Command {
 			if e != nil {
 				return usageError(fmt.Errorf("--%s: want 0x and the public key or its sha256 in hex", flags.Key))
 			}
-			path, err := storeFile(c)
+			target, err := targetOf(c, true)
 			if err != nil {
 				return usageError(err)
 			}
-			already, err := disableValidator(c.Context, path, slashing.KeyID(id))
+			already, err := disableValidator(c.Context, target, slashing.KeyID(id))
 			if err != nil {
 				return cli.Exit(err.Error(), exitStartup)
 			}
 			if already {
-				_, _ = fmt.Fprintf(stdout, "key %s is already disabled in %s\n", slashing.KeyID(id), path)
+				_, _ = fmt.Fprintf(stdout, "key %s is already disabled in %s\n", slashing.KeyID(id), target)
 				return nil
 			}
 			_, _ = fmt.Fprintf(stdout, "key %s disabled in %s: the signer refuses its blocks, attestations and new RANDAO "+
-				"layers (412 VALIDATOR_DISABLED)\n", slashing.KeyID(id), path)
+				"layers (412 VALIDATOR_DISABLED)\n", slashing.KeyID(id), target)
 			return nil
 		},
 	}
 }
 
-// disableValidator persists enabled=false for a registered key. It reports
-// whether the key was already disabled.
-func disableValidator(ctx context.Context, path string, id slashing.KeyID) (bool, error) {
-	s, err := boltstore.Open(path, boltstore.Options{})
-	if errors.Is(err, boltstore.ErrLocked) {
-		return false, fmt.Errorf(errStoreInUse+", then run consensus disable-validator again", path)
-	}
+// disableValidator persists enabled=false for a registered key. It reports whether the key was already disabled.
+// With Postgres the write waits for the key's open block and attestation transactions in every replica.
+func disableValidator(ctx context.Context, target storeTarget, id slashing.KeyID) (bool, error) {
+	s, err := target.open(ctx, nil, ", then run consensus disable-validator again")
 	if err != nil {
 		return false, err
 	}
@@ -152,7 +176,7 @@ func disableValidator(ctx context.Context, path string, id slashing.KeyID) (bool
 		return false, err
 	}
 	if !st.Registered {
-		return false, fmt.Errorf("key %s is not registered in %s", id, path)
+		return false, fmt.Errorf("key %s is not registered in %s", id, target)
 	}
 	if !st.Enabled {
 		return true, nil
@@ -160,38 +184,9 @@ func disableValidator(ctx context.Context, path string, id slashing.KeyID) (bool
 	return false, s.SetValidatorEnabled(ctx, id, false)
 }
 
-// storeFile is the bbolt file the offline commands work on: the path of
-// --slashing-protection-db-url, else <data-path>/slashing-protection.db.
-// The file must exist; only consensus import creates a store.
-func storeFile(c *cli.Context) (string, error) {
-	path, err := storePath(c)
-	if err != nil {
-		return "", err
-	}
-	if _, err := os.Stat(path); err != nil {
-		return "", fmt.Errorf("no slashing-protection store at %s", path)
-	}
-	return path, nil
-}
-
-// storePath is the bbolt file of storeFile, which need not exist yet.
-func storePath(c *cli.Context) (string, error) {
-	path, err := dbPath(c)
-	if err != nil || path != "" {
-		return path, err
-	}
-	dataPath := c.String(flags.DataPath)
-	if dataPath == "" {
-		return "", fmt.Errorf("name the store with --%s or --%s", flags.SlashingProtectionDBURL, flags.DataPath)
-	}
-	return filepath.Join(dataPath, config.SlashingProtectionFile), nil
-}
-
-func resetRandaoState(ctx context.Context, path string, id slashing.KeyID) error {
-	s, err := boltstore.Open(path, boltstore.Options{})
-	if errors.Is(err, boltstore.ErrLocked) {
-		return fmt.Errorf(errStoreInUse+", or reset the key online with DELETE /api/v1/consensus/randao_state/{identifier} and the admin token", path)
-	}
+func resetRandaoState(ctx context.Context, target storeTarget, id slashing.KeyID) error {
+	s, err := target.open(ctx, nil, ", or reset the key online with DELETE /api/v1/consensus/randao_state/{identifier} "+
+		"and the admin token")
 	if err != nil {
 		return err
 	}
@@ -201,7 +196,7 @@ func resetRandaoState(ctx context.Context, path string, id slashing.KeyID) error
 		return err
 	}
 	if !st.Registered {
-		return fmt.Errorf("key %s is not registered in %s", id, path)
+		return fmt.Errorf("key %s is not registered in %s", id, target)
 	}
 	return s.DeleteRandaoState(ctx, id)
 }

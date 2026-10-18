@@ -47,8 +47,6 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/signer"
 	"github.com/rgeraldes24/go-remotesigner/internal/signer/provider"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
-	"github.com/rgeraldes24/go-remotesigner/internal/slashing/boltstore"
-	"github.com/rgeraldes24/go-remotesigner/internal/slashing/memstore"
 )
 
 // ShutdownTimeout bounds how long in-flight requests may run after SIGTERM.
@@ -75,13 +73,14 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	if err != nil {
 		return err
 	}
-	store, err := openStore(cfg, n, pol, log)
+	set, err := openStore(ctx, cfg, n, pol, log)
 	if err != nil {
 		return err
 	}
+	store := set.store
 	logNetwork(log, n, pol)
 	closeStore := func() {
-		if err := store.Close(); err != nil {
+		if err := set.close(); err != nil {
 			log.WithError(err).Error("Closing the slashing-protection store failed")
 		}
 	}
@@ -168,7 +167,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		TLS:            serverTLS,
 		HostAllowlist:  cfg.HTTP.HostAllowlist,
 		Auth:           authn,
-		Routes:         routes(cfg, n, pol, authn, keys, store, sign, reveal, loader, reloader, manager, ready.Load, log),
+		Routes:         routes(cfg, n, pol, authn, keys, set, sign, reveal, loader, reloader, manager, ready.Load, log),
 		Ready:          ready.Load,
 		MaxConnections: cfg.HTTP.MaxConnections,
 		ReadTimeout:    server.ReadTimeout(n.Config.SecondsPerSlot),
@@ -210,7 +209,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	}
 	var prune *pruner
 	if cfg.Consensus.SlashingProtectionEnabled {
-		prune = startPruner(store, cfg.Consensus.Pruning, n.Config.SlotsPerEpoch, log)
+		prune = startPruner(set.pruner, cfg.Consensus.Pruning, n.Config.SlotsPerEpoch, set.pruneAtStartup, log)
 	}
 	served, serving := make(chan error, 2), 1
 	go func() { served <- srv.Serve() }()
@@ -409,66 +408,6 @@ func newPolicy(cfg *config.Config, n *network.Network) (*policy.Policy, error) {
 	return policy.New(pc)
 }
 
-// openStore opens the bbolt store, or a memory store when protection is
-// disabled (CheckFailSafes has allowed that only on loopback). A store
-// pinned to a GVR binds the policy to it.
-func openStore(cfg *config.Config, n *network.Network, pol *policy.Policy, log *logrus.Logger) (slashing.Store, error) {
-	if !cfg.Consensus.SlashingProtectionEnabled {
-		log.Error("SLASHING PROTECTION IS DISABLED: blocks and attestations are signed without any slashing check. " +
-			"This is allowed only because every listener is loopback.")
-		log.Warn("RANDAO frontiers are kept in memory only: after a restart every key's next reveal is a first use " +
-			"(set --randao-protection-required to refuse this)")
-		return memstore.New(), nil
-	}
-	path := cfg.SlashingProtectionDB()
-	if cfg.Consensus.SlashingProtectionDBMigrate {
-		if err := migrateStore(path, log); err != nil {
-			return nil, err
-		}
-	}
-	opts := boltstore.Options{OnPin: func(gvr slashing.Root) {
-		if err := pol.PinGenesisValidatorsRoot(gvr); err != nil {
-			log.WithError(err).Error("The store pinned a genesis validators root the policy refused")
-		}
-	}}
-	if n.GVRKnown() {
-		gvr := slashing.Root(n.GenesisValidatorsRoot)
-		opts.GenesisValidatorsRoot = &gvr
-	}
-	store, err := boltstore.Open(path, opts)
-	if err != nil {
-		return nil, err
-	}
-	gvr, pinned, err := store.GenesisValidatorsRoot(context.Background())
-	if err == nil && pinned && !n.GVRKnown() {
-		err = pol.PinGenesisValidatorsRoot(gvr)
-		log.WithField("genesis-validators-root", hexRoot(gvr)).Info("Genesis validators root pinned by the store")
-	}
-	if err != nil {
-		_ = store.Close()
-		return nil, err
-	}
-	return store, nil
-}
-
-// migrateStore upgrades an existing store file before it is opened
-// (--slashing-protection-db-migrate); a missing file is created current by
-// Open.
-func migrateStore(path string, log *logrus.Logger) error {
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	m, err := boltstore.Migrate(path)
-	if err != nil {
-		return fmt.Errorf("refusing to start: --slashing-protection-db-migrate: %w", err)
-	}
-	if m.From != m.To {
-		log.WithFields(logrus.Fields{"from": m.From, "to": m.To, "backup": m.Backup}).
-			Warn("Slashing-protection store migrated")
-	}
-	return nil
-}
-
 // newReveals builds the RANDAO reveal service over the store and logs the
 // effective new-layer rate.
 func newReveals(cfg *config.Config, n *network.Network, store slashing.Store, m *metrics.Metrics,
@@ -509,13 +448,11 @@ func newReveals(cfg *config.Config, n *network.Network, store slashing.Store, m 
 }
 
 func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *auth.Authenticator,
-	keys *provider.Provider, store slashing.Store, sign *consensus.Sign, reveal *consensus.RandaoReveal,
+	keys *provider.Provider, set *storeSet, sign *consensus.Sign, reveal *consensus.RandaoReveal,
 	loader *keyLoader, reloader *ops.Reloader, manager *keymanager.Manager, ready func() bool,
 	log *logrus.Logger) []server.Route {
-	protection := consensus.ProtectionBolt
-	if !cfg.Consensus.SlashingProtectionEnabled {
-		protection = consensus.ProtectionDisabled
-	}
+	store := set.store
+	protection := set.kind
 	caps := consensus.Capabilities{
 		Network:               n,
 		Types:                 pol.EnabledTypes,
@@ -527,10 +464,9 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 	// Like Web3Signer, the store check exists only when there is a store:
 	// with protection disabled (loopback only) it is left out rather than
 	// reported DOWN, which would fail /healthcheck forever.
-	if cfg.Consensus.SlashingProtectionEnabled {
+	if set.health != nil {
 		checks = append(checks, ops.Check{ID: ops.CheckSlashingProtection, Run: func(ctx context.Context) (bool, map[string]any) {
-			_, err := store.SchemaVersion(ctx)
-			return err == nil, nil
+			return set.health(ctx), nil
 		}})
 	}
 	// As in Web3Signer, the key-config check is always there and the

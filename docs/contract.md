@@ -477,14 +477,16 @@ returns 412 `RANDAO_SLOT_OUT_OF_WINDOW` for anything that would move the frontie
 ### 14.4 Persistence, reset and cost
 
 - State is persisted before release: bbolt by default (one process per file), or the Postgres row under an advisory
-  lock with compare-and-set. A lost response turns the retry into an idempotent re-reveal.
+  lock with compare-and-set. A lost response turns the retry into an idempotent re-reveal. With Postgres every
+  request is classified against the shared row, and a request two signers serve for the same slot is answered by
+  one as a new layer and by the other as a re-reveal of the same layer.
 - Never stored: the seed, checkpoints or the precomputed next value, which are future reveals.
 - With slashing protection disabled (loopback only) the same rule runs in memory for the process lifetime, with a
   WARN; `--randao-protection-required` refuses to start instead.
 - The state is not exported in EIP-3076 in v1; first use on a new signer is safe.
 - Reset, for operational cleanup only: `DELETE /api/v1/consensus/randao_state/{identifier}` with the admin token
-  (online, both backends), or `remotesigner consensus randao-state reset --key <id>` (offline with bbolt). A reset
-  key's next request is a first use, subject to conditions N.
+  (online, both backends), or `remotesigner consensus randao-state reset --key <id>` (offline with bbolt, online with
+  Postgres). A reset key's next request is a first use, subject to conditions N.
 - No onions are built at startup, and `/upcheck` never waits for them. The first reveal per key per process is a scan
   from `x_0` (at most 2^20 SHA-256 calls, 0.04-0.26 s); the signer then precomputes `x_{m-1}` in the background. The
   slow path (a first use, a gap advance, or a commitment more than `W` above `R`) runs at most once per key per
@@ -643,6 +645,10 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
   - The response cache answers a repeated request after every check of the request and before slashing
     protection, and only with a signature that passed verify-before-release
     ([section 15](#15-selection-proofs-and-signing-modes)).
+  - The Postgres store added these: `capabilities` reports `slashing_protection: postgres`, a value the schema
+    already lists; a RANDAO request two signers sharing the database serve for the same slot is one new layer and one
+    re-reveal of the same layer, both 200 ([section 14.4](#144-persistence-reset-and-cost)); and a database that does
+    not answer fails a request with 500 `STORE_UNAVAILABLE` within the 5 s write deadline.
 
   The keymanager routes added these ([section 17](#17-supporting-endpoints)):
   - A `POST /qrl/v1/keystores` keystore must declare its `pubkey`; a `slashing_protection` that cannot be read, or
@@ -656,13 +662,16 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
     `UNSUPPORTED_MEDIA_TYPE` otherwise, which the operation already lists.
 - Known gaps, to be closed by the next version (the signer already behaves this way at `1.0.0`):
   - `GET …/highWatermark` answers 500 `STORE_UNAVAILABLE` when the slashing-protection store cannot be read, a
-    status its operation does not list. The next version adds it.
+    status its operation does not list. With the Postgres store that is any database outage, not only a damaged
+    file. The next version adds it.
   - `POST /qrl/v1/keystores` answers 500 `STORE_UNAVAILABLE` when the slashing-protection store cannot be read to
     check the request's `slashing_protection`, a status its operation does not list either. The next version adds
     it.
   - A store that holds only one part of a high watermark is served with that field alone, which the `HighWatermark`
     schema (both fields or none) does not allow. No command writes such a watermark: `set-high-watermark` takes both
-    `--epoch` and `--slot`. The next version makes the store refuse one.
+    `--epoch` and `--slot`; in a Postgres store only a direct SQL update could. The next version makes the store
+    refuse one. These gaps stay open at `1.0.0`: closing them changes the contract, which needs the matching qrysm
+    client change and fixture pin in the same change.
 
 ## 21. Deviations from Web3Signer
 

@@ -78,11 +78,14 @@ missing ` + "`--network`" + ` and an invalid config file), 1 when the signer ref
 	section(&b, "## Global flags", "", flags.Global(), false)
 	section(&b, "## Consensus flags", flags.ConsensusCommand, flags.Consensus(), false)
 	b.WriteString(`
-## Offline store commands
+## Store commands
 
-These subcommands work on the bbolt slashing-protection store while the signer is stopped (bbolt allows one process
-per file; they refuse a store that a running signer holds). They read ` + "`--data-path`" + ` for the default store
-location. Their flags are not read from the config file; ` + "`--slashing-protection-db-url`" + ` may also be given to
+These subcommands work on the slashing-protection store. A bbolt store they open while the signer is stopped (bbolt
+allows one process per file; they refuse a store that a running signer holds). A Postgres database they use online,
+under the advisory locks the signers take, so the signers keep running
+([` + "`../operations/postgres.md`" + `](../operations/postgres.md)). They read ` + "`--data-path`" + ` for the default bbolt store
+location. Their flags are not read from the config file; ` + "`--slashing-protection-db-url`" + `,
+` + "`--slashing-protection-db-username`" + ` and ` + "`--slashing-protection-db-password-file`" + ` may also be given to
 ` + "`consensus`" + ` itself, on the command line, in the environment or in the config file. ` + "`import`" + `, ` + "`export`" + `
 and ` + "`set-high-watermark`" + ` also read ` + "`--network`" + ` and its genesis flags from ` + "`consensus`" + `, for the
 genesis validators root: ` + "`import`" + ` and ` + "`set-high-watermark`" + ` bind a store that has none to it, and ` + "`export`" + `

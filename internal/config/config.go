@@ -23,6 +23,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/tlsconf"
+	"github.com/rgeraldes24/go-remotesigner/internal/slashing/pgstore"
 )
 
 // File names under --data-path.
@@ -120,11 +121,30 @@ type Consensus struct {
 	// --slashing-protection-db-url; empty means the default under
 	// --data-path.
 	SlashingProtectionDBPath string
+	// Postgres is the Postgres store a postgres:// URL in
+	// --slashing-protection-db-url names; an empty URL means bbolt.
+	Postgres Postgres
 	// SlashingProtectionDBMigrate is --slashing-protection-db-migrate.
 	SlashingProtectionDBMigrate bool
 	Randao                      Randao
 	Pruning                     Pruning
 	Keystores                   Keystores
+}
+
+// Postgres holds the Postgres store's settings.
+type Postgres struct {
+	// URL is the connection URL, postgres:// or postgresql://, without a
+	// password; empty means no Postgres store.
+	URL string
+	// Username is --slashing-protection-db-username; empty keeps the URL's.
+	Username string
+	// PasswordFile is --slashing-protection-db-password-file; empty leaves
+	// the password to PGPASSFILE (by default ~/.pgpass).
+	PasswordFile string
+	// HealthCheckTimeout and HealthCheckInterval are the
+	// --slashing-protection-db-health-check-* settings.
+	HealthCheckTimeout  time.Duration
+	HealthCheckInterval time.Duration
 }
 
 // Pruning holds the --slashing-protection-pruning-* settings.
@@ -180,29 +200,45 @@ func (c *Config) SelfSignedTLSPath() string { return c.orDataPath("", SelfSigned
 
 // SlashingProtectionDB is the bbolt store file: the path of
 // --slashing-protection-db-url, else <data-path>/slashing-protection.db.
+// It is not used when Consensus.Postgres names a Postgres store.
 func (c *Config) SlashingProtectionDB() string {
 	return c.orDataPath(c.Consensus.SlashingProtectionDBPath, SlashingProtectionFile)
 }
 
-// ParseDBURL returns the file path of a --slashing-protection-db-url. Only
-// bbolt URLs with an absolute path, bolt:///path/to/file.db, are supported
-// in this release.
-func ParseDBURL(raw string) (string, error) {
+// DBURL is a parsed --slashing-protection-db-url: exactly one of its
+// fields is set.
+type DBURL struct {
+	// Path is the file of a bolt:/// URL.
+	Path string
+	// Postgres is a postgres:// or postgresql:// connection URL; a
+	// jdbc:postgresql:// URL is rewritten to postgresql://.
+	Postgres string
+}
+
+// ParseDBURL parses a --slashing-protection-db-url: bolt:/// and an
+// absolute file path, or a Postgres URL without a password.
+func ParseDBURL(raw string) (DBURL, error) {
+	if pg, ok := strings.CutPrefix(raw, "jdbc:"); ok && strings.HasPrefix(pg, "postgresql:") {
+		raw = pg
+	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", errors.New("not a URL; want bolt:///path/to/file.db")
+		return DBURL{}, errors.New("not a URL; want bolt:///path/to/file.db or postgres://user@host/database")
 	}
 	switch {
-	case u.Scheme == "postgres" || u.Scheme == "postgresql" || strings.HasPrefix(raw, "jdbc:postgresql:"):
-		return "", errors.New("the Postgres backend is not part of this release; use bolt:///path/to/file.db")
+	case u.Scheme == "postgres" || u.Scheme == "postgresql":
+		if err := pgstore.CheckURL(raw); err != nil {
+			return DBURL{}, err
+		}
+		return DBURL{Postgres: raw}, nil
 	case u.Scheme != "bolt":
-		return "", errors.New("unsupported scheme; want bolt:///path/to/file.db")
+		return DBURL{}, errors.New("unsupported scheme; want bolt:///path/to/file.db or postgres://user@host/database")
 	case u.Host != "" || u.Opaque != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil:
-		return "", errors.New("want bolt:/// followed by an absolute file path, with no host or query")
+		return DBURL{}, errors.New("want bolt:/// followed by an absolute file path, with no host or query")
 	case !filepath.IsAbs(u.Path) || strings.HasSuffix(u.Path, "/"):
-		return "", errors.New("want bolt:/// followed by an absolute file path")
+		return DBURL{}, errors.New("want bolt:/// followed by an absolute file path")
 	}
-	return filepath.Clean(u.Path), nil
+	return DBURL{Path: filepath.Clean(u.Path)}, nil
 }
 
 func (c *Config) orDataPath(flag, name string) string {
@@ -245,7 +281,8 @@ func CheckFailSafes(c *Config, n *network.Network) error {
 			errs = append(errs, err)
 		}
 	}
-	refuse(c.Consensus.SlashingProtectionEnabled && c.SlashingProtectionDB() == "", ErrNoDataPath)
+	refuse(c.Consensus.SlashingProtectionEnabled && c.Consensus.Postgres.URL == "" && c.SlashingProtectionDB() == "",
+		ErrNoDataPath)
 	refuse(c.Consensus.Randao.ProtectionRequired && !c.Consensus.SlashingProtectionEnabled, ErrRandaoProtectionRequired)
 	refuse(c.HTTP.AuthMode.SignToken() && c.SignTokenFile() == "", ErrNoSignToken)
 	if err := c.TLS.Validate(c.HTTP.AuthMode.ClientCerts()); err != nil {

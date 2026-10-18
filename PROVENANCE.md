@@ -196,6 +196,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/main_test.go` | new | | | |
 | `cmd/remotesigner/offline.go` | new | | | |
 | `cmd/remotesigner/offline_test.go` | new | | | |
+| `cmd/remotesigner/store.go` | new | | | |
 | `deploy/config/postgres-ha.yaml` | new | | | |
 | `deploy/config/single-host.yaml` | new | | | |
 | `deploy/docker/Dockerfile` | new | | | |
@@ -326,6 +327,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/randao/service_test.go` | new | | | |
 | `internal/runner/keymanager_test.go` | new | | | |
 | `internal/runner/keys.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/runner/postgres_test.go` | new | | | |
 | `internal/runner/prune.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbPrunerRunner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/runner/prune_test.go` | new | | | |
 | `internal/runner/randao_test.go` | new | | | |
@@ -333,6 +335,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/runner/runner.go` | new | | | |
 | `internal/runner/runner_test.go` | new | | | |
 | `internal/runner/sign_test.go` | new | | | |
+| `internal/runner/store.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbHealthCheck.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/runner/tls_test.go` | new | | | |
 | `internal/server/auth/auth.go` | new | | | |
 | `internal/server/auth/auth_test.go` | new | | | |

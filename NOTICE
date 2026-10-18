@@ -55,6 +55,14 @@ MIT License (LICENSES/MIT.txt):
     Copyright (c) 2012 Miki Tebeka <miki.tebeka@gmail.com>.
   go.etcd.io/bbolt
     Copyright (c) 2013 Ben Johnson
+  github.com/jackc/pgx/v5
+    Copyright (c) 2013-2021 Jack Christensen
+  github.com/jackc/pgpassfile
+    Copyright (c) 2019 Jack Christensen
+  github.com/jackc/pgservicefile
+    Copyright (c) 2020 Jack Christensen
+  github.com/jackc/puddle/v2
+    Copyright (c) 2018 Jack Christensen
   github.com/beorn7/perks
     Copyright (C) 2013 Blake Mizerany
   github.com/cespare/xxhash/v2
@@ -82,6 +90,8 @@ BSD 3-Clause License (LICENSES/BSD-3-Clause.txt):
   golang.org/x/crypto
     Copyright 2009 The Go Authors.
   golang.org/x/net
+    Copyright 2009 The Go Authors.
+  golang.org/x/sync
     Copyright 2009 The Go Authors.
   golang.org/x/sys
     Copyright 2009 The Go Authors.

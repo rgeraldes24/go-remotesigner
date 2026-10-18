@@ -169,7 +169,7 @@ func TestPrunerRunsAtEveryInterval(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	log, hook := hookedLogger()
 	cfg.Consensus.Pruning.Interval = 20 * time.Millisecond
-	p := startPruner(s, cfg.Consensus.Pruning, 6, log)
+	p := startPruner(s, cfg.Consensus.Pruning, 6, true, log)
 	for range 3 {
 		hook.waitFor(t, "Slashing-protection pruning finished")
 	}

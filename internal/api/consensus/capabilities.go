@@ -19,6 +19,7 @@ const APIVersion = "1.0.0"
 // Values of the capabilities slashing_protection field.
 const (
 	ProtectionBolt     = "bolt"
+	ProtectionPostgres = "postgres"
 	ProtectionDisabled = "disabled"
 )
 
@@ -34,7 +35,7 @@ type Capabilities struct {
 	GenesisValidatorsRoot func() ([32]byte, bool)
 	// SelectionProofMode is "deterministic" or "hedged".
 	SelectionProofMode string
-	// SlashingProtection is ProtectionBolt or ProtectionDisabled.
+	// SlashingProtection is ProtectionBolt, ProtectionPostgres or ProtectionDisabled.
 	SlashingProtection string
 }
 

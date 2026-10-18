@@ -7,11 +7,15 @@ import (
 	"context"
 	"errors"
 	"math"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/pgstore"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/pgstore/pgtest"
@@ -384,5 +388,35 @@ func TestPostgresRegisterNeverWritesKnownRows(t *testing.T) {
 	}
 	if len(after) != 5 {
 		t.Errorf("%d validators, want 5", len(after))
+	}
+}
+
+func TestReadPasswordFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string, mode os.FileMode) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), mode); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	strict := secretfile.Policy{Strict: true}
+	for content, want := range map[string]string{"s3cret\n": "s3cret", "s3cret\r\nignored\n": "s3cret", "s3cret": "s3cret"} {
+		got, err := pgstore.ReadPasswordFile(write("pw", content, 0o600), strict)
+		if err != nil || got != want {
+			t.Errorf("%q: %q, %v; want %q", content, got, err, want)
+		}
+	}
+	if _, err := pgstore.ReadPasswordFile(write("empty", "\nsecond\n", 0o600), strict); err == nil {
+		t.Error("an empty first line was accepted")
+	}
+	if runtime.GOOS != "windows" {
+		open := write("open", "s3cret\n", 0o644)
+		if _, err := pgstore.ReadPasswordFile(open, strict); !errors.Is(err, secretfile.ErrInsecure) {
+			t.Errorf("a world-readable file under the strict policy: %v", err)
+		}
+		if got, err := pgstore.ReadPasswordFile(open, secretfile.Policy{}); err != nil || got != "s3cret" {
+			t.Errorf("a world-readable file under the lax policy: %q, %v", got, err)
+		}
 	}
 }

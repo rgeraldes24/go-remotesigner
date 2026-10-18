@@ -41,6 +41,7 @@
 package pgstore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -55,6 +56,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 )
 
@@ -397,4 +400,23 @@ func lockValidator(ctx context.Context, tx pgx.Tx, id slashing.KeyID, typ int) (
 func lock(ctx context.Context, tx pgx.Tx, vid int32, typ int) error {
 	_, err := tx.Exec(ctx, fmt.Sprintf(`SELECT pg_advisory_xact_lock(%d, $1)`, typ), vid)
 	return err
+}
+
+// maxPasswordFile bounds a password file.
+const maxPasswordFile = 64 << 10
+
+// ReadPasswordFile reads a password file (--slashing-protection-db-password-file) under the secret-file policy p:
+// its first line, without the line ending, is the password. An empty password is refused.
+func ReadPasswordFile(path string, p secretfile.Policy) (string, error) {
+	data, err := secretfile.Read(path, maxPasswordFile, p)
+	if err != nil {
+		return "", err
+	}
+	defer mldsa87.Wipe(data)
+	line, _, _ := bytes.Cut(data, []byte("\n"))
+	line = bytes.TrimSuffix(line, []byte("\r"))
+	if len(line) == 0 {
+		return "", fmt.Errorf("%s: the first line is empty", path)
+	}
+	return string(line), nil
 }

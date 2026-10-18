@@ -76,6 +76,10 @@ const (
 	SigningClockSkewSlots     = "signing-clock-skew-slots"
 	SelectionProofSigning     = "selection-proof-signing"
 	SlashingProtectionDBURL   = "slashing-protection-db-url"
+	SlashingProtectionDBUser  = "slashing-protection-db-username"
+	SlashingProtectionDBPass  = "slashing-protection-db-password-file"
+	DBHealthCheckTimeout      = "slashing-protection-db-health-check-timeout-milliseconds"
+	DBHealthCheckInterval     = "slashing-protection-db-health-check-interval-milliseconds"
 	SlashingProtectionMigrate = "slashing-protection-db-migrate"
 	PruningEpochsToKeep       = "slashing-protection-pruning-epochs-to-keep"
 	PruningInterval           = "slashing-protection-pruning-interval"
@@ -130,6 +134,10 @@ const (
 	DefaultRefillEpochs   = 1
 	DefaultPruningEpochs  = 512
 	DefaultPruningEvery   = 12 * time.Hour
+	// DefaultDBHealthCheckTimeout and DefaultDBHealthCheckInterval are
+	// Web3Signer's, in milliseconds.
+	DefaultDBHealthCheckTimeout  = 3000
+	DefaultDBHealthCheckInterval = 30000
 	// DefaultReloadTimeout is --reload-timeout in minutes, Web3Signer's
 	// unit. At the B10 throughput of the development machine, about 2
 	// standard-KDF decrypts a second, it covers about 7,000 new keystores.
@@ -195,7 +203,7 @@ func Consensus() []cli.Flag {
 		&cli.StringFlag{Name: NetworkGenesisGVR, Usage: "Genesis validators root, 0x + 64 hex characters; must agree with every other source"},
 		&cli.Uint64Flag{Name: NetworkGenesisTime, DefaultText: "unset", Usage: "Genesis time in Unix seconds; must agree with every other source"},
 		&cli.StringFlag{Name: NetworkGenesisState, Usage: "SSZ genesis state; its first 64 bytes give the genesis time, the genesis validators root and the fork", TakesFile: true},
-		&cli.BoolFlag{Name: SlashingProtectionEnabled, Value: true, Usage: "Slashing protection (bbolt store at <data-path>/slashing-protection.db). false is allowed only when every listener is loopback."},
+		&cli.BoolFlag{Name: SlashingProtectionEnabled, Value: true, Usage: "Slashing protection, in the store --slashing-protection-db-url names (default the bbolt file <data-path>/slashing-protection.db). false is allowed only when every listener is loopback."},
 		&cli.BoolFlag{Name: KeyManagerAPIEnabled, Usage: "Serve the keymanager API (GET, POST and DELETE /qrl/v1/keystores) with the admin token; imported keys are written to --key-config-path, which it requires (docs/operations/keymanager.md)."},
 		&cli.BoolFlag{Name: AllowUnknownGenesisTime, Hidden: true, Usage: "Allow a non-loopback listener without a genesis time (wall-clock bounds off)"},
 		&cli.BoolFlag{Name: AllowGVRTOFU, Hidden: true, Usage: "Allow a non-loopback listener to pin the genesis validators root on first use"},
@@ -203,10 +211,12 @@ func Consensus() []cli.Flag {
 		&cli.StringFlag{Name: RegistrationFeeRecipients, Usage: "YAML list of {key, fee_recipient} pins: a VALIDATOR_REGISTRATION for a pinned key must carry its pinned fee recipient", TakesFile: true},
 		&cli.Uint64Flag{Name: SigningClockSkewSlots, Value: DefaultClockSkew, Usage: "Slots a slot-scoped request may lie ahead of the wall clock (when genesis time is known)"},
 		&cli.StringFlag{Name: SelectionProofSigning, Value: DefaultSelectionProof, Usage: "Signing mode of AGGREGATION_SLOT and SYNC_COMMITTEE_SELECTION_PROOF: deterministic or hedged; other types are always hedged"},
-		slashingProtectionDBURL(),
-		&cli.BoolFlag{Name: SlashingProtectionMigrate, Usage: "Upgrade an older slashing-protection store to this release's schema before starting (a backup <file>.v<old>.bak is written first)"},
+		slashingProtectionDBURL(), slashingProtectionDBUser(), slashingProtectionDBPassword(),
+		&cli.Uint64Flag{Name: DBHealthCheckTimeout, Value: DefaultDBHealthCheckTimeout, Usage: "Milliseconds after which the Postgres store's health check fails (slashing-protection-db-health-check)"},
+		&cli.Uint64Flag{Name: DBHealthCheckInterval, Value: DefaultDBHealthCheckInterval, Usage: "Milliseconds between two health checks of the Postgres store; /healthcheck reports the last one"},
+		&cli.BoolFlag{Name: SlashingProtectionMigrate, Usage: "Upgrade an older slashing-protection store to this release's schema before starting: a bbolt file is backed up to <file>.v<old>.bak first; a Postgres database without the schema gets it, which needs a role that may create tables"},
 		&cli.Uint64Flag{Name: PruningEpochsToKeep, Value: DefaultPruningEpochs, Usage: "Epochs of block and attestation history each validator keeps below its newest record (slots per epoch come from the network); older records are pruned"},
-		&cli.DurationFlag{Name: PruningInterval, Value: DefaultPruningEvery, Usage: "Time between two slashing-protection pruning runs, as a duration such as 12h or 90m (Web3Signer's bare number of hours is refused); the first runs at startup"},
+		&cli.DurationFlag{Name: PruningInterval, Value: DefaultPruningEvery, Usage: "Time between two slashing-protection pruning runs, as a duration such as 12h or 90m (Web3Signer's bare number of hours is refused); with bbolt the first runs at startup, with Postgres one interval after it"},
 		&cli.Uint64Flag{Name: RandaoMaxLayers, Value: DefaultRandaoLayers, Usage: "Onion layers searched from x_0 when locating a RANDAO commitment; a commitment deeper in a longer onion is unknown"},
 		&cli.Uint64Flag{Name: RandaoReorgWindow, Value: DefaultReorgWindow, Usage: "Layers above a key's released frontier searched for a re-reveal before the slow-path scan"},
 		&cli.DurationFlag{Name: RandaoFullScanMinInterval, DefaultText: "SECONDS_PER_SLOT", Usage: "Minimum time between two slow-path RANDAO scans of one key (first use, gap advance, deep reorg); sooner gets 429 RANDAO_SCAN_RATE_LIMITED"},
@@ -232,39 +242,54 @@ func keystoresPasswordsPath() *cli.StringFlag {
 }
 
 // slashingProtectionDBURL is --slashing-protection-db-url, which the
-// consensus command and its offline subcommands share.
+// consensus command and its store subcommands share, like the user name and
+// password file of a Postgres store.
 func slashingProtectionDBURL() cli.Flag {
-	return &cli.StringFlag{Name: SlashingProtectionDBURL, Usage: "Slashing-protection store as bolt:///absolute/path/file.db (default <data-path>/slashing-protection.db)"}
+	return &cli.StringFlag{Name: SlashingProtectionDBURL, Usage: "Slashing-protection store: bolt:///absolute/path/file.db (default <data-path>/slashing-protection.db), or a Postgres database as postgres://user@host:port/database?sslmode=verify-full (jdbc:postgresql:// is accepted) without a password, migrated with consensus migrate"}
+}
+
+func slashingProtectionDBUser() cli.Flag {
+	return &cli.StringFlag{Name: SlashingProtectionDBUser, Usage: "User name for the Postgres store, instead of the URL's"}
+}
+
+func slashingProtectionDBPassword() cli.Flag {
+	return &cli.StringFlag{Name: SlashingProtectionDBPass, Usage: "File whose first line is the Postgres store's password (owner-readable only, like other secret files); without it the password comes from PGPASSFILE (default ~/.pgpass). PGPASSWORD and a password in the URL are refused.", TakesFile: true}
+}
+
+// storeFlags are the flags that name a store, which every store subcommand
+// takes.
+func storeFlags() []cli.Flag {
+	return withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL(), slashingProtectionDBUser(), slashingProtectionDBPassword()})
 }
 
 // Migrate returns the flags of `consensus migrate`.
 func Migrate() []cli.Flag {
-	return withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()})
+	return storeFlags()
 }
 
 // Import returns the flags of `consensus import`.
 func Import() []cli.Flag {
-	return append(withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()}),
+	return append(storeFlags(),
 		&cli.StringFlag{Name: From, Usage: "Required. The EIP-3076 interchange file (format version 5) to import", TakesFile: true})
 }
 
 // Export returns the flags of `consensus export`.
 func Export() []cli.Flag {
-	return append(withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()}),
+	return append(storeFlags(),
 		&cli.StringFlag{Name: To, Usage: "Required. The EIP-3076 interchange file to write; an existing file is replaced", TakesFile: true},
 		&cli.StringSliceFlag{Name: Keys, Usage: "Export only these validators: 0x public keys or 0x sha256 identifiers, comma-separated or repeated"})
 }
 
 // WatermarkRepair returns the flags of `consensus watermark-repair`.
 func WatermarkRepair() []cli.Flag {
-	return append(withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()}),
+	return append(storeFlags(),
 		&cli.Uint64Flag{Name: Epoch, DefaultText: "unset", Usage: "Required. Raise every validator's attestation source and target low watermarks to this epoch"},
 		&cli.Uint64Flag{Name: Slot, DefaultText: "unset", Usage: "Required. Raise every validator's block low watermark to this slot"})
 }
 
 // SetHighWatermark returns the flags of `consensus set-high-watermark`.
 func SetHighWatermark() []cli.Flag {
-	return append(withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()}),
+	return append(storeFlags(),
 		&cli.Uint64Flag{Name: Epoch, DefaultText: "unset", Usage: "Required unless --remove. The high watermark's epoch: attestations with a source or target epoch at or above it are refused"},
 		&cli.Uint64Flag{Name: Slot, DefaultText: "unset", Usage: "Required unless --remove. The high watermark's slot: blocks at or above it are refused"},
 		&cli.BoolFlag{Name: Remove, Usage: "Remove the high watermark instead of setting one"})
@@ -272,7 +297,7 @@ func SetHighWatermark() []cli.Flag {
 
 // RandaoStateReset returns the flags of `consensus randao-state reset`.
 func RandaoStateReset() []cli.Flag {
-	return append(withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()}),
+	return append(storeFlags(),
 		&cli.StringFlag{Name: Key, Usage: "Required. The key whose RANDAO frontier is cleared: its 0x public key or 0x sha256 of it"})
 }
 
@@ -292,7 +317,7 @@ func KeystoreVerify() []cli.Flag {
 
 // DisableValidatorFlags returns the flags of `consensus disable-validator`.
 func DisableValidatorFlags() []cli.Flag {
-	return append(withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()}),
+	return append(storeFlags(),
 		&cli.StringFlag{Name: Key, Usage: "Required. The key to disable: its 0x public key or 0x sha256 of it"})
 }
 
