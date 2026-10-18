@@ -403,6 +403,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `tools/headercheck/main.go` | new | | | |
 | `tools/headercheck/provenance.go` | new | | | |
 | `tools/headercheck/provenance_test.go` | new | | | |
+| `tools/releasedocs/main.go` | new | | | |
+| `tools/releasedocs/main_test.go` | new | | | |
 | `tools/vectorgen/blocks.go` | new | | | |
 | `tools/vectorgen/capabilities.go` | new | | | |
 | `tools/vectorgen/contract/contract.go` | new | | | |

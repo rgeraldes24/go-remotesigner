@@ -76,7 +76,7 @@ var (
 )
 
 // skipRootDirs are build and release outputs that are never committed.
-var skipRootDirs = map[string]bool{"bin": true, "dist": true, "third_party_licenses": true}
+var skipRootDirs = map[string]bool{"bin": true, "build": true, "dist": true, "third_party_licenses": true}
 
 // skipDir reports whether the walk leaves out the directory rel: git's own
 // data, build outputs, editor and Python caches, and third_party/, whose

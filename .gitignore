@@ -1,5 +1,6 @@
 # Build and release outputs
 /bin/
+/build/
 /dist/
 /third_party_licenses/
 # `go build` in the repository root

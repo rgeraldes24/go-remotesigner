@@ -19,7 +19,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test fuzz fuzz-keystore fuzz-interchange bench-b14 contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e clean
+.PHONY: all build build-consensus test fuzz fuzz-keystore fuzz-interchange bench-b14 contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e release-docs clean
 
 all: build build-consensus
 
@@ -140,5 +140,12 @@ bench-b14:
 bench-e2e:
 	REMOTESIGNER_BENCH=1 $(GO) test -count=1 -run '^TestB([789]|20)' -v ./test/acceptance/
 
+## release-docs: the licence files each release flavour ships, into build/release/<flavour>/ (LICENSE, NOTICE,
+## LICENSES/, third_party_licenses/ from go-licenses save), and build/release/<flavour>.licenses, the SPDX expression
+## of the image's licence label (tools/releasedocs)
+RELEASE_DIR ?= build/release
+release-docs:
+	$(GO) run ./tools/releasedocs -out $(RELEASE_DIR) -go-licenses "$(GO_LICENSES)"
+
 clean:
-	rm -rf $(BIN_DIR)
+	rm -rf $(BIN_DIR) build

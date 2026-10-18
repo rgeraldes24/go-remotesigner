@@ -75,6 +75,7 @@ func fixture(t *testing.T) string {
 		"third_party/ks/pkg/x.go":                   "package ks\n",
 		"third_party/ks/pkg/.golangci.yml":          "run: {}\n",
 		"bin/remotesigner.go":                       "not checked: build output\n",
+		"build/release/notes.yaml":                  "not checked: release output\n",
 		"tools/vectorgen/testdata/ignored-notes.md": "not a checked kind\n",
 	}
 	for p, c := range files {
