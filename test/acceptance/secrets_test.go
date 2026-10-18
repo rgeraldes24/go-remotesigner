@@ -1,6 +1,11 @@
 // Copyright 2026 The go-remotesigner Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+// The secret-store tests drive the default flavour, which links the cloud
+// SDKs, and use the SDKs' fakes.
+
+//go:build !noexecution
+
 package acceptance
 
 import (
