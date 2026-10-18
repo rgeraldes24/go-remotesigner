@@ -27,6 +27,10 @@
 // --randao-full-scan-min-interval (else 429), and unknown commitments are
 // remembered in a negative cache.
 //
+// With a store that several signers share (Postgres), every request is classified against the stored row, and
+// a compare-and-set that finds the frontier moved by another signer classifies the request again against the row
+// that signer wrote: a request both signers served for the same slot is then one new layer and one re-reveal.
+//
 // No onion is built ahead of time. After each frontier move the next layer
 // is computed in the background, so that the following new layer is
 // served without a scan; it is kept in memory only and never stored. When
@@ -131,7 +135,14 @@ type Outcome struct {
 	Err *apierr.Error
 	// RetryAfter is set with RANDAO_SCAN_RATE_LIMITED.
 	RetryAfter time.Duration
+	// lost reports that the compare-and-set of the frontier found it moved: another signer sharing the store
+	// released a layer for the key since the frontier was read.
+	lost bool
 }
+
+// MaxRaces bounds how often one request is classified again after its compare-and-set found the frontier moved by
+// another signer that shares the store (Postgres); after that it fails with 500 STORE_UNAVAILABLE.
+const MaxRaces = 3
 
 // ErrNotRegistered is returned by Reset for a key the store does not know.
 var ErrNotRegistered = errors.New("randao: key is not registered in the slashing-protection store")
@@ -232,9 +243,21 @@ func (s *Service) Reveal(ctx context.Context, r Request) Outcome {
 	start := time.Now()
 	path := metrics.RandaoPathHot
 	ks := s.state(r.ID)
-	out, scan := s.classify(ctx, ks, r, &path)
-	if scan {
-		out = s.scan(ctx, ks, r, &path)
+	var out Outcome
+	for race := 1; ; race++ {
+		var scan bool
+		out, scan = s.classify(ctx, ks, r, &path)
+		if scan {
+			out = s.scan(ctx, ks, r, &path)
+		}
+		// Another signer moved the frontier first: the request is classified again against the row it wrote,
+		// usually as a re-reveal of the layer that signer released.
+		if !out.lost || race == MaxRaces {
+			break
+		}
+	}
+	if out.lost {
+		out = failure(apierr.StoreUnavailable, "the stored frontier kept changing during the request")
 	}
 	if out.Err == nil && s.cfg.Metrics != nil {
 		s.cfg.Metrics.RandaoRevealDuration.WithLabelValues(path).Observe(time.Since(start).Seconds())
@@ -379,7 +402,7 @@ func (s *Service) advance(ctx context.Context, ks *keyState, r Request, cur *sla
 		return storeFailure(err)
 	}
 	if !swapped {
-		return failure(apierr.StoreUnavailable, "the stored frontier changed during the request")
+		return Outcome{lost: true}
 	}
 	ks.bucket.take(now, s.period)
 	s.track(ks, next.Index)
