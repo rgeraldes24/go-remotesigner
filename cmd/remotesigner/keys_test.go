@@ -192,6 +192,24 @@ func TestKeystoreVerifyDirectory(t *testing.T) {
 		t.Errorf("an escape character reached the output:\n%q", stdout)
 	}
 
+	// A refusal reason can carry the listed name (here in a stat error);
+	// it is escaped too.
+	dangling := filepath.Join(dir, "d\x1b[31mRED.json")
+	if err := os.Symlink(filepath.Join(dir, "gone"), dangling); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr = runCLI(t, "consensus", "keystore", "verify", "--keystores-path", dir, "--keystores-password-file", pw)
+	if code != exitStartup || !strings.Contains(stderr, `"d\x1b[31mRED.json": REFUSED: stat `) ||
+		!strings.Contains(stderr, `d\x1b[31mRED.json: no such file or directory`) {
+		t.Fatalf("dangling symlink: exit %d %q", code, stderr)
+	}
+	if strings.Contains(stderr, "\x1b") {
+		t.Errorf("an escape character reached standard error:\n%q", stderr)
+	}
+	if err := os.Remove(dangling); err != nil {
+		t.Fatal(err)
+	}
+
 	// A broken keystore is refused on its own line; the others still pass.
 	if err := os.WriteFile(filepath.Join(dir, "broken.json"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)

@@ -10,6 +10,9 @@ import (
 	"io"
 	"io/fs"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"unicode"
 
 	"github.com/urfave/cli/v2"
 
@@ -140,7 +143,8 @@ func verifyKeystore(ctx context.Context, stdout io.Writer, ksFile, pwFile string
 // verifyKeystores loads a keystore directory with the signer's bulk loader
 // and prints one line per keystore: OK with its identifier on standard
 // output, or the refusal on standard error. File names come from listing
-// the directory, so they are printed quoted.
+// the directory, so they are printed quoted, and the reasons, which can
+// carry a listed path, with their non-printable characters escaped.
 func verifyKeystores(ctx context.Context, stdout, stderr io.Writer, k config.Keystores, policy secretfile.Policy,
 	sem *argon.Semaphore) error {
 	l := keystores.Config{Dir: k.Path, PasswordFile: k.PasswordFile, PasswordsDir: k.PasswordsPath, Policy: policy,
@@ -161,7 +165,7 @@ func verifyKeystores(ctx context.Context, stdout, stderr io.Writer, k config.Key
 			if errors.As(b.Err, &fe) {
 				reason = fe.Err
 			}
-			_, _ = fmt.Fprintf(stderr, "%q: REFUSED: %v\n", name, reason)
+			_, _ = fmt.Fprintf(stderr, "%q: REFUSED: %s\n", name, printable(reason.Error()))
 			continue
 		}
 		for _, key := range b.Keys {
@@ -175,4 +179,20 @@ func verifyKeystores(ctx context.Context, stdout, stderr io.Writer, k config.Key
 		return fmt.Errorf("%d of %d keystores refused", refused, len(batches))
 	}
 	return nil
+}
+
+// printable returns s with every non-printable character (controls, format
+// characters such as bidirectional overrides, spaces other than U+0020)
+// escaped as Go would quote it, so that s cannot write terminal escapes.
+func printable(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsPrint(r) {
+			b.WriteRune(r)
+			continue
+		}
+		q := strconv.QuoteRune(r)
+		b.WriteString(q[1 : len(q)-1])
+	}
+	return b.String()
 }

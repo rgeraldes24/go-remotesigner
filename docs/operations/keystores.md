@@ -141,7 +141,8 @@ flag is in [`../reference/flags.md`](../reference/flags.md).
 
 With `--keystores-path`, the command lists the directory as the signer does, decrypts the keystores in parallel
 within the signer's memory budget ([`reload.md`](reload.md#6-memory-for-keystore-decryption)), and prints one line
-per keystore, then a summary. File names are printed quoted, so that a name cannot write terminal escapes:
+per keystore, then a summary. File names are printed quoted, and the control and other non-printable characters of
+a refusal reason escaped, so that a name cannot write terminal escapes:
 
 ```
 "keystore-m_12381_238_0_0-1760000000.json": OK  public key 0xe7d441383d…68ab6820  identifier 0x68ab6820e01f105e16411b5cbf10c13814002e4bd1fd905a839095138251c9fb
