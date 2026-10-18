@@ -472,8 +472,8 @@ func parseDocument(n *yaml.Node, dir string, execution bool) (document, error) {
 	return document{seed: seed}, nil
 }
 
-// seedFromHex decodes a 48-byte seed by the rules of decision D18 (see
-// secrets.ParseSeed): other common lengths get a hint about what they are.
+// seedFromHex decodes a 48-byte seed by the rules of secrets.ParseSeed:
+// other common lengths get a hint about what they are.
 func seedFromHex(s string) (*[mldsa87.SeedSize]byte, error) {
 	hb := []byte(s)
 	defer mldsa87.Wipe(hb)

@@ -62,6 +62,13 @@ func (v *Vault) Put(path string, data map[string]any) {
 	v.secrets[path] = data
 }
 
+// Delete removes the secret at its read path.
+func (v *Vault) Delete(path string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	delete(v.secrets, path)
+}
+
 // EnableKubernetes turns on the Kubernetes login at /v1/auth/<mount>/login
 // for role and the service-account JWT jwt; it issues token.
 func (v *Vault) EnableKubernetes(mount, role, jwt, token string) {

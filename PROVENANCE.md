@@ -361,8 +361,15 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/secretfile/secretfile.go` | new | | | |
 | `internal/keys/secretfile/secretfile_test.go` | new | | | |
 | `internal/keys/secretfile/secretfile_unix_test.go` | new | | | |
+| `internal/keys/secrets/awssm/awssm.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/aws/AwsSecretsManager.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/aws/AwsSecretsManagerProvider.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/aws/AwsKeyIdentifier.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/AwsSecretsManagerFactory.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/keys/secrets/awssm/awssm_test.go` | new | | | |
+| `internal/keys/secrets/awssm/localstack_test.go` | new | | | |
+| `internal/keys/secrets/azurekv/azurekv.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/azure/AzureKeyVault.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/azure/AzureOverrides.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/AzureKeyVaultFactory.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/keys/secrets/azurekv/azurekv_test.go` | new | | | |
 | `internal/keys/secrets/bulk.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/common/SecretValueMapperUtil.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/common/MappedResults.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsAwsBulkLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsGcpBulkLoader.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/secrets/cache.go` | new | | | |
+| `internal/keys/secrets/gcpsm/gcpsm.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/gcp/GcpSecretManager.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/keys/secrets/gcpsm/gcpsm_test.go` | new | | | |
 | `internal/keys/secrets/hashicorp/devserver_test.go` | new | | | |
 | `internal/keys/secrets/hashicorp/hashicorp.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/hashicorp/HashicorpConnection.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/hashicorp/HashicorpConnectionFactory.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/hashicorp/HashicorpKVResponseMapper.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/AbstractArtifactSignerFactory.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/secrets/hashicorp/hashicorp_test.go` | new | | | |
@@ -370,6 +377,9 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/secrets/http.go` | new | | | |
 | `internal/keys/secrets/secrets.go` | new | | | |
 | `internal/keys/secrets/secrets_test.go` | new | | | |
+| `internal/keys/secrets/secretstest/aws.go` | new | | | |
+| `internal/keys/secrets/secretstest/azure.go` | new | | | |
+| `internal/keys/secrets/secretstest/gcp.go` | new | | | |
 | `internal/keys/secrets/secretstest/vault.go` | new | | | |
 | `internal/keys/secrets/seed.go` | new | | | |
 | `internal/keys/secrets/seed_test.go` | new | | | |
