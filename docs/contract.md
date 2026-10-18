@@ -561,9 +561,19 @@ golden fixture for each check.
 - **`/reload`**: `POST` (admin) starts an asynchronous reload and returns 202, or 409 while one runs; `GET` (sign)
   reports its status. Keys absent from the new load are evicted from memory only; their slashing-protection `enabled`
   flag is never changed by a reload. A source that fails to load keeps its previous signers.
-- **`/qrl/v1/keystores`** (admin, only with `--key-manager-api-enabled`): list, import (at most 64 keystores, KDF
-  parameters bounded before decryption, derived public key compared with the keystore's) and delete (persists
-  `enabled=false` and returns an EIP-3076 v5 export that always carries the GVR). Bodies are never logged.
+- **`/qrl/v1/keystores`** (admin, only with `--key-manager-api-enabled`;
+  [`operations/keymanager.md`](operations/keymanager.md)): list, import and delete. Bodies are never logged. The
+  routes answer during the startup load too; a load that is running does not undo an import or a delete.
+  - `GET` lists the loaded keys, sorted; `readonly` is `false` only for a key loaded from the key-config file the
+    keymanager wrote for it.
+  - `POST` takes at most 64 keystores, each of which must declare its `pubkey`; the KDF parameters are bounded before
+    decryption, and the derived public key must equal the declared one. A `slashing_protection` that is not an
+    EIP-3076 v5 interchange to its end, or names another GVR, is `400 BAD_FIELD` before any keystore is decrypted.
+    Only the history of the imported keys is written; a key whose history fails is `error` and stays disabled. An
+    imported key is enabled, also when a delete had disabled it.
+  - `DELETE` persists `enabled=false` for every key it does not refuse, loaded or not (`deleted`, `not_active`,
+    `not_found`); a read-only key is `error`. `slashing_protection` is an EIP-3076 v5 export of the disabled keys
+    that always carries the GVR, or the empty string when the signer is bound to no GVR yet (and so holds no history).
 
 ## 18. Metric label values
 
@@ -632,6 +642,13 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
   - The response cache answers a repeated request after every check of the request and before slashing
     protection, and only with a signature that passed verify-before-release
     ([section 15](#15-selection-proofs-and-signing-modes)).
+
+  The keymanager routes added these ([section 17](#17-supporting-endpoints)):
+  - A `POST /qrl/v1/keystores` keystore must declare its `pubkey`; a `slashing_protection` that cannot be read, or
+    names another GVR, is `400 BAD_FIELD`.
+  - `DELETE /qrl/v1/keystores` disables keys that are not loaded too; its `slashing_protection` is the empty string
+    when the signer is bound to no GVR yet.
+  - The keymanager routes answer during the startup load, and a running load does not undo their changes.
 - Known gaps, to be closed by the next version (the signer already behaves this way at `1.0.0`):
   - `GET …/highWatermark` answers 500 `STORE_UNAVAILABLE` when the slashing-protection store cannot be read, a
     status its operation does not list. The next version adds it.
@@ -666,6 +683,7 @@ show on this contract:
 | X48 (client certificates grant the sign scope only), X50 (metrics token) | [section 6](#6-authentication-and-scopes) |
 | X49 (TLS 1.3 only) | [section 2](#2-transport) |
 | X52 (response cache) | [section 15](#15-selection-proofs-and-signing-modes) |
+| X68 (keymanager availability), X69 (keymanager import), X70 (keymanager delete) | [section 17](#17-supporting-endpoints) |
 <!-- contract:deviations:end -->
 
 ## 22. Worked examples

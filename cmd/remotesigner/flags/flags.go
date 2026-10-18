@@ -155,7 +155,7 @@ func Global() []cli.Flag {
 		&cli.StringFlag{Name: DataPath, Usage: "Directory for the generated token files, the slashing-protection store and the ports file", TakesFile: true},
 		&cli.StringFlag{Name: KeyConfigPath, Aliases: []string{KeyStorePath}, Usage: "Directory of key-config files (*.yaml or *.yml; types file-raw and file-keystore); unset loads none", TakesFile: true},
 		&cli.IntFlag{Name: KeyConfigFileMaxSize, Value: DefaultKeyConfigFileMaxSize, Usage: "Largest key-config file loaded, in bytes (Web3Signer counts code points); a larger file fails to load. Must be above 0."},
-		&cli.BoolFlag{Name: StrictFilePermissions, Value: true, Usage: "Refuse secret files (password files, key-config files with a seed) that their group or other users can read; false loads them with a warning"},
+		&cli.BoolFlag{Name: StrictFilePermissions, Value: true, Usage: "Refuse secret files (password files, key-config files with a seed) that their group or other users can read, and, with --key-manager-api-enabled, a --key-config-path directory they can access; false loads them with a warning"},
 		&cli.UintFlag{Name: ReloadTimeout, Value: DefaultReloadTimeout, Usage: "Minutes a POST /reload may load keys; the sources not loaded by then keep their previous keys. The startup load is not bounded."},
 		&cli.IntFlag{Name: SignerLoadParallelism, DefaultText: "0 (from the memory limit)", Usage: "Keystore decrypts with the standard KDF that may run at once; 0 sizes the Argon2id budget from GOMEMLIMIT, the cgroup limit or half the RAM"},
 		&cli.StringFlag{Name: Logging, Aliases: []string{"l"}, Value: "INFO", Usage: "Log level: OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE or ALL"},

@@ -281,3 +281,28 @@ day, is the `file-raw` row of an attempt at load average 50-60 whose keystore ro
   key ([`operations/reload.md`](operations/reload.md#6-memory-for-keystore-decryption)).
 - **Reload isolation.** A reload loads at most `GOMAXPROCS − 1` sources at once, so one CPU stays free for signing;
   B12's p99 rose by a quarter during a reload that kept seven Argon2id runs busy.
+
+## Keymanager import (B18, the built binary)
+
+**B18: met on the development machine**, pending the reference VMs.
+
+```
+make bench-keymanager     # REMOTESIGNER_BENCH=1 go test -run '^TestB18' ./test/acceptance/
+```
+
+B18 starts the built binary with `--key-manager-api-enabled` and imports 100 standard-KDF deposit CLI keystores
+(Argon2id `t=8`, `m=262144` KiB, each declaring its pubkey) through `POST /qrl/v1/keystores`. An import takes at most
+64 keystores, so the threshold's single request of 100 is sent as two, 64 and then 36, and the time runs from the
+first request to the second response. The bound is the threshold's 100 × t_B10 / P + 10 s, with P and t_B10 measured
+as for B11 (above): P from the signer's startup log, t_B10 in the test process before the signer starts and after it
+stops, the larger of the two. Both responses must be 200 with every keystore imported, which a write-deadline error
+(10 minutes) would cut short. Peak RSS is sampled with `ps` every 100 ms.
+
+| ID | Test | Threshold | Development-machine results | Verdict |
+|---|---|---|---|---|
+| B18 | `TestB18KeymanagerImport` | ≤ 100 × t_B10 / P + 10 s; no write-deadline error | run M: P = 8, t_B10 = 5.05 s (5.05 s before, 2.82 s after): imported in 60.7 s (42.7 s for the 64, 17.9 s for the 36), bound 73 s; peak RSS 4,392 MiB | met on dev machine |
+
+Run M, 2026-10-18, Go 1.26.9, Apple M2 (4 performance and 4 efficiency cores, 16 GiB, darwin/arm64), load average
+9.4 at the start and 18 at the end, from other work on the shared machine. The 64 keystores of the first request take
+eight rounds of P = 8 decrypts, the 36 of the second four and a half, so the two requests keep the decrypt slots as
+busy as one request of 100 would, apart from the last partial round of each.

@@ -7,8 +7,9 @@ and their password files offline.
 
 The signer loads keystores from a keystore directory (`--keystores-path` with a password file or a password
 directory) and from `file-keystore` documents in key-config files; [`reload.md`](reload.md#1-key-sources) describes
-both, how reloads treat them and how much memory decryption needs. Loading and `keystore verify` use the same
-decryptor and rules.
+both, how reloads treat them and how much memory decryption needs. The keymanager API imports keystores of both
+formats too, and requires them to declare their `pubkey` ([`keymanager.md`](keymanager.md#3-importing-keys)).
+Loading, keymanager imports and `keystore verify` use the same decryptor and rules.
 
 ## 1. Formats
 
