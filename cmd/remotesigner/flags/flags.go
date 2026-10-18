@@ -14,6 +14,7 @@ package flags
 
 import (
 	"strings"
+	"time"
 
 	"github.com/urfave/cli/v2"
 
@@ -72,6 +73,8 @@ const (
 	SelectionProofSigning     = "selection-proof-signing"
 	SlashingProtectionDBURL   = "slashing-protection-db-url"
 	SlashingProtectionMigrate = "slashing-protection-db-migrate"
+	PruningEpochsToKeep       = "slashing-protection-pruning-epochs-to-keep"
+	PruningInterval           = "slashing-protection-pruning-interval"
 	RandaoMaxLayers           = "randao-max-layers"
 	RandaoReorgWindow         = "randao-reorg-window"
 	RandaoFullScanMinInterval = "randao-full-scan-min-interval"
@@ -82,14 +85,24 @@ const (
 
 // Subcommands of consensus and their flags.
 const (
-	MigrateCommand     = "migrate"
-	RandaoStateCommand = "randao-state"
-	ResetCommand       = "reset"
-	Key                = "key"
-	KeystoreCommand    = "keystore"
-	VerifyCommand      = "verify"
-	VerifyFile         = "file"
-	VerifyPasswordFile = "password-file"
+	MigrateCommand          = "migrate"
+	RandaoStateCommand      = "randao-state"
+	ResetCommand            = "reset"
+	Key                     = "key"
+	KeystoreCommand         = "keystore"
+	VerifyCommand           = "verify"
+	VerifyFile              = "file"
+	VerifyPasswordFile      = "password-file"
+	ImportCommand           = "import"
+	ExportCommand           = "export"
+	WatermarkRepairCommand  = "watermark-repair"
+	SetHighWatermarkCommand = "set-high-watermark"
+	From                    = "from"
+	To                      = "to"
+	Keys                    = "keys"
+	Epoch                   = "epoch"
+	Slot                    = "slot"
+	Remove                  = "remove"
 )
 
 // Defaults.
@@ -107,6 +120,8 @@ const (
 	DefaultReorgWindow    = 1024
 	DefaultNewLayerBurst  = 3
 	DefaultRefillEpochs   = 1
+	DefaultPruningEpochs  = 512
+	DefaultPruningEvery   = 12 * time.Hour
 )
 
 // DefaultHostAllowlist is the default of --http-host-allowlist.
@@ -169,6 +184,8 @@ func Consensus() []cli.Flag {
 		&cli.StringFlag{Name: SelectionProofSigning, Value: DefaultSelectionProof, Usage: "Signing mode of AGGREGATION_SLOT and SYNC_COMMITTEE_SELECTION_PROOF: deterministic or hedged; other types are always hedged"},
 		slashingProtectionDBURL(),
 		&cli.BoolFlag{Name: SlashingProtectionMigrate, Usage: "Upgrade an older slashing-protection store to this release's schema before starting (a backup <file>.v<old>.bak is written first)"},
+		&cli.Uint64Flag{Name: PruningEpochsToKeep, Value: DefaultPruningEpochs, Usage: "Epochs of block and attestation history each validator keeps below its newest record (slots per epoch come from the network); older records are pruned"},
+		&cli.DurationFlag{Name: PruningInterval, Value: DefaultPruningEvery, Usage: "Time between two slashing-protection pruning runs, as a duration such as 12h or 90m (Web3Signer's bare number of hours is refused); the first runs at startup"},
 		&cli.Uint64Flag{Name: RandaoMaxLayers, Value: DefaultRandaoLayers, Usage: "Onion layers searched from x_0 when locating a RANDAO commitment; a commitment deeper in a longer onion is unknown"},
 		&cli.Uint64Flag{Name: RandaoReorgWindow, Value: DefaultReorgWindow, Usage: "Layers above a key's released frontier searched for a re-reveal before the slow-path scan"},
 		&cli.DurationFlag{Name: RandaoFullScanMinInterval, DefaultText: "SECONDS_PER_SLOT", Usage: "Minimum time between two slow-path RANDAO scans of one key (first use, gap advance, deep reorg); sooner gets 429 RANDAO_SCAN_RATE_LIMITED"},
@@ -187,6 +204,34 @@ func slashingProtectionDBURL() cli.Flag {
 // Migrate returns the flags of `consensus migrate`.
 func Migrate() []cli.Flag {
 	return withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()})
+}
+
+// Import returns the flags of `consensus import`.
+func Import() []cli.Flag {
+	return append(withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()}),
+		&cli.StringFlag{Name: From, Usage: "Required. The EIP-3076 interchange file (format version 5) to import", TakesFile: true})
+}
+
+// Export returns the flags of `consensus export`.
+func Export() []cli.Flag {
+	return append(withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()}),
+		&cli.StringFlag{Name: To, Usage: "Required. The EIP-3076 interchange file to write; an existing file is replaced", TakesFile: true},
+		&cli.StringSliceFlag{Name: Keys, Usage: "Export only these validators: 0x public keys or 0x sha256 identifiers, comma-separated or repeated"})
+}
+
+// WatermarkRepair returns the flags of `consensus watermark-repair`.
+func WatermarkRepair() []cli.Flag {
+	return append(withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()}),
+		&cli.Uint64Flag{Name: Epoch, DefaultText: "unset", Usage: "Required. Raise every validator's attestation source and target low watermarks to this epoch"},
+		&cli.Uint64Flag{Name: Slot, DefaultText: "unset", Usage: "Required. Raise every validator's block low watermark to this slot"})
+}
+
+// SetHighWatermark returns the flags of `consensus set-high-watermark`.
+func SetHighWatermark() []cli.Flag {
+	return append(withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()}),
+		&cli.Uint64Flag{Name: Epoch, DefaultText: "unset", Usage: "Required unless --remove. The high watermark's epoch: attestations with a source or target epoch at or above it are refused"},
+		&cli.Uint64Flag{Name: Slot, DefaultText: "unset", Usage: "Required unless --remove. The high watermark's slot: blocks at or above it are refused"},
+		&cli.BoolFlag{Name: Remove, Usage: "Remove the high watermark instead of setting one"})
 }
 
 // RandaoStateReset returns the flags of `consensus randao-state reset`.

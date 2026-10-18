@@ -5,9 +5,9 @@
 // hygiene, binds the network, applies the startup fail-safes and the
 // signing self-test, opens the slashing-protection store, loads the TLS
 // configuration and the token files, starts the API listener and, when
-// enabled, the metrics listener, loads the keys in the background, reloads
-// the token and TLS files on SIGHUP, and shuts everything down in order
-// when its context ends.
+// enabled, the metrics listener, loads the keys and prunes the store in the
+// background, reloads the token and TLS files on SIGHUP, and shuts
+// everything down in order when its context ends.
 package runner
 
 import (
@@ -196,6 +196,10 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 			log.WithError(err).Warn("Could not write the ports file")
 		}
 	}
+	var prune *pruner
+	if cfg.Consensus.SlashingProtectionEnabled {
+		prune = startPruner(store, cfg.Consensus.Pruning, n.Config.SlotsPerEpoch, log)
+	}
 	served, serving := make(chan error, 2), 1
 	go func() { served <- srv.Serve() }()
 	if ml != nil {
@@ -264,6 +268,7 @@ loop:
 	}
 	reloader.Close()
 	reveals.Close()
+	prune.stop()
 	if errors.Is(err, server.ErrHandlersRunning) {
 		// A handler may still use the store or a key; the process exit
 		// releases both (bbolt is crash-safe).
@@ -593,6 +598,8 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 		{Method: http.MethodPost, Pattern: "/api/v1/consensus/randao_reveal/{identifier}", Scope: auth.ScopeSign,
 			NeedsReady: true, BodyLimit: consensus.RandaoBodyLimit, ReadsBody: true, Handler: reveal},
 		{Method: http.MethodGet, Pattern: "/reload", Scope: auth.ScopeSign, Handler: reloader.StatusHandler()},
+		{Method: http.MethodGet, Pattern: "/api/v1/consensus/highWatermark", Scope: auth.ScopeSign,
+			Handler: highWatermark(cfg, store, log)},
 	}
 	if authn.HasAdmin() {
 		reset := &consensus.RandaoReset{Log: log}
@@ -606,6 +613,16 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 				Scope: auth.ScopeAdmin, Handler: reset})
 	}
 	return rs
+}
+
+// highWatermark serves the store's high watermark, or 404 PROTECTION_DISABLED when protection is off: the memory
+// store then has no high watermark to report.
+func highWatermark(cfg *config.Config, store slashing.Store, log *logrus.Logger) http.Handler {
+	h := &consensus.HighWatermark{Log: log}
+	if cfg.Consensus.SlashingProtectionEnabled {
+		h.Store = store
+	}
+	return h
 }
 
 // randaoCheck is keys-check/randao: DOWN when no new layer can be released

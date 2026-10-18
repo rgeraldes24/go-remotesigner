@@ -6,6 +6,10 @@
 remotesigner [global flags] consensus [consensus flags]
 remotesigner [global flags] consensus [consensus flags] migrate [migrate flags]
 remotesigner [global flags] consensus [consensus flags] randao-state reset --key <id> [reset flags]
+remotesigner [global flags] consensus [consensus flags] import --from <file> [import flags]
+remotesigner [global flags] consensus [consensus flags] export --to <file> [--keys <id>,...] [export flags]
+remotesigner [global flags] consensus [consensus flags] watermark-repair --epoch <epoch> --slot <slot> [repair flags]
+remotesigner [global flags] consensus [consensus flags] set-high-watermark (--epoch <epoch> --slot <slot> | --remove) [flags]
 remotesigner [global flags] consensus keystore verify --file <keystore> --password-file <file>
 ```
 
@@ -70,6 +74,8 @@ missing `--network` and an invalid config file), 1 when the signer refuses to st
 | `--selection-proof-signing` | `REMOTESIGNER_CONSENSUS_SELECTION_PROOF_SIGNING` | `selection-proof-signing` or `consensus.selection-proof-signing` | `deterministic` | Signing mode of AGGREGATION_SLOT and SYNC_COMMITTEE_SELECTION_PROOF: deterministic or hedged; other types are always hedged |
 | `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | `slashing-protection-db-url` or `consensus.slashing-protection-db-url` | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
 | `--slashing-protection-db-migrate` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_MIGRATE` | `slashing-protection-db-migrate` or `consensus.slashing-protection-db-migrate` | `false` | Upgrade an older slashing-protection store to this release's schema before starting (a backup \<file>.v\<old>.bak is written first) |
+| `--slashing-protection-pruning-epochs-to-keep` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_PRUNING_EPOCHS_TO_KEEP` | `slashing-protection-pruning-epochs-to-keep` or `consensus.slashing-protection-pruning-epochs-to-keep` | `512` | Epochs of block and attestation history each validator keeps below its newest record (slots per epoch come from the network); older records are pruned |
+| `--slashing-protection-pruning-interval` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_PRUNING_INTERVAL` | `slashing-protection-pruning-interval` or `consensus.slashing-protection-pruning-interval` | `12h0m0s` | Time between two slashing-protection pruning runs, as a duration such as 12h or 90m (Web3Signer's bare number of hours is refused); the first runs at startup |
 | `--randao-max-layers` | `REMOTESIGNER_CONSENSUS_RANDAO_MAX_LAYERS` | `randao-max-layers` or `consensus.randao-max-layers` | `1048576` | Onion layers searched from x_0 when locating a RANDAO commitment; a commitment deeper in a longer onion is unknown |
 | `--randao-reorg-window` | `REMOTESIGNER_CONSENSUS_RANDAO_REORG_WINDOW` | `randao-reorg-window` or `consensus.randao-reorg-window` | `1024` | Layers above a key's released frontier searched for a re-reveal before the slow-path scan |
 | `--randao-full-scan-min-interval` | `REMOTESIGNER_CONSENSUS_RANDAO_FULL_SCAN_MIN_INTERVAL` | `randao-full-scan-min-interval` or `consensus.randao-full-scan-min-interval` | `SECONDS_PER_SLOT` | Minimum time between two slow-path RANDAO scans of one key (first use, gap advance, deep reorg); sooner gets 429 RANDAO_SCAN_RATE_LIMITED |
@@ -82,7 +88,11 @@ missing `--network` and an invalid config file), 1 when the signer refuses to st
 These subcommands work on the bbolt slashing-protection store while the signer is stopped (bbolt allows one process
 per file; they refuse a store that a running signer holds). They read `--data-path` for the default store
 location. Their flags are not read from the config file; `--slashing-protection-db-url` may also be given to
-`consensus` itself, on the command line, in the environment or in the config file.
+`consensus` itself, on the command line, in the environment or in the config file. `import`, `export`
+and `set-high-watermark` also read `--network` and its genesis flags from `consensus`, for the
+genesis validators root: `import` and `set-high-watermark` bind a store that has none to it, and `export`
+names it in the file of such a store. The history commands are described in
+[`../operations/migration.md`](../operations/migration.md).
 
 ### consensus migrate
 
@@ -96,6 +106,38 @@ location. Their flags are not read from the config file; `--slashing-protection-
 |---|---|---|---|---|
 | `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
 | `--key` | none | none | unset | Required. The key whose RANDAO frontier is cleared: its 0x public key or 0x sha256 of it |
+
+### consensus import
+
+| Flag | Environment | Config file | Default | Description |
+|---|---|---|---|---|
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
+| `--from` | none | none | unset | Required. The EIP-3076 interchange file (format version 5) to import |
+
+### consensus export
+
+| Flag | Environment | Config file | Default | Description |
+|---|---|---|---|---|
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
+| `--to` | none | none | unset | Required. The EIP-3076 interchange file to write; an existing file is replaced |
+| `--keys` | none | none | unset | Export only these validators: 0x public keys or 0x sha256 identifiers, comma-separated or repeated |
+
+### consensus watermark-repair
+
+| Flag | Environment | Config file | Default | Description |
+|---|---|---|---|---|
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
+| `--epoch` | none | none | unset | Required. Raise every validator's attestation source and target low watermarks to this epoch |
+| `--slot` | none | none | unset | Required. Raise every validator's block low watermark to this slot |
+
+### consensus set-high-watermark
+
+| Flag | Environment | Config file | Default | Description |
+|---|---|---|---|---|
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
+| `--epoch` | none | none | unset | Required unless --remove. The high watermark's epoch: attestations with a source or target epoch at or above it are refused |
+| `--slot` | none | none | unset | Required unless --remove. The high watermark's slot: blocks at or above it are refused |
+| `--remove` | none | none | `false` | Remove the high watermark instead of setting one |
 
 ## Keystore commands
 

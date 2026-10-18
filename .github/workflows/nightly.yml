@@ -44,3 +44,15 @@ jobs:
         run: |
           dir=internal/keys/keystore/qrlv1/testdata/fuzz
           if [ -d "$dir" ]; then find "$dir" -type f -print -exec cat {} \; ; fi
+
+  fuzz-interchange:
+    name: EIP-3076 interchange fuzz (30 min)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+      - name: Fuzz the interchange import and export
+        run: make fuzz-interchange FUZZTIME=30m

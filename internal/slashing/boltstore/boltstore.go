@@ -280,6 +280,15 @@ func (s *Store) SetHighWatermark(ctx context.Context, h slashing.HighWatermark) 
 
 // RegisterValidators registers new keys as enabled and leaves known keys unchanged, in one transaction.
 func (s *Store) RegisterValidators(ctx context.Context, pubkeys [][]byte) error {
+	return s.register(ctx, pubkeys, true)
+}
+
+// RegisterValidatorsDisabled registers new keys as disabled and leaves known keys unchanged, in one transaction.
+func (s *Store) RegisterValidatorsDisabled(ctx context.Context, pubkeys [][]byte) error {
+	return s.register(ctx, pubkeys, false)
+}
+
+func (s *Store) register(ctx context.Context, pubkeys [][]byte, enabled bool) error {
 	for _, pk := range pubkeys {
 		if err := slashing.CheckPublicKey(pk); err != nil {
 			return err
@@ -292,7 +301,7 @@ func (s *Store) RegisterValidators(ctx context.Context, pubkeys [][]byte) error 
 			if vs.Bucket(id[:]) != nil {
 				continue
 			}
-			if err := createValidator(vs, id, pk); err != nil {
+			if err := createValidator(vs, id, pk, enabled); err != nil {
 				return err
 			}
 		}
@@ -300,7 +309,7 @@ func (s *Store) RegisterValidators(ctx context.Context, pubkeys [][]byte) error 
 	})
 }
 
-func createValidator(vs *bolt.Bucket, id slashing.KeyID, pk []byte) error {
+func createValidator(vs *bolt.Bucket, id slashing.KeyID, pk []byte, enabled bool) error {
 	b, err := vs.CreateBucket(id[:])
 	if err != nil {
 		return err
@@ -308,7 +317,7 @@ func createValidator(vs *bolt.Bucket, id slashing.KeyID, pk []byte) error {
 	if err := b.Put(keyPublicKey, pk); err != nil {
 		return err
 	}
-	if err := b.Put(keyEnabled, encodeBool(true)); err != nil {
+	if err := b.Put(keyEnabled, encodeBool(enabled)); err != nil {
 		return err
 	}
 	if _, err := b.CreateBucket(bucketBlocks); err != nil {

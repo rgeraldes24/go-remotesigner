@@ -111,6 +111,15 @@ type Consensus struct {
 	// SlashingProtectionDBMigrate is --slashing-protection-db-migrate.
 	SlashingProtectionDBMigrate bool
 	Randao                      Randao
+	Pruning                     Pruning
+}
+
+// Pruning holds the --slashing-protection-pruning-* settings.
+type Pruning struct {
+	// EpochsToKeep is how many epochs of history each validator keeps.
+	EpochsToKeep uint64
+	// Interval is the time between two pruning runs; the first runs at startup.
+	Interval time.Duration
 }
 
 // Randao holds the --randao-* settings of the reveal service.

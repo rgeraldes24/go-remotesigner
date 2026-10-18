@@ -57,6 +57,10 @@ func render() []byte {
 remotesigner [global flags] consensus [consensus flags]
 remotesigner [global flags] consensus [consensus flags] migrate [migrate flags]
 remotesigner [global flags] consensus [consensus flags] randao-state reset --key <id> [reset flags]
+remotesigner [global flags] consensus [consensus flags] import --from <file> [import flags]
+remotesigner [global flags] consensus [consensus flags] export --to <file> [--keys <id>,...] [export flags]
+remotesigner [global flags] consensus [consensus flags] watermark-repair --epoch <epoch> --slot <slot> [repair flags]
+remotesigner [global flags] consensus [consensus flags] set-high-watermark (--epoch <epoch> --slot <slot> | --remove) [flags]
 remotesigner [global flags] consensus keystore verify --file <keystore> --password-file <file>
 ` + "```" + `
 
@@ -79,10 +83,18 @@ missing ` + "`--network`" + ` and an invalid config file), 1 when the signer ref
 These subcommands work on the bbolt slashing-protection store while the signer is stopped (bbolt allows one process
 per file; they refuse a store that a running signer holds). They read ` + "`--data-path`" + ` for the default store
 location. Their flags are not read from the config file; ` + "`--slashing-protection-db-url`" + ` may also be given to
-` + "`consensus`" + ` itself, on the command line, in the environment or in the config file.
+` + "`consensus`" + ` itself, on the command line, in the environment or in the config file. ` + "`import`" + `, ` + "`export`" + `
+and ` + "`set-high-watermark`" + ` also read ` + "`--network`" + ` and its genesis flags from ` + "`consensus`" + `, for the
+genesis validators root: ` + "`import`" + ` and ` + "`set-high-watermark`" + ` bind a store that has none to it, and ` + "`export`" + `
+names it in the file of such a store. The history commands are described in
+[` + "`../operations/migration.md`" + `](../operations/migration.md).
 `)
 	section(&b, "### consensus migrate", subcommand, flags.Migrate(), false)
 	section(&b, "### consensus randao-state reset", subcommand, flags.RandaoStateReset(), false)
+	section(&b, "### consensus import", subcommand, flags.Import(), false)
+	section(&b, "### consensus export", subcommand, flags.Export(), false)
+	section(&b, "### consensus watermark-repair", subcommand, flags.WatermarkRepair(), false)
+	section(&b, "### consensus set-high-watermark", subcommand, flags.SetHighWatermark(), false)
 	b.WriteString(`
 ## Keystore commands
 
@@ -160,7 +172,9 @@ func defaultOf(f cli.Flag) string {
 	var s string
 	switch f := f.(type) {
 	case *cli.StringSliceFlag:
-		s = strings.Join(f.Value.Value(), ",")
+		if f.Value != nil {
+			s = strings.Join(f.Value.Value(), ",")
+		}
 	case *cli.BoolFlag:
 		s = strconv.FormatBool(f.Value)
 	default:

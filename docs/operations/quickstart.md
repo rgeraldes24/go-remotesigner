@@ -5,9 +5,10 @@ generated bearer tokens and a file network. Every flag is listed in [`../referen
 the HTTP API is [`../contract.md`](../contract.md).
 
 > This release signs all nine artifact types behind slashing protection, releases RANDAO reveals under the frontier
-> rule ([`randao.md`](randao.md)), and serves the operational API (`publicKeys`, `capabilities`, `/upcheck`,
-> `/healthcheck`, `/reload`) and the metrics listener. TLS, client certificates and the process hardening are in
-> [`tls.md`](tls.md).
+> rule ([`randao.md`](randao.md)), and serves the operational API (`publicKeys`, `capabilities`, `highWatermark`,
+> `/upcheck`, `/healthcheck`, `/reload`) and the metrics listener. TLS, client certificates and the process hardening
+> are in [`tls.md`](tls.md). Moving validators from a qrysm client, with their EIP-3076 slashing-protection history,
+> is in [`migration.md`](migration.md); backing up the store is in [`backup.md`](backup.md).
 
 ## 1. Build
 
@@ -70,7 +71,7 @@ On first start the signer creates, under `--data-path`:
 
 | File | Content |
 |---|---|
-| `auth-token` | the **sign** token (mode `0600`): duty routes, `publicKeys`, `capabilities`, `GET /reload`, healthcheck detail |
+| `auth-token` | the **sign** token (mode `0600`): duty routes, `publicKeys`, `capabilities`, `highWatermark`, `GET /reload`, healthcheck detail |
 | `admin-token` | the **admin** token (mode `0600`): `POST /reload`, `DELETE /api/v1/consensus/randao_state/{identifier}` |
 | `slashing-protection.db` | the bbolt slashing-protection store, locked while the signer runs |
 | `remotesigner.ports` | `http-port=<port>` (and `metrics-port=<port>` with `--metrics-enabled`), written once listening and removed at shutdown; useful with `--http-listen-port=0` |
@@ -105,6 +106,8 @@ curl -s -H "Authorization: Bearer $TOKEN" localhost:9000/reload        # idle, r
 ```
 
 Keys removed from the directory are dropped from memory; their slashing-protection history stays in the store.
+The store is pruned at startup and every 12 hours to the last 512 epochs of each validator's history
+([`migration.md`](migration.md#6-pruning)).
 
 ## 6. Sign
 

@@ -19,7 +19,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test fuzz fuzz-keystore contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e clean
+.PHONY: all build build-consensus test fuzz fuzz-keystore fuzz-interchange bench-b14 contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e clean
 
 all: build build-consensus
 
@@ -37,9 +37,9 @@ test:
 	CGO_ENABLED=1 $(GO) test -race -tags noexecution ./...
 
 ## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, the strict
-## request decoders, and the keystore decoder
+## request decoders, the keystore decoder and the EIP-3076 interchange
 FUZZTIME ?= 10s
-fuzz: fuzz-keystore
+fuzz: fuzz-keystore fuzz-interchange
 	$(GO) test -run '^$$' -fuzz '^FuzzHashTreeRootDifferential$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeSignRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRandaoRevealRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
@@ -47,6 +47,12 @@ fuzz: fuzz-keystore
 ## fuzz-keystore: the keystore decoder fuzz alone; the nightly workflow runs it with FUZZTIME=30m
 fuzz-keystore:
 	$(GO) test -run '^$$' -fuzz '^FuzzDecrypt$$' -fuzztime $(FUZZTIME) ./internal/keys/keystore/qrlv1/
+
+## fuzz-interchange: the EIP-3076 interchange import and export fuzz, FUZZTIME long; nightly runs it for 30 min.
+## Minimising a new input is capped at 5 s: inputs carry 5,186-character keys, and the default 60 s stalls every
+## worker while it minimises.
+fuzz-interchange:
+	$(GO) test -run '^$$' -fuzz '^FuzzInterchange$$' -fuzztime $(FUZZTIME) -fuzzminimizetime 5s ./internal/slashing/interchange/
 
 ## contract: lint api/openapi/consensus.yaml (kin-openapi), validate its examples, check docs/contract.md against it
 contract:
@@ -100,9 +106,10 @@ vectors-verify:
 	cd tools/vectorgen && $(GO) run . verify -signer $(SIGNER) $(if $(TOKEN_FILE),-token-file $(abspath $(TOKEN_FILE)))
 
 ## vectors-verify-binary: build the binary (or use REMOTESIGNER_BINARY), run it with the interop keys on both
-## end-to-end networks and check it with `vectorgen verify` (builds tools/vectorgen, which links qrysm)
+## end-to-end networks and check it with `vectorgen verify`, and round-trip qrysm's interchange export through it
+## back into qrysm with `vectorgen interchange-check` (builds tools/vectorgen, which links qrysm)
 vectors-verify-binary:
-	REMOTESIGNER_VECTORS_VERIFY=1 $(GO) test -count=1 -run '^TestVectorgenVerify$$' -v ./test/acceptance/
+	REMOTESIGNER_VECTORS_VERIFY=1 $(GO) test -count=1 -run '^(TestVectorgenVerify|TestQrysmInterchangeRoundTrip)$$' -v ./test/acceptance/
 
 ## vectors-contract: vectorgen contract mode: build the binary (or use REMOTESIGNER_BINARY), run it with the interop
 ## keys on both end-to-end networks and drive it with qrysm's own remote-web3signer keymanager at the commit
@@ -123,6 +130,10 @@ acceptance:
 B19_DURATION ?= 1h
 b19:
 	REMOTESIGNER_B19_DURATION=$(B19_DURATION) $(GO) test -count=1 -run '^TestB19IdleConnectionRace$$' -timeout 90m -v ./test/acceptance/
+
+## bench-b14: benchmark B14, a pruning run over 4,096 validators x 512 epochs in a bbolt store, with signing alongside
+bench-b14:
+	REMOTESIGNER_BENCH=1 $(GO) test -count=1 -run '^TestB14' -timeout 30m -v ./internal/slashing/boltstore/
 
 ## bench-e2e: the end-to-end benchmarks B7 (attestation burst), B8 (contribution burst), B9 (RANDAO reveals) and
 ## B20 (TLS handshake storm)

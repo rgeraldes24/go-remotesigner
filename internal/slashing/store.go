@@ -95,6 +95,10 @@ type Store interface {
 	// RegisterValidators registers keys of PublicKeyLength bytes. New keys are enabled; registering a known key
 	// again leaves its enabled flag unchanged.
 	RegisterValidators(ctx context.Context, pubkeys [][]byte) error
+	// RegisterValidatorsDisabled registers keys like RegisterValidators, but new keys are disabled. The interchange
+	// import registers keys with it, so that a key it adds is enabled only by the transaction that writes its
+	// history, and never signs without it, whatever stops the import in between.
+	RegisterValidatorsDisabled(ctx context.Context, pubkeys [][]byte) error
 	// ValidatorStatus returns a key's registration state; an unknown key is neither registered nor enabled.
 	ValidatorStatus(ctx context.Context, id KeyID) (ValidatorStatus, error)
 	// SetValidatorEnabled sets a registered key's enabled flag. It is serialised with UpdateBlocks and
@@ -107,6 +111,19 @@ type Store interface {
 	UpdateBlocks(ctx context.Context, id KeyID, fn func(BlockTx) error) error
 	// UpdateAttestations runs fn in an attestation transaction for one validator.
 	UpdateAttestations(ctx context.Context, id KeyID, fn func(AttestationTx) error) error
+	// UpdateHistory runs fn once for each of ids, in order, in one transaction: the interchange import and the
+	// pruner use it to write many validators with one commit. For the whole transaction it holds the block and the
+	// attestation lock of every validator in ids, taken validator by validator in KeyID order and, for each, block
+	// before attestation, so it is serialised with UpdateBlocks, UpdateAttestations and SetValidatorEnabled. An id
+	// may appear more than once. When fn returns an error, nothing written for any id is kept. It returns
+	// ErrValidatorNotRegistered, without calling fn, when any id is unregistered. A backend that retries the
+	// transaction (Postgres after a serialisation failure or a deadlock) rolls it back and runs fn again for every
+	// id, from the first: fn must derive what it writes and reports from id and tx alone, and set its results per id
+	// rather than add to them, so that a retry neither breaks nor double-counts it.
+	UpdateHistory(ctx context.Context, ids []KeyID, fn func(id KeyID, tx HistoryTx) error) error
+	// ViewHistory runs fn with a read-only, consistent snapshot of the store, for the interchange export and the
+	// maintenance commands. The view is valid only until fn returns, and fn must not call the store.
+	ViewHistory(ctx context.Context, fn func(HistoryView) error) error
 
 	RandaoStore
 
@@ -134,6 +151,13 @@ type BlockTx interface {
 	// RaiseSlotLowWatermark sets the low-watermark slot when none is set or when slot is at or above it, and
 	// leaves it unchanged otherwise. It returns ErrWatermarkConflict when slot is above the high-watermark slot.
 	RaiseSlotLowWatermark(slot uint64) error
+	// LastBlock returns the recorded block with the highest slot.
+	LastBlock() (SignedBlock, bool, error)
+	// NearestBlock returns the recorded block with the lowest slot at or above slot.
+	NearestBlock(slot uint64) (SignedBlock, bool, error)
+	// PruneBlocks deletes every block below the low-watermark slot and returns how many it deleted. It deletes
+	// nothing when no low-watermark slot is set.
+	PruneBlocks() (int, error)
 }
 
 // AttestationTx reads and writes one validator's attestation history.
@@ -156,4 +180,37 @@ type AttestationTx interface {
 	// at or above them, and leaves them unchanged otherwise. It returns ErrWatermarkConflict when either epoch is
 	// above the high-watermark epoch.
 	RaiseEpochLowWatermarks(source, target uint64) error
+	// LastAttestation returns the recorded attestation with the highest target epoch.
+	LastAttestation() (SignedAttestation, bool, error)
+	// NearestAttestation returns the recorded attestation with the lowest target epoch at or above target.
+	NearestAttestation(target uint64) (SignedAttestation, bool, error)
+	// PruneAttestations deletes every attestation whose target epoch is below the low-watermark target epoch and
+	// returns how many it deleted. It deletes nothing when no low-watermark epochs are set.
+	PruneAttestations() (int, error)
+}
+
+// HistoryTx reads and writes one validator's whole history in a transaction of UpdateHistory.
+type HistoryTx interface {
+	BlockTx
+	AttestationTx
+	// SetEnabled sets the validator's enabled flag.
+	SetEnabled(enabled bool) error
+}
+
+// HistoryView is a read-only snapshot of a store (see Store.ViewHistory). Values it returns stay valid after the
+// snapshot ends.
+type HistoryView interface {
+	// GenesisValidatorsRoot returns the pinned genesis validators root, if any.
+	GenesisValidatorsRoot() (Root, bool, error)
+	// Validators calls fn with every registered validator, in KeyID order, and stops at the first error fn
+	// returns.
+	Validators(fn func(id KeyID, pubkey []byte) error) error
+	// LowWatermark returns a registered validator's low watermark; the zero value means none is set.
+	LowWatermark(id KeyID) (LowWatermark, error)
+	// Blocks calls fn with a registered validator's recorded blocks in ascending slot order, and stops at the first
+	// error fn returns.
+	Blocks(id KeyID, fn func(SignedBlock) error) error
+	// Attestations calls fn with a registered validator's recorded attestations in ascending target-epoch order,
+	// and stops at the first error fn returns.
+	Attestations(id KeyID, fn func(SignedAttestation) error) error
 }

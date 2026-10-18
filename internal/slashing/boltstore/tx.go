@@ -75,6 +75,56 @@ func (t *blockTx) RaiseSlotLowWatermark(slot uint64) error {
 	return t.putLowWatermark(low)
 }
 
+func (t *blockTx) LastBlock() (slashing.SignedBlock, bool, error) {
+	k, v := t.blocks().Cursor().Last()
+	return decodeBlockEntry(k, v)
+}
+
+func (t *blockTx) NearestBlock(slot uint64) (slashing.SignedBlock, bool, error) {
+	k, v := t.blocks().Cursor().Seek(u64(slot))
+	return decodeBlockEntry(k, v)
+}
+
+func (t *blockTx) PruneBlocks() (int, error) {
+	low, err := t.LowWatermark()
+	if err != nil || low.Slot == nil {
+		return 0, err
+	}
+	return deleteBelow(t.blocks(), u64(*low.Slot))
+}
+
+// decodeBlockEntry decodes a cursor position of the blocks bucket; a nil key means no block.
+func decodeBlockEntry(k, v []byte) (slashing.SignedBlock, bool, error) {
+	if k == nil {
+		return slashing.SignedBlock{}, false, nil
+	}
+	slot, err := decodeU64("block slot", k)
+	if err != nil {
+		return slashing.SignedBlock{}, false, err
+	}
+	root, err := decodeRoot("block root", v)
+	if err != nil {
+		return slashing.SignedBlock{}, false, err
+	}
+	return slashing.SignedBlock{Slot: slot, SigningRoot: root}, true, nil
+}
+
+// deleteBelow deletes the keys of b that sort below bound. The keys are collected first: deleting under a
+// cursor that keeps moving can skip entries.
+func deleteBelow(b *bolt.Bucket, bound []byte) (int, error) {
+	var keys [][]byte
+	c := b.Cursor()
+	for k, _ := c.First(); k != nil && bytes.Compare(k, bound) < 0; k, _ = c.Next() {
+		keys = append(keys, bytes.Clone(k))
+	}
+	for _, k := range keys {
+		if err := b.Delete(k); err != nil {
+			return 0, err
+		}
+	}
+	return len(keys), nil
+}
+
 type attestationTx struct{ validatorTx }
 
 var _ slashing.AttestationTx = (*attestationTx)(nil)
@@ -155,4 +205,54 @@ func (t *attestationTx) RaiseEpochLowWatermarks(source, target uint64) error {
 	}
 	low.SourceEpoch, low.TargetEpoch = &source, &target
 	return t.putLowWatermark(low)
+}
+
+func (t *attestationTx) LastAttestation() (slashing.SignedAttestation, bool, error) {
+	k, v := t.atts().Cursor().Last()
+	return decodeAttestationEntry(k, v)
+}
+
+func (t *attestationTx) NearestAttestation(target uint64) (slashing.SignedAttestation, bool, error) {
+	k, v := t.atts().Cursor().Seek(u64(target))
+	return decodeAttestationEntry(k, v)
+}
+
+func (t *attestationTx) PruneAttestations() (int, error) {
+	low, err := t.LowWatermark()
+	if err != nil || low.TargetEpoch == nil {
+		return 0, err
+	}
+	return deleteBelow(t.atts(), u64(*low.TargetEpoch))
+}
+
+// decodeAttestationEntry decodes a cursor position of the attestations bucket; a nil key means no attestation.
+func decodeAttestationEntry(k, v []byte) (slashing.SignedAttestation, bool, error) {
+	if k == nil {
+		return slashing.SignedAttestation{}, false, nil
+	}
+	a, err := decodeAttestation(k, v)
+	return a, err == nil, err
+}
+
+// historyTx is one validator's block and attestation view of a read-write transaction of UpdateHistory.
+type historyTx struct {
+	*blockTx
+	*attestationTx
+}
+
+var _ slashing.HistoryTx = historyTx{}
+
+func newHistoryTx(tx *bolt.Tx, b *bolt.Bucket) historyTx {
+	v := validatorTx{tx: tx, b: b}
+	return historyTx{&blockTx{v}, &attestationTx{v}}
+}
+
+func (t historyTx) Enabled() (bool, error) { return t.blockTx.Enabled() }
+
+func (t historyTx) HighWatermark() (slashing.HighWatermark, error) { return t.blockTx.HighWatermark() }
+
+func (t historyTx) LowWatermark() (slashing.LowWatermark, error) { return t.blockTx.LowWatermark() }
+
+func (t historyTx) SetEnabled(enabled bool) error {
+	return t.blockTx.b.Put(keyEnabled, encodeBool(enabled))
 }

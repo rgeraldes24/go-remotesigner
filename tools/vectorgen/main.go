@@ -14,6 +14,7 @@
 //
 //	vectorgen gen [-repo dir]
 //	vectorgen verify -signer http://127.0.0.1:9000 [-token-file file] [-vectors dir]
+//	vectorgen interchange-check -file export.json [-vectors dir]
 package main
 
 import (
@@ -33,7 +34,8 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "usage: vectorgen gen [-repo dir] | verify -signer url [-token-file file] [-vectors dir]")
+		_, _ = fmt.Fprintln(stderr, "usage: vectorgen gen [-repo dir] | verify -signer url [-token-file file] [-vectors dir] | "+
+			"interchange-check -file export.json [-vectors dir]")
 		return 2
 	}
 	switch args[0] {
@@ -41,6 +43,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runGen(args[1:], stdout, stderr)
 	case "verify":
 		return runVerifyCmd(args[1:], stdout, stderr)
+	case "interchange-check":
+		return runInterchangeCheckCmd(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "vectorgen: unknown command %q\n", args[0])
 		return 2
@@ -105,6 +109,27 @@ func runVerifyCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	_, _ = fmt.Fprintf(stdout, "verify: %d passed, %d skipped, %d failed\n", res.passed, res.skipped, len(res.failures))
 	if len(res.failures) > 0 {
+		return 1
+	}
+	return 0
+}
+
+func runInterchangeCheckCmd(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("interchange-check", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	file := fs.String("file", "", "EIP-3076 interchange file to import into qrysm")
+	vectors := fs.String("vectors", filepath.Join(defaultRepo(), "testdata", "vectors"), "fixture directory")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *file == "" {
+		_, _ = fmt.Fprintln(stderr, "vectorgen interchange-check: -file is required")
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := interchangeCheck(ctx, *file, *vectors, stdout); err != nil {
+		_, _ = fmt.Fprintln(stderr, "vectorgen interchange-check:", err)
 		return 1
 	}
 	return 0

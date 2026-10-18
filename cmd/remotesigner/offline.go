@@ -20,8 +20,9 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/boltstore"
 )
 
-// The offline store commands. bbolt allows one process per file, so they
-// fail while a signer has the store open; that refusal says what to do.
+// The offline store commands (the history commands are in interchange.go).
+// bbolt allows one process per file, so they fail while a signer has the
+// store open; that refusal says what to do.
 
 // errStoreInUse is the startup-failure message for a locked store.
 const errStoreInUse = "the slashing-protection store %s is open in a running remotesigner: stop the signer first"
@@ -99,23 +100,29 @@ func randaoStateCommand(stdout io.Writer) *cli.Command {
 
 // storeFile is the bbolt file the offline commands work on: the path of
 // --slashing-protection-db-url, else <data-path>/slashing-protection.db.
-// The file must exist; the commands never create a store.
+// The file must exist; only consensus import creates a store.
 func storeFile(c *cli.Context) (string, error) {
-	path, err := dbPath(c)
+	path, err := storePath(c)
 	if err != nil {
 		return "", err
-	}
-	if path == "" {
-		dataPath := c.String(flags.DataPath)
-		if dataPath == "" {
-			return "", fmt.Errorf("name the store with --%s or --%s", flags.SlashingProtectionDBURL, flags.DataPath)
-		}
-		path = filepath.Join(dataPath, config.SlashingProtectionFile)
 	}
 	if _, err := os.Stat(path); err != nil {
 		return "", fmt.Errorf("no slashing-protection store at %s", path)
 	}
 	return path, nil
+}
+
+// storePath is the bbolt file of storeFile, which need not exist yet.
+func storePath(c *cli.Context) (string, error) {
+	path, err := dbPath(c)
+	if err != nil || path != "" {
+		return path, err
+	}
+	dataPath := c.String(flags.DataPath)
+	if dataPath == "" {
+		return "", fmt.Errorf("name the store with --%s or --%s", flags.SlashingProtectionDBURL, flags.DataPath)
+	}
+	return filepath.Join(dataPath, config.SlashingProtectionFile), nil
 }
 
 func resetRandaoState(ctx context.Context, path string, id slashing.KeyID) error {

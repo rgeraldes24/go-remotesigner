@@ -15,9 +15,9 @@ import (
 // hide a bug, never report a false one.
 const enabledWait = 100 * time.Millisecond
 
-// runEnabledSerialisation checks that SetValidatorEnabled is serialised with the validator's block and attestation
-// transactions: it does not return while one is open, the open one keeps reading the old flag, and a transaction
-// that starts after it returns reads the new flag.
+// runEnabledSerialisation checks that SetValidatorEnabled is serialised with the validator's block, attestation and
+// history transactions: it does not return while one is open, the open one keeps reading the old flag, and a
+// transaction that starts after it returns reads the new flag.
 func runEnabledSerialisation(t *testing.T, newStore Factory) {
 	kinds := []struct {
 		name    string
@@ -36,6 +36,16 @@ func runEnabledSerialisation(t *testing.T, newStore Factory) {
 		{"attestation transaction", func(s slashing.Store, during func()) (bool, error) {
 			var enabled bool
 			err := s.UpdateAttestations(bg, id(0), func(tx slashing.AttestationTx) error {
+				during()
+				var err error
+				enabled, err = tx.Enabled()
+				return err
+			})
+			return enabled, err
+		}},
+		{"history transaction", func(s slashing.Store, during func()) (bool, error) {
+			var enabled bool
+			err := s.UpdateHistory(bg, []slashing.KeyID{id(0)}, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
 				during()
 				var err error
 				enabled, err = tx.Enabled()
