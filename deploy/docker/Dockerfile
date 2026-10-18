@@ -10,7 +10,10 @@
 # are described in docs/operations/deploy-docker.md.
 #
 # The base image is pinned by the digest of its multi-platform index;
-# Renovate moves the pin.
+# Renovate moves the pin. The digest appears in the FROM line only, the one
+# line Renovate rewrites: the base.name label carries the tag, and a
+# release's provenance attestation records the digest the image was built
+# from (test/repo TestDockerfile).
 
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS base
 
@@ -34,8 +37,7 @@ LABEL org.opencontainers.image.title="${FLAVOUR}" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.created="${CREATED}" \
-      org.opencontainers.image.base.name="gcr.io/distroless/static-debian13:nonroot" \
-      org.opencontainers.image.base.digest="sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3"
+      org.opencontainers.image.base.name="gcr.io/distroless/static-debian13:nonroot"
 
 COPY --chmod=0555 ${TARGETPLATFORM}/${FLAVOUR} /usr/local/bin/remotesigner
 # LICENSE, the flavour's NOTICE, LICENSES/ and third_party_licenses/.

@@ -5,6 +5,7 @@ package repo
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -44,15 +45,19 @@ func TestDeployNeverAllowsPlaintextTokens(t *testing.T) {
 
 // dockerfile is the parsed part of deploy/docker/Dockerfile the tests read.
 type dockerfile struct {
-	from       []string // every FROM image reference
-	user       string   // the last USER
-	entrypoint []string // the last ENTRYPOINT (exec form)
-	cmd        []string // the last CMD (exec form)
+	from       []string          // every FROM image reference
+	user       string            // the last USER
+	entrypoint []string          // the last ENTRYPOINT (exec form)
+	cmd        []string          // the last CMD (exec form)
+	labels     map[string]string // every LABEL key="value" pair
 }
+
+// labelPair is one key="value" pair of a LABEL instruction.
+var labelPair = regexp.MustCompile(`([A-Za-z0-9._-]+)="([^"]*)"`)
 
 func parseDockerfile(t *testing.T, text string) dockerfile {
 	t.Helper()
-	var d dockerfile
+	d := dockerfile{labels: map[string]string{}}
 	// Join continuation lines.
 	text = strings.ReplaceAll(text, "\\\n", " ")
 	for _, line := range strings.Split(text, "\n") {
@@ -70,6 +75,10 @@ func parseDockerfile(t *testing.T, text string) dockerfile {
 			d.entrypoint = execForm(t, rest)
 		case "CMD":
 			d.cmd = execForm(t, rest)
+		case "LABEL":
+			for _, m := range labelPair.FindAllStringSubmatch(rest, -1) {
+				d.labels[m[1]] = m[2]
+			}
 		}
 	}
 	return d
@@ -128,6 +137,58 @@ func TestDockerfile(t *testing.T) {
 	}
 	if !slices.Equal(d.cmd, []string{"consensus"}) {
 		t.Errorf("CMD %q, want [consensus]", d.cmd)
+	}
+	for _, p := range basePinProblems(d, string(data)) {
+		t.Error(p)
+	}
+}
+
+// basePinProblems returns what is wrong with the base-image pin of a
+// Dockerfile: Renovate's docker:pinDigests rewrites the digest in FROM lines
+// only, so any other copy of it (a base.digest label, say) would name a base
+// the image is no longer built from after the first update; and the
+// base.name label, when set, must name the base FROM pins.
+func basePinProblems(d dockerfile, text string) []string {
+	var p []string
+	for _, ref := range d.from {
+		name, digest, ok := strings.Cut(ref, "@")
+		if !ok {
+			continue
+		}
+		if n := strings.Count(text, strings.TrimPrefix(digest, "sha256:")); n != 1 {
+			p = append(p, fmt.Sprintf("the base digest %s appears %d times; keep it in the FROM line only", digest, n))
+		}
+		if got, ok := d.labels["org.opencontainers.image.base.name"]; ok && ref == d.from[0] && got != name {
+			p = append(p, fmt.Sprintf("label org.opencontainers.image.base.name = %q, want %q (the FROM image)", got, name))
+		}
+	}
+	return p
+}
+
+func TestBasePinProblems(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("ab", 32)
+	from := "FROM gcr.io/distroless/static-debian13:nonroot@" + digest + " AS base\nFROM base\n"
+	tests := []struct {
+		name, text string
+		want       string // a substring of the one problem; "" for none
+	}{
+		{"pinned once", from + `LABEL org.opencontainers.image.base.name="gcr.io/distroless/static-debian13:nonroot"` + "\n", ""},
+		{"no base label", from, ""},
+		{"a digest label", from + `LABEL org.opencontainers.image.base.digest="` + digest + `"` + "\n", "appears 2 times"},
+		{"a digest in a comment", "# base " + digest + "\n" + from, "appears 2 times"},
+		{"another base name", from + `LABEL org.opencontainers.image.base.name="gcr.io/distroless/static-debian12:nonroot"` + "\n",
+			"base.name"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := basePinProblems(parseDockerfile(t, tt.text), tt.text)
+			switch {
+			case tt.want == "" && len(got) != 0:
+				t.Errorf("problems %q, want none", got)
+			case tt.want != "" && (len(got) != 1 || !strings.Contains(got[0], tt.want)):
+				t.Errorf("problems %q, want one mentioning %q", got, tt.want)
+			}
+		})
 	}
 }
 
