@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io/fs"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,36 +39,59 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keyconfig"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystores"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/source"
 	"github.com/rgeraldes24/go-remotesigner/internal/randao"
 	"github.com/rgeraldes24/go-remotesigner/internal/signer"
 	"github.com/rgeraldes24/go-remotesigner/internal/signer/provider"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 )
 
-// The health checks of the key sources, as Web3Signer names them.
-const (
-	checkConfigFiles = ops.CheckConfigFilesLoading
-	checkKeystores   = ops.CheckKeystoresBulkLoading
-)
-
-// loadState is what the keys-check health checks read: the outcome of the
-// last load, per source kind.
+// loadState is what the keys-check health checks read besides each
+// source kind's error count: whether a load has finished, and whether the
+// last one changed nothing.
 type loadState struct {
-	done      atomic.Bool
-	failed    atomic.Bool // the last load changed nothing (slashing-protection registration failed)
-	keyConfig atomic.Int64
-	keystores atomic.Int64
+	done   atomic.Bool
+	failed atomic.Bool // the last load changed nothing (slashing-protection registration failed)
 }
 
-// KeyLoader loads keys from the configured sources into the provider: the
-// key-config files first, then the keystores, as Web3Signer orders its
-// sources. The first load is the startup load; every later one is a
-// POST /reload. Both modes use it; LoadHooks holds what a mode adds.
+// loadFunc loads one source kind: one batch per source, or an error when
+// the kind failed as a whole.
+type loadFunc func(ctx context.Context, workers int, unchanged source.Unchanged, report func(done, total int)) (
+	[]provider.Batch, error)
+
+// keySource is one kind of key source and its keys-check health check.
+type keySource struct {
+	what   string // for logs, e.g. "key-config files"
+	prefix string // of its sources' names
+	check  string // the health check id
+	load   loadFunc
+	// wholeMsg and oneMsg are logged when the kind fails as a whole and
+	// when one of its sources fails.
+	wholeMsg, oneMsg string
+	// io: its sources are fetched over the network, not decrypted, so it
+	// runs secretFetchWorkers at once.
+	io   bool
+	errs atomic.Int64 // sources that failed in the last load
+}
+
+// secretFetchWorkers is how many secrets a bulk loader fetches at once:
+// the work is network round trips, not Argon2id.
+const secretFetchWorkers = 8
+
+// KeyLoader loads keys from the configured sources into the provider, in
+// Web3Signer's order: the key-config files, Azure Key Vault, the
+// keystores, AWS Secrets Manager, then GCP Secret Manager. The first load
+// is the startup load; every later one is a POST /reload. Both modes use
+// it; LoadHooks holds what a mode adds.
 type KeyLoader struct {
-	keyConfig *keyconfig.Config // nil without --key-config-path
-	keystores *keystores.Config // nil without --keystores-path
-	sem       *argon.Semaphore
-	timeout   time.Duration // of a reload; the startup load is unbounded
+	// sources are the configured source kinds in load order. The
+	// key-config kind is always there, as its health check is; its load is
+	// nil without --key-config-path.
+	sources []*keySource
+	stores  *stores
+	sem     *argon.Semaphore
+	timeout time.Duration // of a reload; the startup load is unbounded
 
 	keys  *provider.Provider
 	hooks LoadHooks
@@ -94,7 +118,7 @@ type LoadHooks struct {
 
 // KeySources are the key sources of a mode: the global --key-config-path
 // and the mode's keystore directory. In execution mode both hold account
-// keys.
+// keys, and the secret stores, which hold consensus seeds, are not read.
 type KeySources struct {
 	Keystores config.Keystores
 	Execution bool
@@ -104,15 +128,34 @@ type KeySources struct {
 func NewKeyLoader(cfg *config.Config, src KeySources, sem *argon.Semaphore, keys *provider.Provider, hooks LoadHooks,
 	log logrus.FieldLogger) *KeyLoader {
 	policy := SecretPolicy(cfg, log)
-	l := &KeyLoader{sem: sem, timeout: cfg.ReloadTimeout, keys: keys, hooks: hooks, state: &loadState{}, log: log}
+	l := &KeyLoader{stores: &stores{close: func() {}}, sem: sem, timeout: cfg.ReloadTimeout, keys: keys, hooks: hooks,
+		state: &loadState{}, log: log}
+	if !src.Execution {
+		l.stores = newStores(cfg)
+	}
+	kc := &keySource{what: "key-config files", prefix: keyconfig.SourcePrefix, check: ops.CheckConfigFilesLoading,
+		wholeMsg: "The key-config directory could not be read; every key-config file keeps its previous keys",
+		oneMsg:   "A key-config file failed to load; its previous keys stay loaded"}
 	if cfg.KeyConfigPath != "" {
-		l.keyConfig = &keyconfig.Config{Dir: cfg.KeyConfigPath, Policy: policy, Decrypt: sem.Decrypt,
+		c := &keyconfig.Config{Dir: cfg.KeyConfigPath, Policy: policy, Decrypt: sem.Decrypt,
 			MaxFileSize: cfg.KeyConfigFileMaxSize, Execution: src.Execution}
+		if !src.Execution {
+			c.Secrets = l.stores.fetch
+		}
+		kc.load = c.Load
 	}
+	l.sources = append(l.sources, kc)
+	l.addBulk(secrets.KindAzure, ops.CheckAzureBulkLoading, "Azure Key Vault secrets")
 	if ks := src.Keystores; ks.Path != "" {
-		l.keystores = &keystores.Config{Dir: ks.Path, PasswordFile: ks.PasswordFile, PasswordsDir: ks.PasswordsPath,
+		c := &keystores.Config{Dir: ks.Path, PasswordFile: ks.PasswordFile, PasswordsDir: ks.PasswordsPath,
 			Policy: policy, Decrypt: sem.Decrypt, Execution: src.Execution}
+		l.sources = append(l.sources, &keySource{what: "keystores", prefix: keystores.SourcePrefix,
+			check: ops.CheckKeystoresBulkLoading, load: c.Load,
+			wholeMsg: "The keystores could not be loaded; every keystore keeps its previous key",
+			oneMsg:   "A keystore failed to load; its previous key stays loaded"})
 	}
+	l.addBulk(secrets.KindAWS, ops.CheckAWSBulkLoading, "AWS Secrets Manager secrets")
+	l.addBulk(secrets.KindGCP, ops.CheckGCPBulkLoading, "GCP Secret Manager secrets")
 	return l
 }
 
@@ -154,6 +197,31 @@ func consensusHooks(keys *provider.Provider, engine *slashing.Engine, sig *signe
 	}
 }
 
+// addBulk adds the bulk loader of kind when it is enabled.
+func (l *KeyLoader) addBulk(kind, check, what string) {
+	open, ok := l.stores.bulk[kind]
+	if !ok {
+		return
+	}
+	b := secrets.Bulk{Kind: kind}
+	l.sources = append(l.sources, &keySource{what: what, prefix: b.Prefix(), check: check, io: true,
+		wholeMsg: "The " + what + " could not be listed; every secret keeps its previous keys",
+		oneMsg:   "A secret failed to load; its previous keys stay loaded",
+		load: func(ctx context.Context, workers int, _ source.Unchanged, report func(done, total int)) (
+			[]provider.Batch, error) {
+			store, closeStore, err := open(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("%s bulk loading: %w", kind, err)
+			}
+			defer closeStore()
+			b.Store = store
+			return b.Load(ctx, workers, report)
+		}})
+}
+
+// Close releases the secret-store clients.
+func (l *KeyLoader) Close() { l.stores.close() }
+
 // workers is the number of sources loaded at once. A reload runs while the
 // signer serves, so it leaves one CPU to signing.
 func (l *KeyLoader) workers() int {
@@ -181,8 +249,8 @@ func (l *KeyLoader) Load(ctx context.Context) (int, error) {
 }
 
 func (l *KeyLoader) load(ctx, loadCtx context.Context) (int, error) {
-	if l.keyConfig == nil && l.keystores == nil {
-		l.log.Warn("No --key-config-path or --keystores-path: no keys are loaded")
+	if !slices.ContainsFunc(l.sources, func(s *keySource) bool { return s.load != nil }) {
+		l.log.Warn("No --key-config-path, --keystores-path or secret-store bulk loader: no keys are loaded")
 	}
 	// Sources the keymanager changes from here on keep what it made of
 	// them, whatever this load reads (provider.ApplySince).
@@ -191,18 +259,17 @@ func (l *KeyLoader) load(ctx, loadCtx context.Context) (int, error) {
 	workers := l.workers()
 	decrypts, busy := l.sem.Stats()
 	var batches []provider.Batch
-	kcErrs, ksErrs := 0, 0
-	if l.keyConfig != nil {
-		b, err := l.keyConfig.Load(loadCtx, workers, unchanged, l.progress("key-config files"))
-		batches, kcErrs = l.collect(batches, b, err, keyconfig.SourcePrefix,
-			"The key-config directory could not be read; every key-config file keeps its previous keys",
-			"A key-config file failed to load; its previous keys stay loaded")
-	}
-	if l.keystores != nil {
-		b, err := l.keystores.Load(loadCtx, workers, unchanged, l.progress("keystores"))
-		batches, ksErrs = l.collect(batches, b, err, keystores.SourcePrefix,
-			"The keystores could not be loaded; every keystore keeps its previous key",
-			"A keystore failed to load; its previous key stays loaded")
+	counts := make([]int, len(l.sources))
+	for i, s := range l.sources {
+		if s.load == nil {
+			continue
+		}
+		w := workers
+		if s.io {
+			w = secretFetchWorkers
+		}
+		b, err := s.load(loadCtx, w, unchanged, l.progress(s.what))
+		batches, counts[i] = l.collect(batches, b, err, s.prefix, s.wholeMsg, s.oneMsg)
 	}
 	if errors.Is(loadCtx.Err(), context.DeadlineExceeded) {
 		l.log.WithField("reload-timeout", l.timeout).
@@ -216,29 +283,33 @@ func (l *KeyLoader) load(ctx, loadCtx context.Context) (int, error) {
 	}
 	d, err := l.keys.ApplySince(since, batches, register, l.hooks.Renew)
 	if err != nil {
-		return kcErrs + ksErrs, err
+		return sum(counts), err
 	}
 	// A source the keymanager changed meanwhile was read half-way through
 	// its change; what the load made of it does not count.
 	for _, b := range batches {
-		if b.Err != nil && l.keys.ChangedSince(since, b.Source) {
-			if strings.HasPrefix(b.Source, keyconfig.SourcePrefix) {
-				kcErrs--
-			} else {
-				ksErrs--
+		if b.Err == nil || !l.keys.ChangedSince(since, b.Source) {
+			continue
+		}
+		for i, s := range l.sources {
+			if strings.HasPrefix(b.Source, s.prefix) {
+				counts[i]--
+				break
 			}
 		}
 	}
-	l.state.keyConfig.Store(int64(kcErrs))
-	l.state.keystores.Store(int64(ksErrs))
+	for i, s := range l.sources {
+		s.errs.Store(int64(counts[i]))
+	}
+	total := sum(counts)
 	quarantined := l.refresh(ctx)
-	n, total := l.sem.Stats()
+	n, totalTime := l.sem.Stats()
 	l.log.WithFields(logrus.Fields{
 		"loaded": l.keys.Len(), "added": d.Added, "removed": d.Removed, "renewed": d.Renewed, "unchanged": d.Unchanged,
-		"errors": kcErrs + ksErrs, "quarantined": quarantined,
-		"decrypts": n - decrypts, "decrypt-time": (total - busy).Round(time.Millisecond),
+		"errors": total, "quarantined": quarantined,
+		"decrypts": n - decrypts, "decrypt-time": (totalTime - busy).Round(time.Millisecond),
 	}).Info("Keys loaded")
-	return kcErrs + ksErrs, nil
+	return total, nil
 }
 
 // refresh brings what follows the key set up to date after it changed, by a
@@ -290,27 +361,34 @@ func (l *KeyLoader) progress(what string) func(done, total int) {
 	}
 }
 
-// Checks returns the keys-check health checks of the loader's sources, as
-// Web3Signer has them: the key-config check always, the keystore check with
-// a keystore source.
+// Checks returns the keys-check health checks of the loader's source
+// kinds, as Web3Signer has them: the key-config check always, and each
+// other kind's only when it is configured.
 func (l *KeyLoader) Checks() []ops.Check {
-	st := l.state
-	checks := []ops.Check{{ID: checkConfigFiles,
-		Run: keysCheck(st, &st.keyConfig, func() int { return l.keys.Count(keyconfig.SourcePrefix) })}}
-	if l.keystores != nil {
-		checks = append(checks, ops.Check{ID: checkKeystores,
-			Run: keysCheck(st, &st.keystores, func() int { return l.keys.Count(keystores.SourcePrefix) })})
+	checks := make([]ops.Check, 0, len(l.sources))
+	for _, s := range l.sources {
+		checks = append(checks, ops.Check{ID: s.check, Run: keysCheck(l.state, s, l.keys)})
 	}
 	return checks
 }
 
-// keysCheck is a keys-check health check: DOWN until the first load, after
-// a load whose registration failed, and while sources fail to load.
-func keysCheck(st *loadState, errs *atomic.Int64, loaded func() int) func(context.Context) (bool, map[string]any) {
+// sum adds up a load's error counts.
+func sum(counts []int) int {
+	n := 0
+	for _, c := range counts {
+		n += c
+	}
+	return n
+}
+
+// keysCheck is the keys-check health check of a source kind: DOWN until
+// the first load, after a load whose registration failed, and while its
+// sources fail to load.
+func keysCheck(st *loadState, s *keySource, keys *provider.Provider) func(context.Context) (bool, map[string]any) {
 	return func(context.Context) (bool, map[string]any) {
-		n := errs.Load()
+		n := s.errs.Load()
 		up := st.done.Load() && !st.failed.Load() && n == 0
-		return up, map[string]any{"keys-loaded": loaded(), "error-count": n}
+		return up, map[string]any{"keys-loaded": keys.Count(s.prefix), "error-count": n}
 	}
 }
 

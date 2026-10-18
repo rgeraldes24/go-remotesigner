@@ -504,6 +504,10 @@ func TestNoticeHasEveryCopyrightLine(t *testing.T) {
 	}
 }
 
+// noticeFileNames are the names of a module's NOTICE file: the Apache
+// convention, and the .txt variant aws-sdk-go-v2 and gRPC use.
+var noticeFileNames = []string{"NOTICE", "NOTICE.txt"}
+
 // TestNoticeReproducesNoticeFiles checks that the NOTICE file of every
 // linked module that has one is reproduced verbatim, and nothing else is.
 func TestNoticeReproducesNoticeFiles(t *testing.T) {
@@ -523,8 +527,16 @@ func TestNoticeReproducesNoticeFiles(t *testing.T) {
 	}
 	want := map[string]bool{}
 	for m, dir := range ls.modules {
-		p := filepath.Join(dir, "NOTICE")
-		if !fileExists(p) {
+		var p string
+		for _, name := range noticeFileNames {
+			if q := filepath.Join(dir, name); fileExists(q) {
+				if p != "" {
+					t.Errorf("%s has two NOTICE files", m)
+				}
+				p = q
+			}
+		}
+		if p == "" {
 			continue
 		}
 		want[m] = true

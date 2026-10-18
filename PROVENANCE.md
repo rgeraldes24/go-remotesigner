@@ -229,6 +229,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/main_test.go` | new | | | |
 | `cmd/remotesigner/offline.go` | new | | | |
 | `cmd/remotesigner/offline_test.go` | new | | | |
+| `cmd/remotesigner/secrets.go` | w3s-derived | Web3Signer | `commandline/src/main/java/tech/pegasys/web3signer/commandline/subcommands/Eth2SubCommand.java`<br>`commandline/src/main/java/tech/pegasys/web3signer/commandline/PicoCliAwsSecretsManagerParameters.java`<br>`commandline/src/main/java/tech/pegasys/web3signer/commandline/PicoCliGcpSecretManagerParameters.java`<br>`commandline/src/main/java/tech/pegasys/web3signer/commandline/PicoCliAzureKeyVaultParameters.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `cmd/remotesigner/secrets_test.go` | new | | | |
 | `cmd/remotesigner/store.go` | new | | | |
 | `cmd/remotesigner/store_test.go` | new | | | |
 | `deploy/config/postgres-ha.yaml` | new | | | |
@@ -422,8 +424,13 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/runner/reload_test.go` | new | | | |
 | `internal/runner/runner.go` | new | | | |
 | `internal/runner/runner_test.go` | new | | | |
+| `internal/runner/secrets_consensus_test.go` | new | | | |
+| `internal/runner/secrets_test.go` | new | | | |
 | `internal/runner/sign_test.go` | new | | | |
 | `internal/runner/store.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbHealthCheck.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/runner/stores.go` | new | | | |
+| `internal/runner/stores_consensus.go` | new | | | |
+| `internal/runner/stores_full.go` | new | | | |
 | `internal/runner/tls_test.go` | new | | | |
 | `internal/server/auth/auth.go` | new | | | |
 | `internal/server/auth/auth_test.go` | new | | | |

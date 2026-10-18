@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/api/ops"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystoretest"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
@@ -260,9 +261,9 @@ func TestRunKeystoresPermissionRefusalKeepsKey(t *testing.T) {
 	signs(pk)
 	signs(other)
 	code, checks := r.health(t)
-	ks := checks[checkKeystores]
+	ks := checks[ops.CheckKeystoresBulkLoading]
 	if code != 200 || ks["status"] != "UP" || fmt.Sprint(ks["data"]) != "map[error-count:0 keys-loaded:2]" ||
-		fmt.Sprint(checks[checkConfigFiles]["data"]) != "map[error-count:0 keys-loaded:1]" {
+		fmt.Sprint(checks[ops.CheckConfigFilesLoading]["data"]) != "map[error-count:0 keys-loaded:1]" {
 		t.Fatalf("health with keystores: %d %v", code, checks)
 	}
 
@@ -272,9 +273,9 @@ func TestRunKeystoresPermissionRefusalKeepsKey(t *testing.T) {
 	r.reload(t, "completed_with_errors")
 	signs(pk)
 	code, checks = r.health(t)
-	ks = checks[checkKeystores]
+	ks = checks[ops.CheckKeystoresBulkLoading]
 	if code != 503 || ks["status"] != "DOWN" || fmt.Sprint(ks["data"]) != "map[error-count:1 keys-loaded:2]" ||
-		checks[checkConfigFiles]["status"] != "UP" {
+		checks[ops.CheckConfigFilesLoading]["status"] != "UP" {
 		t.Fatalf("health after the refusal: %d %v", code, checks)
 	}
 
@@ -283,7 +284,7 @@ func TestRunKeystoresPermissionRefusalKeepsKey(t *testing.T) {
 	}
 	r.reload(t, "completed")
 	signs(pk)
-	if code, checks = r.health(t); code != 200 || checks[checkKeystores]["status"] != "UP" {
+	if code, checks = r.health(t); code != 200 || checks[ops.CheckKeystoresBulkLoading]["status"] != "UP" {
 		t.Fatalf("health after the fix: %d %v", code, checks)
 	}
 	if err := r.stop(); err != nil {
@@ -310,7 +311,7 @@ func TestRunKeystoresWholeFailureAndChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.reload(t, "completed_with_errors")
-	if _, checks := r.health(t); fmt.Sprint(checks[checkKeystores]["data"]) != "map[error-count:1 keys-loaded:2]" {
+	if _, checks := r.health(t); fmt.Sprint(checks[ops.CheckKeystoresBulkLoading]["data"]) != "map[error-count:1 keys-loaded:2]" {
 		t.Fatalf("health with an unreadable directory: %v", checks)
 	}
 	if err := os.Rename(moved, f.dir); err != nil {

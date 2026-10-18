@@ -20,6 +20,7 @@ import (
 
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/hygiene"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
 	"github.com/rgeraldes24/go-remotesigner/internal/logging"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
@@ -163,6 +164,17 @@ type Consensus struct {
 	Randao                      Randao
 	Pruning                     Pruning
 	Keystores                   Keystores
+	SecretStores                SecretStores
+}
+
+// SecretStores holds the secret-store settings: the client cache of
+// aws-secret documents and the bulk loaders, each nil when disabled.
+type SecretStores struct {
+	// AWSClientCacheSize is --aws-connection-cache-size.
+	AWSClientCacheSize int
+	AWS                *secrets.AWSBulk   // --aws-secrets-enabled
+	Azure              *secrets.AzureBulk // --azure-vault-enabled
+	GCP                *secrets.GCPBulk   // --gcp-secrets-enabled
 }
 
 // Postgres holds the Postgres store's settings.
