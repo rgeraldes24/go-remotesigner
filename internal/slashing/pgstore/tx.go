@@ -34,28 +34,84 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 )
 
-// validatorTx is one validator's part of a transaction that holds its advisory lock(s).
+// validatorTx is one validator's part of a transaction that holds its advisory lock(s). The validator's enabled
+// flag and both watermarks are read together, in one statement, the first time a check asks for one of them, and
+// then remembered: no other transaction can change them meanwhile, and the transaction's own writes update or drop
+// what it remembers.
 type validatorTx struct {
-	ctx context.Context
-	tx  pgx.Tx
-	vid int32
+	ctx  context.Context
+	tx   pgx.Tx
+	vid  int32
+	head *head
+}
+
+// head is what a check reads first.
+type head struct {
+	enabled bool
+	high    slashing.HighWatermark
+	low     slashing.LowWatermark
+}
+
+// read returns the validator's head. It reads the high watermark FOR SHARE: SetHighWatermark then waits for this
+// transaction, so that once it returns no message decided under the old high watermark is still to be recorded.
+func (t *validatorTx) read() (*head, error) {
+	if t.head != nil {
+		return t.head, nil
+	}
+	var (
+		h                          head
+		highEpoch, highSlot        *int64
+		lowSlot, lowSource, lowTgt *int64
+	)
+	err := t.tx.QueryRow(t.ctx, `SELECT v.enabled, m.high_watermark_epoch, m.high_watermark_slot,
+			l.slot, l.source_epoch, l.target_epoch
+		FROM validators v
+		LEFT JOIN LATERAL (SELECT high_watermark_epoch, high_watermark_slot FROM metadata WHERE id = 1 FOR SHARE) m
+			ON true
+		LEFT JOIN low_watermarks l ON l.validator_id = v.id
+		WHERE v.id = $1`, t.vid).Scan(&h.enabled, &highEpoch, &highSlot, &lowSlot, &lowSource, &lowTgt)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range []struct {
+		in  *int64
+		out **uint64
+	}{{highEpoch, &h.high.Epoch}, {highSlot, &h.high.Slot}, {lowSlot, &h.low.Slot}, {lowSource, &h.low.SourceEpoch},
+		{lowTgt, &h.low.TargetEpoch}} {
+		if *f.out, err = u64p(f.in); err != nil {
+			return nil, err
+		}
+	}
+	t.head = &h
+	return t.head, nil
 }
 
 func (t *validatorTx) Enabled() (bool, error) {
-	var enabled bool
-	err := t.tx.QueryRow(t.ctx, `SELECT enabled FROM validators WHERE id = $1`, t.vid).Scan(&enabled)
-	return enabled, err
+	h, err := t.read()
+	if err != nil {
+		return false, err
+	}
+	return h.enabled, nil
 }
 
-// HighWatermark reads the high watermark FOR SHARE: SetHighWatermark then waits for this transaction, so that once
-// it returns no message decided under the old high watermark is still to be recorded.
 func (t *validatorTx) HighWatermark() (slashing.HighWatermark, error) {
-	return highWatermark(t.ctx, t.tx, " FOR SHARE")
+	h, err := t.read()
+	if err != nil {
+		return slashing.HighWatermark{}, err
+	}
+	return h.high, nil
 }
 
 func (t *validatorTx) LowWatermark() (slashing.LowWatermark, error) {
-	return lowWatermark(t.ctx, t.tx, t.vid)
+	h, err := t.read()
+	if err != nil {
+		return slashing.LowWatermark{}, err
+	}
+	return h.low, nil
 }
+
+// lowChanged drops the remembered low watermark after a write to it, so that the next read sees the row.
+func (t *validatorTx) lowChanged() { t.head = nil }
 
 func lowWatermark(ctx context.Context, q queryer, vid int32) (slashing.LowWatermark, error) {
 	var slot, source, target *int64
@@ -78,7 +134,7 @@ func lowWatermark(ctx context.Context, q queryer, vid int32) (slashing.LowWaterm
 	return w, err
 }
 
-type blockTx struct{ validatorTx }
+type blockTx struct{ *validatorTx }
 
 var _ slashing.BlockTx = (*blockTx)(nil)
 
@@ -142,6 +198,7 @@ func (t *blockTx) RaiseSlotLowWatermark(slot uint64) error {
 	_, err = t.tx.Exec(t.ctx, `INSERT INTO low_watermarks (validator_id, slot) VALUES ($1, $2)
 		ON CONFLICT (validator_id) DO UPDATE SET slot = EXCLUDED.slot
 		WHERE low_watermarks.slot IS NULL OR low_watermarks.slot <= EXCLUDED.slot`, t.vid, v)
+	t.lowChanged()
 	return err
 }
 
@@ -163,7 +220,7 @@ func (t *blockTx) PruneBlocks() (int, error) {
 	return int(tag.RowsAffected()), err
 }
 
-type attestationTx struct{ validatorTx }
+type attestationTx struct{ *validatorTx }
 
 var _ slashing.AttestationTx = (*attestationTx)(nil)
 
@@ -266,6 +323,7 @@ func (t *attestationTx) RaiseEpochLowWatermarks(source, target uint64) error {
 			target_epoch = EXCLUDED.target_epoch
 		WHERE low_watermarks.source_epoch IS NULL OR (low_watermarks.source_epoch <= EXCLUDED.source_epoch
 			AND low_watermarks.target_epoch <= EXCLUDED.target_epoch)`, t.vid, s, tg)
+	t.lowChanged()
 	return err
 }
 
@@ -298,7 +356,7 @@ type historyTx struct {
 var _ slashing.HistoryTx = historyTx{}
 
 func newHistoryTx(ctx context.Context, tx pgx.Tx, vid int32) historyTx {
-	v := validatorTx{ctx: ctx, tx: tx, vid: vid}
+	v := &validatorTx{ctx: ctx, tx: tx, vid: vid}
 	return historyTx{&blockTx{v}, &attestationTx{v}}
 }
 
@@ -309,6 +367,8 @@ func (t historyTx) HighWatermark() (slashing.HighWatermark, error) { return t.bl
 func (t historyTx) LowWatermark() (slashing.LowWatermark, error) { return t.blockTx.LowWatermark() }
 
 func (t historyTx) SetEnabled(enabled bool) error {
-	_, err := t.blockTx.tx.Exec(t.blockTx.ctx, `UPDATE validators SET enabled = $2 WHERE id = $1`, t.blockTx.vid, enabled)
+	v := t.blockTx.validatorTx
+	_, err := v.tx.Exec(v.ctx, `UPDATE validators SET enabled = $2 WHERE id = $1`, v.vid, enabled)
+	v.head = nil
 	return err
 }

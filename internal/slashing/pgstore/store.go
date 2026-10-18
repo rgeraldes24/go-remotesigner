@@ -111,16 +111,16 @@ func (s *Store) HighWatermark(ctx context.Context) (slashing.HighWatermark, erro
 	var h slashing.HighWatermark
 	err := s.call(ctx, "read the high watermark", func(ctx context.Context) error {
 		var err error
-		h, err = highWatermark(ctx, s.pool, "")
+		h, err = highWatermark(ctx, s.pool)
 		return err
 	})
 	return h, err
 }
 
-// highWatermark reads the high watermark; suffix locks the metadata row (" FOR SHARE", " FOR UPDATE").
-func highWatermark(ctx context.Context, q queryer, suffix string) (slashing.HighWatermark, error) {
+// highWatermark reads the high watermark.
+func highWatermark(ctx context.Context, q queryer) (slashing.HighWatermark, error) {
 	var epoch, slot *int64
-	err := q.QueryRow(ctx, `SELECT high_watermark_epoch, high_watermark_slot FROM metadata WHERE id = 1`+suffix).
+	err := q.QueryRow(ctx, `SELECT high_watermark_epoch, high_watermark_slot FROM metadata WHERE id = 1`).
 		Scan(&epoch, &slot)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return slashing.HighWatermark{}, nil
@@ -270,7 +270,7 @@ func (s *Store) UpdateBlocks(ctx context.Context, id slashing.KeyID, fn func(sla
 		if err != nil {
 			return err
 		}
-		return fn(&blockTx{validatorTx{ctx: ctx, tx: tx, vid: vid}})
+		return fn(&blockTx{&validatorTx{ctx: ctx, tx: tx, vid: vid}})
 	})
 }
 
@@ -281,6 +281,6 @@ func (s *Store) UpdateAttestations(ctx context.Context, id slashing.KeyID, fn fu
 		if err != nil {
 			return err
 		}
-		return fn(&attestationTx{validatorTx{ctx: ctx, tx: tx, vid: vid}})
+		return fn(&attestationTx{&validatorTx{ctx: ctx, tx: tx, vid: vid}})
 	})
 }
