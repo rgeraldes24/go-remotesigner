@@ -23,7 +23,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test test-postgres fuzz fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check release-version image docker-smoke systemd-smoke clean
+.PHONY: all build build-consensus test test-postgres test-cloud fuzz fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check release-version image docker-smoke systemd-smoke clean
 
 all: build build-consensus
 
@@ -47,6 +47,33 @@ test-postgres:
 	@test -n "$$REMOTESIGNER_TEST_POSTGRES" || { echo "test-postgres: set REMOTESIGNER_TEST_POSTGRES" >&2; exit 2; }
 	CGO_ENABLED=1 $(GO) test -race -count=1 -p 2 ./internal/slashing/... ./internal/runner/... ./cmd/...
 	$(GO) test -count=1 -run Postgres ./test/acceptance/
+
+## test-cloud: the secret-store tests against a real HashiCorp Vault (a dev server) and LocalStack's Secrets Manager:
+## the clients (internal/keys/secrets) and the built binary (test/acceptance). With REMOTESIGNER_TEST_VAULT_ADDR,
+## REMOTESIGNER_TEST_VAULT_TOKEN and REMOTESIGNER_TEST_AWS_ENDPOINT set (the CI job cloud-secrets), it uses those
+## servers; otherwise it starts both images in Docker on free loopback ports and removes the containers afterwards.
+## GCP Secret Manager and Azure Key Vault are tested against their in-process fakes by `make test`.
+# renovate: datasource=docker
+VAULT_IMAGE ?= hashicorp/vault:2.1.2@sha256:c2f666266f383d2cf424d86b8bb8ce7d065562173ffec2b476d762943608bb55
+# LocalStack 4.14.0 is the last release that serves Secrets Manager without an auth token.
+# renovate: datasource=docker
+LOCALSTACK_IMAGE ?= localstack/localstack:4.14.0@sha256:3ebc37595918b8accb852f8048fef2aff047d465167edd655528065b07bc364a
+CLOUD_TESTS := '^(TestVaultDevServer|TestLocalStack|TestSecretStoresDevServers)$$'
+test-cloud:
+	@if [ -n "$$REMOTESIGNER_TEST_VAULT_ADDR" ] && [ -n "$$REMOTESIGNER_TEST_AWS_ENDPOINT" ]; then \
+		set -x; CGO_ENABLED=1 $(GO) test -race -count=1 -run $(CLOUD_TESTS) -v ./internal/keys/secrets/... ./test/acceptance/; \
+		exit $$?; \
+	fi; \
+	vault=$$($(DOCKER) run -d --rm -e VAULT_DEV_ROOT_TOKEN_ID=remotesigner-test-root -p 127.0.0.1::8200 $(VAULT_IMAGE)) || exit 1; \
+	localstack=$$($(DOCKER) run -d --rm -e SERVICES=secretsmanager -p 127.0.0.1::4566 $(LOCALSTACK_IMAGE)) || \
+		{ $(DOCKER) rm -f $$vault >/dev/null; exit 1; }; \
+	trap '$(DOCKER) rm -f '"$$vault $$localstack"' >/dev/null' EXIT; \
+	vaddr=http://$$($(DOCKER) port $$vault 8200/tcp | head -1); aws=http://$$($(DOCKER) port $$localstack 4566/tcp | head -1); \
+	for i in $$(seq 60); do curl -sf $$vaddr/v1/sys/health >/dev/null && \
+		curl -sf $$aws/_localstack/health | grep -Eq '"secretsmanager": "(available|running)"' && break; sleep 1; done; \
+	REMOTESIGNER_TEST_VAULT_ADDR=$$vaddr REMOTESIGNER_TEST_VAULT_TOKEN=remotesigner-test-root \
+	REMOTESIGNER_TEST_AWS_ENDPOINT=$$aws CGO_ENABLED=1 $(GO) test -race -count=1 -run $(CLOUD_TESTS) -v \
+		./internal/keys/secrets/... ./test/acceptance/
 
 ## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, the strict
 ## request decoders, the JSON-RPC request and batch decoders against encoding/json, the keystore decoder and the
