@@ -21,7 +21,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test fuzz fuzz-keystore fuzz-interchange bench-b14 contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check image docker-smoke systemd-smoke clean
+.PHONY: all build build-consensus test test-postgres fuzz fuzz-keystore fuzz-interchange bench-b14 contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check image docker-smoke systemd-smoke clean
 
 all: build build-consensus
 
@@ -37,6 +37,14 @@ build-consensus:
 test:
 	CGO_ENABLED=1 $(GO) test -race ./...
 	CGO_ENABLED=1 $(GO) test -race -tags noexecution ./...
+
+## test-postgres: the Postgres store's tests against the server REMOTESIGNER_TEST_POSTGRES names, the URL of a role
+## that may create databases and roles (CI runs a postgres service): pgstore, the interchange and pruning suites on it,
+## the runner and the CLI with the race detector, then the built binary's replica tests. `make test` skips them.
+test-postgres:
+	@test -n "$$REMOTESIGNER_TEST_POSTGRES" || { echo "test-postgres: set REMOTESIGNER_TEST_POSTGRES" >&2; exit 2; }
+	CGO_ENABLED=1 $(GO) test -race -count=1 -p 2 ./internal/slashing/... ./internal/runner/... ./cmd/...
+	$(GO) test -count=1 -run Postgres ./test/acceptance/
 
 ## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, the strict
 ## request decoders, the keystore decoder and the EIP-3076 interchange
