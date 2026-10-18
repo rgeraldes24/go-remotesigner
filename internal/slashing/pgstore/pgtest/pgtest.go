@@ -16,9 +16,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -184,3 +186,106 @@ func Store(t testing.TB) *pgstore.Store {
 	}
 	return s
 }
+
+// StallProxy forwards TCP connections to a database. While it is stalled it forwards nothing in either direction
+// and leaves new connections waiting, which is how a database stopped with SIGSTOP looks to its clients: the
+// connections stay open and nothing comes back.
+type StallProxy struct {
+	ln     net.Listener
+	target string
+	mu     sync.Mutex
+	gate   chan struct{} // closed while traffic flows
+	conns  []net.Conn
+}
+
+// NewStallProxy listens on a loopback port and forwards to target (host:port) until the test ends.
+func NewStallProxy(t testing.TB, target string) *StallProxy {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &StallProxy{ln: ln, target: target, gate: make(chan struct{})}
+	close(p.gate)
+	go p.serve()
+	t.Cleanup(func() {
+		_ = ln.Close()
+		p.Resume()
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		for _, c := range p.conns {
+			_ = c.Close()
+		}
+	})
+	return p
+}
+
+func (p *StallProxy) serve() {
+	for {
+		c, err := p.ln.Accept()
+		if err != nil {
+			return
+		}
+		go p.forward(c)
+	}
+}
+
+func (p *StallProxy) forward(c net.Conn) {
+	p.wait()
+	d, err := net.Dial("tcp", p.target)
+	if err != nil {
+		_ = c.Close()
+		return
+	}
+	p.mu.Lock()
+	p.conns = append(p.conns, c, d)
+	p.mu.Unlock()
+	go p.pipe(d, c)
+	p.pipe(c, d)
+}
+
+// pipe copies from src to dst, waiting at the gate before every write.
+func (p *StallProxy) pipe(dst, src net.Conn) {
+	defer func() { _ = dst.Close(); _ = src.Close() }()
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			p.wait()
+			if _, werr := dst.Write(buf[:n]); werr != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (p *StallProxy) wait() {
+	p.mu.Lock()
+	g := p.gate
+	p.mu.Unlock()
+	<-g
+}
+
+// Stall stops forwarding: the connections stay open and nothing passes.
+func (p *StallProxy) Stall() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.gate = make(chan struct{})
+}
+
+// Resume forwards again.
+func (p *StallProxy) Resume() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	select {
+	case <-p.gate:
+	default:
+		close(p.gate)
+	}
+}
+
+// Addr is the proxy's host:port.
+func (p *StallProxy) Addr() string { return p.ln.Addr().String() }

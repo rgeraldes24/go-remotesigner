@@ -7,11 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -22,103 +20,6 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/pgstore/pgtest"
 	"github.com/rgeraldes24/go-remotesigner/internal/vectors"
 )
-
-// stallProxy forwards TCP connections to a database. While it is stalled it forwards nothing in either direction
-// and leaves new connections waiting, which is how a database stopped with SIGSTOP looks to its clients: the
-// connections stay open and nothing comes back.
-type stallProxy struct {
-	ln     net.Listener
-	target string
-	mu     sync.Mutex
-	gate   chan struct{} // closed while traffic flows
-	conns  []net.Conn
-}
-
-func newStallProxy(t *testing.T, target string) *stallProxy {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := &stallProxy{ln: ln, target: target, gate: make(chan struct{})}
-	close(p.gate)
-	go p.serve()
-	t.Cleanup(func() {
-		_ = ln.Close()
-		p.resume()
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		for _, c := range p.conns {
-			_ = c.Close()
-		}
-	})
-	return p
-}
-
-func (p *stallProxy) serve() {
-	for {
-		c, err := p.ln.Accept()
-		if err != nil {
-			return
-		}
-		go p.forward(c)
-	}
-}
-
-func (p *stallProxy) forward(c net.Conn) {
-	p.wait()
-	d, err := net.Dial("tcp", p.target)
-	if err != nil {
-		_ = c.Close()
-		return
-	}
-	p.mu.Lock()
-	p.conns = append(p.conns, c, d)
-	p.mu.Unlock()
-	go p.pipe(d, c)
-	p.pipe(c, d)
-}
-
-// pipe copies from src to dst, waiting at the gate before every write.
-func (p *stallProxy) pipe(dst, src net.Conn) {
-	defer func() { _ = dst.Close(); _ = src.Close() }()
-	buf := make([]byte, 32<<10)
-	for {
-		n, err := src.Read(buf)
-		if n > 0 {
-			p.wait()
-			if _, werr := dst.Write(buf[:n]); werr != nil {
-				return
-			}
-		}
-		if err != nil {
-			return
-		}
-	}
-}
-
-func (p *stallProxy) wait() {
-	p.mu.Lock()
-	g := p.gate
-	p.mu.Unlock()
-	<-g
-}
-
-func (p *stallProxy) stall() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.gate = make(chan struct{})
-}
-
-func (p *stallProxy) resume() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	select {
-	case <-p.gate:
-	default:
-		close(p.gate)
-	}
-}
 
 // usePostgres points cfg at a fresh migrated database, through proxy when it is set.
 func usePostgres(t *testing.T, cfg *config.Config, db *pgtest.DB, proxy func(target string) string) {
@@ -165,10 +66,10 @@ func (r *running) waitHealth(t *testing.T, want string) {
 func TestRunPostgres(t *testing.T) {
 	db := migratedDB(t)
 	cfg := baseConfig(t)
-	var proxy *stallProxy
+	var proxy *pgtest.StallProxy
 	usePostgres(t, cfg, db, func(target string) string {
-		proxy = newStallProxy(t, target)
-		return proxy.ln.Addr().String()
+		proxy = pgtest.NewStallProxy(t, target)
+		return proxy.Addr()
 	})
 	writeInteropKeys(t, cfg.KeyConfigPath)
 	log, hook := hookedLogger()
@@ -215,7 +116,7 @@ func TestRunPostgres(t *testing.T) {
 	}
 	r.waitHealth(t, "UP")
 
-	proxy.stall()
+	proxy.Stall()
 	blk := goldenCase(t, "minimal", signingroot.BlockV2, "typical")
 	began := time.Now()
 	code, body = r.post(t, signPath(blk), r.sign, blk.RequestJSON)
@@ -230,7 +131,7 @@ func TestRunPostgres(t *testing.T) {
 	conforms(t, "ErrorResponse", body)
 	r.waitHealth(t, "DOWN")
 
-	proxy.resume()
+	proxy.Resume()
 	r.waitHealth(t, "UP")
 	deadline := time.Now().Add(10 * time.Second)
 	for {
