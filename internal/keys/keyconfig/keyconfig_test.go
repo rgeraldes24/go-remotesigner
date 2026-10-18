@@ -91,7 +91,8 @@ func TestParse(t *testing.T) {
 		{"keystore without password file", "type: file-keystore\nkeystoreFile: k.json\n", nil, ErrFormat},
 		{"keystore with privateKey", "type: file-keystore\nkeystoreFile: k.json\nkeystorePasswordFile: p.txt\nprivateKey: " + seedHex(1) + "\n", nil, ErrFormat},
 		{"raw with keystoreFile", "type: file-raw\nprivateKey: " + seedHex(1) + "\nkeystoreFile: k.json\n", nil, ErrFormat},
-		{"unknown type", "type: hashicorp\n", nil, ErrUnsupported},
+		{"unknown type", "type: interlock\n", nil, ErrUnsupported},
+		{"secret-store type without a store", "type: gcp-secret\nprojectId: p\nsecretName: s\n", nil, ErrUnsupported},
 		{"BLS", "type: file-raw\nkeyType: BLS\nprivateKey: " + seedHex(1) + "\n", nil, ErrUnsupported},
 		{"32 bytes", "type: file-raw\nprivateKey: 0x" + strings.Repeat("ab", 32) + "\n", nil, ErrPrivateKey},
 		{"51 bytes", "type: file-raw\nprivateKey: 0x" + strings.Repeat("ab", 51) + "\n", nil, ErrPrivateKey},
@@ -134,7 +135,7 @@ func TestPrivateKeyLengthHints(t *testing.T) {
 		bytes int
 		want  string
 	}{
-		{32, "32 bytes; a QRL consensus key is the validator's 48-byte wallet seed"},
+		{32, "32 bytes; a QRL key is configured as the validator's 48-byte wallet seed"},
 		{51, "a 51-byte extended seed belongs to execution mode"},
 		{4896, "a 4,896-byte ML-DSA-87 secret key is not accepted"},
 		{47, "want a 48-byte seed"},
