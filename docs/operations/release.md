@@ -11,7 +11,7 @@ Two flavours, built from the same commit with `CGO_ENABLED=0 -trimpath`:
 
 | Flavour | Build | Licences linked |
 |---|---|---|
-| `remotesigner` | default | permissive only today; execution mode will add go-qrl (LGPL-3.0-or-later) to this flavour only |
+| `remotesigner` | default, with [execution mode](execution.md) | permissive only today: execution mode links no go-qrl yet; transaction signing will add go-qrl (LGPL-3.0-or-later) to this flavour only |
 | `remotesigner-consensus` | `-tags noexecution` | permissive only, always: it never links go-qrl or any GPL or LGPL code |
 
 | File | Content |
@@ -37,7 +37,7 @@ flavour from `go-licenses report` (for example `Apache-2.0 AND BSD-2-Clause AND 
 (`make release-docs`, which goreleaser runs first):
 
 - `NOTICE`: the repository's [`NOTICE`](../../NOTICE). For the default flavour, a `NOTICE.execution` fragment, when
-  the repository has one, is appended: it will carry the go-qrl notice once execution mode exists. The consensus
+  the repository has one, is appended: it will carry the go-qrl notice once execution mode links go-qrl. The consensus
   flavour's NOTICE is the repository's NOTICE only.
 - `LICENSES/`: the texts in [`LICENSES/`](../../LICENSES). `GPL-3.0-or-later.txt` and `LGPL-3.0-or-later.txt`, when
   present, ship in the default flavour only. Any other GNU GPL, LGPL or AGPL text, recognised by `GPL` in its file

@@ -39,6 +39,9 @@ func TestRender(t *testing.T) {
 		"| `--config-file` | none | none | unset |",
 		"| `--logging`, `-l` |",
 		"`--Xallow-plaintext-token-auth`",
+		"| `--downstream-http-port` | `REMOTESIGNER_EXECUTION_DOWNSTREAM_HTTP_PORT` | `downstream-http-port` or `execution.downstream-http-port` | `8545` |",
+		"| `--execution-proxy-allowed-methods` | `REMOTESIGNER_EXECUTION_EXECUTION_PROXY_ALLOWED_METHODS` | `execution-proxy-allowed-methods` or `execution.execution-proxy-allowed-methods` | `qrl_*,net_*,web3_*` |",
+		"| `--keystores-path` | `REMOTESIGNER_EXECUTION_KEYSTORES_PATH` |",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("rendered reference lacks %q", want)

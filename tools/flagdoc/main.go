@@ -66,16 +66,21 @@ remotesigner [global flags] consensus [consensus flags] set-high-watermark (--ep
 remotesigner [global flags] consensus [consensus flags] disable-validator --key <id> [flags]
 remotesigner [global flags] consensus keystore verify --file <keystore> --password-file <file>
 remotesigner [global flags] consensus keystore verify --keystores-path <dir> (--keystores-password-file <file> | --keystores-passwords-path <dir>)
+remotesigner [global flags] execution [execution flags]
 remotesigner --version
 ` + "```" + `
 
-Every global and consensus flag can also be set (the subcommands' own flags read what their tables list):
+` + "`execution`" + ` exists only in the default flavour, ` + "`remotesigner`" + `; ` + "`remotesigner-consensus`" + ` has no such command
+and refuses an ` + "`execution:`" + ` section in its config file.
 
-- in the environment, as ` + "`REMOTESIGNER_<NAME>`" + ` for a global flag and ` + "`REMOTESIGNER_CONSENSUS_<NAME>`" + ` for a
-  consensus flag (the flag name or any alias in upper case, dashes as underscores);
+Every global, consensus and execution flag can also be set (the subcommands' own flags read what their tables list):
+
+- in the environment, as ` + "`REMOTESIGNER_<NAME>`" + ` for a global flag, ` + "`REMOTESIGNER_CONSENSUS_<NAME>`" + ` for a
+  consensus flag and ` + "`REMOTESIGNER_EXECUTION_<NAME>`" + ` for an execution flag (the flag name or any alias in upper
+  case, dashes as underscores);
 - in the YAML file given by ` + "`--config-file`" + `, under its bare name or any of its aliases (the Config file column lists
-  them all). Consensus flags may sit at the top level or in a ` + "`consensus:`" + ` section. A list flag takes a YAML list.
-  Unknown keys are rejected, and so is a flag set under two of its names.
+  them all). Consensus and execution flags may sit at the top level or in a ` + "`consensus:`" + ` or ` + "`execution:`" + `
+  section. A list flag takes a YAML list. Unknown keys are rejected, and so is a flag set under two of its names.
 
 Precedence: command line, then environment, then config file, then default. Booleans are written ` + "`--flag`" + `,
 ` + "`--flag=true`" + ` or ` + "`--flag=false`" + `. ` + "`--flag false`" + ` does not work: the command-line parser (urfave/cli) reads
@@ -92,6 +97,12 @@ up to 10 s, closes the store, wipes the keys and exits 0.
 `)
 	section(&b, "## Global flags", "", flags.Global(), false)
 	section(&b, "## Consensus flags", flags.ConsensusCommand, flags.Consensus(), false)
+	section(&b, "## Execution flags", flags.ExecutionCommand, flags.Execution(), false)
+	b.WriteString(`
+Execution mode reads the global flags too; ` + "`--key-config-path`" + ` and ` + "`--keystores-path`" + ` then hold account keys
+(51-byte extended seeds and go-qrl account keystores). See
+[` + "`../operations/execution.md`" + `](../operations/execution.md).
+`)
 	b.WriteString(`
 ## Store commands
 
