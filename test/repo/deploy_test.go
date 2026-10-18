@@ -326,8 +326,9 @@ func renovateConfig(t *testing.T) (ignore []string, managers []renovateManager) 
 		}
 		var rm renovateManager
 		for _, p := range m.ManagerFilePatterns {
-			body, ok := strings.CutPrefix(p, "/")
-			if body, ok = strings.CutSuffix(body, "/"); !ok {
+			body, slash := strings.CutPrefix(p, "/")
+			body, ok := strings.CutSuffix(body, "/")
+			if !slash || !ok {
 				t.Fatalf("renovate.json: managerFilePatterns %q is not a /regex/", p)
 			}
 			rm.files = append(rm.files, regexp.MustCompile(body))
