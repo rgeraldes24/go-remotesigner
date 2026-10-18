@@ -1,0 +1,413 @@
+// Copyright 2026 The go-remotesigner Authors.
+// SPDX-License-Identifier: Apache-2.0
+
+package release
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+)
+
+// The smoke test's chain: the end-to-end file network with its interop
+// genesis validators root and a fixed genesis time.
+const (
+	smokeNetwork     = "internal/network/embedded/end-to-end.yaml"
+	smokeGenesisTime = "1760000000"
+	// signerAlias is the name the client container dials, as a compose
+	// service name would be.
+	signerAlias = "signer"
+)
+
+// fingerprintRE finds the certificate fingerprint the signer logs.
+var fingerprintRE = regexp.MustCompile(`sha256-fingerprint="?([0-9A-F]{2}(?::[0-9A-F]{2}){31})"?`)
+
+// smokeEnv is one smoke test run: the image, a user-defined network and the
+// read-only inputs the containers mount.
+type smokeEnv struct {
+	t       *testing.T
+	image   string
+	prefix  string // container, volume and network names start with it
+	network string
+	keys    string // key-config directory, one file-raw key
+	netDir  string // directory holding network.yaml
+	client  string // directory holding the smokeclient binary
+	pubkey  string
+	gvr     string
+}
+
+// TestDockerSmoke runs the image named by REMOTESIGNER_SMOKE_IMAGE through
+// its real entrypoint on a user-defined Docker network, as an operator
+// would: a file network with --network-genesis-time and
+// --network-genesis-validators-root, one key, and a client container that
+// reaches the signer by name at https://signer:9000, pinning the certificate
+// by the fingerprint the signer logged. It also checks the refusals: no
+// certificate with generation off, no host allowlist, no network.
+func TestDockerSmoke(t *testing.T) {
+	image := os.Getenv("REMOTESIGNER_SMOKE_IMAGE")
+	if image == "" {
+		t.Skip("set REMOTESIGNER_SMOKE_IMAGE to an image built from deploy/docker/Dockerfile (make docker-smoke)")
+	}
+	requireDocker(t)
+	e := newSmokeEnv(t, image)
+
+	t.Run("image configuration", func(t *testing.T) {
+		cfg := inspectImage(t, image)
+		flavour := cfg.Config.Labels["org.opencontainers.image.title"]
+		if flavour != fullFlavour && flavour != consensusFlavour {
+			t.Fatalf("image title %q names no flavour", flavour)
+		}
+		licences := cfg.Config.Labels["org.opencontainers.image.licenses"]
+		checkImageConfig(t, flavour, cfg, licences)
+		if !strings.Contains(licences, "Apache-2.0") {
+			t.Errorf("licence label %q does not name Apache-2.0", licences)
+		}
+	})
+
+	t.Run("serves TLS with a generated certificate", func(t *testing.T) {
+		vol := e.volume("data")
+		ctr := e.startSigner(vol)
+		fp := e.fingerprint(ctr)
+		e.checkNonroot(ctr)
+		r := e.runClient(vol, fp)
+		if r.TLSVersion != "TLS 1.3" || r.Upcheck != "OK" {
+			t.Errorf("client saw %s and /upcheck %q, want TLS 1.3 and OK", r.TLSVersion, r.Upcheck)
+		}
+		for name, want := range map[string]string{".": "0700", "auth-token": "0600", "admin-token": "0600",
+			"tls": "0700", "tls/cert.pem": "0600", "tls/key.pem": "0600"} {
+			f, ok := r.Files[name]
+			switch {
+			case !ok:
+				t.Errorf("/data/%s: not reported", name)
+			case f.Mode != want || f.UID != 65532:
+				t.Errorf("/data/%s: mode %s owner %d, want mode %s owner 65532", name, f.Mode, f.UID, want)
+			}
+		}
+		if f := r.Files["slashing-protection.db"]; f.UID != 65532 {
+			t.Errorf("/data/slashing-protection.db: owner %d, want 65532", f.UID)
+		}
+
+		// SIGTERM stops it cleanly, and the next start on the same volume
+		// serves the same certificate.
+		docker(t, "stop", "--time=30", ctr)
+		if code := strings.TrimSpace(docker(t, "inspect", "--format", "{{.State.ExitCode}}", ctr)); code != "0" {
+			t.Errorf("exit code %s after SIGTERM, want 0", code)
+		}
+		again := e.startSigner(vol)
+		if fp2 := e.fingerprint(again); fp2 != fp {
+			t.Errorf("after a restart the signer serves %s, want the certificate it generated, %s", fp2, fp)
+		}
+		e.runClient(vol, fp)
+		docker(t, "rm", "--force", again)
+	})
+
+	// An orchestrator (a compose file, Kurtosis) appends its flags after
+	// the entrypoint's, and for a single-value flag the last one wins.
+	t.Run("appended flags override the entrypoint's", func(t *testing.T) {
+		ctr := e.startSigner(e.volume("override"), "--http-listen-host=127.0.0.1", "--http-listen-port=9100")
+		e.waitLog(ctr, `msg="remotesigner is listening; loading keys" address="127.0.0.1:9100"`)
+		docker(t, "rm", "--force", ctr)
+	})
+
+	refusals := []struct {
+		name string
+		args []string // replace the default arguments; nil keeps them
+		// global are extra flags before consensus.
+		global   []string
+		wantCode int
+		wantText string
+	}{
+		{name: "no certificate and generation off", global: []string{"--tls-generate-self-signed=false"},
+			wantCode: 1, wantText: "plaintext"},
+		{name: "no host allowlist", args: e.consensusArgs("--key-config-path=/keys"),
+			wantCode: 1, wantText: "--http-host-allowlist"},
+		{name: "no network", args: []string{}, wantCode: 2, wantText: "--network is required"},
+	}
+	for _, tt := range refusals {
+		t.Run("refuses to start: "+tt.name, func(t *testing.T) {
+			args := tt.args
+			if args == nil {
+				args = e.signerArgs(tt.global)
+			}
+			run := append(e.signerFlags(e.volume("refused")), image)
+			out, errOut, code, err := dockerRun(append(append([]string{"run", "--rm"}, run...), args...)...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if code != tt.wantCode || !strings.Contains(out+errOut, tt.wantText) {
+				t.Errorf("exit %d, want %d mentioning %q: %s%s", code, tt.wantCode, tt.wantText, out, errOut)
+			}
+		})
+	}
+
+	t.Run("compose example", func(t *testing.T) {
+		if _, _, code, err := dockerRun("compose", "version"); err != nil || code != 0 {
+			t.Skip("docker compose is not installed")
+		}
+		cmd := exec.Command("docker", "compose", "--file", filepath.Join(root, "deploy/docker/compose.yaml"),
+			"config", "--quiet")
+		cmd.Env = append(os.Environ(), "REMOTESIGNER_IMAGE="+image, "GENESIS_TIME="+smokeGenesisTime,
+			"GENESIS_VALIDATORS_ROOT="+e.gvr, "QRYSM_VALIDATOR_IMAGE=example/validator:latest",
+			"BEACON_RPC_PROVIDER=beacon:4000")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("docker compose config: %v: %s", err, out)
+		}
+	})
+}
+
+func newSmokeEnv(t *testing.T, image string) *smokeEnv {
+	t.Helper()
+	var id [4]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		t.Fatal(err)
+	}
+	e := &smokeEnv{t: t, image: image, prefix: "remotesigner-smoke-" + hex.EncodeToString(id[:])}
+
+	// One file-raw key: interop key 0.
+	var keys struct {
+		Keys []struct{ Seed, Pubkey string } `json:"keys"`
+	}
+	if err := json.Unmarshal(readRepo(t, "testdata/vectors/keys/interop.json"), &keys); err != nil || len(keys.Keys) == 0 {
+		t.Fatalf("interop keys: %v", err)
+	}
+	e.pubkey = keys.Keys[0].Pubkey
+	var nets struct {
+		Networks []struct {
+			Name string `json:"name"`
+			GVR  string `json:"interop_genesis_validators_root"`
+		} `json:"networks"`
+	}
+	if err := json.Unmarshal(readRepo(t, "testdata/vectors/networks.json"), &nets); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range nets.Networks {
+		if n.Name == "end-to-end" {
+			e.gvr = n.GVR
+		}
+	}
+	if e.gvr == "" {
+		t.Fatal("no end-to-end genesis validators root in testdata/vectors/networks.json")
+	}
+
+	// The containers run as 65532, so their read-only inputs are readable
+	// by everyone.
+	e.keys = inputDir(t, "keys", "key-0.yaml",
+		fmt.Sprintf("type: file-raw\nkeyType: ML_DSA_87\nprivateKey: %q\n", keys.Keys[0].Seed), 0o644)
+	e.netDir = inputDir(t, "network", "config.yaml", string(readRepo(t, smokeNetwork)), 0o644)
+	e.client = e.buildClient()
+
+	e.network = e.prefix
+	docker(t, "network", "create", e.network)
+	t.Cleanup(func() { e.cleanup() })
+	return e
+}
+
+// inputDir writes one file into a new directory, both readable by every
+// user, and returns the directory.
+func inputDir(t *testing.T, dir, name, content string, mode os.FileMode) string {
+	t.Helper()
+	d := filepath.Join(t.TempDir(), dir)
+	if err := os.Mkdir(d, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, name), []byte(content), mode); err != nil {
+		t.Fatal(err)
+	}
+	// Mkdir and WriteFile apply the umask.
+	for p, m := range map[string]os.FileMode{d: 0o755, filepath.Join(d, name): mode} {
+		if err := os.Chmod(p, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return d
+}
+
+// buildClient builds the smokeclient for the image's architecture and
+// returns the directory that holds it.
+func (e *smokeEnv) buildClient() string {
+	t := e.t
+	t.Helper()
+	cfg := inspectImage(t, e.image)
+	dir := filepath.Join(t.TempDir(), "client")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("go", "build", "-trimpath", "-o", filepath.Join(dir, "smokeclient"), "./smokeclient")
+	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+cfg.Architecture, "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build smokeclient: %v: %s", err, out)
+	}
+	return dir
+}
+
+// volume creates a named volume for one signer's /data and returns its
+// name.
+func (e *smokeEnv) volume(suffix string) string {
+	e.t.Helper()
+	var id [3]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		e.t.Fatal(err)
+	}
+	name := e.prefix + "-" + suffix + "-" + hex.EncodeToString(id[:])
+	docker(e.t, "volume", "create", "--label", "remotesigner-smoke="+e.prefix, name)
+	return name
+}
+
+// signerFlags are the docker run flags of a signer container: hardened, on
+// the test network under the service name, with its data volume and the
+// read-only inputs.
+func (e *smokeEnv) signerFlags(vol string) []string {
+	return []string{"--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
+		"--label", "remotesigner-smoke=" + e.prefix,
+		"--network", e.network, "--network-alias", signerAlias,
+		"--volume", vol + ":/data",
+		"--volume", e.keys + ":/keys:ro",
+		"--volume", e.netDir + ":/network:ro"}
+}
+
+// consensusArgs are the consensus arguments an operator appends to the
+// entrypoint, after the global flags given.
+func (e *smokeEnv) consensusArgs(global ...string) []string {
+	return append(global, "consensus", "--network=/network/config.yaml",
+		"--network-genesis-time="+smokeGenesisTime, "--network-genesis-validators-root="+e.gvr)
+}
+
+// signerArgs are the arguments of a working signer, with extra global
+// flags after the host allowlist and the key directory.
+func (e *smokeEnv) signerArgs(extra []string) []string {
+	return e.consensusArgs(append([]string{"--http-host-allowlist=" + signerAlias, "--key-config-path=/keys"},
+		extra...)...)
+}
+
+// startSigner starts a signer container on vol, with extra global flags
+// after the entrypoint's, and returns its name.
+func (e *smokeEnv) startSigner(vol string, extra ...string) string {
+	e.t.Helper()
+	var id [3]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		e.t.Fatal(err)
+	}
+	name := e.prefix + "-signer-" + hex.EncodeToString(id[:])
+	args := append([]string{"run", "--detach", "--name", name}, e.signerFlags(vol)...)
+	args = append(append(args, e.image), e.signerArgs(extra)...)
+	docker(e.t, args...)
+	return name
+}
+
+// fingerprint waits for the signer in ctr to log its certificate's
+// fingerprint and returns it.
+func (e *smokeEnv) fingerprint(ctr string) string {
+	e.t.Helper()
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		out, errOut, _, err := dockerRun("logs", ctr)
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		if m := fingerprintRE.FindStringSubmatch(out + errOut); m != nil {
+			return m[1]
+		}
+		running := strings.TrimSpace(docker(e.t, "inspect", "--format", "{{.State.Running}}", ctr))
+		if running != "true" || time.Now().After(deadline) {
+			e.t.Fatalf("the signer logged no certificate fingerprint (running: %s):\n%s%s", running, out, errOut)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+// waitLog waits for the signer in ctr to log a line containing want.
+func (e *smokeEnv) waitLog(ctr, want string) {
+	e.t.Helper()
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		out, errOut, _, err := dockerRun("logs", ctr)
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		if strings.Contains(out+errOut, want) {
+			return
+		}
+		running := strings.TrimSpace(docker(e.t, "inspect", "--format", "{{.State.Running}}", ctr))
+		if running != "true" || time.Now().After(deadline) {
+			e.t.Fatalf("the signer did not log %q (running: %s):\n%s%s", want, running, out, errOut)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+// checkNonroot checks that the signer's process runs as the nonroot user.
+func (e *smokeEnv) checkNonroot(ctr string) {
+	e.t.Helper()
+	out := docker(e.t, "top", ctr, "-o", "pid,uid,gid,args")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 2 {
+		e.t.Fatalf("docker top: want one process:\n%s", out)
+	}
+	if f := strings.Fields(lines[1]); len(f) < 3 || f[1] != "65532" || f[2] != "65532" {
+		e.t.Errorf("the signer runs as %q, want uid and gid 65532", lines[1])
+	}
+}
+
+// clientReport is smokeclient's JSON report.
+type clientReport struct {
+	TLSVersion string   `json:"tls_version"`
+	Upcheck    string   `json:"upcheck"`
+	Keys       []string `json:"keys"`
+	Files      map[string]struct {
+		Mode string `json:"mode"`
+		UID  int64  `json:"uid"`
+	} `json:"files"`
+}
+
+// runClient runs the client container against the signer that uses vol,
+// pinning fingerprint, and returns its report.
+func (e *smokeEnv) runClient(vol, fingerprint string) clientReport {
+	e.t.Helper()
+	out, errOut, code, err := dockerRun("run", "--rm", "--read-only", "--cap-drop=ALL",
+		"--security-opt=no-new-privileges", "--label", "remotesigner-smoke="+e.prefix,
+		"--network", e.network,
+		"--volume", vol+":/signer-data:ro",
+		"--volume", e.client+":/client:ro",
+		"--entrypoint", "/client/smokeclient",
+		e.image,
+		"-url", "https://"+signerAlias+":9000", "-fingerprint", fingerprint,
+		"-token-file", "/signer-data/auth-token", "-want-key", e.pubkey, "-data", "/signer-data")
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if code != 0 {
+		e.t.Fatalf("client container: exit %d: %s%s", code, out, errOut)
+	}
+	var r clientReport
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		e.t.Fatalf("client report: %v: %s", err, out)
+	}
+	return r
+}
+
+// cleanup removes every container and volume of this run, and its network.
+func (e *smokeEnv) cleanup() {
+	filter := "label=remotesigner-smoke=" + e.prefix
+	if out, _, _, err := dockerRun("ps", "--all", "--quiet", "--filter", filter); err == nil {
+		if ids := strings.Fields(out); len(ids) > 0 {
+			_, _, _, _ = dockerRun(append([]string{"rm", "--force", "--volumes"}, ids...)...)
+		}
+	}
+	if out, _, _, err := dockerRun("volume", "ls", "--quiet", "--filter", filter); err == nil {
+		if names := strings.Fields(out); len(names) > 0 {
+			_, _, _, _ = dockerRun(append([]string{"volume", "rm", "--force"}, names...)...)
+		}
+	}
+	_, _, _, _ = dockerRun("network", "rm", e.network)
+}

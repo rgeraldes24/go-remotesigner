@@ -396,6 +396,14 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/server_test.go` | new | | | |
 | `test/acceptance/tls_test.go` | new | | | |
 | `test/acceptance/tls_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/tls/ServerSideTlsAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/tls/ServerSideTlsCaClientAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `test/release/checks_test.go` | new | | | |
+| `test/release/helpers_test.go` | new | | | |
+| `test/release/release_test.go` | new | | | |
+| `test/release/smoke_test.go` | new | | | |
+| `test/release/smokeclient/main.go` | new | | | |
+| `test/release/smokeclient/owner_other.go` | new | | | |
+| `test/release/smokeclient/owner_unix.go` | new | | | |
+| `test/release/systemd_test.go` | new | | | |
 | `test/repo/deploy_test.go` | new | | | |
 | `test/repo/links_test.go` | new | | | |
 | `test/repo/notice_test.go` | new | | | |
