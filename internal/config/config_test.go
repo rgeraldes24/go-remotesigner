@@ -103,8 +103,14 @@ func TestCheckFailSafes(t *testing.T) {
 			c.HTTP.AuthTokenFile = "/t"
 			c.Consensus.SlashingProtectionEnabled = false
 			c.Consensus.KeyManagerAPIEnabled = true
+			c.KeyConfigPath = "/keys"
 		}, known, []error{ErrKeyManagerNoAdmin}},
-		{"keymanager with admin token", func(c *Config) { c.Consensus.KeyManagerAPIEnabled = true }, known, nil},
+		{"keymanager without key-config directory", func(c *Config) { c.Consensus.KeyManagerAPIEnabled = true }, known,
+			[]error{ErrKeyManagerNoKeyConfig}},
+		{"keymanager with admin token and key-config directory", func(c *Config) {
+			c.Consensus.KeyManagerAPIEnabled = true
+			c.KeyConfigPath = "/keys"
+		}, known, nil},
 		{"loopback metrics, protection off", func(c *Config) {
 			c.Metrics = Metrics{Enabled: true, Host: "127.0.0.1", HostAllowlist: []string{"localhost"}}
 			c.Consensus.SlashingProtectionEnabled = false

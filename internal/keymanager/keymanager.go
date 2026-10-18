@@ -1,0 +1,601 @@
+// Copyright 2021 ConsenSys AG.
+// Copyright 2022 ConsenSys AG.
+// Copyright 2026 The go-remotesigner Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Modified by The go-remotesigner Authors, 2026: translated from Java to Go and adapted for QRL.
+// Derived from Web3Signer
+// core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/imports/ImportKeystoresHandler.java,
+// core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/delete/DeleteKeystoresProcessor.java,
+// core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/list/ListKeystoresHandler.java,
+// signing/src/main/java/tech/pegasys/web3signer/signing/DefaultValidatorManager.java and
+// slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbValidatorManager.java
+// at commit 30af06dc975ba5b8ed0e17e53cba8683ca50ec02.
+
+// Package keymanager lists, imports and deletes validator keys while the
+// signer runs: the operations behind the keymanager API
+// (/qrl/v1/keystores, docs/operations/keymanager.md).
+//
+// An import opens each keystore through the Argon2id semaphore, compares
+// the public key its seed derives with the one it declares, imports the
+// slashing-protection history the request carries for the keys it is about
+// to add, writes the key's files into the key-config directory (0600, named
+// by the SHA-256 of the key) and only then loads and enables the key. A key
+// that fails any step is reported as an error and is not active; nothing
+// of it is left in the directory.
+//
+// A delete disables the key in slashing protection first, so that nothing
+// signs with it after the history is read, then removes its files and
+// evicts it, and returns the history of every key it disabled as one
+// EIP-3076 interchange. A key that is not loaded is disabled too, so that a
+// load that brings it in later (the startup load still running, or a
+// source that failed to load) cannot make it sign.
+//
+// Both run beside the loads of the key-config directory: the provider's
+// change generations (provider.ApplySince) keep a running load from undoing
+// either. Imports and deletes are serialised with each other.
+package keymanager
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"sync"
+
+	"github.com/sirupsen/logrus"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystore/qrlv1"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystores"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/source"
+	"github.com/rgeraldes24/go-remotesigner/internal/signer/provider"
+	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
+	"github.com/rgeraldes24/go-remotesigner/internal/slashing/interchange"
+)
+
+// MaxKeystores is the largest number of keystores one import takes.
+const MaxKeystores = 64
+
+// Status is the outcome of one key in an import or a delete.
+type Status string
+
+// Import and delete outcomes, as the keymanager API reports them.
+const (
+	Imported  Status = "imported"
+	Duplicate Status = "duplicate"
+	Error     Status = "error"
+	Deleted   Status = "deleted"
+	NotActive Status = "not_active"
+	NotFound  Status = "not_found"
+)
+
+// Result is the outcome of one key. Message says why for an error; it never
+// holds key material, passwords or file paths.
+type Result struct {
+	Status  Status
+	Message string
+}
+
+// Key is one loaded key, as the list reports it.
+type Key struct {
+	PublicKey *mldsa87.PublicKey
+	// DerivationPath is the path the key's keystore records; empty for
+	// none.
+	DerivationPath string
+	// ReadOnly: the key was not imported through the keymanager, so it
+	// cannot be deleted through it.
+	ReadOnly bool
+}
+
+// Errors of a request as a whole.
+var (
+	// ErrRequest: the request is malformed (more than MaxKeystores, or as
+	// many passwords as keystores missing).
+	ErrRequest = errors.New("keymanager: malformed request")
+	// ErrInterchange: the request's slashing-protection history cannot be
+	// read, or is for another network. Nothing was imported.
+	ErrInterchange = errors.New("keymanager: slashing_protection refused")
+)
+
+// Config configures a Manager.
+type Config struct {
+	// Dir is the key-config directory (--key-config-path), which the
+	// startup load and every reload read; imported keys are written there.
+	Dir string
+	// Keys is the loaded key set.
+	Keys *provider.Provider
+	// Engine registers loaded keys in slashing protection.
+	Engine *slashing.Engine
+	// Store is the slashing-protection store.
+	Store slashing.Store
+	// History imports and exports slashing-protection history; without it
+	// (slashing protection disabled) a request's history is ignored and a
+	// delete exports none.
+	History bool
+	// GenesisValidatorsRoot is the network's root, when known; it is
+	// written into an export from a store that has none pinned yet.
+	GenesisValidatorsRoot func() (slashing.Root, bool)
+	// Decrypt opens a keystore; the signer's runs through the Argon2id
+	// semaphore.
+	Decrypt keystores.DecryptFunc
+	// Workers is the number of keystores opened at once.
+	Workers int
+	// Changed is called after an import or a delete changed the key set.
+	Changed func()
+	Log     logrus.FieldLogger
+}
+
+// Manager runs the keymanager's operations. It is safe for concurrent use.
+type Manager struct {
+	cfg Config
+	mu  sync.Mutex // serialises imports and deletes after their keystores are open
+
+	// afterWrite, in tests, runs between writing an imported key's files
+	// and loading the key, where a reload may load it from them.
+	afterWrite func(source string)
+}
+
+// New returns a Manager.
+func New(cfg Config) *Manager {
+	if cfg.Log == nil {
+		cfg.Log = logrus.New()
+	}
+	if cfg.Workers <= 0 {
+		cfg.Workers = 1
+	}
+	return &Manager{cfg: cfg}
+}
+
+// List returns the loaded keys, sorted by public key.
+func (m *Manager) List() []Key {
+	var out []Key
+	for e := range m.cfg.Keys.Entries() {
+		out = append(out, Key{PublicKey: &e.PK, DerivationPath: e.Meta.DerivationPath, ReadOnly: !m.removable(e)})
+	}
+	return out
+}
+
+// removable reports whether a loaded key can be deleted: it was loaded from
+// the key-config file the keymanager names it by, as that file's only key,
+// out of a keystore.
+func (m *Manager) removable(e *provider.Entry) bool {
+	src := filesOf(m.cfg.Dir, &e.PK).source()
+	return e.Meta.Keystore && e.Source == src && m.cfg.Keys.SourceLen(src) == 1
+}
+
+// ImportRequest is one import: keystores and their passwords, index by
+// index, and an optional EIP-3076 interchange.
+type ImportRequest struct {
+	Keystores [][]byte
+	Passwords [][]byte
+	// SlashingProtection is the interchange, empty for none.
+	SlashingProtection []byte
+}
+
+// opened is one keystore of an import, opened.
+type opened struct {
+	key  *mldsa87.Key // nil when err is set or ownership passed on
+	meta provider.Meta
+	err  error
+}
+
+// Import imports the keystores of req and returns one result per keystore,
+// in order: imported, duplicate (the key is loaded already, or an earlier
+// keystore of the request has it and was imported) or error. It fails as a
+// whole, before any keystore is opened, with ErrRequest or ErrInterchange.
+//
+// Only the history of the keys about to be added is imported, and their
+// enabled flag is left alone until their files are written; a key whose
+// history fails is disabled and reported as an error. A key is enabled, as
+// a key re-imported after a delete must be, once it is loaded.
+func (m *Manager) Import(ctx context.Context, req ImportRequest) ([]Result, error) {
+	n := len(req.Keystores)
+	if n > MaxKeystores || len(req.Passwords) != n {
+		return nil, ErrRequest
+	}
+	results := make([]Result, n)
+	if n == 0 {
+		return results, nil
+	}
+	history := m.cfg.History && len(req.SlashingProtection) > 0
+	if history {
+		if err := m.checkInterchange(ctx, req.SlashingProtection); err != nil {
+			return nil, err
+		}
+	} else if len(req.SlashingProtection) > 0 {
+		m.cfg.Log.Warn("Keymanager import: slashing protection is disabled, so the request's slashing_protection " +
+			"is ignored")
+	}
+
+	open := make([]opened, n)
+	source.Each(ctx, n, m.cfg.Workers, func(i int) {
+		open[i] = m.open(ctx, req.Keystores[i], req.Passwords[i])
+	}, nil)
+	defer func() {
+		for _, o := range open {
+			if o.key != nil {
+				o.key.Zeroize()
+			}
+		}
+	}()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// What follows commits; it runs to its end even when the client goes.
+	ctx = context.WithoutCancel(ctx)
+	first := map[provider.ID]int{} // the keystore each candidate key comes from
+	copyOf := map[int]int{}        // a later keystore of a candidate key, and its first
+	var candidates []int
+	for i := range open {
+		o := &open[i]
+		if o.err != nil {
+			results[i] = Result{Status: Error, Message: o.err.Error()}
+			continue
+		}
+		id := o.key.ID()
+		if j, ok := first[id]; ok {
+			copyOf[i] = j
+			continue
+		}
+		if _, loaded := m.cfg.Keys.Entry(id); loaded {
+			results[i] = Result{Status: Duplicate}
+			continue
+		}
+		first[id] = i
+		candidates = append(candidates, i)
+	}
+
+	if history && len(candidates) > 0 {
+		failed, err := m.importHistory(ctx, req.SlashingProtection, open, candidates)
+		kept := candidates[:0]
+		for _, i := range candidates {
+			pk := open[i].key.PublicKey()
+			switch herr, bad := failed[slashing.KeyID(pk.ID())]; {
+			case err != nil:
+				results[i] = Result{Status: Error, Message: "slashing_protection could not be imported; not imported"}
+			case bad:
+				results[i] = Result{Status: Error, Message: "its slashing-protection history could not be imported " +
+					"(" + herr.Error() + "); the key is disabled and not imported"}
+			default:
+				kept = append(kept, i)
+			}
+		}
+		if err != nil {
+			m.cfg.Log.WithError(err).Error("Keymanager import: the slashing-protection history could not be imported")
+		}
+		candidates = kept
+	}
+	for _, i := range candidates {
+		results[i] = m.add(ctx, &open[i], req.Keystores[i], req.Passwords[i])
+	}
+	for i, j := range copyOf {
+		if results[j].Status == Imported {
+			results[i] = Result{Status: Duplicate}
+		} else {
+			results[i] = Result{Status: Error, Message: "the same key as keystore " + strconv.Itoa(j) +
+				", which was not imported"}
+		}
+	}
+	m.logImport(open, results)
+	if m.cfg.Changed != nil {
+		m.cfg.Changed()
+	}
+	return results, nil
+}
+
+// open parses one keystore, applies the keystore policy, and decrypts it
+// with its password through the semaphore, comparing the derived public key
+// with the declared one. The password is used as the password file
+// written for it will be read back: without trailing line breaks.
+func (m *Manager) open(ctx context.Context, data, password []byte) opened {
+	if len(password) > keystores.MaxPasswordFile {
+		return opened{err: fmt.Errorf("the password is longer than %d bytes, the largest password file the signer "+
+			"reads", keystores.MaxPasswordFile)}
+	}
+	ks, err := qrlv1.Parse(data)
+	if err != nil {
+		return opened{err: err}
+	}
+	if _, ok := ks.PublicKey(); !ok {
+		return opened{err: errors.New("the keystore declares no pubkey; the keymanager imports only keystores " +
+			"that name their key, so that every file it writes holds the full key")}
+	}
+	if err := ctx.Err(); err != nil {
+		return opened{err: errors.New("not opened: the request ended")}
+	}
+	pw := qrlv1.NewPassword(qrlv1.TrimPassword(password))
+	defer pw.Wipe()
+	k, err := m.cfg.Decrypt(ctx, ks, pw)
+	if err != nil {
+		if ctx.Err() != nil {
+			return opened{err: errors.New("not opened: the request ended")}
+		}
+		return opened{err: err}
+	}
+	return opened{key: k, meta: provider.Meta{DerivationPath: ks.Path, Keystore: true}}
+}
+
+// boundRoot returns the root the store is pinned to, else the network's.
+func (m *Manager) boundRoot(ctx context.Context) (slashing.Root, bool, error) {
+	gvr, ok, err := m.cfg.Store.GenesisValidatorsRoot(ctx)
+	if err != nil || ok {
+		return gvr, ok, err
+	}
+	if m.cfg.GenesisValidatorsRoot != nil {
+		gvr, ok = m.cfg.GenesisValidatorsRoot()
+	}
+	return gvr, ok, nil
+}
+
+// checkInterchange reads the whole interchange before anything is opened or
+// written: it must be EIP-3076 version 5 to its end, for this signer's
+// network when that is known. Elements that are not valid entries are left
+// to the import, which fails only their keys.
+func (m *Manager) checkInterchange(ctx context.Context, data []byte) error {
+	gvr, known, err := m.boundRoot(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: read the genesis validators root: %w", ErrInterchange, err)
+	}
+	err = interchange.Decode(bytes.NewReader(data), func(md interchange.Metadata) error {
+		if known && md.GenesisValidatorsRoot != gvr {
+			return fmt.Errorf("%w: the file is for genesis validators root %#x, this signer's network is %#x",
+				slashing.ErrGenesisValidatorsRootMismatch, md.GenesisValidatorsRoot[:], gvr[:])
+		}
+		return nil
+	}, func(int, interchange.Entry, *interchange.EntryError) error { return nil })
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInterchange, err)
+	}
+	return nil
+}
+
+// importHistory imports the history of the candidate keys only, leaving
+// their enabled flag alone, and returns the keys whose history failed (the
+// import disabled them). A store that has no genesis validators root yet is
+// pinned to the file's.
+func (m *Manager) importHistory(ctx context.Context, data []byte, open []opened, candidates []int) (
+	map[slashing.KeyID]error, error) {
+	ids := make([]slashing.KeyID, len(candidates))
+	for n, i := range candidates {
+		pk := open[i].key.PublicKey()
+		ids[n] = slashing.KeyID(pk.ID())
+	}
+	res, err := interchange.Import(ctx, m.cfg.Store, bytes.NewReader(data),
+		interchange.ImportOptions{Keys: ids, LeaveEnabled: true})
+	failed := map[slashing.KeyID]error{}
+	for _, v := range res.Failed() {
+		if v.PublicKey != nil {
+			failed[slashing.KeyIDOf(v.PublicKey)] = v.Err
+		}
+	}
+	return failed, err
+}
+
+// add writes a key's files, loads the key from them and enables it. On
+// failure nothing of the key is left: its files are removed, it is evicted,
+// and its enabled flag is as it was.
+func (m *Manager) add(ctx context.Context, o *opened, keystore, password []byte) Result {
+	pk := o.key.PublicKey()
+	id := slashing.KeyID(pk.ID())
+	f := filesOf(m.cfg.Dir, &pk)
+	log := m.cfg.Log.WithField("key", pk.LogID())
+	fail := func(msg string, err error) Result {
+		log.WithError(err).Error("Keymanager import: " + msg)
+		if _, rerr := f.remove(); rerr != nil {
+			log.WithError(rerr).Error("Keymanager import: the files of a key that was not imported could not be removed")
+		}
+		// Mark the source changed, so that a load that read the files
+		// meanwhile drops what it read.
+		_, _ = m.cfg.Keys.Remove(f.source())
+		return Result{Status: Error, Message: msg}
+	}
+	if err := f.write(keystore, password); err != nil {
+		o.key.Zeroize()
+		o.key = nil
+		return fail("the key's files could not be written", err)
+	}
+	if m.afterWrite != nil {
+		m.afterWrite(f.source())
+	}
+	key := o.key
+	o.key = nil // Add owns it now
+	err := m.cfg.Keys.Add(provider.Batch{Source: f.source(), Keys: []*mldsa87.Key{key}, Meta: []provider.Meta{o.meta}},
+		func(pks [][]byte) error { return m.cfg.Engine.RegisterValidators(ctx, pks) })
+	if errors.Is(err, provider.ErrDuplicate) {
+		e, ok := m.cfg.Keys.Entry(pk.ID())
+		if !ok || e.Source != f.source() {
+			// Loaded from another source meanwhile.
+			if _, rerr := f.remove(); rerr != nil {
+				log.WithError(rerr).Error("Keymanager import: the files of a duplicate key could not be removed")
+			}
+			_, _ = m.cfg.Keys.Remove(f.source())
+			return Result{Status: Duplicate}
+		}
+		// A load read the files just written and loaded the key from
+		// them: it is the key this import added.
+		err = nil
+	}
+	if err != nil {
+		return fail("the key could not be registered in slashing protection", err)
+	}
+	if err := m.cfg.Store.SetValidatorEnabled(ctx, id, true); err != nil {
+		return fail("the key could not be enabled in slashing protection", err)
+	}
+	return Result{Status: Imported}
+}
+
+func (m *Manager) logImport(open []opened, results []Result) {
+	counts := map[Status]int{}
+	for i, r := range results {
+		counts[r.Status]++
+		if r.Status != Error {
+			continue
+		}
+		f := logrus.Fields{"keystore": i, "reason": r.Message}
+		if k := open[i].key; k != nil {
+			pk := k.PublicKey()
+			f["key"] = pk.LogID()
+		}
+		m.cfg.Log.WithFields(f).Warn("Keymanager import: a keystore was not imported")
+	}
+	m.cfg.Log.WithFields(logrus.Fields{
+		"imported": counts[Imported], "duplicate": counts[Duplicate], "error": counts[Error], "keys": m.cfg.Keys.Len(),
+	}).Info("Keymanager import")
+}
+
+// Delete deletes the keys pubkeys names and returns one result per key, in
+// order, and the EIP-3076 interchange of every key it disabled (empty when
+// the signer is not bound to a network yet, and so has no history):
+//
+//   - deleted: the key was loaded from its keymanager files, or was not
+//     loaded but had such files; it is disabled, its files are removed and
+//     it is evicted;
+//   - not_active: the key was not loaded and has history; it is disabled;
+//   - not_found: the key was not loaded and has no history; it is
+//     disabled, so that it cannot sign if it is loaded later;
+//   - error: the key is read-only (loaded from another source) and nothing
+//     changed for it, or a step failed, as Message says.
+func (m *Manager) Delete(ctx context.Context, pubkeys []mldsa87.PublicKey) ([]Result, []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ctx = context.WithoutCancel(ctx)
+	results := make([]Result, len(pubkeys))
+	exported := []slashing.KeyID{}
+	inactive := map[int]slashing.KeyID{}
+	for i := range pubkeys {
+		r, disabled := m.delete(ctx, &pubkeys[i])
+		results[i] = r
+		if disabled {
+			id := slashing.KeyID(pubkeys[i].ID())
+			exported = append(exported, id)
+			if r.Status == NotActive {
+				inactive[i] = id
+			}
+		}
+	}
+	if m.cfg.Changed != nil {
+		m.cfg.Changed()
+	}
+	export, missing, err := m.export(ctx, exported)
+	switch {
+	case errors.Is(err, slashing.ErrNoGenesisValidatorsRoot):
+		// Not bound to a network: nothing was ever recorded.
+		for i := range inactive {
+			results[i].Status = NotFound
+		}
+	case err != nil:
+		m.cfg.Log.WithError(err).Error("Keymanager delete: the slashing-protection history could not be exported")
+		for i := range results {
+			if results[i].Status != Error {
+				results[i] = Result{Status: Error, Message: "the key is disabled, but its slashing-protection history " +
+					"could not be exported; export it with the export command once the signer is stopped"}
+			}
+		}
+	default:
+		for i, id := range inactive {
+			if missing[id] {
+				results[i].Status = NotFound
+			}
+		}
+	}
+	m.logDelete(pubkeys, results)
+	return results, export
+}
+
+// delete deletes one key. It reports whether the key is now disabled, so
+// that its history is exported. A not-loaded key comes back as NotActive,
+// which the export turns into NotFound when the key has no history.
+func (m *Manager) delete(ctx context.Context, pk *mldsa87.PublicKey) (Result, bool) {
+	f := filesOf(m.cfg.Dir, pk)
+	e, loaded := m.cfg.Keys.Entry(pk.ID())
+	log := m.cfg.Log.WithField("key", pk.LogID())
+	if loaded && !m.removable(e) {
+		return Result{Status: Error, Message: "the key is read-only: it was not imported through the keymanager"}, false
+	}
+	if err := f.check(pk); err != nil {
+		log.WithError(err).Error("Keymanager delete: the key's files were left in place")
+		return Result{Status: Error, Message: "the keystore file named by this key holds another key; nothing was changed"}, false
+	}
+	// Disable first: from here on nothing signs a block or an attestation
+	// with the key, so the history exported below is complete.
+	id := slashing.KeyID(pk.ID())
+	err := m.cfg.Store.RegisterValidatorsDisabled(ctx, [][]byte{pk[:]})
+	if err == nil {
+		err = m.cfg.Store.SetValidatorEnabled(ctx, id, false)
+	}
+	if err != nil {
+		log.WithError(err).Error("Keymanager delete: the key could not be disabled")
+		return Result{Status: Error, Message: "the key could not be disabled in slashing protection; nothing was changed"}, false
+	}
+	// The files go before the key is evicted: a load that reads the
+	// directory after the eviction marks the source no longer finds them,
+	// and one that read it before is ignored for the source.
+	removed, ferr := f.remove()
+	if _, err := m.cfg.Keys.Remove(f.source()); err != nil {
+		log.WithError(err).Error("Keymanager delete: the key could not be evicted")
+		return Result{Status: Error, Message: "the key is disabled, but it could not be evicted"}, true
+	}
+	if ferr != nil {
+		log.WithError(ferr).Error("Keymanager delete: the key's files could not be removed")
+		return Result{Status: Error, Message: "the key is disabled and evicted, but its files could not be removed; " +
+			"remove them by hand before a reload loads the key again (it stays disabled)"}, true
+	}
+	if loaded || removed {
+		return Result{Status: Deleted}, true
+	}
+	return Result{Status: NotActive}, true
+}
+
+// export writes the interchange of ids, and reports the keys that have no
+// history.
+func (m *Manager) export(ctx context.Context, ids []slashing.KeyID) ([]byte, map[slashing.KeyID]bool, error) {
+	missing := map[slashing.KeyID]bool{}
+	if !m.cfg.History {
+		for _, id := range ids {
+			missing[id] = true
+		}
+		return nil, missing, slashing.ErrNoGenesisValidatorsRoot
+	}
+	opts := interchange.ExportOptions{Keys: ids}
+	if gvr, ok, err := m.boundRoot(ctx); err == nil && ok {
+		opts.GenesisValidatorsRoot = &gvr
+	}
+	var buf bytes.Buffer
+	res, err := interchange.Export(ctx, m.cfg.Store, &buf, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, id := range res.Missing {
+		missing[id] = true
+	}
+	return buf.Bytes(), missing, nil
+}
+
+func (m *Manager) logDelete(pubkeys []mldsa87.PublicKey, results []Result) {
+	counts := map[Status]int{}
+	for i, r := range results {
+		counts[r.Status]++
+		f := logrus.Fields{"key": pubkeys[i].LogID(), "status": r.Status}
+		if r.Status == Error {
+			m.cfg.Log.WithFields(f).WithField("reason", r.Message).Warn("Keymanager delete: a key was not deleted")
+		} else {
+			m.cfg.Log.WithFields(f).Info("Keymanager delete: key disabled")
+		}
+	}
+	m.cfg.Log.WithFields(logrus.Fields{
+		"deleted": counts[Deleted], "not_active": counts[NotActive], "not_found": counts[NotFound],
+		"error": counts[Error], "keys": m.cfg.Keys.Len(),
+	}).Info("Keymanager delete")
+}

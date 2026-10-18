@@ -245,6 +245,41 @@ func TestString(t *testing.T) {
 	}
 }
 
+// Bytes decodes every escape as encoding/json decodes it into a string,
+// into a buffer of its own, and keeps bytes that are not UTF-8.
+func TestBytes(t *testing.T) {
+	for _, in := range []string{
+		`""`, `"plain"`, `"q\"uote"`, `"\\\/\b\f\n\r\t"`, `"\u00e9t\u00C9"`, `"\ud83d\ude00 smile"`,
+		`"lone \ud83d high"`, `"lone \ude00 low"`, `"\ud83d\u0041 not a pair"`, `"end \ud83d"`, `"ß ünïcödé"`,
+		`"{\"version\":1,\"crypto\":{}}"`,
+	} {
+		var want string
+		if err := json.Unmarshal([]byte(in), &want); err != nil {
+			t.Fatalf("%s: %v", in, err)
+		}
+		raw := []byte(in)
+		var got Bytes
+		if err := got.UnmarshalJSON(raw); err != nil || string(got) != want {
+			t.Errorf("%s: got %q, %v; want %q", in, got, err, want)
+		}
+		if len(got) > 0 && len(raw) > 2 && &got[0] == &raw[1] {
+			t.Errorf("%s: the result aliases the input", in)
+		}
+	}
+	var b Bytes
+	if err := b.UnmarshalJSON([]byte("\"\xff\xfe\"")); err != nil || string(b) != "\xff\xfe" {
+		t.Errorf("non-UTF-8 bytes: %q, %v", b, err)
+	}
+	for _, in := range []string{`5`, `null`, `{}`, `[]`, `"a"b"`, `"\x"`, `"\u12"`, `"\u12zz"`} {
+		if err := b.UnmarshalJSON([]byte(in)); err == nil {
+			t.Errorf("%s accepted", in)
+		}
+	}
+	if out, err := (Bytes("a\"b")).MarshalJSON(); err != nil || string(out) != `"a\"b"` {
+		t.Errorf("MarshalJSON = %s, %v", out, err)
+	}
+}
+
 // point is a two-field object for the DecodeObject tables.
 type point struct {
 	X, Y Uint64String

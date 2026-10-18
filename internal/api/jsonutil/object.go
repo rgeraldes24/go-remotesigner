@@ -23,6 +23,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"unicode"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/api/apierr"
 )
@@ -271,4 +274,110 @@ func stringContent(b []byte) ([]byte, error) {
 		return nil, malformed()
 	}
 	return unquote(b, escaped)
+}
+
+// Bytes is a JSON string decoded into a buffer of its own, escapes
+// included, without passing through a Go string: a secret held in one (a
+// password, a keystore) can be wiped once it is used. Bytes that are not
+// valid UTF-8 are kept as they are.
+type Bytes []byte
+
+// UnmarshalJSON accepts only a JSON string.
+func (v *Bytes) UnmarshalJSON(b []byte) error {
+	if len(b) < 2 || b[0] != '"' || b[len(b)-1] != '"' {
+		return wrongType("a string")
+	}
+	end, _, err := stringEnd(b, 0)
+	if err != nil {
+		return err
+	}
+	if end != len(b) {
+		return malformed()
+	}
+	out, err := unescape(b[1 : len(b)-1])
+	if err != nil {
+		return err
+	}
+	*v = out
+	return nil
+}
+
+// MarshalJSON quotes v.
+func (v Bytes) MarshalJSON() ([]byte, error) {
+	return json.Marshal(string(v))
+}
+
+// unescape decodes the escapes of a JSON string's content into a new
+// buffer. An unpaired surrogate becomes U+FFFD, as encoding/json does.
+func unescape(s []byte) ([]byte, error) {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c != '\\' {
+			out = append(out, c)
+			continue
+		}
+		if i+1 >= len(s) {
+			return nil, apierr.New(apierr.MalformedJSON, "invalid string escape")
+		}
+		i++
+		switch s[i] {
+		case '"', '\\', '/':
+			out = append(out, s[i])
+		case 'b':
+			out = append(out, '\b')
+		case 'f':
+			out = append(out, '\f')
+		case 'n':
+			out = append(out, '\n')
+		case 'r':
+			out = append(out, '\r')
+		case 't':
+			out = append(out, '\t')
+		case 'u':
+			r, ok := hex4(s, i+1)
+			if !ok {
+				return nil, apierr.New(apierr.MalformedJSON, "invalid string escape")
+			}
+			i += 4
+			if utf16.IsSurrogate(r) {
+				r2, ok := rune(-1), false
+				if i+2 < len(s) && s[i+1] == '\\' && s[i+2] == 'u' {
+					r2, ok = hex4(s, i+3)
+				}
+				if dec := utf16.DecodeRune(r, r2); ok && dec != unicode.ReplacementChar {
+					r = dec
+					i += 6
+				} else {
+					r = unicode.ReplacementChar
+				}
+			}
+			out = utf8.AppendRune(out, r)
+		default:
+			return nil, apierr.New(apierr.MalformedJSON, "invalid string escape")
+		}
+	}
+	return out, nil
+}
+
+// hex4 reads the four hex digits of a \u escape at s[i:].
+func hex4(s []byte, i int) (rune, bool) {
+	if i+4 > len(s) {
+		return 0, false
+	}
+	var r rune
+	for _, c := range s[i : i+4] {
+		switch {
+		case '0' <= c && c <= '9':
+			c -= '0'
+		case 'a' <= c && c <= 'f':
+			c -= 'a' - 10
+		case 'A' <= c && c <= 'F':
+			c -= 'A' - 10
+		default:
+			return 0, false
+		}
+		r = r<<4 | rune(c)
+	}
+	return r, true
 }
