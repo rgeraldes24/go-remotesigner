@@ -746,8 +746,8 @@ func (s *racingStore) CompareAndSwapRandaoState(ctx context.Context, id slashing
 }
 
 // Two signers sharing a store serve the same request for the same slot: the one whose compare-and-set loses
-// classifies the request again and answers it as a re-reveal of the layer the other released (G1 §8 V7), for a
-// first use and for a new layer alike. A frontier that keeps moving fails with 500 STORE_UNAVAILABLE.
+// classifies the request again and answers it as a re-reveal of the layer the other released, for a first use and
+// for a new layer alike. A frontier that keeps moving fails with 500 STORE_UNAVAILABLE.
 func TestLostRaceReReveals(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

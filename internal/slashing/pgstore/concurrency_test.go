@@ -94,7 +94,7 @@ type signed struct {
 }
 
 // Two signer instances on one database sign blocks and attestations for the same keys while imports, pruning
-// runs and enable flips run against them through both (G4 S28, S29). Afterwards:
+// runs and enable flips run against them through both. Afterwards:
 //   - no two messages either instance allowed for a key conflict;
 //   - no record an instance signed conflicts with a record written before it (the record ids give the order);
 //   - no low watermark ever moved down;
@@ -360,7 +360,7 @@ func watchWatermarks(t *testing.T, ctx context.Context, db *pgtest.DB, wg *sync.
 }
 
 // History transactions over the same validators in opposite orders, disabling, single-kind transactions and RANDAO
-// writes, from two instances at once: the fixed lock order means Postgres never detects a deadlock (G4 S29).
+// writes, from two instances at once: the fixed lock order means Postgres never detects a deadlock.
 func TestPostgresLockOrderNoDeadlock(t *testing.T) {
 	db := migrated(t)
 	stores := instances(t, db, 2)
