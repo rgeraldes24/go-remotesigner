@@ -129,6 +129,7 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 		Version:               v,
 		DataPath:              c.String(flags.DataPath),
 		KeyConfigPath:         c.String(flags.KeyConfigPath),
+		KeyConfigFileMaxSize:  int64(c.Int(flags.KeyConfigFileMaxSize)),
 		StrictFilePermissions: c.Bool(flags.StrictFilePermissions),
 		ReloadTimeout:         time.Duration(c.Uint(flags.ReloadTimeout)) * time.Minute,
 		SignerLoadParallelism: c.Int(flags.SignerLoadParallelism),
@@ -312,8 +313,12 @@ func checkKeystores(k config.Keystores) error {
 // of a time.Duration.
 const maxReloadTimeout = 1_000_000
 
-// checkLoading checks --reload-timeout and --signer-load-parallelism.
+// checkLoading checks --reload-timeout, --signer-load-parallelism and
+// --key-store-config-file-max-size.
 func checkLoading(c *cli.Context) error {
+	if n := c.Int(flags.KeyConfigFileMaxSize); n < 1 {
+		return fmt.Errorf("--%s must be a positive number of bytes", flags.KeyConfigFileMaxSize)
+	}
 	if m := c.Uint(flags.ReloadTimeout); m < 1 || m > maxReloadTimeout {
 		return fmt.Errorf("--%s must be 1 to %d (minutes)", flags.ReloadTimeout, maxReloadTimeout)
 	}

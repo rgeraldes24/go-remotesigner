@@ -86,7 +86,8 @@ func newKeyLoader(cfg *config.Config, sem *argon.Semaphore, keys *provider.Provi
 	l := &keyLoader{sem: sem, timeout: cfg.ReloadTimeout, keys: keys, engine: engine, sig: sig, reveals: reveals,
 		state: state, log: log}
 	if cfg.KeyConfigPath != "" {
-		l.keyConfig = &keyconfig.Config{Dir: cfg.KeyConfigPath, Policy: policy, Decrypt: sem.Decrypt}
+		l.keyConfig = &keyconfig.Config{Dir: cfg.KeyConfigPath, Policy: policy, Decrypt: sem.Decrypt,
+			MaxFileSize: cfg.KeyConfigFileMaxSize}
 	}
 	if ks := cfg.Consensus.Keystores; ks.Path != "" {
 		l.keystores = &keystores.Config{Dir: ks.Path, PasswordFile: ks.PasswordFile, PasswordsDir: ks.PasswordsPath,

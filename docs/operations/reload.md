@@ -25,6 +25,9 @@ keystoreFile: keystores/keystore-0.json        # relative paths are relative to 
 keystorePasswordFile: keystores/keystore-0.txt
 ```
 
+A key-config file larger than `--key-store-config-file-max-size` (in bytes; default 104857600, 100 MiB, as in
+Web3Signer, which counts code points instead) fails to load before any of it is read.
+
 The keystore directory takes every non-hidden `*.json` file directly in `--keystores-path` (any case of the
 extension); entries that are not regular files are skipped. This is the layout the deposit CLI writes: a directory
 of `keystore-*.json` files and the password given to the CLI in one file:

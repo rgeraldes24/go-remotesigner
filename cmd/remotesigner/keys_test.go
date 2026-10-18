@@ -25,9 +25,14 @@ func TestKeyLoadingFlags(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
 	if !cfg.StrictFilePermissions || cfg.ReloadTimeout != time.Hour || cfg.SignerLoadParallelism != 0 ||
-		cfg.Consensus.Keystores != (config.Keystores{}) {
-		t.Fatalf("defaults: strict %v, timeout %v, parallelism %d, keystores %+v", cfg.StrictFilePermissions,
-			cfg.ReloadTimeout, cfg.SignerLoadParallelism, cfg.Consensus.Keystores)
+		cfg.Consensus.Keystores != (config.Keystores{}) || cfg.KeyConfigFileMaxSize != 104_857_600 {
+		t.Fatalf("defaults: strict %v, timeout %v, parallelism %d, keystores %+v, max size %d", cfg.StrictFilePermissions,
+			cfg.ReloadTimeout, cfg.SignerLoadParallelism, cfg.Consensus.Keystores, cfg.KeyConfigFileMaxSize)
+	}
+	// Web3Signer's key-config size flag.
+	if cfg, code, stderr := capture(t, "--key-store-config-file-max-size=4096", "consensus", "--network=e2e"); code != exitOK ||
+		cfg.KeyConfigFileMaxSize != 4096 {
+		t.Fatalf("--key-store-config-file-max-size: exit %d %q %d", code, stderr, cfg.KeyConfigFileMaxSize)
 	}
 
 	// The qrl-package invocation: keystores and one shared password file.
@@ -70,6 +75,8 @@ func TestKeyLoadingFlags(t *testing.T) {
 		{[]string{"--reload-timeout=1000001", "consensus", "--network=e2e"}, "--reload-timeout must be 1"},
 		{[]string{"--signer-load-parallelism=-1", "consensus", "--network=e2e"}, "--signer-load-parallelism must be 0"},
 		{[]string{"--signer-load-parallelism=65", "consensus", "--network=e2e"}, "--signer-load-parallelism must be 0"},
+		{[]string{"--key-store-config-file-max-size=0", "consensus", "--network=e2e"}, "--key-store-config-file-max-size must be a positive"},
+		{[]string{"--key-store-config-file-max-size=-1", "consensus", "--network=e2e"}, "--key-store-config-file-max-size must be a positive"},
 	} {
 		if _, code, stderr := capture(t, tc.args...); code != exitUsage || !strings.Contains(stderr, tc.want) {
 			t.Errorf("%v: exit %d %q, want a usage error mentioning %q", tc.args, code, stderr, tc.want)

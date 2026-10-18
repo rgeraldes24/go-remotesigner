@@ -183,6 +183,30 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+// A key-config file larger than MaxFileSize fails to load on its own; the
+// others still load, and 0 means the 100 MiB default.
+func TestMaxFileSize(t *testing.T) {
+	dir := t.TempDir()
+	small := "type: file-raw\nprivateKey: " + seedHex(1) + "\n"
+	writeFile(t, dir, "a.yaml", small, 0o600)
+	writeFile(t, dir, "b.yaml", small+"# "+strings.Repeat("x", 64)+"\n", 0o600)
+	res, err := Config{Dir: dir, Policy: strict, MaxFileSize: int64(len(small))}.Load(context.Background(), 1, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res[0].Err != nil || len(res[0].Keys) != 1 {
+		t.Fatalf("a file at the limit: %+v", res[0])
+	}
+	if !errors.Is(res[1].Err, secretfile.ErrTooLarge) || len(res[1].Keys) != 0 ||
+		!strings.Contains(res[1].Err.Error(), "b.yaml") {
+		t.Fatalf("a file over the limit: %+v", res[1])
+	}
+	res, err = Config{Dir: dir, Policy: strict}.Load(context.Background(), 1, nil, nil)
+	if err != nil || res[1].Err != nil || DefaultMaxFileSize != 104_857_600 {
+		t.Fatalf("default limit: %v %+v", err, res)
+	}
+}
+
 // A file-keystore document names a keystore and its password file,
 // relative to the key-config directory or absolute; the keystore is opened
 // through Decrypt.

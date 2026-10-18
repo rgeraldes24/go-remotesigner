@@ -43,6 +43,9 @@ type Config struct {
 	// KeyConfigPath is the key-config directory; empty means no key-config
 	// source.
 	KeyConfigPath string
+	// KeyConfigFileMaxSize is --key-store-config-file-max-size: the largest
+	// key-config file loaded, in bytes.
+	KeyConfigFileMaxSize int64
 	// StrictFilePermissions is --strict-file-permissions: refuse secret
 	// files readable by group or other users instead of warning.
 	StrictFilePermissions bool

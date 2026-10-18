@@ -27,6 +27,7 @@ const (
 	DataPath                = "data-path"
 	KeyConfigPath           = "key-config-path"
 	KeyStorePath            = "key-store-path" // alias of KeyConfigPath
+	KeyConfigFileMaxSize    = "key-store-config-file-max-size"
 	Logging                 = "logging"
 	LoggingFormat           = "logging-format"
 	LogFile                 = "log-file"
@@ -135,6 +136,9 @@ const (
 	DefaultReloadTimeout = 60
 	// MaxSignerLoadParallelism bounds --signer-load-parallelism.
 	MaxSignerLoadParallelism = 64
+	// DefaultKeyConfigFileMaxSize is Web3Signer's default of
+	// --key-store-config-file-max-size, in bytes (100 MiB).
+	DefaultKeyConfigFileMaxSize = 104_857_600
 )
 
 // DefaultHostAllowlist is the default of --http-host-allowlist.
@@ -150,6 +154,7 @@ func Global() []cli.Flag {
 		&cli.StringFlag{Name: ConfigFile, Usage: "YAML file of flag values: bare flag names, with an optional consensus: section. Unknown keys are rejected.", TakesFile: true},
 		&cli.StringFlag{Name: DataPath, Usage: "Directory for the generated token files, the slashing-protection store and the ports file", TakesFile: true},
 		&cli.StringFlag{Name: KeyConfigPath, Aliases: []string{KeyStorePath}, Usage: "Directory of key-config files (*.yaml or *.yml; types file-raw and file-keystore); unset loads none", TakesFile: true},
+		&cli.IntFlag{Name: KeyConfigFileMaxSize, Value: DefaultKeyConfigFileMaxSize, Usage: "Largest key-config file loaded, in bytes (Web3Signer counts code points); a larger file fails to load. Must be above 0."},
 		&cli.BoolFlag{Name: StrictFilePermissions, Value: true, Usage: "Refuse secret files (password files, key-config files with a seed) that their group or other users can read; false loads them with a warning"},
 		&cli.UintFlag{Name: ReloadTimeout, Value: DefaultReloadTimeout, Usage: "Minutes a POST /reload may load keys; the sources not loaded by then keep their previous keys. The startup load is not bounded."},
 		&cli.IntFlag{Name: SignerLoadParallelism, DefaultText: "0 (from the memory limit)", Usage: "Keystore decrypts with the standard KDF that may run at once; 0 sizes the Argon2id budget from GOMEMLIMIT, the cgroup limit or half the RAM"},

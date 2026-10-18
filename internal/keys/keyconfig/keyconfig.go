@@ -77,9 +77,9 @@ const (
 // SourcePrefix starts the source name of every key-config file.
 const SourcePrefix = "key-config:"
 
-// MaxFileSize bounds a key-config file, as Web3Signer's default
-// --key-store-config-file-max-size does.
-const MaxFileSize = 100 << 20
+// DefaultMaxFileSize bounds a key-config file when Config.MaxFileSize is 0:
+// 100 MiB, the default of --key-store-config-file-max-size.
+const DefaultMaxFileSize = 100 << 20
 
 // Errors returned for a file. Callers match them with errors.Is.
 var (
@@ -96,6 +96,10 @@ type Config struct {
 	Policy secretfile.Policy
 	// Decrypt opens file-keystore keystores; nil refuses them.
 	Decrypt keystores.DecryptFunc
+	// MaxFileSize is the largest key-config file loaded, in bytes
+	// (--key-store-config-file-max-size); 0 means DefaultMaxFileSize. A
+	// larger file fails to load, before any of it is read.
+	MaxFileSize int64
 }
 
 // Source is the source name of the key-config file at path.
@@ -177,7 +181,11 @@ func (c Config) LoadFile(ctx context.Context, path string) ([]*mldsa87.Key, erro
 // and no error when keep reports true for the file's version.
 func (c Config) loadFile(ctx context.Context, start time.Time, path string, keep func(version string) bool) (
 	[]*mldsa87.Key, string, error) {
-	data, fi, err := secretfile.ReadInfo(path, MaxFileSize)
+	limit := c.MaxFileSize
+	if limit <= 0 {
+		limit = DefaultMaxFileSize
+	}
+	data, fi, err := secretfile.ReadInfo(path, limit)
 	if err != nil {
 		return nil, "", err
 	}
