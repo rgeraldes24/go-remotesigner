@@ -6,6 +6,7 @@ package repo
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -424,6 +425,152 @@ func TestUnmanagedPins(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := unmanagedPins(tt.path, tt.text, managers); len(got) != tt.want {
 				t.Errorf("unmanaged %q, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// workflowStep is one step of a GitHub Actions job.
+type workflowStep struct {
+	Name string         `yaml:"name"`
+	Uses string         `yaml:"uses"`
+	Run  string         `yaml:"run"`
+	With map[string]any `yaml:"with"`
+}
+
+// releaseWorkflowProblems returns what is wrong with the release job's
+// steps: before the step that publishes (goreleaser release without
+// --snapshot), it must check that the tagged commit is on main, with a
+// checkout that fetched main, and run the compliance gates; and setup-go
+// must not restore a cache an earlier run saved.
+func releaseWorkflowProblems(steps []workflowStep) []string {
+	publish := slices.IndexFunc(steps, func(s workflowStep) bool {
+		return strings.Contains(s.Run, "goreleaser release") && !strings.Contains(s.Run, "--snapshot")
+	})
+	if publish < 0 {
+		return []string{"no step runs goreleaser release"}
+	}
+	before := steps[:publish]
+	var p []string
+	checkout := slices.IndexFunc(before, func(s workflowStep) bool { return strings.HasPrefix(s.Uses, "actions/checkout@") })
+	if checkout < 0 || fmt.Sprint(before[checkout].With["fetch-depth"]) != "0" {
+		p = append(p, "the checkout does not fetch every branch (fetch-depth: 0), so origin/main is missing")
+	}
+	if !slices.ContainsFunc(before, func(s workflowStep) bool {
+		return strings.Contains(s.Run, "git merge-base --is-ancestor") && strings.Contains(s.Run, "origin/main")
+	}) {
+		p = append(p, "no step before publishing checks that the tagged commit is on main")
+	}
+	var commands []string // the make targets and the other command lines run before publishing
+	for _, s := range before {
+		for _, line := range strings.Split(s.Run, "\n") {
+			line = strings.TrimSpace(line)
+			if rest, ok := strings.CutPrefix(line, "make "); ok {
+				for _, f := range strings.Fields(rest) {
+					if !strings.Contains(f, "=") {
+						commands = append(commands, "make "+f)
+					}
+				}
+				continue
+			}
+			commands = append(commands, line)
+		}
+	}
+	for _, gate := range []string{"make license-hash", "make headercheck", "make nogpl", "make licenses",
+		"go vet ./...", "go vet -tags noexecution ./...", "make release-check"} {
+		if !slices.Contains(commands, gate) {
+			p = append(p, "no step before publishing runs "+gate)
+		}
+	}
+	for _, s := range steps {
+		if strings.HasPrefix(s.Uses, "actions/setup-go@") && fmt.Sprint(s.With["cache"]) != "false" {
+			p = append(p, "setup-go restores a cache (want cache: false): the release would be built from it")
+		}
+	}
+	return p
+}
+
+// The release workflow publishes only for a tag on main, after the
+// compliance gates and the dry run, built from a cold cache.
+func TestReleaseWorkflow(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(root, ".github/workflows/release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var w struct {
+		On struct {
+			Push struct {
+				Tags     []string `yaml:"tags"`
+				Branches []string `yaml:"branches"`
+			} `yaml:"push"`
+		} `yaml:"on"`
+		Jobs map[string]struct {
+			Steps []workflowStep `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &w); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(w.On.Push.Tags, []string{"v*"}) || len(w.On.Push.Branches) != 0 {
+		t.Errorf("on.push: tags %q branches %q, want version tags only", w.On.Push.Tags, w.On.Push.Branches)
+	}
+	job, ok := w.Jobs["release"]
+	if !ok {
+		t.Fatal("no release job")
+	}
+	for _, p := range releaseWorkflowProblems(job.Steps) {
+		t.Error(p)
+	}
+}
+
+func TestReleaseWorkflowProblems(t *testing.T) {
+	good := []workflowStep{
+		{Uses: "actions/checkout@abc", With: map[string]any{"fetch-depth": 0}},
+		{Run: `git merge-base --is-ancestor HEAD refs/remotes/origin/main`},
+		{Uses: "actions/setup-go@abc", With: map[string]any{"cache": false}},
+		{Run: `go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"`},
+		{Run: "make license-hash headercheck nogpl licenses GO_LICENSES=x\ngo vet ./...\ngo vet -tags noexecution ./...\n"},
+		{Run: "make release-snapshot GORELEASER=goreleaser\nmake release-check\n"},
+		{Name: "Publish", Run: "goreleaser release --clean"},
+	}
+	with := func(edit func([]workflowStep) []workflowStep) []workflowStep {
+		steps := slices.Clone(good)
+		for i := range steps {
+			steps[i].With = maps.Clone(steps[i].With)
+		}
+		return edit(steps)
+	}
+	tests := []struct {
+		name  string
+		steps []workflowStep
+		want  []string // a substring of each problem
+	}{
+		{"good", good, nil},
+		{"no main check", with(func(s []workflowStep) []workflowStep { return slices.Delete(s, 1, 2) }), []string{"on main"}},
+		{"main check after publishing", with(func(s []workflowStep) []workflowStep {
+			return append(slices.Delete(s, 1, 2), workflowStep{Run: "git merge-base --is-ancestor HEAD origin/main"})
+		}), []string{"on main"}},
+		{"shallow checkout", with(func(s []workflowStep) []workflowStep { delete(s[0].With, "fetch-depth"); return s }),
+			[]string{"fetch-depth"}},
+		{"setup-go cache", with(func(s []workflowStep) []workflowStep { delete(s[2].With, "cache"); return s }),
+			[]string{"cache: false"}},
+		{"no make gates", with(func(s []workflowStep) []workflowStep {
+			s[4].Run = "go vet ./...\ngo vet -tags noexecution ./...\n"
+			return s
+		}), []string{"make license-hash", "make headercheck", "make nogpl", "make licenses"}},
+		{"no dry run checks", with(func(s []workflowStep) []workflowStep { return slices.Delete(s, 5, 6) }),
+			[]string{"make release-check"}},
+		{"no publish step", good[:6], []string{"goreleaser release"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := releaseWorkflowProblems(tt.steps)
+			ok := len(got) == len(tt.want)
+			for _, w := range tt.want {
+				ok = ok && slices.ContainsFunc(got, func(p string) bool { return strings.Contains(p, w) })
+			}
+			if !ok {
+				t.Errorf("problems %q, want one mentioning each of %q", got, tt.want)
 			}
 		})
 	}

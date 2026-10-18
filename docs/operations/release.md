@@ -105,14 +105,21 @@ systemd unit ([`deploy-systemd.md`](deploy-systemd.md#7-what-the-unit-restricts)
 ## 5. Publishing
 
 A release is published only by pushing a version tag, `v<major>.<minor>.<patch>` (with an optional pre-release
-suffix, which makes a pre-release without the `latest` tags), on a commit of `main`:
+suffix, which makes a pre-release without the `latest` tags), on a commit of `main` that CI has passed:
 
 ```
 git tag -s v1.0.0 -m 'v1.0.0'
 git push origin v1.0.0
 ```
 
-The Release workflow then runs the dry run and its checks on the tagged tree, and only if they pass runs `goreleaser
-release`. Its job is the only one with write access: `contents: write` for the GitHub release, `packages: write` for
-ghcr.io, and `id-token: write` with `attestations: write` for the keyless signatures and the provenance attestation.
-Every other workflow reads only.
+The Release workflow then checks the tagged tree before it publishes anything:
+
+1. the tagged commit is on `main` (`git merge-base --is-ancestor`); a tag on any other commit fails the job;
+2. the compliance gates of CI: `make license-hash headercheck nogpl licenses` and `go vet` in both flavours;
+3. the dry run and its checks (section 4).
+
+Only if they all pass does it run `goreleaser release`. It builds with a cold Go module and build cache, never one
+that an earlier workflow run saved. The full test suite, lint and the vectors are not rerun: they ran on the commit
+when it reached `main`. Its job is the only one with write access: `contents: write` for the GitHub release,
+`packages: write` for ghcr.io, and `id-token: write` with `attestations: write` for the keyless signatures and the
+provenance attestation. Every other workflow reads only.

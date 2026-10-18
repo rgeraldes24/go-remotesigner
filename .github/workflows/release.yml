@@ -1,9 +1,10 @@
 # Copyright 2026 The go-remotesigner Authors.
 # SPDX-License-Identifier: Apache-2.0
 
-# Publishes a release when a version tag (v*) is pushed, and at no other
-# time. The tagged tree first goes through the release dry run and its
-# checks; only then does goreleaser publish both flavours (.goreleaser.yaml):
+# Publishes a release when a version tag (v*) is pushed on a commit of main,
+# and at no other time. The tagged tree first goes through the compliance
+# gates, the release dry run and its checks, built from a cold Go cache;
+# only then does goreleaser publish both flavours (.goreleaser.yaml):
 # the archives with an SBOM each, checksums.txt with a keyless cosign
 # signature, a build provenance attestation over the checksums, and the
 # multi-platform images on ghcr.io with their SBOM and provenance
@@ -45,13 +46,29 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # goreleaser reads the tags and the history for the changelog
+          # Every branch and tag: goreleaser reads the tags and the history for
+          # the changelog, and the next step reads origin/main.
+          fetch-depth: 0
           persist-credentials: false
+      - name: The tagged commit is on main
+        run: |
+          if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
+            echo "::error::${GITHUB_REF_NAME} tags $(git rev-parse HEAD), which is not on main; releases are cut from main only" >&2
+            exit 1
+          fi
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.x"
+          # The release is built from a cold module and build cache, never from
+          # one an earlier workflow run saved.
+          cache: false
       - name: Install go-licenses
         run: go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"
+      - name: Compliance gates (as in CI)
+        run: |
+          make license-hash headercheck nogpl licenses GO_LICENSES="$(go env GOPATH)/bin/go-licenses"
+          go vet ./...
+          go vet -tags noexecution ./...
       - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           syft-version: ${{ env.SYFT_VERSION }}
