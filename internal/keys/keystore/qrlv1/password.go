@@ -83,14 +83,19 @@ func TrimPassword(b []byte) []byte {
 }
 
 // candidates returns the distinct candidates in the order the flavour
-// tries them: the encoding its producer uses first.
+// tries them: the encoding its producer uses first. An account keystore
+// tries only the raw bytes, as go-qrl does.
 func (p *Password) candidates(f Flavour) [][]byte {
 	if p == nil || p.wiped {
 		return nil
 	}
 	order := [][]byte{p.norm, p.alt, p.raw}
-	if f == DepositCLI {
+	switch f {
+	case DepositCLI:
 		order = [][]byte{p.raw, p.norm, p.alt}
+	case Account:
+		// go-qrl encrypts with the raw bytes and tries nothing else.
+		order = [][]byte{p.raw}
 	}
 	out := make([][]byte, 0, len(order))
 	for _, c := range order {

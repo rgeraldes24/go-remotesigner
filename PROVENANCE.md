@@ -269,6 +269,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/consensus/types/request.go` | new | | | |
 | `internal/consensus/types/request_test.go` | new | | | |
 | `internal/crypto/mldsa87/bench_test.go` | new | | | |
+| `internal/crypto/mldsa87/extended.go` | new | | | |
+| `internal/crypto/mldsa87/extended_test.go` | new | | | |
 | `internal/crypto/mldsa87/golden_test.go` | new | | | |
 | `internal/crypto/mldsa87/key.go` | new | | | |
 | `internal/crypto/mldsa87/mldsa87.go` | new | | | |
@@ -288,8 +290,11 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/argon/memory_darwin.go` | new | | | |
 | `internal/keys/argon/memory_linux.go` | new | | | |
 | `internal/keys/argon/memory_other.go` | new | | | |
+| `internal/keys/keyconfig/execution_test.go` | new | | | |
 | `internal/keys/keyconfig/keyconfig.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/SignerLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/parser/YamlSignerParser.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileRawSigningMetadata.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileKeyStoreMetadata.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/AbstractArtifactSignerFactory.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/keyconfig/keyconfig_test.go` | new | | | |
+| `internal/keys/keystore/qrlv1/account.go` | new | | | |
+| `internal/keys/keystore/qrlv1/account_test.go` | new | | | |
 | `internal/keys/keystore/qrlv1/bench_test.go` | new | | | |
 | `internal/keys/keystore/qrlv1/decrypt.go` | mit-derived | `cyyber/qrysm` (MIT), from `wealdtech/go-eth2-wallet-encryptor-keystorev4` `v1.4.1` (Apache-2.0) | `pkg/go-qrl-wallet-encryptor-keystore/decrypt.go`<br>`pkg/go-qrl-wallet-encryptor-keystore/encryptor.go`<br>`pkg/go-qrl-wallet-encryptor-keystore/encrypt.go` | `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` |
 | `internal/keys/keystore/qrlv1/fuzz_test.go` | new | | | |
@@ -300,7 +305,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/keystore/qrlv1/norm.go` | mit-derived | `cyyber/qrysm` (MIT), from `wealdtech/go-eth2-wallet-encryptor-keystorev4` `v1.4.1` (Apache-2.0) | `pkg/go-qrl-wallet-encryptor-keystore/norm.go` | `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` |
 | `internal/keys/keystore/qrlv1/norm_test.go` | new | | | |
 | `internal/keys/keystore/qrlv1/password.go` | new | | | |
-| `internal/keys/keystores/keystores.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsKeystoreBulkLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/secp256k1/util/JsonFilesUtil.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/keys/keystores/execution_test.go` | new | | | |
+| `internal/keys/keystores/keystores.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsKeystoreBulkLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/SecpV3KeystoresBulkLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/secp256k1/util/JsonFilesUtil.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/keystores/keystores_test.go` | new | | | |
 | `internal/keys/keystores/keystores_w3s_test.go` | w3s-derived | Web3Signer | `signing/src/test/java/tech/pegasys/web3signer/signing/bulkloading/BlsKeystoreBulkLoaderTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/keystoretest/keystoretest.go` | new | | | |

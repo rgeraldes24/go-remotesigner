@@ -4,7 +4,9 @@
 // Package qrlv1 decrypts QRL validator keystores: the keystore v1 that
 // qrysm's validator writes (`version: 1`) and the deposit CLI's keystore
 // (`version: 0`). Both seal the validator's 48-byte ML-DSA-87 wallet seed
-// with Argon2id and AES-256-GCM.
+// with Argon2id and AES-256-GCM. For execution mode it also decrypts
+// go-qrl's account keystore (ParseAccount, account.go), which seals an
+// account's 51-byte extended seed.
 //
 // The package is a hardened copy of qrysm's MIT keystore v1 decryptor
 // (third_party/qrl-keystore holds the pristine original). The hardening,
@@ -24,8 +26,9 @@
 //     print: path only when it is a derivation path, the others without
 //     control or format characters.
 //
-// Errors wrap one of ErrFormat, ErrPolicy, ErrPassword, ErrPubkeyMismatch
-// or ErrInternal and never contain key material or passwords.
+// Errors wrap one of ErrFormat, ErrPolicy, ErrPassword, ErrPubkeyMismatch,
+// ErrAddressMismatch or ErrInternal and never contain key material or
+// passwords.
 package qrlv1
 
 import (
@@ -72,6 +75,10 @@ const (
 	// QRLV1 is qrysm's keystore v1 (accounts backup and import): version
 	// 1, a pubkey without 0x, and an NFKD-normalised password.
 	QRLV1
+	// Account is go-qrl's account keystore (ParseAccount): version 1, an
+	// address, a 51-byte extended seed, and the password used as raw
+	// bytes. Only execution mode loads it.
+	Account
 )
 
 func (f Flavour) String() string {
@@ -80,6 +87,8 @@ func (f Flavour) String() string {
 		return "deposit-cli"
 	case QRLV1:
 		return "qrl-v1"
+	case Account:
+		return "gqrl-account"
 	default:
 		return fmt.Sprintf("Flavour(%d)", uint8(f))
 	}
@@ -87,7 +96,7 @@ func (f Flavour) String() string {
 
 // Version returns the keystore version field of the flavour.
 func (f Flavour) Version() int {
-	if f == QRLV1 {
+	if f == QRLV1 || f == Account {
 		return 1
 	}
 	return 0
@@ -117,8 +126,9 @@ type Keystore struct {
 	Path        string // the derivation path (m/12381/238/0/0); empty in qrysm's keystores and when the field is not one
 	Description string // printable characters only, at most 64 bytes
 
-	pubkey *mldsa87.PublicKey // the declared pubkey, nil when the file has none
-	sealed *sealed
+	pubkey  *mldsa87.PublicKey         // the declared pubkey, nil when the file has none
+	address *[mldsa87.AddressSize]byte // the declared address of an Account keystore
+	sealed  *sealed
 }
 
 // Parse reads a keystore and applies the structure and KDF policy. It runs
@@ -134,6 +144,13 @@ func Parse(data []byte) (ks *Keystore, err error) {
 	}
 	// Unmarshal, unlike a Decoder, also refuses any data after the object,
 	// a stray closing bracket included.
+	var probe struct {
+		Address *string `json:"address"`
+	}
+	if json.Unmarshal(data, &probe) == nil && probe.Address != nil {
+		return nil, fmt.Errorf("%w: a go-qrl account keystore (it has an address) holds an execution-layer key, "+
+			"which consensus mode does not load", ErrFormat)
+	}
 	var f file
 	if err := json.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("%w: not a single keystore JSON object", ErrFormat)
@@ -149,7 +166,7 @@ func Parse(data []byte) (ks *Keystore, err error) {
 	default:
 		return nil, fmt.Errorf("%w: unsupported version %d (want 1, or 0 for the deposit CLI)", ErrPolicy, *f.Version)
 	}
-	if ks.sealed, err = checkCrypto(f.Crypto); err != nil {
+	if ks.sealed, err = checkCrypto(f.Crypto, mldsa87.SeedSize); err != nil {
 		return nil, err
 	}
 	ks.KDF = ks.sealed.kdf
@@ -183,19 +200,36 @@ func (ks *Keystore) Decrypt(pw *Password) (key *mldsa87.Key, err error) {
 			key, err = nil, panicked(r)
 		}
 	}()
+	if ks.Flavour == Account {
+		var ext [mldsa87.ExtendedSeedSize]byte
+		defer mldsa87.Wipe(ext[:])
+		if err := ks.open(pw, ext[:]); err != nil {
+			return nil, err
+		}
+		return ks.deriveAccount(&ext)
+	}
 	var seed [mldsa87.SeedSize]byte
 	defer mldsa87.Wipe(seed[:])
+	if err := ks.open(pw, seed[:]); err != nil {
+		return nil, err
+	}
+	return ks.derive(&seed)
+}
+
+// open opens the ciphertext into plaintext with the first password
+// candidate that authenticates.
+func (ks *Keystore) open(pw *Password, plaintext []byte) error {
 	for _, c := range pw.candidates(ks.Flavour) {
-		err := ks.sealed.open(c, &seed)
+		err := ks.sealed.open(c, plaintext)
 		if errors.Is(err, errAuth) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrInternal, err)
+			return fmt.Errorf("%w: %v", ErrInternal, err)
 		}
-		return ks.derive(&seed)
+		return nil
 	}
-	return nil, ErrPassword
+	return ErrPassword
 }
 
 // Decrypt parses data and decrypts it with pw.
