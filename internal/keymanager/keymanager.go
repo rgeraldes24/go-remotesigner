@@ -142,9 +142,9 @@ type Manager struct {
 	cfg Config
 	mu  sync.Mutex // serialises imports and deletes after their keystores are open
 
-	// afterWrite, in tests, runs between writing an imported key's files
-	// and loading the key, where a reload may load it from them.
-	afterWrite func(source string)
+	// afterWrite, in tests, runs between writing the imported keys' files
+	// and loading the keys, where a reload may load them from the files.
+	afterWrite func()
 }
 
 // New returns a Manager.
@@ -277,9 +277,7 @@ func (m *Manager) Import(ctx context.Context, req ImportRequest) ([]Result, erro
 		}
 		candidates = kept
 	}
-	for _, i := range candidates {
-		results[i] = m.add(ctx, &open[i], req.Keystores[i], req.Passwords[i])
-	}
+	m.commit(ctx, open, req, candidates, results)
 	for i, j := range copyOf {
 		if results[j].Status == Imported {
 			results[i] = Result{Status: Duplicate}
@@ -383,57 +381,126 @@ func (m *Manager) importHistory(ctx context.Context, data []byte, open []opened,
 	return failed, err
 }
 
-// add writes a key's files, loads the key from them and enables it. On
-// failure nothing of the key is left: its files are removed, it is evicted,
-// and its enabled flag is as it was.
-func (m *Manager) add(ctx context.Context, o *opened, keystore, password []byte) Result {
-	pk := o.key.PublicKey()
-	id := slashing.KeyID(pk.ID())
-	f := filesOf(m.cfg.Dir, &pk)
-	log := m.cfg.Log.WithField("key", pk.LogID())
-	fail := func(msg string, err error) Result {
+// commitWorkers bounds the keys whose files are written at once: each
+// file is synced before it is renamed, and the syncs of several keys
+// overlap.
+const commitWorkers = 8
+
+// pending is a key on its way in.
+type pending struct {
+	i     int // its keystore
+	pk    mldsa87.PublicKey
+	files keyFiles
+}
+
+// commit adds the candidate keys: it writes their files, registers them in
+// slashing protection in one transaction, loads each from its files and
+// enables them all in one transaction, and sets their results. A key that
+// fails a step is an error and leaves nothing: its files are removed, it is
+// evicted, and its enabled flag is as it was (a key the store did not know
+// is registered, enabled, which is how any load would register it).
+func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, candidates []int, results []Result) {
+	keys := make([]pending, len(candidates))
+	for n, i := range candidates {
+		pk := open[i].key.PublicKey()
+		keys[n] = pending{i: i, pk: pk, files: filesOf(m.cfg.Dir, &pk)}
+	}
+	fail := func(p pending, msg string, err error) {
+		log := m.cfg.Log.WithField("key", p.pk.LogID())
 		log.WithError(err).Error("Keymanager import: " + msg)
-		if _, rerr := f.remove(); rerr != nil {
+		if _, rerr := p.files.remove(); rerr != nil {
 			log.WithError(rerr).Error("Keymanager import: the files of a key that was not imported could not be removed")
 		}
 		// Mark the source changed, so that a load that read the files
 		// meanwhile drops what it read.
-		_, _ = m.cfg.Keys.Remove(f.source())
-		return Result{Status: Error, Message: msg}
+		_, _ = m.cfg.Keys.Remove(p.files.source())
+		if k := open[p.i].key; k != nil {
+			k.Zeroize()
+			open[p.i].key = nil
+		}
+		results[p.i] = Result{Status: Error, Message: msg}
 	}
-	if err := f.write(keystore, password); err != nil {
-		o.key.Zeroize()
-		o.key = nil
-		return fail("the key's files could not be written", err)
+
+	written := make([]error, len(keys))
+	source.Each(ctx, len(keys), commitWorkers, func(n int) {
+		p := keys[n]
+		written[n] = p.files.write(req.Keystores[p.i], req.Passwords[p.i])
+	}, nil)
+	var ok []pending
+	for n, p := range keys {
+		if written[n] != nil {
+			fail(p, "the key's files could not be written", written[n])
+			continue
+		}
+		ok = append(ok, p)
+	}
+	if len(ok) == 0 {
+		return
+	}
+	if err := syncDir(m.cfg.Dir); err != nil {
+		for _, p := range ok {
+			fail(p, "the key's files could not be written", err)
+		}
+		return
 	}
 	if m.afterWrite != nil {
-		m.afterWrite(f.source())
+		m.afterWrite()
 	}
-	key := o.key
-	o.key = nil // Add owns it now
-	err := m.cfg.Keys.Add(provider.Batch{Source: f.source(), Keys: []*mldsa87.Key{key}, Meta: []provider.Meta{o.meta}},
-		func(pks [][]byte) error { return m.cfg.Engine.RegisterValidators(ctx, pks) })
-	if errors.Is(err, provider.ErrDuplicate) {
-		e, ok := m.cfg.Keys.Entry(pk.ID())
-		if !ok || e.Source != f.source() {
-			// Loaded from another source meanwhile.
-			if _, rerr := f.remove(); rerr != nil {
-				log.WithError(rerr).Error("Keymanager import: the files of a duplicate key could not be removed")
-			}
-			_, _ = m.cfg.Keys.Remove(f.source())
-			return Result{Status: Duplicate}
+
+	pubkeys := make([][]byte, len(ok))
+	for n := range ok {
+		pubkeys[n] = ok[n].pk[:]
+	}
+	if err := m.cfg.Engine.RegisterValidators(ctx, pubkeys); err != nil {
+		for _, p := range ok {
+			fail(p, "the key could not be registered in slashing protection", err)
 		}
-		// A load read the files just written and loaded the key from
-		// them: it is the key this import added.
-		err = nil
+		return
 	}
-	if err != nil {
-		return fail("the key could not be registered in slashing protection", err)
+	var loaded []pending
+	for _, p := range ok {
+		key := open[p.i].key
+		open[p.i].key = nil // Add owns it now
+		err := m.cfg.Keys.Add(provider.Batch{Source: p.files.source(), Keys: []*mldsa87.Key{key},
+			Meta: []provider.Meta{open[p.i].meta}}, nil)
+		if errors.Is(err, provider.ErrDuplicate) {
+			if e, has := m.cfg.Keys.Entry(p.pk.ID()); !has || e.Source != p.files.source() {
+				// Loaded from another source meanwhile.
+				if _, rerr := p.files.remove(); rerr != nil {
+					m.cfg.Log.WithField("key", p.pk.LogID()).WithError(rerr).
+						Error("Keymanager import: the files of a duplicate key could not be removed")
+				}
+				_, _ = m.cfg.Keys.Remove(p.files.source())
+				results[p.i] = Result{Status: Duplicate}
+				continue
+			}
+			// A load read the files just written and loaded the key from
+			// them: it is the key this import added.
+			err = nil
+		}
+		if err != nil {
+			fail(p, "the key could not be loaded", err)
+			continue
+		}
+		loaded = append(loaded, p)
 	}
-	if err := m.cfg.Store.SetValidatorEnabled(ctx, id, true); err != nil {
-		return fail("the key could not be enabled in slashing protection", err)
+	if len(loaded) == 0 {
+		return
 	}
-	return Result{Status: Imported}
+	ids := make([]slashing.KeyID, len(loaded))
+	for n, p := range loaded {
+		ids[n] = slashing.KeyID(p.pk.ID())
+	}
+	err := m.cfg.Store.UpdateHistory(ctx, ids, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
+		return tx.SetEnabled(true)
+	})
+	for _, p := range loaded {
+		if err != nil {
+			fail(p, "the key could not be enabled in slashing protection", err)
+			continue
+		}
+		results[p.i] = Result{Status: Imported}
+	}
 }
 
 func (m *Manager) logImport(open []opened, results []Result) {

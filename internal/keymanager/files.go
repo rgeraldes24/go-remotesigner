@@ -124,7 +124,8 @@ func (f keyFiles) configYAML() []byte {
 // (O_EXCL, mode 0600, synced) and renamed over the final name: a file or a
 // symlink planted there is replaced, never written through, and a reader
 // sees the old file or the whole new one. On failure the files written so
-// far are removed.
+// far are removed. The caller syncs the directory (syncDir) once it has
+// written the files of every key it adds.
 func (f keyFiles) write(keystore, password []byte) error {
 	for _, w := range []struct {
 		path string
@@ -135,7 +136,7 @@ func (f keyFiles) write(keystore, password []byte) error {
 			return err
 		}
 	}
-	return syncDir(f.dir)
+	return nil
 }
 
 // remove removes the key-config file first, so that a load never finds it

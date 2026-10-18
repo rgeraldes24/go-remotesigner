@@ -109,12 +109,13 @@ Each keystore goes through these steps, in order; a step that fails makes it an 
    Each is written to a new temporary file (`O_EXCL`, mode `0600`, synced) and renamed over its name, the key-config
    file last: a file or a symlink found at the name is replaced, never written through, and a load never sees half a
    file or a key-config file without its keystore.
-7. **Load and enable.** The key is loaded from those files and registered in slashing protection, and then enabled:
-   a key that a delete (or `consensus disable-validator`) disabled is enabled again by its import. If this step fails,
-   the files are removed, the key is evicted and its enabled flag is left as it was.
+7. **Load and enable.** The keys of the request are registered in slashing protection, loaded from their files and
+   then enabled: a key that a delete (or `consensus disable-validator`) disabled is enabled again by its import. If
+   this step fails for a key, its files are removed, it is evicted and its enabled flag is left as it was (a key the
+   store did not know stays registered, enabled, as any load of it would register it).
 
-An import that fails after step 5 leaves the history it wrote (history only adds protection) but never an enabled key
-without its files. The first reload after an import decrypts each imported key once more: files that were written
+An import that fails after step 5 leaves the history it wrote (history only adds protection), but it never enables a
+key that was disabled. The first reload after an import decrypts each imported key once more: files that were written
 less than two seconds before a load starts are always read again (see [`reload.md`](reload.md)); later reloads keep
 it without decrypting.
 

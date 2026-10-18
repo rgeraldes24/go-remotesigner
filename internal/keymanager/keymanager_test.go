@@ -396,7 +396,7 @@ func TestChangesDuringALoad(t *testing.T) {
 func TestImportRacesAReload(t *testing.T) {
 	f := newFixture(t)
 	a := newKey(t, "race", 0)
-	f.m.afterWrite = func(source string) {
+	f.m.afterWrite = func() {
 		cfg := keyconfig.Config{Dir: f.dir, Policy: secretfile.Policy{Strict: true}, Decrypt: f.sem.Decrypt}
 		batches, err := cfg.Load(bg, 1, nil, nil)
 		if err != nil {
@@ -433,11 +433,24 @@ func (s *failingStore) RegisterValidators(ctx context.Context, pks [][]byte) err
 	return s.Store.RegisterValidators(ctx, pks)
 }
 
-func (s *failingStore) SetValidatorEnabled(ctx context.Context, id slashing.KeyID, enabled bool) error {
-	if s.failEnable && enabled {
+func (s *failingStore) UpdateHistory(ctx context.Context, ids []slashing.KeyID,
+	fn func(slashing.KeyID, slashing.HistoryTx) error) error {
+	if !s.failEnable {
+		return s.Store.UpdateHistory(ctx, ids, fn)
+	}
+	return s.Store.UpdateHistory(ctx, ids, func(id slashing.KeyID, tx slashing.HistoryTx) error {
+		return fn(id, enableFails{tx})
+	})
+}
+
+// enableFails is a transaction whose SetEnabled(true) fails.
+type enableFails struct{ slashing.HistoryTx }
+
+func (t enableFails) SetEnabled(enabled bool) error {
+	if enabled {
 		return errors.New("store down")
 	}
-	return s.Store.SetValidatorEnabled(ctx, id, enabled)
+	return t.HistoryTx.SetEnabled(enabled)
 }
 
 // An import that fails after the key's files are written leaves nothing:
