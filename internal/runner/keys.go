@@ -203,8 +203,8 @@ func (l *KeyLoader) addBulk(kind, check, what string) {
 	if !ok {
 		return
 	}
-	b := secrets.Bulk{Kind: kind}
-	l.sources = append(l.sources, &keySource{what: what, prefix: b.Prefix(), check: check, io: true,
+	prefix := secrets.Bulk{Kind: kind}.Prefix()
+	l.sources = append(l.sources, &keySource{what: what, prefix: prefix, check: check, io: true,
 		wholeMsg: "The " + what + " could not be listed; every secret keeps its previous keys",
 		oneMsg:   "A secret failed to load; its previous keys stay loaded",
 		load: func(ctx context.Context, workers int, _ source.Unchanged, report func(done, total int)) (
@@ -214,8 +214,7 @@ func (l *KeyLoader) addBulk(kind, check, what string) {
 				return nil, fmt.Errorf("%s bulk loading: %w", kind, err)
 			}
 			defer closeStore()
-			b.Store = store
-			return b.Load(ctx, workers, report)
+			return secrets.Bulk{Kind: kind, Store: store}.Load(ctx, workers, report)
 		}})
 }
 
