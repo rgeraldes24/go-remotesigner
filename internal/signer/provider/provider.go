@@ -23,12 +23,17 @@
 // never a mix.
 //
 // A load never turns a failure into a removal. Keys come in batches, one per
-// source (a key-config file); a batch that failed to load keeps the keys it
-// had. Keys absent from a successful load are evicted from memory and
-// zeroized, but nothing about them is written anywhere: in particular their
-// slashing-protection rows are untouched. A key that is already loaded keeps
-// its in-memory object across loads, so in-flight users of it are not
-// disturbed.
+// source (a key-config file, a keystore); a batch that failed to load keeps
+// the keys it had. Keys absent from a successful load are evicted from
+// memory and zeroized, but nothing about them is written anywhere: in
+// particular their slashing-protection rows are untouched. A key that is
+// already loaded keeps its in-memory object across loads, so in-flight users
+// of it are not disturbed.
+//
+// Each source's keys are stored with the version of the files they were
+// derived from (their sizes and modification times). A loader that finds a
+// source at the same version keeps its keys with a Keep batch instead of
+// decrypting the source again (see Unchanged).
 package provider
 
 import (
@@ -36,6 +41,7 @@ import (
 	"errors"
 	"iter"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -55,11 +61,17 @@ type Entry struct {
 }
 
 // Batch is the outcome of loading one source: its keys, or the error that
-// made it fail.
+// made it fail, or Keep when the source is unchanged.
 type Batch struct {
 	Source string
-	Keys   []*mldsa87.Key
-	Err    error
+	// Version identifies the content the keys were derived from; empty
+	// means the keys are derived again on every load.
+	Version string
+	Keys    []*mldsa87.Key
+	Err     error
+	// Keep: the source is at the version its loaded keys came from
+	// (Unchanged reported true), so they stay as they are.
+	Keep bool
 }
 
 // Delta summarises an Apply.
@@ -68,6 +80,8 @@ type Delta struct {
 	// Renewed counts the loaded keys replaced by the copy just derived,
 	// because renew asked for it.
 	Renewed int
+	// Unchanged counts the keys of Keep batches.
+	Unchanged int
 	// Errors counts the batches that failed.
 	Errors int
 }
@@ -80,9 +94,14 @@ type snapshot struct {
 	byID     map[ID]*Entry
 	sorted   []*Entry // by public key bytes, i.e. by canonical identifier
 	bySource map[string][]*Entry
+	versions map[string]string // of the sources whose keys all entered the set
 }
 
-var empty = &snapshot{byID: map[ID]*Entry{}, bySource: map[string][]*Entry{}}
+func newSnapshot() *snapshot {
+	return &snapshot{byID: map[ID]*Entry{}, bySource: map[string][]*Entry{}, versions: map[string]string{}}
+}
+
+var empty = newSnapshot()
 
 // Provider is the loaded key set. Reads are safe for concurrent use; Apply
 // and Close are serialised.
@@ -126,8 +145,53 @@ func (p *Provider) PublicKeys() iter.Seq[*mldsa87.PublicKey] {
 	}
 }
 
+// Unchanged reports whether source is loaded at version, with keys of which
+// renew names none: then a Keep batch keeps them. A nil renew renews
+// nothing.
+func (p *Provider) Unchanged(source, version string, renew func(ID) bool) bool {
+	s := p.state.Load()
+	v, ok := s.versions[source]
+	if !ok || version == "" || v != version || len(s.bySource[source]) == 0 {
+		return false
+	}
+	if renew != nil {
+		for _, e := range s.bySource[source] {
+			if renew(e.Key.ID()) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// Sources returns the loaded sources whose names start with prefix,
+// sorted.
+func (p *Provider) Sources(prefix string) []string {
+	var out []string
+	for src := range p.state.Load().bySource {
+		if strings.HasPrefix(src, prefix) {
+			out = append(out, src)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// Count returns the number of loaded keys whose source name starts with
+// prefix.
+func (p *Provider) Count(prefix string) int {
+	n := 0
+	for src, es := range p.state.Load().bySource {
+		if strings.HasPrefix(src, prefix) {
+			n += len(es)
+		}
+	}
+	return n
+}
+
 // Apply builds the next key set from batches and swaps it in:
 //
+//   - a Keep batch keeps the keys its source has in the current set;
 //   - a failed batch keeps the keys its source had in the current set;
 //   - a key already loaded keeps its current object, and the duplicate just
 //     derived is zeroized, unless renew reports true for its id: then the
@@ -151,7 +215,7 @@ func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error,
 		return Delta{}, ErrClosed
 	}
 	cur := p.state.Load()
-	next := &snapshot{byID: map[ID]*Entry{}, bySource: map[string][]*Entry{}}
+	next := newSnapshot()
 	var (
 		d       Delta
 		added   [][]byte
@@ -169,22 +233,38 @@ func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error,
 		next.bySource[e.Source] = append(next.bySource[e.Source], e)
 		return true
 	}
+	// keep carries a source's current entries over; its version survives
+	// only if all of them entered the set.
+	keep := func(source string, count *int) {
+		all := true
+		for _, e := range cur.bySource[source] {
+			if put(e) {
+				*count++
+			} else {
+				all = false
+			}
+		}
+		if v, ok := cur.versions[source]; ok && all {
+			next.versions[source] = v
+		}
+	}
 	for _, b := range batches {
-		if b.Err != nil {
-			d.Errors++
+		if b.Err != nil || b.Keep {
 			discard = append(discard, b.Keys...)
-			for _, e := range cur.bySource[b.Source] {
-				if put(e) {
-					d.Kept++
-				}
+			if b.Err != nil {
+				d.Errors++
+				keep(b.Source, &d.Kept)
+			} else {
+				keep(b.Source, &d.Unchanged)
 			}
 			continue
 		}
+		all := true
 		for _, k := range b.Keys {
 			if old, ok := cur.byID[k.ID()]; ok {
 				if renew == nil || !renew(k.ID()) {
 					discard = append(discard, k)
-					put(&Entry{Key: old.Key, PK: old.PK, Source: b.Source})
+					all = put(&Entry{Key: old.Key, PK: old.PK, Source: b.Source}) && all
 					continue
 				}
 				if put(&Entry{Key: k, PK: k.PublicKey(), Source: b.Source}) {
@@ -192,16 +272,21 @@ func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error,
 					renewed = append(renewed, old.Key)
 				} else {
 					discard = append(discard, k)
+					all = false
 				}
 				continue
 			}
 			if !put(&Entry{Key: k, PK: k.PublicKey(), Source: b.Source}) {
 				discard = append(discard, k)
+				all = false
 				continue
 			}
 			fresh = append(fresh, k)
 			pk := k.PublicKey()
 			added = append(added, pk[:])
+		}
+		if all && b.Version != "" && len(b.Keys) > 0 {
+			next.versions[b.Source] = b.Version
 		}
 	}
 	if len(added) > 0 && register != nil {

@@ -263,6 +263,12 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/hygiene/hygiene_linux.go` | new | | | |
 | `internal/hygiene/hygiene_other.go` | new | | | |
 | `internal/hygiene/hygiene_test.go` | new | | | |
+| `internal/keys/argon/argon.go` | new | | | |
+| `internal/keys/argon/argon_test.go` | new | | | |
+| `internal/keys/argon/cgroup.go` | new | | | |
+| `internal/keys/argon/memory_darwin.go` | new | | | |
+| `internal/keys/argon/memory_linux.go` | new | | | |
+| `internal/keys/argon/memory_other.go` | new | | | |
 | `internal/keys/keyconfig/keyconfig.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/SignerLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/parser/YamlSignerParser.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileRawSigningMetadata.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/keyconfig/keyconfig_test.go` | new | | | |
 | `internal/keys/keystore/qrlv1/bench_test.go` | new | | | |
@@ -275,6 +281,11 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/keystore/qrlv1/norm.go` | mit-derived | `cyyber/qrysm` (MIT), from `wealdtech/go-eth2-wallet-encryptor-keystorev4` `v1.4.1` (Apache-2.0) | `pkg/go-qrl-wallet-encryptor-keystore/norm.go` | `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` |
 | `internal/keys/keystore/qrlv1/norm_test.go` | new | | | |
 | `internal/keys/keystore/qrlv1/password.go` | new | | | |
+| `internal/keys/keystoretest/keystoretest.go` | new | | | |
+| `internal/keys/secretfile/secretfile.go` | new | | | |
+| `internal/keys/secretfile/secretfile_test.go` | new | | | |
+| `internal/keys/source/source.go` | new | | | |
+| `internal/keys/source/source_test.go` | new | | | |
 | `internal/logging/logging.go` | new | | | |
 | `internal/logging/logging_test.go` | new | | | |
 | `internal/logging/secret.go` | new | | | |
