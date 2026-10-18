@@ -198,7 +198,9 @@ jobs:
     # The release dry run (.goreleaser.yaml): every archive, SBOM and image of
     # both flavours, published and signed nowhere; then the release checks
     # (test/release): licence files per flavour in every archive and image,
-    # no go-qrl in the consensus binaries, nonroot images.
+    # no go-qrl in the consensus binaries, nonroot images, and the Docker
+    # smoke test on the amd64 image of each flavour, so the release images
+    # themselves run the signer hardened.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

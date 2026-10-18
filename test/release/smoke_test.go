@@ -44,19 +44,29 @@ type smokeEnv struct {
 	gvr     string
 }
 
-// TestDockerSmoke runs the image named by REMOTESIGNER_SMOKE_IMAGE through
-// its real entrypoint on a user-defined Docker network, as an operator
-// would: a file network with --network-genesis-time and
-// --network-genesis-validators-root, one key, and a client container that
-// reaches the signer by name at https://signer:9000, pinning the certificate
-// by the fingerprint the signer logged. It also checks the refusals: no
-// certificate with generation off, no host allowlist, no network.
+// TestDockerSmoke runs the smoke test on the image named by
+// REMOTESIGNER_SMOKE_IMAGE (make docker-smoke). TestReleaseImages runs it on
+// the release dry run's images.
 func TestDockerSmoke(t *testing.T) {
 	image := os.Getenv("REMOTESIGNER_SMOKE_IMAGE")
 	if image == "" {
 		t.Skip("set REMOTESIGNER_SMOKE_IMAGE to an image built from deploy/docker/Dockerfile (make docker-smoke)")
 	}
 	requireDocker(t)
+	smoke(t, image)
+}
+
+// smoke runs image through its real entrypoint on a user-defined Docker
+// network, as an operator would, hardened (read-only root file system, no
+// capabilities, no new privileges): a file network with
+// --network-genesis-time and --network-genesis-validators-root, one key, and
+// a client container that reaches the signer by name at
+// https://signer:9000, pinning the certificate by the fingerprint the signer
+// logged, and checks that the signer runs as the nonroot user. It also
+// checks the refusals: no certificate with generation off, no host
+// allowlist, no network.
+func smoke(t *testing.T, image string) {
+	t.Helper()
 	e := newSmokeEnv(t, image)
 
 	t.Run("image configuration", func(t *testing.T) {

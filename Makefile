@@ -159,7 +159,7 @@ release-snapshot:
 ## release-check: check the dry run's output (test/release): both flavours for every target, each archive and image
 ## with LICENSE, its flavour's NOTICE, LICENSES/ and third_party_licenses/; static binaries, the consensus ones built
 ## with noexecution and linking no go-qrl module; checksums and SBOMs; the images' nonroot user, entrypoint, labels
-## and /data, and a read-only run of those of this machine's architecture
+## and /data; and the docker-smoke checks on the images of this machine's architecture, one per flavour
 RELEASE_DIST ?= dist
 release-check:
 	REMOTESIGNER_RELEASE_DIST=$(abspath $(RELEASE_DIST)) $(if $(findstring sbom,$(RELEASE_SKIP)),,REMOTESIGNER_RELEASE_SBOM=1) \

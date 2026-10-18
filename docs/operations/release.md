@@ -93,11 +93,14 @@ make release-check
 - every archive has an SPDX SBOM (unless the dry run skipped them);
 - every image (both flavours, amd64 and arm64) runs as `65532:65532` with the documented entrypoint and no
   plaintext-token override, carries its flavour's labels and licence files, holds a binary that passes the same build
-  checks, and has `/data` owned by the nonroot user with mode `0700`; the images of this machine's architecture
-  also run with a read-only root file system.
+  checks, and has `/data` owned by the nonroot user with mode `0700`;
+- the images of this machine's architecture, one per flavour, pass the Docker smoke test
+  ([`deploy-docker.md`](deploy-docker.md#8-building-the-image)): run hardened, with a read-only root file system and
+  no capabilities, they serve TLS as the nonroot user to a client container that pins the generated certificate,
+  and refuse to start without a certificate, a host allowlist or a network.
 
-The image's behaviour is checked by `make docker-smoke` ([`deploy-docker.md`](deploy-docker.md#8-building-the-image)),
-and the systemd unit by `make systemd-smoke` ([`deploy-systemd.md`](deploy-systemd.md#7-what-the-unit-restricts)).
+`make docker-smoke` runs the same smoke test on an image `make image` builds, and `make systemd-smoke` checks the
+systemd unit ([`deploy-systemd.md`](deploy-systemd.md#7-what-the-unit-restricts)).
 
 ## 5. Publishing
 
