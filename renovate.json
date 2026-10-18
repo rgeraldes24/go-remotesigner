@@ -29,6 +29,18 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+\\w+: (?<currentValue>\\S+)"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": [
+        "Images pinned by digest in Go test code (the systemd smoke test's distribution), marked with a '// renovate: datasource=docker' comment on the line before."
+      ],
+      "managerFilePatterns": [
+        "/^test/.+\\.go$/"
+      ],
+      "matchStrings": [
+        "// renovate: datasource=(?<datasource>docker)\\n[^\\n\"]*\"(?<depName>[^\"@:]+):(?<currentValue>[^\"@]+)@(?<currentDigest>sha256:[0-9a-f]{64})\""
+      ]
     }
   ]
 }

@@ -26,7 +26,7 @@ type result struct {
 }
 
 // skipRootDirs are build and release outputs that are never committed.
-var skipRootDirs = map[string]bool{"bin": true, "dist": true, "third_party_licenses": true}
+var skipRootDirs = map[string]bool{"bin": true, "build": true, "dist": true, "third_party_licenses": true}
 
 // isJunk reports whether name is an editor or OS file that .gitignore keeps
 // out of the repository ("Editors and OS files"). Such files are skipped

@@ -1,0 +1,52 @@
+# Copyright 2026 The go-remotesigner Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Example --config-file for one of two or more signers that serve the same
+# keys and share one Postgres slashing-protection database, behind one name
+# the validator clients use (a load balancer or a DNS name). Postgres
+# advisory locks serialise the replicas' checks per validator, so no two
+# replicas can sign conflicting messages for one validator.
+#
+# This release does not have the Postgres store yet: until it does, the
+# signer refuses a postgres:// URL and the slashing-protection-db-password-file
+# key, and only single-host.yaml applies. The keys follow the names of the
+# store's flags, so the file works unchanged once it lands.
+#
+# Every replica runs with this same file, the same key-config files, the same
+# token files and the same certificate.
+
+data-path: /var/lib/remotesigner
+key-config-path: /var/lib/remotesigner/keys
+
+logging: INFO
+
+http-listen-host: 0.0.0.0
+http-listen-port: 9000
+# The shared name, which the certificate below must cover.
+http-host-allowlist:
+  - signer.internal
+# A certificate for the shared name, the same on every replica: a generated
+# certificate would differ per replica, and validator clients pin one.
+tls-cert-file: /etc/remotesigner/tls/signer.crt
+tls-key-file: /etc/remotesigner/tls/signer.key
+# The same tokens on every replica, created before the first start (0x and
+# 64 hex characters, mode 0600): a validator client that fails over to
+# another replica sends the same sign token.
+http-auth-token-file: /etc/remotesigner/auth-token
+http-admin-token-file: /etc/remotesigner/admin-token
+
+metrics-enabled: true
+metrics-host: 127.0.0.1
+metrics-port: 9001
+
+consensus:
+  network: /etc/remotesigner/network.yaml
+  network-genesis-time: 1760000000
+  network-genesis-validators-root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
+  # The shared database, with TLS to the server verified. The password comes
+  # from its own file (or PGPASSFILE), never from the URL.
+  slashing-protection-db-url: postgres://remotesigner@db.internal:5432/remotesigner?sslmode=verify-full
+  slashing-protection-db-password-file: /etc/remotesigner/db-password
+  # Schema upgrades run under an advisory lock, so replicas started together
+  # cannot both migrate. Set this for the start that upgrades, then unset it.
+  slashing-protection-db-migrate: false

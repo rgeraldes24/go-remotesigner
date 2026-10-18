@@ -1,0 +1,162 @@
+# Copyright 2026 The go-remotesigner Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Release configuration (goreleaser v2). Two flavours, each shipped as
+# archives and as an image with its own licence files (tools/releasedocs):
+#
+#   - remotesigner, the default flavour;
+#   - remotesigner-consensus (-tags noexecution): consensus only, permissive
+#     licences only.
+#
+# The release workflow (.github/workflows/release.yml) runs this on a version
+# tag only: it publishes the archives with an SBOM each, the checksums with a
+# keyless cosign signature, and the images with their SBOM and provenance
+# attestations, signed with cosign. The local dry run, `make
+# release-snapshot`, builds every archive, SBOM and image and publishes and
+# signs nothing; `make release-check` then checks its output
+# (docs/operations/release.md).
+version: 2
+project_name: go-remotesigner
+
+before:
+  hooks:
+    # build/release/<flavour>/ (LICENSE, NOTICE, LICENSES/, third_party_licenses/) and
+    # build/release/<flavour>.licenses (the SPDX expression of the image label).
+    - make release-docs GO_LICENSES={{ envOrDefault "GO_LICENSES" "go-licenses" }}
+
+builds:
+  - id: remotesigner
+    binary: remotesigner
+    main: ./cmd/remotesigner
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .FullCommit }}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+  - id: remotesigner-consensus
+    binary: remotesigner-consensus
+    main: ./cmd/remotesigner
+    tags:
+      - noexecution
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .FullCommit }}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+# Each archive holds the flavour's binary and its licence files: LICENSE, the
+# flavour's NOTICE, LICENSES/ and third_party_licenses/.
+archives:
+  - id: remotesigner
+    ids: [remotesigner]
+    name_template: "remotesigner_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    wrap_in_directory: true
+    files:
+      - src: build/release/remotesigner
+        dst: .
+  - id: remotesigner-consensus
+    ids: [remotesigner-consensus]
+    name_template: "remotesigner-consensus_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    wrap_in_directory: true
+    files:
+      - src: build/release/remotesigner-consensus
+        dst: .
+
+checksum:
+  name_template: checksums.txt
+
+# One SPDX SBOM per archive (syft).
+sboms:
+  - id: archives
+    artifacts: archive
+
+# Keyless signing: cosign gets a short-lived certificate for the release
+# workflow's OIDC identity, and the bundle carries it with the transparency
+# log entry. No signing key exists.
+signs:
+  - id: checksums
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - --bundle=${signature}
+      - ${artifact}
+      - --yes
+
+# The images are built from deploy/docker/Dockerfile for linux/amd64 and
+# linux/arm64. A release pushes each flavour as one multi-platform image with
+# an SBOM and a SLSA provenance attestation (BuildKit); the dry run loads one
+# image per platform into the local image store, tagged with the platform.
+dockers_v2:
+  - id: remotesigner
+    ids: [remotesigner]
+    dockerfile: deploy/docker/Dockerfile
+    images:
+      - ghcr.io/rgeraldes24/remotesigner
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms: [linux/amd64, linux/arm64]
+    extra_files:
+      - build/release/remotesigner
+    build_args:
+      FLAVOUR: remotesigner
+      VERSION: "{{ .Version }}"
+      REVISION: "{{ .FullCommit }}"
+      CREATED: "{{ .CommitDate }}"
+      LICENSES: '{{ mustReadFile "build/release/remotesigner.licenses" | trim }}'
+    flags:
+      - "{{ if not .IsSnapshot }}--provenance=mode=max{{ end }}"
+    sbom: true
+  - id: remotesigner-consensus
+    ids: [remotesigner-consensus]
+    dockerfile: deploy/docker/Dockerfile
+    images:
+      - ghcr.io/rgeraldes24/remotesigner-consensus
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms: [linux/amd64, linux/arm64]
+    extra_files:
+      - build/release/remotesigner-consensus
+    build_args:
+      FLAVOUR: remotesigner-consensus
+      VERSION: "{{ .Version }}"
+      REVISION: "{{ .FullCommit }}"
+      CREATED: "{{ .CommitDate }}"
+      LICENSES: '{{ mustReadFile "build/release/remotesigner-consensus.licenses" | trim }}'
+    flags:
+      - "{{ if not .IsSnapshot }}--provenance=mode=max{{ end }}"
+    sbom: true
+
+# Keyless, as for the checksums; the signature covers the multi-platform
+# index, its images and their attestations.
+docker_signs:
+  - id: images
+    cmd: cosign
+    artifacts: images
+    args:
+      - sign
+      - ${artifact}@${digest}
+      - --yes
+
+release:
+  github:
+    owner: rgeraldes24
+    name: go-remotesigner
+  prerelease: auto
+
+changelog:
+  use: git
+  sort: asc

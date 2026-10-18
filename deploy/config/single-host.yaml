@@ -1,0 +1,46 @@
+# Copyright 2026 The go-remotesigner Authors.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Example --config-file: one signer with its bbolt slashing-protection store,
+# serving validator clients on the local network over TLS. It is the
+# configuration the systemd unit (deploy/systemd/remotesigner.service) reads
+# as /etc/remotesigner/remotesigner.yaml; docs/operations/deploy-systemd.md
+# walks through it. Keys are bare flag names (docs/reference/flags.md);
+# unknown keys are refused. Replace the host names, addresses and the chain
+# values below with your own.
+
+# Generated tokens (auth-token for the validator clients, admin-token for
+# operators), the generated TLS certificate, the store and the ports file.
+data-path: /var/lib/remotesigner
+# One key-config file per key (type file-raw), readable by the service user only.
+key-config-path: /var/lib/remotesigner/keys
+
+logging: INFO
+
+# The API, on every interface, over TLS 1.3 with a certificate generated into
+# /var/lib/remotesigner/tls/ on first start. The validator clients connect
+# with one of these names, which the certificate covers; set them before the
+# first start. To serve your own certificate instead, set tls-cert-file and
+# tls-key-file.
+http-listen-host: 0.0.0.0
+http-listen-port: 9000
+http-host-allowlist:
+  - signer.internal
+  - 10.0.0.5
+tls-generate-self-signed: true
+
+# Prometheus scrapes the metrics listener on this host.
+metrics-enabled: true
+metrics-host: 127.0.0.1
+metrics-port: 9001
+
+consensus:
+  # The chain: its qrysm-format config file, genesis time (Unix seconds) and
+  # genesis validators root. A non-loopback listener refuses to start without
+  # the last two.
+  network: /etc/remotesigner/network.yaml
+  network-genesis-time: 1760000000
+  network-genesis-validators-root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
+  # The bbolt store; this is the default location under data-path. Only one
+  # signer process may use it at a time.
+  slashing-protection-db-url: bolt:///var/lib/remotesigner/slashing-protection.db

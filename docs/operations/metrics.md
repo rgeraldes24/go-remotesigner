@@ -153,3 +153,21 @@ or a misbehaving client.
 
 1. Count the clients and their connections (`ss -tn sport = :9000`).
 2. Raise `--http-max-connections` only when the client count explains the load.
+
+## 5. The Grafana dashboard
+
+[`deploy/grafana/remotesigner.json`](../../deploy/grafana/remotesigner.json) charts the metrics above. Import it in
+Grafana (Dashboards, New, Import) and pick the Prometheus data source; the `Instance` variable selects one or more
+signers. It is adapted from Web3Signer's dashboard and carries its licence notice in its `description`.
+
+| Row | Panels |
+|---|---|
+| Overview | release, loaded keys, quarantined keys, signature faults, slashing refusals in the time range, fewest RANDAO layers left |
+| Signing | sign requests by type and by result, signing time (p50, p99), malformed and unknown-key requests, signature faults and quarantined keys |
+| Slashing protection | refusals by reason, permitted signings, store transaction time by operation (p50, p99) |
+| RANDAO | reveals by result, new-layer refusals and slow-path scans, reveal time by path (p99), layers left |
+| HTTP | API requests by route and status, request time by route (p99), open connections, requests in flight, connection-limit hits |
+| Process | CPU, resident and heap memory, goroutines, GC time |
+
+A test (`internal/metrics`) checks that every metric the dashboard queries is registered, so the dashboard cannot
+drift from the catalogue.

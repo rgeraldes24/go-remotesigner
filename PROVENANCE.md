@@ -171,7 +171,9 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 |---|---|---|---|---|
 | `.github/workflows/ci.yml` | new | | | |
 | `.github/workflows/nightly.yml` | new | | | |
+| `.github/workflows/release.yml` | new | | | |
 | `.golangci.yml` | new | | | |
+| `.goreleaser.yaml` | new | | | |
 | `api/openapi/consensus.yaml` | w3s-derived | `Consensys/web3signer` | `openapi-specs/eth2/web3signer.yaml`<br>`openapi-specs/eth2/signing/schemas.yaml`<br>`openapi-specs/eth2/signing/paths/sign.yaml`<br>`openapi-specs/eth2/signing/paths/public_keys.yaml`<br>`openapi-specs/eth2/signing/paths/high_watermark.yaml`<br>`openapi-specs/eth2/signing/paths/upcheck.yaml`<br>`openapi-specs/eth2/signing/paths/healthcheck.yaml`<br>`openapi-specs/eth2/signing/paths/reload.yaml`<br>`openapi-specs/eth2/keymanager/schemas.yaml`<br>`openapi-specs/eth2/keymanager/paths/keystores.yaml` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `api/openapi/docs_test.go` | new | | | |
 | `api/openapi/encoding_test.go` | new | | | |
@@ -180,6 +182,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `api/openapi/spec_test.go` | new | | | |
 | `cmd/remotesigner/consensus.go` | new | | | |
 | `cmd/remotesigner/consensus_test.go` | new | | | |
+| `cmd/remotesigner/deploy_test.go` | new | | | |
 | `cmd/remotesigner/flags/flags.go` | new | | | |
 | `cmd/remotesigner/flags/flags_test.go` | new | | | |
 | `cmd/remotesigner/flavour_consensus.go` | new | | | |
@@ -192,6 +195,11 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/main_test.go` | new | | | |
 | `cmd/remotesigner/offline.go` | new | | | |
 | `cmd/remotesigner/offline_test.go` | new | | | |
+| `deploy/config/postgres-ha.yaml` | new | | | |
+| `deploy/config/single-host.yaml` | new | | | |
+| `deploy/docker/Dockerfile` | new | | | |
+| `deploy/docker/compose.yaml` | new | | | |
+| `deploy/grafana/remotesigner.json` | w3s-derived | Web3Signer | `dashboard/web3signer-eth2-dashboard-grafana.json` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `deploy/prometheus/alerts.yml` | new | | | |
 | `internal/api/apierr/apierr.go` | new | | | |
 | `internal/api/apierr/apierr_test.go` | new | | | |
@@ -270,6 +278,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/logging/logging.go` | new | | | |
 | `internal/logging/logging_test.go` | new | | | |
 | `internal/logging/secret.go` | new | | | |
+| `internal/metrics/dashboard_test.go` | new | | | |
 | `internal/metrics/listener.go` | new | | | |
 | `internal/metrics/metrics.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/metrics/HttpApiMetrics.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/metrics/SlashingProtectionMetrics.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/metrics/metrics_test.go` | new | | | |
@@ -387,6 +396,15 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/server_test.go` | new | | | |
 | `test/acceptance/tls_test.go` | new | | | |
 | `test/acceptance/tls_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/tls/ServerSideTlsAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/tls/ServerSideTlsCaClientAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `test/release/checks_test.go` | new | | | |
+| `test/release/helpers_test.go` | new | | | |
+| `test/release/release_test.go` | new | | | |
+| `test/release/smoke_test.go` | new | | | |
+| `test/release/smokeclient/main.go` | new | | | |
+| `test/release/smokeclient/owner_other.go` | new | | | |
+| `test/release/smokeclient/owner_unix.go` | new | | | |
+| `test/release/systemd_test.go` | new | | | |
+| `test/repo/deploy_test.go` | new | | | |
 | `test/repo/links_test.go` | new | | | |
 | `test/repo/notice_test.go` | new | | | |
 | `test/repo/public_test.go` | new | | | |
@@ -403,6 +421,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `tools/headercheck/main.go` | new | | | |
 | `tools/headercheck/provenance.go` | new | | | |
 | `tools/headercheck/provenance_test.go` | new | | | |
+| `tools/releasedocs/main.go` | new | | | |
+| `tools/releasedocs/main_test.go` | new | | | |
 | `tools/vectorgen/blocks.go` | new | | | |
 | `tools/vectorgen/capabilities.go` | new | | | |
 | `tools/vectorgen/contract/contract.go` | new | | | |
