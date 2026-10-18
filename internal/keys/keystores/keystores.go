@@ -190,7 +190,7 @@ func (c Config) load(ctx context.Context, start time.Time, path string, shared *
 			return fail(err)
 		}
 	}
-	b.Version = source.Version(start, ksInfo, pwInfo)
+	b.Version = source.Version(start, []os.FileInfo{ksInfo}, pwInfo)
 	if unchanged != nil && unchanged(b.Source, b.Version) {
 		b.Keep = true
 		return b

@@ -90,10 +90,14 @@ A reload reads every source again and treats each one on its own:
 | lists a quarantined key | derives the key again, which lifts the quarantine ([`metrics.md`](metrics.md#signaturefault)) |
 
 A source is unchanged when the file itself and every keystore and password file it names have the size and
-modification time they had when its keys were loaded. A file modified less than two seconds before a load counts
-as changed at the next load too, because a file rewritten within the timestamp granularity of its file system can
-keep both. Unchanged keystores are the reason a reload of 10,000 keystores with one new keystore costs one Argon2id
-run, not 10,000.
+modification time they had when its keys were loaded, and its key files (the key-config file and the keystores) are
+still the same files: on Linux, macOS and FreeBSD the signer also compares their device, inode number and
+status-change time, so that a keystore renamed or copied over another one with the same size and time (as `tar`,
+`unzip` and `cp -p` can leave two keystores) is loaded again instead of keeping the replaced key. A `chmod` of a
+keystore therefore decrypts it again at the next load; a `chmod` of a password file does not. A file modified less
+than two seconds before a load counts as changed at the next load too, because a file rewritten within the
+timestamp granularity of its file system can keep both. Unchanged keystores are the reason a reload of 10,000
+keystores with one new keystore costs one Argon2id run, not 10,000.
 
 "Fails to load" covers every error: a file that cannot be read, invalid YAML or JSON, an unknown key, a wrong
 password, a keystore the policy refuses, a password file refused by `--strict-file-permissions`, and a source not

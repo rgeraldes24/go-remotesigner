@@ -23,21 +23,54 @@ import (
 // load started gets no version and is loaded again next time.
 const RacyWindow = 2 * time.Second
 
-// Version is the version of a source made of the files fis, in order: each
-// file's size and modification time. It is "" (never unchanged) when a file
-// was modified less than RacyWindow before start.
-func Version(start time.Time, fis ...fs.FileInfo) string {
+// Version is the version of a source: for each of its files, in order,
+// the size and modification time, and for each of its key files also the
+// file's identity (its device, inode number and status-change time, where
+// the platform has them). keys are the files whose content gives the keys
+// (a keystore, a key-config file), passwords the password files that open
+// them. The version is "" (never unchanged) when a file was modified less
+// than RacyWindow before start.
+//
+// Size and modification time alone miss a key file replaced by another of
+// the same size and time: renaming one keystore over another, when tar,
+// unzip or cp -p gave both the same whole-second time, would keep the old
+// key loaded while the file holds a new one. A rename, a copy or an
+// extraction cannot carry a file's inode and status-change time over, so
+// the identity catches it; a chmod also changes the status-change time and
+// costs one more decrypt.
+//
+// The identity of a password file is left out. A password file does not
+// choose the key: one replaced by another of the same size and time opens
+// the unchanged keystore to the same key or fails. And fixing the mode of a
+// refused password file, the chmod an operator makes after a refusal, must
+// not decrypt again every keystore that a shared password file opens.
+func Version(start time.Time, keys []fs.FileInfo, passwords ...fs.FileInfo) string {
 	var b strings.Builder
-	for i, fi := range fis {
+	add := func(fi fs.FileInfo, key bool) bool {
 		if fi.ModTime().After(start.Add(-RacyWindow)) {
-			return ""
+			return false
 		}
-		if i > 0 {
+		if b.Len() > 0 {
 			b.WriteByte(';')
 		}
 		b.WriteString(strconv.FormatInt(fi.Size(), 10))
 		b.WriteByte('@')
 		b.WriteString(strconv.FormatInt(fi.ModTime().UnixNano(), 10))
+		if id, ok := identity(fi); key && ok {
+			b.WriteByte('#')
+			b.WriteString(id)
+		}
+		return true
+	}
+	for _, fi := range keys {
+		if !add(fi, true) {
+			return ""
+		}
+	}
+	for _, fi := range passwords {
+		if !add(fi, false) {
+			return ""
+		}
 	}
 	return b.String()
 }

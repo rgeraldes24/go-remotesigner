@@ -187,7 +187,7 @@ func (c Config) loadFile(ctx context.Context, start time.Time, path string, keep
 		return nil, "", err
 	}
 	defer wipeDocs(docs)
-	infos := []fs.FileInfo{fi}
+	keyFiles, passwords := []fs.FileInfo{fi}, []fs.FileInfo(nil)
 	for _, d := range docs {
 		if d.seed != nil {
 			if err := c.Policy.Check(path, fi); err != nil {
@@ -211,9 +211,9 @@ func (c Config) loadFile(ctx context.Context, start time.Time, path string, keep
 		if err != nil {
 			return nil, "", fmt.Errorf("keystorePasswordFile: %w", err)
 		}
-		infos = append(infos, ksInfo, pwInfo)
+		keyFiles, passwords = append(keyFiles, ksInfo), append(passwords, pwInfo)
 	}
-	version := source.Version(start, infos...)
+	version := source.Version(start, keyFiles, passwords...)
 	if keep != nil && keep(version) {
 		return nil, version, nil
 	}

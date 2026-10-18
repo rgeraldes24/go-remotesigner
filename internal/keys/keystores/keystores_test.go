@@ -273,6 +273,71 @@ func TestReloadUnchangedAndPermissions(t *testing.T) {
 	}
 }
 
+// A keystore replaced by another of the same size and modification time, as
+// renaming one tar-extracted keystore over another leaves it, is decrypted
+// again: the key its file now holds is loaded and the replaced key is
+// evicted, instead of the replaced key staying loaded as unchanged.
+func TestReloadKeystoreReplacedWithSameSizeAndTime(t *testing.T) {
+	root := t.TempDir()
+	ksDir := filepath.Join(root, "keystores")
+	if err := os.Mkdir(ksDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f := newFixture(t)
+	a := f.keystore(t, ksDir, "", 1, "shared")
+	b := f.keystore(t, ksDir, "", 2, "shared")
+	pw := writeSecret(t, root, "password.txt", "shared\n")
+	extracted := time.Unix(1_760_000_000, 0) // tar keeps whole seconds
+	for _, p := range []string{filepath.Join(ksDir, a.name), filepath.Join(ksDir, b.name), pw} {
+		if err := os.Chtimes(p, extracted, extracted); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fa, err := os.Stat(filepath.Join(ksDir, a.name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb, err := os.Stat(filepath.Join(ksDir, b.name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fa.Size() != fb.Size() {
+		t.Fatalf("the keystores differ in size (%d, %d); the test needs them equal", fa.Size(), fb.Size())
+	}
+	c := withDefaults(Config{Dir: ksDir, PasswordFile: pw})
+	p := provider.New(quiet())
+	load := func() []provider.Batch {
+		t.Helper()
+		res, err := c.Load(context.Background(), 2, func(src, v string) bool { return p.Unchanged(src, v, nil) }, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.Apply(res, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	if res := load(); res[0].Version == "" || res[1].Version == "" || p.Len() != 2 {
+		t.Fatalf("first load: %d keys, versions %q, %q", p.Len(), res[0].Version, res[1].Version)
+	}
+
+	if err := os.Rename(filepath.Join(ksDir, b.name), filepath.Join(ksDir, a.name)); err != nil {
+		t.Fatal(err)
+	}
+	res := load()
+	if len(res) != 1 || res[0].Keep || res[0].Err != nil {
+		t.Fatalf("after the rename: %+v", res)
+	}
+	assertKeys(t, res, b)
+	var loaded []string
+	for pk := range p.PublicKeys() {
+		loaded = append(loaded, hex.EncodeToString(pk[:]))
+	}
+	if !slices.Equal(loaded, []string{b.pubkey}) {
+		t.Fatalf("loaded after the rename: %d keys, want only the key the file now holds", len(loaded))
+	}
+}
+
 // The shared password file applies to every keystore: refused or missing,
 // the loader fails as a whole.
 func TestSharedPasswordFile(t *testing.T) {
