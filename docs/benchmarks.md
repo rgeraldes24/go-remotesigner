@@ -410,3 +410,23 @@ the keys registered and enabled in one transaction each, which commits 64 keys i
 met the bound by only 0.2 s, at a higher load than run O. The 64 keystores of the first request take eight rounds of
 P = 8 decrypts and the 36 of the second five, thirteen rounds in all, as one request of 100 would; the bound allows
 12.5, so the 10 s also covers that last partial round.
+
+## Binary size with the secret stores (no benchmark ID)
+
+No benchmark is assigned to the secret stores. Their SDKs are linked by the default flavour only, and the release
+binaries were measured before and after they landed, built as the release builds them (`CGO_ENABLED=0 -trimpath
+-ldflags '-s -w'`), on the development machine (Apple M2, Go 1.26.9, load average 11-23 from other work, which does
+not change a size).
+
+| Target | `remotesigner` before | `remotesigner` after | `remotesigner-consensus` before | `remotesigner-consensus` after |
+|---|---|---|---|---|
+| linux/amd64 | 13.99 MB | 26.66 MB | 13.99 MB | 14.59 MB |
+| linux/arm64 | 12.98 MB | 24.71 MB | 12.98 MB | 13.57 MB |
+| darwin/arm64 | 13.32 MB | 25.58 MB | 13.32 MB | 13.90 MB |
+
+- **Default flavour: +12.7 MB** (linux/amd64), from aws-sdk-go-v2, cloud.google.com/go/secretmanager with gRPC,
+  OpenTelemetry and the Google auth libraries, and azure-sdk-for-go with MSAL.
+- **Consensus flavour: +0.60 MB**, which links no cloud SDK (`TestCloudSDKsInDefaultFlavourOnly`). The upgrades of
+  `google.golang.org/protobuf` and `golang.org/x/*` that the SDKs required account for 0.02 MB of it (the base rebuilt
+  with only those upgrades: 14.01 MB). The rest is the HashiCorp Vault client, which works in both flavours, and the
+  part of `net/http` it is the first to use: the HTTP client, its transport and its HTTP/2 client.
