@@ -27,7 +27,7 @@ LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0a
 
 all: build build-consensus
 
-## build: default flavour (consensus; execution mode from v1.1)
+## build: default flavour (consensus and execution mode)
 build:
 	$(BUILD) -o $(BIN_DIR)/remotesigner ./cmd/remotesigner
 

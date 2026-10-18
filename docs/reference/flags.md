@@ -13,16 +13,21 @@ remotesigner [global flags] consensus [consensus flags] set-high-watermark (--ep
 remotesigner [global flags] consensus [consensus flags] disable-validator --key <id> [flags]
 remotesigner [global flags] consensus keystore verify --file <keystore> --password-file <file>
 remotesigner [global flags] consensus keystore verify --keystores-path <dir> (--keystores-password-file <file> | --keystores-passwords-path <dir>)
+remotesigner [global flags] execution [execution flags]
 remotesigner --version
 ```
 
-Every global and consensus flag can also be set (the subcommands' own flags read what their tables list):
+`execution` exists only in the default flavour, `remotesigner`; `remotesigner-consensus` has no such command
+and refuses an `execution:` section in its config file.
 
-- in the environment, as `REMOTESIGNER_<NAME>` for a global flag and `REMOTESIGNER_CONSENSUS_<NAME>` for a
-  consensus flag (the flag name or any alias in upper case, dashes as underscores);
+Every global, consensus and execution flag can also be set (the subcommands' own flags read what their tables list):
+
+- in the environment, as `REMOTESIGNER_<NAME>` for a global flag, `REMOTESIGNER_CONSENSUS_<NAME>` for a
+  consensus flag and `REMOTESIGNER_EXECUTION_<NAME>` for an execution flag (the flag name or any alias in upper
+  case, dashes as underscores);
 - in the YAML file given by `--config-file`, under its bare name or any of its aliases (the Config file column lists
-  them all). Consensus flags may sit at the top level or in a `consensus:` section. A list flag takes a YAML list.
-  Unknown keys are rejected, and so is a flag set under two of its names.
+  them all). Consensus and execution flags may sit at the top level or in a `consensus:` or `execution:`
+  section. A list flag takes a YAML list. Unknown keys are rejected, and so is a flag set under two of its names.
 
 Precedence: command line, then environment, then config file, then default. Booleans are written `--flag`,
 `--flag=true` or `--flag=false`. `--flag false` does not work: the command-line parser (urfave/cli) reads
@@ -106,6 +111,28 @@ up to 10 s, closes the store, wipes the keys and exits 0.
 | `--keystores-path` | `REMOTESIGNER_CONSENSUS_KEYSTORES_PATH` | `keystores-path` or `consensus.keystores-path` | unset | Directory of keystores to load: every non-hidden \*.json file in it (deposit CLI or qrysm keystore v1) |
 | `--keystores-password-file` | `REMOTESIGNER_CONSENSUS_KEYSTORES_PASSWORD_FILE` | `keystores-password-file` or `consensus.keystores-password-file` | unset | File holding the password of every keystore in --keystores-path; not with --keystores-passwords-path |
 | `--keystores-passwords-path` | `REMOTESIGNER_CONSENSUS_KEYSTORES_PASSWORDS_PATH` | `keystores-passwords-path` or `consensus.keystores-passwords-path` | unset | Directory of password files, \<name>.txt for keystore \<name>.json; not with --keystores-password-file |
+
+## Execution flags
+
+| Flag | Environment | Config file | Default | Description |
+|---|---|---|---|---|
+| `--downstream-http-host` | `REMOTESIGNER_EXECUTION_DOWNSTREAM_HTTP_HOST` | `downstream-http-host` or `execution.downstream-http-host` | `127.0.0.1` | Host of the gqrl node that forwarded requests go to |
+| `--downstream-http-port` | `REMOTESIGNER_EXECUTION_DOWNSTREAM_HTTP_PORT` | `downstream-http-port` or `execution.downstream-http-port` | `8545` | HTTP JSON-RPC port of the gqrl node |
+| `--downstream-http-path` | `REMOTESIGNER_EXECUTION_DOWNSTREAM_HTTP_PATH` | `downstream-http-path` or `execution.downstream-http-path` | `/` | Path on the gqrl node that requests are posted to; a plain URL path |
+| `--downstream-http-request-timeout` | `REMOTESIGNER_EXECUTION_DOWNSTREAM_HTTP_REQUEST_TIMEOUT` | `downstream-http-request-timeout` or `execution.downstream-http-request-timeout` | `5000` | Milliseconds to wait for the node to connect, complete TLS and send its response headers; it is then answered with 504 |
+| `--downstream-http-auth-header-file` | `REMOTESIGNER_EXECUTION_DOWNSTREAM_HTTP_AUTH_HEADER_FILE` | `downstream-http-auth-header-file` or `execution.downstream-http-auth-header-file` | unset | File whose first line is the Authorization header value sent to the node (for example "Bearer \<token>"), in place of any client credential; a secret file, read at startup |
+| `--downstream-http-tls-enabled` | `REMOTESIGNER_EXECUTION_DOWNSTREAM_HTTP_TLS_ENABLED` | `downstream-http-tls-enabled` or `execution.downstream-http-tls-enabled` | `false` | Connect to the node over TLS (https), verifying its certificate against the system roots or --downstream-http-tls-ca-file |
+| `--downstream-http-tls-ca-file` | `REMOTESIGNER_EXECUTION_DOWNSTREAM_HTTP_TLS_CA_FILE` | `downstream-http-tls-ca-file` or `execution.downstream-http-tls-ca-file` | unset | PEM CAs that replace the system roots for the node's certificate; needs --downstream-http-tls-enabled |
+| `--downstream-http-proxy-host` | `REMOTESIGNER_EXECUTION_DOWNSTREAM_HTTP_PROXY_HOST` | `downstream-http-proxy-host` or `execution.downstream-http-proxy-host` | unset | HTTP proxy host to reach the node through; unset connects directly (proxy environment variables are never read) |
+| `--downstream-http-proxy-port` | `REMOTESIGNER_EXECUTION_DOWNSTREAM_HTTP_PROXY_PORT` | `downstream-http-proxy-port` or `execution.downstream-http-proxy-port` | `80` | Port of --downstream-http-proxy-host |
+| `--execution-proxy-allowed-methods` | `REMOTESIGNER_EXECUTION_EXECUTION_PROXY_ALLOWED_METHODS` | `execution-proxy-allowed-methods` or `execution.execution-proxy-allowed-methods` | `qrl_*,net_*,web3_*` | JSON-RPC methods forwarded to the node: names, prefixes ending in \* (qrl_\*), or \* for all; the others get -32601. Applies to every element of a batch; the signer's own methods are never forwarded. |
+| `--keystores-path` | `REMOTESIGNER_EXECUTION_KEYSTORES_PATH` | `keystores-path` or `execution.keystores-path` | unset | Directory of go-qrl account keystores to load: every non-hidden \*.json file in it |
+| `--keystores-password-file` | `REMOTESIGNER_EXECUTION_KEYSTORES_PASSWORD_FILE` | `keystores-password-file` or `execution.keystores-password-file` | unset | File holding the password of every keystore in --keystores-path; not with --keystores-passwords-path |
+| `--keystores-passwords-path` | `REMOTESIGNER_EXECUTION_KEYSTORES_PASSWORDS_PATH` | `keystores-passwords-path` or `execution.keystores-passwords-path` | unset | Directory of password files, \<name>.txt for keystore \<name>.json; not with --keystores-password-file |
+
+Execution mode reads the global flags too; `--key-config-path` and `--keystores-path` then hold account keys
+(51-byte extended seeds and go-qrl account keystores). See
+[`../operations/execution.md`](../operations/execution.md).
 
 ## Store commands
 

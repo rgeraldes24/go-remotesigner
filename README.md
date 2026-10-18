@@ -23,7 +23,10 @@ key files and from keystore directories, with reloads that never disable a key
 ([`docs/operations/reload.md`](docs/operations/reload.md)), and the keymanager API to list, import and delete keys
 while it runs ([`docs/operations/keymanager.md`](docs/operations/keymanager.md)). `remotesigner consensus keystore
 verify` checks qrysm and deposit CLI keystores and their password files offline
-([`docs/operations/keystores.md`](docs/operations/keystores.md)). To try the signer, see
+([`docs/operations/keystores.md`](docs/operations/keystores.md)). In the default flavour, `remotesigner execution`
+holds QRL account keys for JSON-RPC clients in front of a gqrl node: it answers `qrl_accounts` and `qrl_sign` and
+forwards an allowlist of methods to the node, without the client's credentials
+([`docs/operations/execution.md`](docs/operations/execution.md)); it does not sign transactions yet. To try the signer, see
 [`docs/operations/quickstart.md`](docs/operations/quickstart.md); every flag is in
 [`docs/reference/flags.md`](docs/reference/flags.md).
 
@@ -48,6 +51,7 @@ unit, example configuration files, the Grafana dashboard and the Prometheus aler
 | [`docs/operations/backup.md`](docs/operations/backup.md) | backing up and restoring the bbolt store |
 | [`docs/operations/randao.md`](docs/operations/randao.md) | RANDAO reveals: the frontier rule, gap advances, sizing the bucket, resetting a key, the alerts |
 | [`docs/operations/metrics.md`](docs/operations/metrics.md) | the metrics catalogue, the alert rules and their runbooks, the Grafana dashboard |
+| [`docs/operations/execution.md`](docs/operations/execution.md) | execution mode: account keys, the JSON-RPC methods and the proxy to gqrl |
 | [`docs/operations/upgrade.md`](docs/operations/upgrade.md) | upgrading and going back: the schema-version rule, one signer, Postgres replicas |
 | [`docs/operations/release.md`](docs/operations/release.md) | what a release contains, how to verify it, the release dry run, and the v1.0 release checklist |
 | [`docs/reference/flags.md`](docs/reference/flags.md) | every flag with its environment variable, config-file key and default, and every `--X…` override explained (generated) |
