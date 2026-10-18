@@ -537,6 +537,38 @@ func TestTrack(t *testing.T) {
 	}
 }
 
+// A key that a reload evicts (Track leaves it out) loses its precomputed
+// layer, which is not public yet: the value is wiped and no new one is
+// kept while the key stays evicted. Listed again, it is precomputed after
+// its next frontier move as before.
+func TestTrackWipesEvictedKeys(t *testing.T) {
+	f := newFixture(t, memstore.New())
+	f.ok(f.reveal(1000, testLayers), testLayers, metrics.RandaoFirstUse)
+	f.precomputed(testLayers - 2)
+	f.s.mu.Lock()
+	held := f.s.keys[f.id].next
+	f.s.mu.Unlock()
+
+	if err := f.s.Track(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	f.s.mu.Lock()
+	next, evicted := f.s.keys[f.id].next, f.s.keys[f.id].evicted
+	f.s.mu.Unlock()
+	if next != nil || !evicted || held.value != [onion.Size]byte{} {
+		t.Fatalf("after eviction: next %v, evicted %v, old layer %x", next, evicted, held.value[:4])
+	}
+	// A precomputation that finishes after the eviction keeps nothing.
+	f.s.precompute(f.s.state(f.id), f.key, testLayers-1)
+	f.s.Close()
+	f.s.mu.Lock()
+	next = f.s.keys[f.id].next
+	f.s.mu.Unlock()
+	if next != nil {
+		t.Fatalf("x_%d kept for an evicted key", next.index)
+	}
+}
+
 // With bbolt, a store restored from an old backup sees the
 // chain's deeper commitment as a gap, advances by one released layer, and
 // a retry after a lost response is an idempotent re-reveal.

@@ -189,6 +189,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/flavour_full.go` | new | | | |
 | `cmd/remotesigner/interchange.go` | new | | | |
 | `cmd/remotesigner/interchange_test.go` | new | | | |
+| `cmd/remotesigner/keys_test.go` | new | | | |
 | `cmd/remotesigner/keystore.go` | new | | | |
 | `cmd/remotesigner/keystore_test.go` | new | | | |
 | `cmd/remotesigner/main.go` | new | | | |
@@ -263,7 +264,13 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/hygiene/hygiene_linux.go` | new | | | |
 | `internal/hygiene/hygiene_other.go` | new | | | |
 | `internal/hygiene/hygiene_test.go` | new | | | |
-| `internal/keys/keyconfig/keyconfig.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/SignerLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/parser/YamlSignerParser.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileRawSigningMetadata.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/keys/argon/argon.go` | new | | | |
+| `internal/keys/argon/argon_test.go` | new | | | |
+| `internal/keys/argon/cgroup.go` | new | | | |
+| `internal/keys/argon/memory_darwin.go` | new | | | |
+| `internal/keys/argon/memory_linux.go` | new | | | |
+| `internal/keys/argon/memory_other.go` | new | | | |
+| `internal/keys/keyconfig/keyconfig.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/SignerLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/parser/YamlSignerParser.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileRawSigningMetadata.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/FileKeyStoreMetadata.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/metadata/AbstractArtifactSignerFactory.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/keyconfig/keyconfig_test.go` | new | | | |
 | `internal/keys/keystore/qrlv1/bench_test.go` | new | | | |
 | `internal/keys/keystore/qrlv1/decrypt.go` | mit-derived | `cyyber/qrysm` (MIT), from `wealdtech/go-eth2-wallet-encryptor-keystorev4` `v1.4.1` (Apache-2.0) | `pkg/go-qrl-wallet-encryptor-keystore/decrypt.go`<br>`pkg/go-qrl-wallet-encryptor-keystore/encryptor.go`<br>`pkg/go-qrl-wallet-encryptor-keystore/encrypt.go` | `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` |
@@ -275,6 +282,18 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/keystore/qrlv1/norm.go` | mit-derived | `cyyber/qrysm` (MIT), from `wealdtech/go-eth2-wallet-encryptor-keystorev4` `v1.4.1` (Apache-2.0) | `pkg/go-qrl-wallet-encryptor-keystore/norm.go` | `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` |
 | `internal/keys/keystore/qrlv1/norm_test.go` | new | | | |
 | `internal/keys/keystore/qrlv1/password.go` | new | | | |
+| `internal/keys/keystores/keystores.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsKeystoreBulkLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/secp256k1/util/JsonFilesUtil.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/keys/keystores/keystores_test.go` | new | | | |
+| `internal/keys/keystores/keystores_w3s_test.go` | w3s-derived | Web3Signer | `signing/src/test/java/tech/pegasys/web3signer/signing/bulkloading/BlsKeystoreBulkLoaderTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/keys/keystoretest/keystoretest.go` | new | | | |
+| `internal/keys/secretfile/secretfile.go` | new | | | |
+| `internal/keys/secretfile/secretfile_test.go` | new | | | |
+| `internal/keys/secretfile/secretfile_unix_test.go` | new | | | |
+| `internal/keys/source/identity_bsd.go` | new | | | |
+| `internal/keys/source/identity_linux.go` | new | | | |
+| `internal/keys/source/identity_other.go` | new | | | |
+| `internal/keys/source/source.go` | new | | | |
+| `internal/keys/source/source_test.go` | new | | | |
 | `internal/logging/logging.go` | new | | | |
 | `internal/logging/logging_test.go` | new | | | |
 | `internal/logging/secret.go` | new | | | |
@@ -299,9 +318,11 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/randao/onion/onion_test.go` | new | | | |
 | `internal/randao/service.go` | new | | | |
 | `internal/randao/service_test.go` | new | | | |
+| `internal/runner/keys.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/runner/prune.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbPrunerRunner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/runner/prune_test.go` | new | | | |
 | `internal/runner/randao_test.go` | new | | | |
+| `internal/runner/reload_test.go` | new | | | |
 | `internal/runner/runner.go` | new | | | |
 | `internal/runner/runner_test.go` | new | | | |
 | `internal/runner/sign_test.go` | new | | | |
@@ -391,8 +412,13 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/harness_test.go` | new | | | |
 | `test/acceptance/hygiene_linux_test.go` | new | | | |
 | `test/acceptance/interchange_test.go` | new | | | |
+| `test/acceptance/keystores_test.go` | new | | | |
+| `test/acceptance/keystores_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/bulkloading/KeystoreAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `test/acceptance/loading_bench_test.go` | new | | | |
 | `test/acceptance/metrics_test.go` | new | | | |
 | `test/acceptance/migrate_test.go` | new | | | |
+| `test/acceptance/qrlpackage_test.go` | new | | | |
+| `test/acceptance/reload_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/reload/ReloadAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `test/acceptance/server_test.go` | new | | | |
 | `test/acceptance/tls_test.go` | new | | | |
 | `test/acceptance/tls_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/tls/ServerSideTlsAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/tls/ServerSideTlsCaClientAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |

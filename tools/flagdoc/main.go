@@ -95,12 +95,22 @@ names it in the file of such a store. The history commands are described in
 	section(&b, "### consensus export", subcommand, flags.Export(), false)
 	section(&b, "### consensus watermark-repair", subcommand, flags.WatermarkRepair(), false)
 	section(&b, "### consensus set-high-watermark", subcommand, flags.SetHighWatermark(), false)
+	section(&b, "### consensus disable-validator", subcommand, flags.DisableValidatorFlags(), false)
+	b.WriteString(`
+` + "`consensus disable-validator`" + ` persists ` + "`enabled=false`" + ` for a key, which then gets 412
+` + "`VALIDATOR_DISABLED`" + ` for blocks, attestations and new RANDAO layers. Reloads never disable a key. See
+[` + "`../operations/reload.md`" + `](../operations/reload.md#5-disabling-a-validator).
+`)
 	b.WriteString(`
 ## Keystore commands
 
-` + "`consensus keystore verify`" + ` decrypts one keystore with its password file through the signer's keystore
-decryptor and policy, and checks that the keystore's pubkey is the key its seed derives. It prints the key's
-identifier and exits 0, or names the refusal and exits 1. It needs no network, store or running signer. See
+` + "`consensus keystore verify`" + ` decrypts one keystore with its password file (` + "`--file`" + `, ` + "`--password-file`" + `), or a
+keystore directory as the signer loads it (` + "`--keystores-path`" + ` with ` + "`--keystores-password-file`" + ` or
+` + "`--keystores-passwords-path`" + `), through the signer's keystore decryptor, policy and file-permission rule, and
+checks that each keystore's pubkey is the key its seed derives. It prints each key's identifier and exits 0, or
+names the refusals and exits 1. It needs no network, store or running signer. Its own flags read no environment
+variables, so that a signer's ` + "`REMOTESIGNER_CONSENSUS_KEYSTORES_*`" + ` settings do not apply to it; the global
+` + "`--strict-file-permissions`" + ` and ` + "`--signer-load-parallelism`" + ` do. See
 [` + "`../operations/keystores.md`" + `](../operations/keystores.md).
 `)
 	section(&b, "### consensus keystore verify", subcommand, flags.KeystoreVerify(), false)

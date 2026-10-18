@@ -37,7 +37,7 @@ import (
 // REMOTESIGNER_BENCH=1 (make bench-e2e).
 func benchEnabled(t *testing.T) {
 	if os.Getenv("REMOTESIGNER_BENCH") == "" {
-		t.Skip("set REMOTESIGNER_BENCH=1 to run the end-to-end benchmarks B7-B9")
+		t.Skip("set REMOTESIGNER_BENCH=1 to run the end-to-end benchmarks B7-B9, B11, B12 and B20")
 	}
 }
 

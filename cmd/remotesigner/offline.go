@@ -98,6 +98,68 @@ func randaoStateCommand(stdout io.Writer) *cli.Command {
 	}
 }
 
+func disableValidatorCommand(stdout io.Writer) *cli.Command {
+	return &cli.Command{
+		Name: flags.DisableValidator,
+		Usage: "disable a key in slashing protection: the signer then refuses its blocks, attestations and new RANDAO " +
+			"layers with 412 VALIDATOR_DISABLED (offline with bbolt; the signer must be stopped). Reloads never disable " +
+			"a key; removing its files only unloads it.",
+		Flags:        flags.DisableValidatorFlags(),
+		OnUsageError: onUsageError,
+		Action: func(c *cli.Context) error {
+			if c.NArg() > 0 {
+				return usageError(fmt.Errorf("unexpected argument %q", c.Args().First()))
+			}
+			if c.String(flags.Key) == "" {
+				return usageError(fmt.Errorf("--%s is required", flags.Key))
+			}
+			id, e := consensus.ParseIdentifier(c.String(flags.Key))
+			if e != nil {
+				return usageError(fmt.Errorf("--%s: want 0x and the public key or its sha256 in hex", flags.Key))
+			}
+			path, err := storeFile(c)
+			if err != nil {
+				return usageError(err)
+			}
+			already, err := disableValidator(c.Context, path, slashing.KeyID(id))
+			if err != nil {
+				return cli.Exit(err.Error(), exitStartup)
+			}
+			if already {
+				_, _ = fmt.Fprintf(stdout, "key %s is already disabled in %s\n", slashing.KeyID(id), path)
+				return nil
+			}
+			_, _ = fmt.Fprintf(stdout, "key %s disabled in %s: the signer refuses its blocks, attestations and new RANDAO "+
+				"layers (412 VALIDATOR_DISABLED)\n", slashing.KeyID(id), path)
+			return nil
+		},
+	}
+}
+
+// disableValidator persists enabled=false for a registered key. It reports
+// whether the key was already disabled.
+func disableValidator(ctx context.Context, path string, id slashing.KeyID) (bool, error) {
+	s, err := boltstore.Open(path, boltstore.Options{})
+	if errors.Is(err, boltstore.ErrLocked) {
+		return false, fmt.Errorf(errStoreInUse+", then run consensus disable-validator again", path)
+	}
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = s.Close() }()
+	st, err := s.ValidatorStatus(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if !st.Registered {
+		return false, fmt.Errorf("key %s is not registered in %s", id, path)
+	}
+	if !st.Enabled {
+		return true, nil
+	}
+	return false, s.SetValidatorEnabled(ctx, id, false)
+}
+
 // storeFile is the bbolt file the offline commands work on: the path of
 // --slashing-protection-db-url, else <data-path>/slashing-protection.db.
 // The file must exist; only consensus import creates a store.

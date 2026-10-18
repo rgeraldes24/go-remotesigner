@@ -76,8 +76,10 @@ over plaintext.
 
 A new named volume mounted at `/data` takes the image's owner and mode (`65532:65532`, `0700`). A bind mount does not:
 make the host directory owned by `65532:65532` with mode `0700` yourself, or the signer cannot write its files.
-The key files must be readable by uid 65532: on Linux, `chown -R 65532:65532 keys && chmod 0700 keys && chmod 0600
-keys/*`. Never mount one `/data` volume into two running signers: the bbolt store allows one process.
+The key files must be readable by uid 65532, and by it alone: on Linux, `chown -R 65532:65532 keys && chmod 0700 keys
+&& chmod 0600 keys/*`. A `file-raw` key-config file or a keystore password file that its group or other users can
+read is refused (`--strict-file-permissions`, [`reload.md`](reload.md#secret-files)). Never mount one `/data` volume
+into two running signers: the bbolt store allows one process.
 
 Run it hardened, on a user-defined network that the validator client's container joins to reach
 `https://signer:9000`:
@@ -230,9 +232,12 @@ wins, so an orchestrator can move what the entrypoint sets: `--data-path` to a m
   Kubernetes, give the Secret or ConfigMap volume a `defaultMode` that lets 65532 read them (`0440` with the pod's
   `fsGroup: 65532`, or `0444`). With `fsGroup`, also set `fsGroupChangePolicy: OnRootMismatch`: otherwise the
   kubelet makes the `/data` volume group-writable at every mount, and the signer refuses a `/data/tls` its group can
-  write. Do not run the container as root instead: without capabilities (`--cap-drop=ALL`, as in section 3 and the
-  compose example) root cannot write the `/data` the image creates for 65532, so the signer exits 1, and with them
-  it writes root-owned files into `/data`.
+  write. Those modes suit the configuration and certificates only: the kubelet cannot give a Secret file to 65532
+  alone, so a `file-raw` key-config file or a password file mounted that way is refused. Copy those into an
+  `emptyDir` with mode `0600` in an init container that runs as 65532, or set `--strict-file-permissions=false`,
+  which loads them with a WARN. Do not run the container as root instead: without capabilities (`--cap-drop=ALL`, as
+  in section 3 and the compose example) root cannot write the `/data` the image creates for 65532, so the signer
+  exits 1, and with them it writes root-owned files into `/data`.
 - **Overrides.** The `--X…` overrides work the same way when appended, for example `--Xallow-plaintext-token-auth`
   together with `--tls-generate-self-signed=false` on a throwaway test network where TLS is impractical. The token
   then crosses the network in clear text: never do this where real validator keys are at stake.

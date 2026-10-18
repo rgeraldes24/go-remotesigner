@@ -4,6 +4,8 @@
 package release
 
 import (
+	"archive/tar"
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -37,7 +39,7 @@ type smokeEnv struct {
 	image   string
 	prefix  string // container, volume and network names start with it
 	network string
-	keys    string // key-config directory, one file-raw key
+	keys    string // key-config volume, one file-raw key
 	netDir  string // directory holding network.yaml
 	client  string // directory holding the smokeclient binary
 	pubkey  string
@@ -207,17 +209,51 @@ func newSmokeEnv(t *testing.T, image string) *smokeEnv {
 		t.Fatal("no end-to-end genesis validators root in testdata/vectors/networks.json")
 	}
 
-	// The containers run as 65532, so their read-only inputs are readable
-	// by everyone.
-	e.keys = inputDir(t, "keys", "key-0.yaml",
-		fmt.Sprintf("type: file-raw\nkeyType: ML_DSA_87\nprivateKey: %q\n", keys.Keys[0].Seed), 0o644)
+	t.Cleanup(func() { e.cleanup() })
+	// The containers run as 65532. The network config is readable by
+	// everyone; the key-config file holds a seed, which
+	// --strict-file-permissions refuses when its group or other users can
+	// read it, so it is given to 65532 alone, as deploy-docker.md says.
+	e.keys = e.keyVolume("key-0.yaml",
+		fmt.Sprintf("type: file-raw\nkeyType: ML_DSA_87\nprivateKey: %q\n", keys.Keys[0].Seed))
 	e.netDir = inputDir(t, "network", "config.yaml", string(readRepo(t, smokeNetwork)), 0o644)
 	e.client = e.buildClient()
 
 	e.network = e.prefix
 	docker(t, "network", "create", e.network)
-	t.Cleanup(func() { e.cleanup() })
 	return e
+}
+
+// keyVolume creates a named volume holding one file, owned by the image's
+// user with mode 0600, and returns the volume's name. A bind mount cannot
+// set that owner without root on the host, so the file goes in through
+// docker cp, from a tar stream that carries the owner and mode.
+func (e *smokeEnv) keyVolume(name, content string) string {
+	t := e.t
+	t.Helper()
+	vol := e.volume("keys")
+	ctr := strings.TrimSpace(docker(t, "create", "--label", "remotesigner-smoke="+e.prefix,
+		"--volume", vol+":/keys", e.image))
+	var b bytes.Buffer
+	tw := tar.NewWriter(&b)
+	hdr := &tar.Header{Typeflag: tar.TypeReg, Name: name, Mode: 0o600, Uid: 65532, Gid: 65532,
+		Size: int64(len(content)), ModTime: time.Now()}
+	if err := tw.WriteHeader(hdr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("docker", "cp", "--archive", "-", ctr+":/keys")
+	cmd.Stdin = &b
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("docker cp into the key volume: %v: %s", err, out)
+	}
+	docker(t, "rm", ctr)
+	return vol
 }
 
 // inputDir writes one file into a new directory, both readable by every

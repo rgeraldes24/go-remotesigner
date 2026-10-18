@@ -53,7 +53,8 @@ func consensusCommand(run runFunc, stdout, stderr io.Writer) *cli.Command {
 		HideHelpCommand: true,
 		Subcommands: []*cli.Command{
 			migrateCommand(stdout), randaoStateCommand(stdout), importCommand(stdout, stderr), exportCommand(stdout, stderr),
-			watermarkRepairCommand(stdout), setHighWatermarkCommand(stdout), keystoreCommand(stdout),
+			watermarkRepairCommand(stdout), setHighWatermarkCommand(stdout), keystoreCommand(stdout, stderr),
+			disableValidatorCommand(stdout),
 		},
 		Action: func(c *cli.Context) error {
 			if c.NArg() > 0 {
@@ -125,9 +126,13 @@ func runWithSignals(parent context.Context, cfg *config.Config, log *logrus.Logg
 func configFrom(c *cli.Context) (*config.Config, error) {
 	v, _ := release()
 	cfg := &config.Config{
-		Version:       v,
-		DataPath:      c.String(flags.DataPath),
-		KeyConfigPath: c.String(flags.KeyConfigPath),
+		Version:               v,
+		DataPath:              c.String(flags.DataPath),
+		KeyConfigPath:         c.String(flags.KeyConfigPath),
+		KeyConfigFileMaxSize:  int64(c.Int(flags.KeyConfigFileMaxSize)),
+		StrictFilePermissions: c.Bool(flags.StrictFilePermissions),
+		ReloadTimeout:         time.Duration(c.Uint(flags.ReloadTimeout)) * time.Minute,
+		SignerLoadParallelism: c.Int(flags.SignerLoadParallelism),
 		Logging: logging.Config{
 			Level:  c.String(flags.Logging),
 			Format: c.String(flags.LoggingFormat),
@@ -179,6 +184,11 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 			Pruning: config.Pruning{
 				EpochsToKeep: c.Uint64(flags.PruningEpochsToKeep),
 				Interval:     c.Duration(flags.PruningInterval),
+			},
+			Keystores: config.Keystores{
+				Path:          c.String(flags.KeystoresPath),
+				PasswordFile:  c.String(flags.KeystoresPasswordFile),
+				PasswordsPath: c.String(flags.KeystoresPasswordsPath),
 			},
 		},
 		Metrics: config.Metrics{
@@ -233,6 +243,12 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 	if err := checkPruning(cfg.Consensus.Pruning); err != nil {
 		return nil, err
 	}
+	if err := checkKeystores(cfg.Consensus.Keystores); err != nil {
+		return nil, err
+	}
+	if err := checkLoading(c); err != nil {
+		return nil, err
+	}
 	if cfg.Consensus.SlashingProtectionDBPath, err = dbPath(c); err != nil {
 		return nil, err
 	}
@@ -275,6 +291,39 @@ func checkPruning(p config.Pruning) error {
 		return fmt.Errorf("--%s must be at least 1", flags.PruningEpochsToKeep)
 	case p.Interval <= 0:
 		return fmt.Errorf("--%s must be positive", flags.PruningInterval)
+	}
+	return nil
+}
+
+// checkKeystores checks the keystore source's flags: --keystores-path needs
+// exactly one of the two password flags, and they need it.
+func checkKeystores(k config.Keystores) error {
+	switch {
+	case k.PasswordFile != "" && k.PasswordsPath != "":
+		return fmt.Errorf("only one of --%s or --%s can be specified", flags.KeystoresPasswordsPath, flags.KeystoresPasswordFile)
+	case k.Path == "" && (k.PasswordFile != "" || k.PasswordsPath != ""):
+		return fmt.Errorf("--%s and --%s need --%s", flags.KeystoresPasswordFile, flags.KeystoresPasswordsPath, flags.KeystoresPath)
+	case k.Path != "" && k.PasswordFile == "" && k.PasswordsPath == "":
+		return fmt.Errorf("--%s needs --%s or --%s", flags.KeystoresPath, flags.KeystoresPasswordFile, flags.KeystoresPasswordsPath)
+	}
+	return nil
+}
+
+// maxReloadTimeout bounds --reload-timeout (minutes) well below the range
+// of a time.Duration.
+const maxReloadTimeout = 1_000_000
+
+// checkLoading checks --reload-timeout, --signer-load-parallelism and
+// --key-store-config-file-max-size.
+func checkLoading(c *cli.Context) error {
+	if n := c.Int(flags.KeyConfigFileMaxSize); n < 1 {
+		return fmt.Errorf("--%s must be a positive number of bytes", flags.KeyConfigFileMaxSize)
+	}
+	if m := c.Uint(flags.ReloadTimeout); m < 1 || m > maxReloadTimeout {
+		return fmt.Errorf("--%s must be 1 to %d (minutes)", flags.ReloadTimeout, maxReloadTimeout)
+	}
+	if p := c.Int(flags.SignerLoadParallelism); p < 0 || p > flags.MaxSignerLoadParallelism {
+		return fmt.Errorf("--%s must be 0 (from the memory limit) to %d", flags.SignerLoadParallelism, flags.MaxSignerLoadParallelism)
 	}
 	return nil
 }

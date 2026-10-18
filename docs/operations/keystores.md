@@ -2,12 +2,13 @@
 
 A keystore holds a validator's **48-byte ML-DSA-87 wallet seed**, encrypted under a password with Argon2id and
 AES-256-GCM. This page describes the two keystore formats the signer reads, the rules it applies before and while
-decrypting them, how password files are read, and `remotesigner consensus keystore verify`, which checks a keystore
-and its password file offline.
+decrypting them, how password files are read, and `remotesigner consensus keystore verify`, which checks keystores
+and their password files offline.
 
-> In this release keystores are checked with `consensus keystore verify` only; the signer itself loads `file-raw`
-> keys ([`quickstart.md`](quickstart.md)). Keystore loading at startup and on reload will go through the same
-> decryptor and rules.
+The signer loads keystores from a keystore directory (`--keystores-path` with a password file or a password
+directory) and from `file-keystore` documents in key-config files; [`reload.md`](reload.md#1-key-sources) describes
+both, how reloads treat them and how much memory decryption needs. Loading and `keystore verify` use the same
+decryptor and rules.
 
 ## 1. Formats
 
@@ -70,7 +71,8 @@ Every Argon2id run with the standard KDF takes about 1.5 s of one CPU core and a
 takes about 20 ms and 4 MiB. The memory a run frees is reclaimed only by the next garbage collection, which may come
 after the next run has allocated its own block, so the process can hold about 512 MiB per running decrypt
 ([`../benchmarks.md`](../benchmarks.md), B10). A non-ASCII password that is wrong runs Argon2id up to three times
-on the same keystore (section 3). Size memory for 512 MiB per keystore decrypted at once.
+on the same keystore (section 3). The signer budgets 512 MiB per standard-KDF keystore decrypted at once
+([`reload.md`](reload.md#6-memory-for-keystore-decryption)).
 
 ## 3. Password files
 
@@ -83,15 +85,22 @@ on the same keystore (section 3). Size memory for 512 MiB per keystore decrypted
 
   For a printable-ASCII password the three are identical, so a keystore costs one Argon2id run. A non-ASCII password
   that is wrong costs one run per distinct form, up to three.
-- Keep password files readable by the signer's user only (`chmod 0400`), next to keystores with the same mode.
+- A password file that its group or other users can read is refused, and the keystore it opens fails to load,
+  unless `--strict-file-permissions=false` is given, which loads it with a WARN
+  ([`reload.md`](reload.md#secret-files)). `keystore verify` applies the same rule. Keep password files readable by
+  the signer's user only (`chmod 0400` or `0600`).
 
-## 4. Checking a keystore
+## 4. Checking keystores
 
 ```
 remotesigner consensus keystore verify --file keystore-0.json --password-file keystore-0.txt
+remotesigner consensus keystore verify --keystores-path keystores --keystores-password-file password.txt
+remotesigner consensus keystore verify --keystores-path keystores --keystores-passwords-path passwords
 ```
 
-The command runs the signer's decryptor and rules from sections 2 and 3 on one keystore. It needs no network, store,
+The first form checks one keystore; the others check a keystore directory exactly as the signer would load it with
+the same flags (section 4.1). The command runs the signer's decryptor and rules from sections 2 and 3, including the
+file-permission rule. It needs no network, store,
 token or running signer. On success it prints what the signer would load and exits 0:
 
 ```
@@ -125,7 +134,25 @@ keystore-0.json: keystore: refused by the keystore policy: KDF m=2147483648 KiB 
 keystore-0.json: keystore: pubkey does not match the decrypted seed: declared 0x13694f58d7…a64ba382, derived 0xe7d441383d…68ab6820
 ```
 
-Missing or extra arguments exit 2. Every flag is in [`../reference/flags.md`](../reference/flags.md).
+Missing or extra arguments exit 2, as do `--file` or `--password-file` together with a `--keystores-*` flag. Every
+flag is in [`../reference/flags.md`](../reference/flags.md).
+
+### 4.1 A keystore directory
+
+With `--keystores-path`, the command lists the directory as the signer does, decrypts the keystores in parallel
+within the signer's memory budget ([`reload.md`](reload.md#6-memory-for-keystore-decryption)), and prints one line
+per keystore, then a summary. File names are printed quoted, and the control and other non-printable characters of
+a refusal reason escaped, so that a name cannot write terminal escapes:
+
+```
+"keystore-m_12381_238_0_0-1760000000.json": OK  public key 0xe7d441383d…68ab6820  identifier 0x68ab6820e01f105e16411b5cbf10c13814002e4bd1fd905a839095138251c9fb
+"keystore-m_12381_238_1_0-1760000000.json": OK  public key 0x13694f58d7…a64ba382  identifier 0xa64ba382<56 more hex characters>
+2 keystores: 2 OK, 0 refused
+```
+
+Refusals go to standard error (`"broken.json": REFUSED: keystore: malformed keystore: …`), as does a progress line
+every 30 seconds for a long run. The command exits 1 when any keystore is refused, or when the directory or the
+shared password file cannot be used.
 
 ## 5. From a qrysm wallet
 
@@ -139,13 +166,14 @@ Missing or extra arguments exit 2. Every flag is in [`../reference/flags.md`](..
    check every keystore:
 
    ```
-   for f in keystores/*.json; do
-     remotesigner consensus keystore verify --file "$f" --password-file backup.pw || echo "REFUSED: $f"
-   done
+   remotesigner consensus keystore verify --keystores-path keystores --keystores-password-file backup.pw
    ```
 
-   The command checks one keystore per run, about 1.5 s each with the standard KDF, so 4,096 keystores take about
-   1 h 40 min.
+   Each standard-KDF keystore takes about 1.5 s of one core, and the command decrypts as many at once as the memory
+   budget allows. Several at once compete for cores and memory bandwidth: the 8-core development machine decrypted
+   about 2 a second at four or eight at once, so 4,096 keystores take about half an hour there
+   ([`reload.md`](reload.md#6-memory-for-keystore-decryption)). The same flags, given to
+   `remotesigner consensus`, load the directory.
 
 The wallet's stored public keys are copied into the backup as they are, not re-derived. A keystore that `verify`
 refuses with "pubkey does not match" comes from a wallet whose stored key and seed disagree; do not load it.

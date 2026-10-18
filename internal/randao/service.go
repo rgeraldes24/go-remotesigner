@@ -29,7 +29,9 @@
 //
 // No onion is built ahead of time. After each frontier move the next layer
 // is computed in the background, so that the following new layer is
-// served without a scan; it is kept in memory only and never stored.
+// served without a scan; it is kept in memory only and never stored. When
+// a reload evicts a key (Track no longer lists it), its precomputed layer
+// is wiped and no new one is kept.
 package randao
 
 import (
@@ -161,6 +163,15 @@ type keyState struct {
 	next    *layer // precomputed x_{m-1}, keyed by m
 	layers  uint64 // m of the stored frontier, for the gauge
 	tracked bool
+	evicted bool // the last Track left the key out: keep no precomputed layer
+}
+
+// dropNext wipes and forgets the precomputed layer. It needs Service.mu.
+func (ks *keyState) dropNext() {
+	if ks.next != nil {
+		clear(ks.next.value[:])
+		ks.next = nil
+	}
 }
 
 // layer is the value of one onion index.
@@ -392,13 +403,17 @@ func walk(r, c [onion.Size]byte, w uint64) ([onion.Size]byte, bool) {
 
 // layer returns x_m: the precomputed value, else a computation from x_0.
 func (s *Service) layer(ctx context.Context, ks *keyState, key SeedHolder, m uint64) ([onion.Size]byte, bool, error) {
-	s.mu.Lock()
-	n := ks.next
-	s.mu.Unlock()
-	if n != nil && n.index == m {
-		return n.value, false, nil
-	}
+	// The value is copied under the lock: Track may wipe it.
 	var v [onion.Size]byte
+	s.mu.Lock()
+	hit := ks.next != nil && ks.next.index == m
+	if hit {
+		v = ks.next.value
+	}
+	s.mu.Unlock()
+	if hit {
+		return v, false, nil
+	}
 	err := s.withSeed(ctx, key, func(seed *[mldsa87.SeedSize]byte) {
 		v = onion.Advance(onion.Base(seed[:]), m)
 	})
@@ -426,8 +441,11 @@ func (s *Service) precompute(ks *keyState, key SeedHolder, m uint64) {
 			return
 		}
 		s.mu.Lock()
-		ks.next = &layer{index: m - 1, value: v}
+		if !ks.evicted {
+			ks.next = &layer{index: m - 1, value: v}
+		}
 		s.mu.Unlock()
+		clear(v[:])
 	}()
 }
 
@@ -474,7 +492,8 @@ func (s *Service) Reset(ctx context.Context, id slashing.KeyID) error {
 		return err
 	}
 	s.mu.Lock()
-	ks.next, ks.tracked = nil, false
+	ks.dropNext()
+	ks.tracked = false
 	s.mu.Unlock()
 	s.setGauge()
 	return nil
@@ -483,7 +502,14 @@ func (s *Service) Reset(ctx context.Context, id slashing.KeyID) error {
 // Track reads the stored frontiers of the loaded keys, so that the
 // min-layers gauge and the health check cover exactly them; keys left out
 // are no longer counted. The runner calls it after every key load.
+//
+// The keys left out are the ones the load evicted: their precomputed
+// layers, which are not public yet, are wiped first, even when reading the
+// frontiers fails, and none is kept for them until a later Track lists
+// them again. Their buckets and scan budgets stay, so that a reload does
+// not refill them.
 func (s *Service) Track(ctx context.Context, ids []slashing.KeyID) error {
+	s.evict(ids)
 	type frontier struct {
 		id slashing.KeyID
 		m  uint64
@@ -512,6 +538,24 @@ func (s *Service) Track(ctx context.Context, ids []slashing.KeyID) error {
 	s.mu.Unlock()
 	s.setGauge()
 	return nil
+}
+
+// evict marks every key that ids leaves out as evicted and wipes its
+// precomputed layer; the keys in ids are no longer evicted.
+func (s *Service) evict(ids []slashing.KeyID) {
+	loaded := make(map[slashing.KeyID]struct{}, len(ids))
+	for _, id := range ids {
+		loaded[id] = struct{}{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, ks := range s.keys {
+		_, ok := loaded[id]
+		ks.evicted = !ok
+		if !ok {
+			ks.dropNext()
+		}
+	}
 }
 
 // track records a key's new frontier.

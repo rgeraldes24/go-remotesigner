@@ -27,6 +27,7 @@ const (
 	DataPath                = "data-path"
 	KeyConfigPath           = "key-config-path"
 	KeyStorePath            = "key-store-path" // alias of KeyConfigPath
+	KeyConfigFileMaxSize    = "key-store-config-file-max-size"
 	Logging                 = "logging"
 	LoggingFormat           = "logging-format"
 	LogFile                 = "log-file"
@@ -54,6 +55,9 @@ const (
 	TLSGenerateSelfSigned   = "tls-generate-self-signed"
 	DisableCoreDumps        = "disable-core-dumps"
 	MlockAll                = "mlock-all"
+	StrictFilePermissions   = "strict-file-permissions"
+	ReloadTimeout           = "reload-timeout"
+	SignerLoadParallelism   = "signer-load-parallelism"
 )
 
 // Consensus flag names.
@@ -81,6 +85,9 @@ const (
 	RandaoNewLayerBurst       = "randao-new-layer-burst"
 	RandaoRefillEpochs        = "randao-new-layer-refill-epochs"
 	RandaoProtectionRequired  = "randao-protection-required"
+	KeystoresPath             = "keystores-path"
+	KeystoresPasswordFile     = "keystores-password-file"
+	KeystoresPasswordsPath    = "keystores-passwords-path"
 )
 
 // Subcommands of consensus and their flags.
@@ -103,6 +110,7 @@ const (
 	Epoch                   = "epoch"
 	Slot                    = "slot"
 	Remove                  = "remove"
+	DisableValidator        = "disable-validator"
 )
 
 // Defaults.
@@ -122,6 +130,15 @@ const (
 	DefaultRefillEpochs   = 1
 	DefaultPruningEpochs  = 512
 	DefaultPruningEvery   = 12 * time.Hour
+	// DefaultReloadTimeout is --reload-timeout in minutes, Web3Signer's
+	// unit. At the B10 throughput of the development machine, about 2
+	// standard-KDF decrypts a second, it covers about 7,000 new keystores.
+	DefaultReloadTimeout = 60
+	// MaxSignerLoadParallelism bounds --signer-load-parallelism.
+	MaxSignerLoadParallelism = 64
+	// DefaultKeyConfigFileMaxSize is Web3Signer's default of
+	// --key-store-config-file-max-size, in bytes (100 MiB).
+	DefaultKeyConfigFileMaxSize = 104_857_600
 )
 
 // DefaultHostAllowlist is the default of --http-host-allowlist.
@@ -136,7 +153,11 @@ func Global() []cli.Flag {
 	return withEnv("", []cli.Flag{
 		&cli.StringFlag{Name: ConfigFile, Usage: "YAML file of flag values: bare flag names, with an optional consensus: section. Unknown keys are rejected.", TakesFile: true},
 		&cli.StringFlag{Name: DataPath, Usage: "Directory for the generated token files, the slashing-protection store and the ports file", TakesFile: true},
-		&cli.StringFlag{Name: KeyConfigPath, Aliases: []string{KeyStorePath}, Usage: "Directory of key-config files (type file-raw, *.yaml or *.yml); unset loads no keys", TakesFile: true},
+		&cli.StringFlag{Name: KeyConfigPath, Aliases: []string{KeyStorePath}, Usage: "Directory of key-config files (*.yaml or *.yml; types file-raw and file-keystore); unset loads none", TakesFile: true},
+		&cli.IntFlag{Name: KeyConfigFileMaxSize, Value: DefaultKeyConfigFileMaxSize, Usage: "Largest key-config file loaded, in bytes (Web3Signer counts code points); a larger file fails to load. Must be above 0."},
+		&cli.BoolFlag{Name: StrictFilePermissions, Value: true, Usage: "Refuse secret files (password files, key-config files with a seed) that their group or other users can read; false loads them with a warning"},
+		&cli.UintFlag{Name: ReloadTimeout, Value: DefaultReloadTimeout, Usage: "Minutes a POST /reload may load keys; the sources not loaded by then keep their previous keys. The startup load is not bounded."},
+		&cli.IntFlag{Name: SignerLoadParallelism, DefaultText: "0 (from the memory limit)", Usage: "Keystore decrypts with the standard KDF that may run at once; 0 sizes the Argon2id budget from GOMEMLIMIT, the cgroup limit or half the RAM"},
 		&cli.StringFlag{Name: Logging, Aliases: []string{"l"}, Value: "INFO", Usage: "Log level: OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE or ALL"},
 		&cli.StringFlag{Name: LoggingFormat, Aliases: []string{"log-format"}, Value: "text", Usage: "Log format: text or json"},
 		&cli.StringFlag{Name: LogFile, Usage: "Write logs to this file instead of standard error", TakesFile: true},
@@ -192,7 +213,22 @@ func Consensus() []cli.Flag {
 		&cli.Uint64Flag{Name: RandaoNewLayerBurst, Value: DefaultNewLayerBurst, Usage: "Tokens in each key's RANDAO new-layer bucket: frontier-moving reveals allowed in a burst"},
 		&cli.Uint64Flag{Name: RandaoRefillEpochs, Value: DefaultRefillEpochs, Usage: "Epochs per new-layer token refill; 0 turns the bucket off. Networks with fewer than about 4 x SLOTS_PER_EPOCH validators should raise the burst or use 0."},
 		&cli.BoolFlag{Name: RandaoProtectionRequired, Usage: "Refuse to start when RANDAO frontiers would be kept in memory only (--slashing-protection-enabled=false)"},
+		keystoresPath(), keystoresPasswordFile(), keystoresPasswordsPath(),
 	})
+}
+
+// The keystore bulk source's flags, which the consensus command and
+// `keystore verify` share.
+func keystoresPath() *cli.StringFlag {
+	return &cli.StringFlag{Name: KeystoresPath, Usage: "Directory of keystores to load: every non-hidden *.json file in it (deposit CLI or qrysm keystore v1)", TakesFile: true}
+}
+
+func keystoresPasswordFile() *cli.StringFlag {
+	return &cli.StringFlag{Name: KeystoresPasswordFile, Usage: "File holding the password of every keystore in --keystores-path; not with --keystores-passwords-path", TakesFile: true}
+}
+
+func keystoresPasswordsPath() *cli.StringFlag {
+	return &cli.StringFlag{Name: KeystoresPasswordsPath, Usage: "Directory of password files, <name>.txt for keystore <name>.json; not with --keystores-password-file", TakesFile: true}
 }
 
 // slashingProtectionDBURL is --slashing-protection-db-url, which the
@@ -240,15 +276,24 @@ func RandaoStateReset() []cli.Flag {
 		&cli.StringFlag{Name: Key, Usage: "Required. The key whose RANDAO frontier is cleared: its 0x public key or 0x sha256 of it"})
 }
 
-// KeystoreVerify returns the flags of `consensus keystore verify`, which
-// checks one keystore. They are named apart from the keystore loader's
-// --keystores-path, --keystores-password-file and --keystores-passwords-path,
-// which a directory form of the command would take.
+// KeystoreVerify returns the flags of `consensus keystore verify`: --file
+// and --password-file check one keystore; --keystores-path with
+// --keystores-password-file or --keystores-passwords-path checks a
+// directory as the signer loads it. They read no environment variables, so
+// that a signer's REMOTESIGNER_CONSENSUS_KEYSTORES_* settings do not leak
+// into a check of another keystore.
 func KeystoreVerify() []cli.Flag {
 	return []cli.Flag{
-		&cli.StringFlag{Name: VerifyFile, Usage: "Required. The keystore to check: qrysm's keystore v1 or a deposit CLI keystore (JSON)", TakesFile: true},
-		&cli.StringFlag{Name: VerifyPasswordFile, Usage: "Required. File holding the keystore's password; trailing line breaks are not part of it", TakesFile: true},
+		&cli.StringFlag{Name: VerifyFile, Usage: "The keystore to check: qrysm's keystore v1 or a deposit CLI keystore (JSON); with --password-file", TakesFile: true},
+		&cli.StringFlag{Name: VerifyPasswordFile, Usage: "File holding the keystore's password; trailing line breaks are not part of it", TakesFile: true},
+		keystoresPath(), keystoresPasswordFile(), keystoresPasswordsPath(),
 	}
+}
+
+// DisableValidatorFlags returns the flags of `consensus disable-validator`.
+func DisableValidatorFlags() []cli.Flag {
+	return append(withEnv(ConsensusCommand, []cli.Flag{slashingProtectionDBURL()}),
+		&cli.StringFlag{Name: Key, Usage: "Required. The key to disable: its 0x public key or 0x sha256 of it"})
 }
 
 // withEnv sets each flag's environment variables, except for --config-file,

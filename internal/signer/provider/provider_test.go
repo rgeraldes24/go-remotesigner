@@ -230,3 +230,87 @@ func TestConcurrentReadsDuringApply(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+// A source loaded at a version is unchanged at that version, and a Keep
+// batch keeps its key objects without registering or deriving anything.
+// A failed load keeps the version, so fixing a transient error (a file
+// mode) needs no new derivation.
+func TestVersionsAndKeep(t *testing.T) {
+	p := New(quiet())
+	ks := keys(t, 1, 2)
+	if _, err := p.Apply([]Batch{
+		{Source: "ks:a", Version: "v1", Keys: ks[:1]},
+		{Source: "kc:b", Version: "", Keys: ks[1:]},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Unchanged("ks:a", "v1", nil) || p.Unchanged("ks:a", "v2", nil) || p.Unchanged("ks:a", "", nil) {
+		t.Fatal("Unchanged does not follow the stored version")
+	}
+	if p.Unchanged("kc:b", "", nil) {
+		t.Fatal("a source without a version is unchanged")
+	}
+	if p.Unchanged("ks:a", "v1", func(id ID) bool { return id == ks[0].ID() }) {
+		t.Fatal("a source with a key to renew is unchanged")
+	}
+	if got := p.Sources("ks:"); !slices.Equal(got, []string{"ks:a"}) {
+		t.Fatalf("Sources = %v", got)
+	}
+	if p.Count("ks:") != 1 || p.Count("kc:") != 1 || p.Count("") != 2 {
+		t.Fatal("Count by prefix")
+	}
+
+	registered := 0
+	d, err := p.Apply([]Batch{{Source: "ks:a", Version: "v1", Keep: true}, {Source: "kc:b", Keys: keys(t, 2)}},
+		func(pks [][]byte) error { registered += len(pks); return nil }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Unchanged != 1 || d.Added != 0 || d.Removed != 0 || registered != 0 {
+		t.Fatalf("delta %+v, registered %d", d, registered)
+	}
+	if k, _ := p.Get(ks[0].ID()); k != ks[0] || k.Zeroized() {
+		t.Fatal("a kept source lost its key object")
+	}
+
+	// The source fails (a password file refused), then recovers unchanged.
+	d, err = p.Apply([]Batch{{Source: "ks:a", Err: errors.New("mode 0644")}, {Source: "kc:b", Keys: keys(t, 2)}}, nil, nil)
+	if err != nil || d.Errors != 1 || d.Kept != 1 {
+		t.Fatalf("failed load: %+v %v", d, err)
+	}
+	if !p.Unchanged("ks:a", "v1", nil) {
+		t.Fatal("a failed load dropped the source's version")
+	}
+	if k, _ := p.Get(ks[0].ID()); k != ks[0] {
+		t.Fatal("a failed source lost its key")
+	}
+
+	// A new version replaces it.
+	if _, err := p.Apply([]Batch{{Source: "ks:a", Version: "v2", Keys: keys(t, 3)}, {Source: "kc:b", Keys: keys(t, 2)}},
+		nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Unchanged("ks:a", "v2", nil) || !ks[0].Zeroized() {
+		t.Fatal("a changed source did not replace its key")
+	}
+}
+
+// A source whose key lost to a duplicate gets no version, so it is loaded
+// again next time rather than kept with no keys.
+func TestDuplicateGetsNoVersion(t *testing.T) {
+	p := New(quiet())
+	if _, err := p.Apply([]Batch{
+		{Source: "a", Version: "v", Keys: keys(t, 7)},
+		{Source: "b", Version: "v", Keys: keys(t, 7)},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Unchanged("a", "v", nil) || p.Unchanged("b", "v", nil) {
+		t.Fatal("the losing duplicate is unchanged")
+	}
+	// a goes away: b's key must come back from b, not vanish.
+	d, err := p.Apply([]Batch{{Source: "b", Version: "v", Keys: keys(t, 7)}}, nil, nil)
+	if err != nil || p.Len() != 1 || d.Removed != 0 {
+		t.Fatalf("delta %+v, len %d, %v", d, p.Len(), err)
+	}
+}
