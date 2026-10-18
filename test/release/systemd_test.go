@@ -17,7 +17,10 @@ import (
 )
 
 // systemdBase is the distribution the systemd smoke test installs the unit
-// on, pinned by digest.
+// on, pinned by digest. Renovate moves the pin (renovate.json, the marker
+// below).
+//
+// renovate: datasource=docker
 const systemdBase = "ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac"
 
 // systemdInstall is the installation of docs/operations/deploy-systemd.md,

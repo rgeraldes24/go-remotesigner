@@ -289,3 +289,142 @@ func TestSystemdUnit(t *testing.T) {
 		}
 	}
 }
+
+// digestPin finds an image reference pinned by digest.
+var digestPin = regexp.MustCompile(`[a-z0-9][a-z0-9./-]*(?::[A-Za-z0-9._-]+)?@(sha256:[0-9a-f]{64})`)
+
+// renovateManager is a regex custom manager of renovate.json, compiled.
+type renovateManager struct {
+	files   []*regexp.Regexp
+	matches []*regexp.Regexp
+}
+
+// renovateConfig returns renovate.json's ignorePaths and its regex custom
+// managers. Renovate's patterns are JavaScript regular expressions; the ones
+// this repository uses are also valid RE2.
+func renovateConfig(t *testing.T) (ignore []string, managers []renovateManager) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, "renovate.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		IgnorePaths    []string `json:"ignorePaths"`
+		CustomManagers []struct {
+			CustomType          string   `json:"customType"`
+			ManagerFilePatterns []string `json:"managerFilePatterns"`
+			MatchStrings        []string `json:"matchStrings"`
+		} `json:"customManagers"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("renovate.json: %v", err)
+	}
+	for _, m := range cfg.CustomManagers {
+		if m.CustomType != "regex" {
+			continue
+		}
+		var rm renovateManager
+		for _, p := range m.ManagerFilePatterns {
+			body, ok := strings.CutPrefix(p, "/")
+			if body, ok = strings.CutSuffix(body, "/"); !ok {
+				t.Fatalf("renovate.json: managerFilePatterns %q is not a /regex/", p)
+			}
+			rm.files = append(rm.files, regexp.MustCompile(body))
+		}
+		for _, s := range m.MatchStrings {
+			rm.matches = append(rm.matches, regexp.MustCompile(s))
+		}
+		managers = append(managers, rm)
+	}
+	return cfg.IgnorePaths, managers
+}
+
+// unmanagedPins returns the digest pins in the file at path that no
+// Renovate manager updates: a Dockerfile's FROM, COPY --from and RUN
+// --mount lines are Renovate's dockerfile manager's; any other pin needs a
+// regex custom manager whose file pattern matches path and whose match
+// string captures the digest as currentDigest.
+func unmanagedPins(path, text string, managers []renovateManager) []string {
+	managed := map[string]bool{}
+	for _, m := range managers {
+		if !slices.ContainsFunc(m.files, func(re *regexp.Regexp) bool { return re.MatchString(path) }) {
+			continue
+		}
+		for _, re := range m.matches {
+			i := re.SubexpIndex("currentDigest")
+			for _, sm := range re.FindAllStringSubmatch(text, -1) {
+				if i >= 0 {
+					managed[sm[i]] = true
+				}
+			}
+		}
+	}
+	dockerfile := strings.HasPrefix(filepath.Base(path), "Dockerfile")
+	var out []string
+	for i, line := range strings.Split(text, "\n") {
+		for _, sm := range digestPin.FindAllStringSubmatch(line, -1) {
+			if dockerfile && slices.Contains([]string{"FROM", "COPY", "RUN"}, strings.ToUpper(firstField(line))) ||
+				managed[sm[1]] {
+				continue
+			}
+			out = append(out, fmt.Sprintf("%s:%d: %s", path, i+1, sm[0]))
+		}
+	}
+	return out
+}
+
+func firstField(s string) string {
+	if f := strings.Fields(s); len(f) > 0 {
+		return f[0]
+	}
+	return ""
+}
+
+// TestImagePinsFollowRenovate fails for an image pinned by digest that no
+// Renovate manager moves, such as a Go constant without its
+// '// renovate: datasource=docker' marker: that pin would never be updated.
+func TestImagePinsFollowRenovate(t *testing.T) {
+	ignore, managers := renovateConfig(t)
+	n := 0
+	for _, f := range repoFiles(t) {
+		if slices.ContainsFunc(ignore, func(g string) bool {
+			return strings.HasPrefix(f.path, strings.TrimSuffix(g, "**"))
+		}) {
+			continue
+		}
+		pins := len(digestPin.FindAllString(f.text, -1))
+		n += pins
+		if pins == 0 {
+			continue
+		}
+		for _, p := range unmanagedPins(f.path, f.text, managers) {
+			t.Errorf("%s: pinned by digest, but no Renovate manager updates it (renovate.json)", p)
+		}
+	}
+	if n < 2 {
+		t.Errorf("found %d image pins, want at least the Dockerfile's base and the systemd smoke test's", n)
+	}
+}
+
+func TestUnmanagedPins(t *testing.T) {
+	_, managers := renovateConfig(t)
+	ref := `ubuntu:24.04@sha256:` + strings.Repeat("cd", 32)
+	tests := []struct {
+		name, path, text string
+		want             int
+	}{
+		{"Dockerfile FROM", "deploy/docker/Dockerfile", "FROM " + ref + " AS base\n", 0},
+		{"Dockerfile COPY --from", "deploy/docker/Dockerfile", "COPY --from=" + ref + " /a /b\n", 0},
+		{"Dockerfile label", "deploy/docker/Dockerfile", `LABEL org.example.base="` + ref + `"` + "\n", 1},
+		{"Go constant with the marker", "test/release/x_test.go", "// renovate: datasource=docker\nconst base = \"" + ref + "\"\n", 0},
+		{"Go constant without it", "test/release/x_test.go", "const base = \"" + ref + "\"\n", 1},
+		{"marker outside test/", "internal/x/x.go", "// renovate: datasource=docker\nconst base = \"" + ref + "\"\n", 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := unmanagedPins(tt.path, tt.text, managers); len(got) != tt.want {
+				t.Errorf("unmanaged %q, want %d", got, tt.want)
+			}
+		})
+	}
+}
