@@ -426,6 +426,8 @@ func TestUnmanagedPins(t *testing.T) {
 		{"marker outside test/", "internal/x/x.go", "// renovate: datasource=docker\nconst base = \"" + ref + "\"\n", 1},
 		{"workflow service image", ".github/workflows/ci.yml", "    services:\n      db:\n        image: " + ref + "\n", 0},
 		{"workflow env pin", ".github/workflows/ci.yml", "env:\n  BASE: " + ref + "\n", 1},
+		{"Makefile variable with the marker", "Makefile", "# renovate: datasource=docker\nIMAGE ?= " + ref + "\n", 0},
+		{"Makefile variable without it", "Makefile", "IMAGE ?= " + ref + "\n", 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
