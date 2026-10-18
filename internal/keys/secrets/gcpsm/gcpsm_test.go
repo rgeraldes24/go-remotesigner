@@ -110,3 +110,21 @@ func TestBulk(t *testing.T) {
 		t.Fatalf("no project: %v", err)
 	}
 }
+
+// A cached client keeps working after the fetch that built it is done and
+// its context cancelled, as the next reload's fetches use it.
+func TestCachedClientOutlivesItsFetch(t *testing.T) {
+	f := secretstest.NewGCP(t)
+	f.Put("p", "validator-1", []byte(seed), nil)
+	c := New()
+	defer c.Close()
+	spec := &secrets.GCP{ProjectID: "p", SecretName: "validator-1", EndpointOverride: f.Endpoint}
+	ctx, cancel := context.WithCancel(context.Background())
+	if _, err := c.Fetch(ctx, spec); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if _, err := c.Fetch(context.Background(), spec); err != nil {
+		t.Fatalf("a later fetch with the cached client: %v", err)
+	}
+}
