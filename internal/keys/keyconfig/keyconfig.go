@@ -23,13 +23,17 @@
 
 // Package keyconfig loads key-config files (--key-config-path, alias
 // --key-store-path): every non-hidden *.yaml or *.yml file directly in the
-// directory, each holding one or more YAML documents of two types:
+// directory, each holding one or more YAML documents of these types:
 //
 //   - `type: file-raw`: `privateKey` is the validator's 48-byte wallet seed
 //     (0x + 96 hex characters);
 //   - `type: file-keystore`: `keystoreFile` and `keystorePasswordFile` name
 //     a keystore and its password file, relative to the key-config
-//     directory unless absolute.
+//     directory unless absolute;
+//   - `type: hashicorp`, `aws-secret`, `azure-secret` and `gcp-secret`:
+//     the seed is the value of one secret in HashiCorp Vault (KV version
+//     2), AWS Secrets Manager, Azure Key Vault or GCP Secret Manager, with
+//     Web3Signer's fields (remote.go), fetched through Config.Secrets.
 //
 // In execution mode (Config.Execution) the same files hold account keys:
 // `privateKey` is the account's 51-byte extended seed (102 hex characters,
@@ -41,12 +45,15 @@
 // rejected. Each file is one source: either every document in it loads or
 // the file fails as a whole, keeping the keys it had, and the others still
 // load. A file is read again on every load, but its keys are derived again
-// only when it, or a keystore or password file it names, has changed.
+// only when it, or a keystore or password file it names, has changed: as
+// in Web3Signer, the secrets of an unchanged file are not fetched again.
 //
-// A file with a file-raw document holds seeds in the clear, so it is a
-// secret file, as is every keystore password file: the caller's
+// A file with a file-raw document holds seeds in the clear, and one whose
+// documents carry a store credential (a Vault token, an AWS secret access
+// key, an Azure client secret) holds credentials, so both are secret
+// files, as is every keystore password file: the caller's
 // secretfile.Policy decides what happens when its group or other users can
-// read it. Error messages never contain key material.
+// read it. Error messages never contain key material or credentials.
 package keyconfig
 
 import (
@@ -69,6 +76,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystore/qrlv1"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystores"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/source"
 	"github.com/rgeraldes24/go-remotesigner/internal/signer/provider"
 )
@@ -77,6 +85,10 @@ import (
 const (
 	TypeFileRaw      = "file-raw"
 	TypeFileKeystore = "file-keystore"
+	TypeHashicorp    = "hashicorp"
+	TypeAWSSecret    = "aws-secret"
+	TypeAzureSecret  = "azure-secret"
+	TypeGCPSecret    = "gcp-secret"
 	KeyTypeMLDSA87   = "ML_DSA_87"
 )
 
@@ -102,6 +114,9 @@ type Config struct {
 	Policy secretfile.Policy
 	// Decrypt opens file-keystore keystores; nil refuses them.
 	Decrypt keystores.DecryptFunc
+	// Secrets fetches the seeds of the secret-store types; nil refuses
+	// them.
+	Secrets secrets.Fetcher
 	// MaxFileSize is the largest key-config file loaded, in bytes
 	// (--key-store-config-file-max-size); 0 means DefaultMaxFileSize. A
 	// larger file fails to load, before any of it is read.
@@ -208,7 +223,7 @@ func (c Config) loadFile(ctx context.Context, start time.Time, path string, keep
 	defer wipeDocs(docs)
 	keyFiles, passwords := []fs.FileInfo{fi}, []fs.FileInfo(nil)
 	for _, d := range docs {
-		if d.raw() {
+		if d.raw() || d.credential {
 			if err := c.Policy.Check(path, fi); err != nil {
 				return nil, nil, "", err
 			}
@@ -216,7 +231,7 @@ func (c Config) loadFile(ctx context.Context, start time.Time, path string, keep
 		}
 	}
 	for _, d := range docs {
-		if d.raw() {
+		if d.raw() || d.remote != nil {
 			continue
 		}
 		ksInfo, err := os.Stat(d.keystoreFile)
@@ -268,6 +283,10 @@ func (c Config) build(ctx context.Context, d document) (*mldsa87.Key, provider.M
 		}
 		return k, provider.Meta{}, nil
 	}
+	if d.remote != nil {
+		k, err := c.fetch(ctx, d.remote)
+		return k, provider.Meta{}, err
+	}
 	if c.Decrypt == nil {
 		return nil, provider.Meta{}, fmt.Errorf("%w: type %s is not supported here", ErrUnsupported, TypeFileKeystore)
 	}
@@ -298,13 +317,17 @@ func (c Config) build(ctx context.Context, d document) (*mldsa87.Key, provider.M
 }
 
 // document is one parsed key document: a file-raw seed (a validator's
-// seed, or in execution mode an account's extended seed), or the absolute
-// paths of a file-keystore's keystore and password file.
+// seed, or in execution mode an account's extended seed), the absolute
+// paths of a file-keystore's keystore and password file, or the secret of
+// a secret-store type.
 type document struct {
 	index                      int // 1-based, among all documents of the file
 	seed                       *[mldsa87.SeedSize]byte
 	ext                        *[mldsa87.ExtendedSeedSize]byte
 	keystoreFile, passwordFile string
+	remote                     secrets.Spec
+	// credential: the document holds a store credential.
+	credential bool
 }
 
 // raw reports whether the document is a file-raw seed.
@@ -357,6 +380,15 @@ func parse(data []byte, dir string, execution bool) ([]document, error) {
 var allowed = map[string][]string{
 	TypeFileRaw:      {"type", "keyType", "privateKey"},
 	TypeFileKeystore: {"type", "keyType", "keystoreFile", "keystorePasswordFile"},
+	TypeHashicorp: {"type", "keyType", "serverHost", "serverPort", "keyPath", "keyName", "token", "timeout",
+		"tlsEnabled", "tlsKnownServersPath", "httpProtocolVersion", "authMethod", "kubernetesRole",
+		"kubernetesServiceAccountTokenPath", "kubernetesAuthPath"},
+	TypeAWSSecret: {"type", "keyType", "authenticationMode", "region", "secretName", "accessKeyId",
+		"secretAccessKey", "endpointOverride"},
+	TypeAzureSecret: {"type", "keyType", "authenticationMode", "vaultName", "secretName", "clientId",
+		"clientSecret", "tenantId", "timeout", "endpointOverride", "authorityHostOverride",
+		"trustCertificateOverride"},
+	TypeGCPSecret: {"type", "keyType", "projectId", "secretName", "endpointOverride"},
 }
 
 // parseDocument reads one mapping.
@@ -381,7 +413,7 @@ func parseDocument(n *yaml.Node, dir string, execution bool) (document, error) {
 		typ = v.Value
 	}
 	switch typ {
-	case TypeFileRaw, TypeFileKeystore:
+	case TypeFileRaw, TypeFileKeystore, TypeHashicorp, TypeAWSSecret, TypeAzureSecret, TypeGCPSecret:
 	case "":
 		return document{}, fmt.Errorf("%w: missing type", ErrFormat)
 	default:
@@ -401,6 +433,9 @@ func parseDocument(n *yaml.Node, dir string, execution bool) (document, error) {
 		default:
 			return document{}, fmt.Errorf("%w: unknown keyType %q (want %s)", ErrUnsupported, truncate(v.Value), KeyTypeMLDSA87)
 		}
+	}
+	if typ != TypeFileRaw && typ != TypeFileKeystore {
+		return parseRemote(typ, fields, dir)
 	}
 	if typ == TypeFileKeystore {
 		var d document
@@ -437,29 +472,14 @@ func parseDocument(n *yaml.Node, dir string, execution bool) (document, error) {
 	return document{seed: seed}, nil
 }
 
-// seedFromHex decodes a 48-byte seed. Other common lengths get a hint
-// about what they are.
+// seedFromHex decodes a 48-byte seed by the rules of decision D18 (see
+// secrets.ParseSeed): other common lengths get a hint about what they are.
 func seedFromHex(s string) (*[mldsa87.SeedSize]byte, error) {
-	h := strings.TrimPrefix(s, "0x")
-	switch len(h) {
-	case 2 * mldsa87.SeedSize:
-	case 64:
-		return nil, fmt.Errorf("%w: 32 bytes; a QRL consensus key is the validator's 48-byte wallet seed", ErrPrivateKey)
-	case 102:
-		return nil, fmt.Errorf("%w: a 51-byte extended seed belongs to execution mode; "+
-			"consensus keys are the 48-byte wallet seed", ErrPrivateKey)
-	case 2 * 4896:
-		return nil, fmt.Errorf("%w: a 4,896-byte ML-DSA-87 secret key is not accepted; "+
-			"configure the 48-byte wallet seed it was derived from", ErrPrivateKey)
-	default:
-		return nil, fmt.Errorf("%w: want a 48-byte seed, 0x + 96 hex characters", ErrPrivateKey)
-	}
-	seed := new([mldsa87.SeedSize]byte)
-	hb := []byte(h)
+	hb := []byte(s)
 	defer mldsa87.Wipe(hb)
-	if _, err := hex.Decode(seed[:], hb); err != nil {
-		mldsa87.Wipe(seed[:])
-		return nil, fmt.Errorf("%w: not hex", ErrPrivateKey)
+	seed, err := secrets.ConsensusSeed(hb)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrPrivateKey, strings.TrimPrefix(err.Error(), secrets.ErrSeed.Error()+": "))
 	}
 	return seed, nil
 }
