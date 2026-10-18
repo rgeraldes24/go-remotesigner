@@ -149,10 +149,15 @@ bin/remotesigner-consensus --data-path=/var/lib/remotesigner consensus --network
   keys being moved. A requested key the store has no history for is noted on stderr.
 - Blocks are written from each validator's slot watermark up, and attestations from its target watermark up,
   whatever their source epoch; older records are left out, and a validator without a watermark has no history and
-  is left out too. A watermark that no signed record sits at (after a watermark repair, section 8) is written as a
-  record of its own without a signing root, and noted on stderr: the importing side takes its watermarks from the
-  oldest records in the file, so it then refuses everything this signer refuses at and below them. The high
-  watermark and the RANDAO frontier are not exported (EIP-3076 has no field for them).
+  is left out too. The importing side takes its watermarks from the oldest records in the file. After a watermark
+  repair (section 8), a slot watermark that no signed block sits at is written as a block of its own without a
+  signing root, and the epoch watermarks as an attestation of their own when no signed attestation is at or above
+  them; both are noted on stderr, and the importing side then refuses everything at and below them. When a signed
+  attestation is above the repaired target epoch, that attestation gives the importing side its epoch watermarks
+  instead: a record for the repaired epochs could be surrounded by it, which would make the file slashable (qrysm
+  would mark the key slashable). The importing side still refuses every attestation the history makes slashable,
+  but may allow a source epoch below the repaired one. The high watermark and the RANDAO frontier are not exported
+  (EIP-3076 has no field for them).
 - The file is written next to `--to` and renamed into place when complete, so a failed export leaves no partial
   file.
 

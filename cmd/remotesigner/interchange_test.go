@@ -306,7 +306,7 @@ func TestWatermarkRepairCommand(t *testing.T) {
 	}
 	closeStore(t, s)
 
-	// The keys have no records at the repaired watermarks: an export writes the watermarks as records of their own.
+	// The keys have no records at or above the repaired watermarks: an export writes them as records of their own.
 	out := filepath.Join(t.TempDir(), "export.json")
 	code, stdout, stderr = runCLI(t, "--data-path="+data, "consensus", "export", "--to="+out)
 	if code != exitOK || !strings.Contains(stdout, "exported 2 validator(s), 2 block(s) and 2 attestation(s)") ||

@@ -171,7 +171,10 @@ func TestExportOnlyBlocksAtOrAboveTheWatermark(t *testing.T) {
 
 // Web3Signer writes only the attestations whose source and target epochs are both at or above the watermarks. Here
 // the target watermark alone filters (X54): an attestation with a source below the source watermark still rules
-// out a double vote at its target, and leaving it out let the importing signer sign another one there.
+// out a double vote at its target, and leaving it out let the importing signer sign another one there. The epoch
+// watermarks become an attestation of their own only above every record: below the oldest one, (3, 9) would be
+// surrounded by (0, 10) and the file would be slashable, while (0, 10) already gives the importer stricter
+// watermarks.
 func TestExportAttestationsFromTheTargetWatermark(t *testing.T) {
 	// The store holds the attestations (a, a+10) for a in 0..5.
 	ladder := func(from uint64) []slashing.SignedAttestation {
@@ -189,8 +192,9 @@ func TestExportAttestationsFromTheTargetWatermark(t *testing.T) {
 	}{
 		{"the source watermark does not filter", 3, 10, ladder(0), 0},
 		{"the target watermark filters", 0, 12, ladder(2), 0},
-		{"a target watermark no record sits at is written as an attestation of its own", 3, 9,
-			append([]slashing.SignedAttestation{sa(3, 9, nil)}, ladder(0)...), 1},
+		{"a target watermark below every record adds no record", 3, 9, ladder(0), 0},
+		{"a target watermark above every record is written as an attestation of its own", 6, 16,
+			[]slashing.SignedAttestation{sa(6, 16, nil)}, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			forEachStore(t, func(t *testing.T, s slashing.Store) {

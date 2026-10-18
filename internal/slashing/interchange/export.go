@@ -47,8 +47,9 @@ type ExportResult struct {
 	Validators   int
 	Blocks       int
 	Attestations int
-	// Watermarks counts the records, included in Blocks and Attestations, that stand for a low watermark no stored
-	// record sits at (as after a watermark repair). They have no signing root.
+	// Watermarks counts the records, included in Blocks and Attestations, that stand for a low watermark (as after a
+	// watermark repair): a slot watermark no stored block sits at, or epoch watermarks above every stored
+	// attestation. They have no signing root.
 	Watermarks int
 	// Missing are the requested keys that the store has no history for: unknown keys, and keys without a low
 	// watermark.
@@ -61,13 +62,20 @@ type ExportResult struct {
 // that has none; with neither, Export fails with slashing.ErrNoGenesisValidatorsRoot before writing anything.
 // Validators are written in KeyID order. A validator without a low watermark has no history and is left out.
 //
-// The file carries what an importing signer needs to refuse what this one refuses. Blocks are written from the slot
-// watermark up, and attestations from the target watermark up whatever their source epoch: an attestation with a
-// source below the source watermark still rules out a double vote at its target. Records below the watermarks are
-// left out, since an importer takes its watermarks from the oldest records it imports. A watermark that no stored
-// record sits at, as after a watermark repair, is written as a record of its own without a signing root (the slot
-// watermark as a block, the two epoch watermarks as an attestation), so that the importer refuses everything at and
-// below it, as this signer does. The high watermark is not exported; the format has no field for it.
+// The file carries what an importing signer needs to refuse every block and attestation that this one's history
+// makes slashable; the importer takes its watermarks from the oldest records it imports. Blocks are written from the
+// slot watermark up and attestations from the target watermark up, whatever their source epoch (an attestation with
+// a source below the source watermark still rules out a double vote at its target); older records are left out. A
+// slot watermark that no stored block sits at, as after a watermark repair, is written as a block of its own without
+// a signing root. The epoch watermarks are written as an attestation without a signing root only when no attestation
+// is stored at or above the target watermark: such a record could be surrounded by a stored attestation above it
+// with a lower source, and the file would be slashable. Otherwise the oldest exported attestation sets the
+// importer's watermarks, which is safe: in a history without surround votes the source never decreases as the
+// target grows, so every attestation left out (older, pruned, or signed before a watermark repair, all with a target
+// at or below the target watermark) has its source and target at or below the importer's watermarks, and no
+// attestation the importer allows double-votes, surrounds or is surrounded by it. The importer may then allow a
+// source below this signer's source watermark, which no signed attestation makes slashable. The high watermark is
+// not exported; the format has no field for it.
 func Export(ctx context.Context, s slashing.Store, w io.Writer, opts ExportOptions) (ExportResult, error) {
 	var res ExportResult
 	var want map[slashing.KeyID]bool
@@ -134,23 +142,19 @@ func Export(ctx context.Context, s slashing.Store, w io.Writer, opts ExportOptio
 			out.end(n).str(",\n      \"signed_attestations\": [")
 			n = 0
 			if low.SourceEpoch != nil {
-				at, pending := *low.TargetEpoch, true
+				// The epoch watermarks become a record only when no attestation is at or above them (see above).
+				at := *low.TargetEpoch
 				err = v.Attestations(id, func(a slashing.SignedAttestation) error {
 					if a.TargetEpoch < at {
 						return out.err
 					}
-					if pending && a.TargetEpoch != at {
-						n = out.attestation(n, *low.SourceEpoch, at, nil)
-						res.Watermarks++
-					}
-					pending = false
 					n = out.attestation(n, a.SourceEpoch, a.TargetEpoch, a.SigningRoot)
 					return out.err
 				})
 				if err != nil {
 					return err
 				}
-				if pending {
+				if n == 0 {
 					n = out.attestation(n, *low.SourceEpoch, at, nil)
 					res.Watermarks++
 				}
