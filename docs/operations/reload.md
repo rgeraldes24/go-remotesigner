@@ -195,11 +195,18 @@ own the same way):
 | 8 GiB or more | 7.5 GiB or more | 8 (one per CPU) |
 
 In a container, set the container's memory limit (or `GOMEMLIMIT`, a little below it) rather than relying on half
-of the host's RAM. A standard-KDF decrypt takes about 1.5 s of one core (more when several run at once; B10 found
-little gain beyond four at once on an 8-core development machine), so loading N new standard keystores takes about
-N × 1.5 s / P: 4,096 keystores at P = 4 take about 26 minutes, at P = 8 about 13. Light-KDF keystores take about
-20 ms each; 4,096 of them load in seconds. Set `--reload-timeout` above the time a reload of the new keystores
-needs.
+of the host's RAM.
+
+A standard-KDF decrypt takes about 1.5 s of one core when it runs alone, and longer when several run at once, since
+they compete for cores and memory bandwidth. Size a load from the throughput, not from 1.5 s / P: on the 8-core
+development machine B10 measured about 2 decrypts per second at P = 4 and at P = 8 (0.7 at P = 1), so 4,096 new
+standard keystores take about 30 to 35 minutes there. B11 loaded 1,000 in 7 minutes on that machine when it was quiet,
+and in 20 minutes while other work loaded it, a rate at which 4,096 take over 80 minutes
+([`../benchmarks.md`](../benchmarks.md), B10 and B11). A reload that adds thousands of standard-KDF keystores can
+therefore exceed the 60-minute default of `--reload-timeout`. Set it above the time the new keystores need on the
+host; every "Keys loaded" log line reports the decrypts of its load and their time. A reload that runs out of time is
+not lost: the keystores it loaded stay loaded and count as unchanged, so the next reload decrypts only the rest.
+Light-KDF keystores take about 20 ms each; 4,096 of them load in seconds.
 
 The 512 MiB kept out of the budget hold the loaded keys too, and each key takes about 60 KiB: on the development
 machine 4,096 keys peaked at about 210 MiB of RSS and 10,000 keys at about 620 MiB

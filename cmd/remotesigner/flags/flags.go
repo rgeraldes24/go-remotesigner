@@ -131,8 +131,8 @@ const (
 	DefaultPruningEpochs  = 512
 	DefaultPruningEvery   = 12 * time.Hour
 	// DefaultReloadTimeout is --reload-timeout in minutes, Web3Signer's
-	// unit: 10,000 new standard-KDF keystores take about half an hour at 8
-	// decrypts at once.
+	// unit. At the B10 throughput of the development machine, about 2
+	// standard-KDF decrypts a second, it covers about 7,000 new keystores.
 	DefaultReloadTimeout = 60
 	// MaxSignerLoadParallelism bounds --signer-load-parallelism.
 	MaxSignerLoadParallelism = 64

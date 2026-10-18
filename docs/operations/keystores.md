@@ -170,7 +170,9 @@ shared password file cannot be used.
    ```
 
    Each standard-KDF keystore takes about 1.5 s of one core, and the command decrypts as many at once as the memory
-   budget allows: 4,096 keystores take about 26 minutes at four at once. The same flags, given to
+   budget allows. Several at once compete for cores and memory bandwidth: the 8-core development machine decrypted
+   about 2 a second at four or eight at once, so 4,096 keystores take about half an hour there
+   ([`reload.md`](reload.md#6-memory-for-keystore-decryption)). The same flags, given to
    `remotesigner consensus`, load the directory.
 
 The wallet's stored public keys are copied into the backup as they are, not re-derived. A keystore that `verify`
