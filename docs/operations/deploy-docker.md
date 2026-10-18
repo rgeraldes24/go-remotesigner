@@ -79,9 +79,11 @@ make the host directory owned by `65532:65532` with mode `0700` yourself, or the
 The key files must be readable by uid 65532: on Linux, `chown -R 65532:65532 keys && chmod 0700 keys && chmod 0600
 keys/*`. Never mount one `/data` volume into two running signers: the bbolt store allows one process.
 
-Run it hardened:
+Run it hardened, on a user-defined network that the validator client's container joins to reach
+`https://signer:9000`:
 
 ```
+docker network create signer-net
 docker volume create signer-data
 docker run -d --name signer --network signer-net --network-alias signer \
   --read-only --cap-drop=ALL --security-opt=no-new-privileges --stop-timeout=30 \
@@ -223,8 +225,14 @@ wins, so an orchestrator can move what the entrypoint sets: `--data-path` to a m
   the names clients use (the service name, for example `signer-1`), or mount a certificate that covers what they
   dial. A readiness probe must speak HTTPS to `/upcheck` with a `Host` from the allowlist.
 - **File owners.** Files an orchestrator mounts are often owned by root with mode `0600`, which the image's user
-  (65532) cannot read. Make them readable by 65532, or run the container as root (Kurtosis `User(uid=0, gid=0)`,
-  Kubernetes `runAsUser: 0`); the signer needs no capabilities either way.
+  (65532) cannot read. Make them readable by 65532 and keep the non-root user: with Kurtosis, `chown 65532:65532`
+  the files in the step that writes them (for example a `plan.run_sh`) before it stores them as a files artifact; in
+  Kubernetes, give the Secret or ConfigMap volume a `defaultMode` that lets 65532 read them (`0440` with the pod's
+  `fsGroup: 65532`, or `0444`). With `fsGroup`, also set `fsGroupChangePolicy: OnRootMismatch`: otherwise the
+  kubelet makes the `/data` volume group-writable at every mount, and the signer refuses a `/data/tls` its group can
+  write. Do not run the container as root instead: without capabilities (`--cap-drop=ALL`, as in section 3 and the
+  compose example) root cannot write the `/data` the image creates for 65532, so the signer exits 1, and with them
+  it writes root-owned files into `/data`.
 - **Overrides.** The `--X…` overrides work the same way when appended, for example `--Xallow-plaintext-token-auth`
   together with `--tls-generate-self-signed=false` on a throwaway test network where TLS is impractical. The token
   then crosses the network in clear text: never do this where real validator keys are at stake.

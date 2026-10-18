@@ -575,3 +575,96 @@ func TestReleaseWorkflowProblems(t *testing.T) {
 		})
 	}
 }
+
+var (
+	// dockerRunNetwork finds the network a documented `docker run` joins,
+	// written `--network <name>`; the signer's own --network flag is
+	// written with `=`.
+	dockerRunNetwork = regexp.MustCompile(`(?m)^docker run .*--network ([a-z0-9][a-z0-9_.-]*)`)
+	// dockerNetworkCreate finds a documented `docker network create`.
+	dockerNetworkCreate = regexp.MustCompile(`(?m)^docker network create(?: --?[a-z-]+(?:=\S+)?)* ([a-z0-9][a-z0-9_.-]*)`)
+)
+
+// missingNetworks returns the user-defined networks the `docker run`
+// commands of a page join that no `docker network create` on the page
+// creates: docker run fails with "network not found" for them.
+func missingNetworks(text string) []string {
+	created := map[string]bool{"bridge": true, "host": true, "none": true}
+	for _, m := range dockerNetworkCreate.FindAllStringSubmatch(text, -1) {
+		created[m[1]] = true
+	}
+	var out []string
+	for _, m := range dockerRunNetwork.FindAllStringSubmatch(text, -1) {
+		if !created[m[1]] {
+			out = append(out, m[1])
+		}
+	}
+	return out
+}
+
+// Every `docker run` example in the docs runs as written: the network it
+// joins is created on the same page.
+func TestDocsDockerNetworksExist(t *testing.T) {
+	for _, f := range repoFiles(t) {
+		if !strings.HasSuffix(f.path, ".md") {
+			continue
+		}
+		for _, n := range missingNetworks(f.text) {
+			t.Errorf("%s: docker run joins network %s, which the page never creates (docker network create %s)", f.path, n, n)
+		}
+	}
+	for _, tt := range []struct {
+		text string
+		want int
+	}{
+		{"docker run -d --network signer-net img\n", 1},
+		{"docker network create signer-net\ndocker run -d --network signer-net img\n", 0},
+		{"docker network create --internal signer-net\ndocker run --network signer-net img\n", 0},
+		{"docker run --network host img\n", 0},
+		{"docker run img consensus --network=/network/config.yaml\n", 0},
+	} {
+		if got := missingNetworks(tt.text); len(got) != tt.want {
+			t.Errorf("missingNetworks(%q) = %q, want %d", tt.text, got, tt.want)
+		}
+	}
+}
+
+// runAsRoot matches advice to run the signer's container as root.
+var runAsRoot = regexp.MustCompile(`(?i)runAsUser:\s*0\b|User\(\s*uid\s*=\s*0\b|--user[ =](?:0\b|root\b)|^\s*user:\s*["']?(?:0|root)\b`)
+
+// The deployment docs and examples never run the image as root: it is built
+// to run as 65532, and as root without capabilities it cannot even write
+// /data.
+func TestDeployNeverRunsAsRoot(t *testing.T) {
+	n := 0
+	for _, f := range repoFiles(t) {
+		if !strings.HasPrefix(f.path, "deploy/") && !strings.HasPrefix(f.path, "docs/operations/") {
+			continue
+		}
+		n++
+		for i, line := range strings.Split(f.text, "\n") {
+			if runAsRoot.MatchString(line) {
+				t.Errorf("%s:%d: %q runs the container as root", f.path, i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("no deployment files")
+	}
+	for _, tt := range []struct {
+		line string
+		want bool
+	}{
+		{"or run the container as root (Kurtosis `User(uid=0, gid=0)`, Kubernetes `runAsUser: 0`)", true},
+		{"docker run --user 0:0 img", true},
+		{"docker run --user=root img", true},
+		{`    user: "0:0"`, true},
+		{"Kubernetes `runAsUser: 65532`", false},
+		{"`fsGroup: 65532`", false},
+		{"docker run --user 65532:65532 img", false},
+	} {
+		if got := runAsRoot.MatchString(tt.line); got != tt.want {
+			t.Errorf("runAsRoot(%q) = %v, want %v", tt.line, got, tt.want)
+		}
+	}
+}
