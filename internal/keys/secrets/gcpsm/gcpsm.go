@@ -93,7 +93,8 @@ func New() *Client {
 	return c
 }
 
-// Close closes every SDK client.
+// Close drops every SDK client and closes it once its calls are done. The
+// client stays usable: the next fetch builds a new SDK client.
 func (c *Client) Close() { c.clients.Purge() }
 
 // Fetch implements secrets.Fetcher for *secrets.GCP specs.

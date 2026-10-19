@@ -48,7 +48,8 @@ endpointOverride: https://vpce-….secretsmanager.us-east-1.vpce.amazonaws.com  
 
 **A file with a `secretAccessKey` is a secret file** under `--strict-file-permissions`: keep it at `0600`
 ([`reload.md`](reload.md#secret-files)). Up to `--aws-connection-cache-size` SDK clients (default 1) are kept for the
-documents, by credentials, region and endpoint, as Web3Signer's cache does (X72).
+documents during a load, by credentials, region and endpoint, as Web3Signer's cache does (X72); each load builds them
+again.
 
 ## 3. The bulk loader
 

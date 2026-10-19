@@ -78,7 +78,8 @@ func New(cacheSize int) *Client {
 	return c
 }
 
-// Close closes the idle connections of every cached SDK client.
+// Close drops every cached SDK client and closes its idle connections. The
+// client stays usable: the next fetch builds a new SDK client.
 func (c *Client) Close() { c.clients.Purge() }
 
 // closeIdle closes the idle connections of an SDK client's HTTP client.

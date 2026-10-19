@@ -17,7 +17,9 @@ type stores struct {
 	fetch secrets.Stores
 	// bulk opens the store of each enabled bulk loader, by kind, for one
 	// load; the returned function releases it.
-	bulk  map[string]func(ctx context.Context) (secrets.Lister, func(), error)
+	bulk map[string]func(ctx context.Context) (secrets.Lister, func(), error)
+	// close drops the fetchers' cached clients, closing them; the fetchers
+	// stay usable and build new clients.
 	close func()
 }
 

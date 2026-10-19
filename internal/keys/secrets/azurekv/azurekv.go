@@ -104,7 +104,9 @@ func New() *Client {
 	return c
 }
 
-// Close closes the idle connections of every cached SDK client.
+// Close drops every cached SDK client and closes its idle connections. The
+// client stays usable: the next fetch builds a new SDK client, which reads
+// the trust certificate override again.
 func (c *Client) Close() { c.clients.Purge() }
 
 // Fetch implements secrets.Fetcher for *secrets.Azure specs.

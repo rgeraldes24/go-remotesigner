@@ -90,6 +90,11 @@ The host is matched without case and must be the document's `serverHost:serverPo
 colons in the fingerprint are optional. `openssl x509 -in vault.crt -noout -fingerprint -sha256` prints one. A
 missing or malformed file fails the document.
 
+The file is read again on every load, as Web3Signer does: the HTTP clients of the documents last one load (the
+documents of one server share one within it). To rotate a pinned certificate, add the new fingerprint, then touch
+the documents and `POST /reload` (an unchanged document is not fetched again, section 6); removing a fingerprint
+applies the same way.
+
 ## 5. Requests and limits
 
 - Every request has the document's `timeout`; a reload as a whole is bounded by `--reload-timeout`.
