@@ -136,9 +136,13 @@ func highWatermark(ctx context.Context, q queryer) (slashing.HighWatermark, erro
 	return h, err
 }
 
-// SetHighWatermark replaces the global high watermark. It locks the metadata row first, so it waits for every
-// transaction that read the old high watermark (they read it FOR SHARE) and every later one reads the new one; the
-// schema's trigger then checks it against every low watermark, which no transaction can raise meanwhile.
+// SetHighWatermark replaces the global high watermark. It locks the metadata table first, in EXCLUSIVE mode, so it
+// waits for every transaction that read the old high watermark (they read it FOR SHARE, which takes ROW SHARE on the
+// table) and every later one reads the new one; the schema's trigger then checks it against every low watermark,
+// which no transaction can raise meanwhile. The table lock comes before the row lock because table locks queue: a
+// check-and-record that starts while it waits queues behind it, for as long as lock_timeout at most, where FOR
+// UPDATE alone on the row would wait behind a stream of overlapping FOR SHARE lockers that never ends under steady
+// signing.
 func (s *Store) SetHighWatermark(ctx context.Context, h slashing.HighWatermark) error {
 	var epoch, slot *int64
 	for _, v := range []struct {
@@ -155,6 +159,9 @@ func (s *Store) SetHighWatermark(ctx context.Context, h slashing.HighWatermark) 
 		*v.out = &x
 	}
 	return s.inTx(ctx, "set the high watermark", func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `LOCK TABLE metadata IN EXCLUSIVE MODE`); err != nil {
+			return err
+		}
 		var id int32
 		err := tx.QueryRow(ctx, `SELECT id FROM metadata WHERE id = 1 FOR UPDATE`).Scan(&id)
 		switch {

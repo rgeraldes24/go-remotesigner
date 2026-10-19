@@ -726,3 +726,157 @@ func TestPostgresDeadlockRetried(t *testing.T) {
 		t.Fatalf("other session: %v", lockErr)
 	}
 }
+
+// lockWaiters counts the sessions of the database that wait for a lock.
+func lockWaiters(t *testing.T, conn *pgx.Conn) int {
+	t.Helper()
+	var n int
+	if err := conn.QueryRow(bg, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()
+		AND wait_event_type = 'Lock'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// SetHighWatermark is a fence across instances: it waits for a check-and-record that read the old high watermark,
+// and a check-and-record that starts while it waits queues behind it and reads the new one.
+func TestPostgresSetHighWatermarkFence(t *testing.T) {
+	db := migrated(t)
+	ss := instances(t, db, 3)
+	if _, err := ss[0].PinGenesisValidatorsRoot(bg, slashingtest.GVR); err != nil {
+		t.Fatal(err)
+	}
+	register(t, ss[0], 2)
+	watch := db.Connect(t)
+	// waitFor waits until n sessions wait for a lock, failing when stop delivers first.
+	waitFor := func(n int, stop <-chan slashing.HighWatermark) {
+		t.Helper()
+		for deadline := time.Now().Add(time.Second); lockWaiters(t, watch) < n; time.Sleep(2 * time.Millisecond) {
+			select {
+			case h := <-stop:
+				t.Fatalf("a check-and-record that started while SetHighWatermark waited read %+v before it", h)
+			default:
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%d sessions wait for a lock, want %d", lockWaiters(t, watch), n)
+			}
+		}
+	}
+
+	read, release, held := make(chan slashing.HighWatermark, 1), make(chan struct{}), make(chan error, 1)
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+	defer releaseOnce()
+	go func() {
+		held <- ss[1].UpdateAttestations(bg, key(0), func(tx slashing.AttestationTx) error {
+			h, err := tx.HighWatermark()
+			read <- h
+			<-release
+			return err
+		})
+	}()
+	if h := <-read; h.IsSet() {
+		t.Fatalf("high watermark %+v before it is set", h)
+	}
+	set := make(chan error, 1)
+	go func() {
+		set <- ss[0].SetHighWatermark(bg, slashing.HighWatermark{Epoch: slashingtest.U64(1000),
+			Slot: slashingtest.U64(10000)})
+	}()
+	waitFor(1, nil)
+	later := make(chan slashing.HighWatermark, 1)
+	go func() {
+		_ = ss[2].UpdateAttestations(bg, key(1), func(tx slashing.AttestationTx) error {
+			h, err := tx.HighWatermark()
+			later <- h
+			return err
+		})
+	}()
+	waitFor(2, later)
+	select {
+	case err := <-set:
+		t.Fatalf("SetHighWatermark returned while a check-and-record that read the old one was open: %v", err)
+	case h := <-later:
+		t.Fatalf("a check-and-record that started while SetHighWatermark waited read %+v before it", h)
+	case <-time.After(100 * time.Millisecond):
+	}
+	releaseOnce()
+	if err := <-held; err != nil {
+		t.Fatalf("the open check-and-record: %v", err)
+	}
+	if err := <-set; err != nil {
+		t.Fatalf("SetHighWatermark: %v", err)
+	}
+	if h := <-later; h.Epoch == nil || *h.Epoch != 1000 || h.Slot == nil || *h.Slot != 10000 {
+		t.Fatalf("the check-and-record that queued behind SetHighWatermark read %+v, want epoch 1000 and slot 10000", h)
+	}
+}
+
+// SetHighWatermark under saturated signing: check-and-records that never pause keep the metadata row share-locked
+// by overlapping transactions, so a FOR UPDATE on the row alone never got its turn and ran out its call bound. The
+// table lock it takes first queues new check-and-records behind it, so every call returns, and no check-and-record
+// fails meanwhile.
+func TestPostgresSetHighWatermarkUnderLoad(t *testing.T) {
+	db := migrated(t)
+	stores := instances(t, db, 2)
+	const keys, workers = 64, 32
+	all := make([][]byte, keys)
+	for k := range all {
+		all[k] = slashingtest.Key(k)
+	}
+	engines := make([]*slashing.Engine, len(stores))
+	for i, s := range stores {
+		engines[i] = slashing.NewEngine(s)
+		if err := engines[i].RegisterValidators(bg, all); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := stores[0].PinGenesisValidatorsRoot(bg, slashingtest.GVR); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(bg)
+	defer cancel()
+	var (
+		wg       sync.WaitGroup
+		signs    atomic.Int64
+		mu       sync.Mutex
+		failures []error
+	)
+	// Worker w alone signs for keys w and w+workers, one epoch further each time, with no pause.
+	for w := range workers {
+		wg.Go(func() {
+			e := engines[w%len(engines)]
+			for epoch := uint64(1); ctx.Err() == nil; epoch++ {
+				k := w + workers*int(epoch%2)
+				_, err := e.CheckAndRecordAttestation(bg, slashing.AttestationRequest{PublicKey: all[k],
+					GenesisValidatorsRoot: slashingtest.GVR, SourceEpoch: epoch - 1, TargetEpoch: epoch,
+					SigningRoot: slashingtest.RootOf(epoch)})
+				if err != nil {
+					mu.Lock()
+					failures = append(failures, err)
+					mu.Unlock()
+					return
+				}
+				signs.Add(1)
+			}
+		})
+	}
+	time.Sleep(300 * time.Millisecond)
+	began := time.Now()
+	fence := slashing.HighWatermark{Epoch: slashingtest.U64(1 << 40), Slot: slashingtest.U64(1 << 40)}
+	for i, h := range []slashing.HighWatermark{fence, {}, fence, {}} {
+		start := time.Now()
+		if err := stores[i%2].SetHighWatermark(bg, h); err != nil {
+			t.Errorf("SetHighWatermark %d under load: %v after %v", i, err, time.Since(start))
+		}
+	}
+	took := time.Since(began)
+	before := signs.Load()
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	wg.Wait()
+	t.Logf("4 SetHighWatermark calls in %v; %d check-and-records in all, still signing afterwards: %v", took,
+		signs.Load(), signs.Load() > before)
+	if len(failures) > 0 {
+		t.Fatalf("%d check-and-records failed, the first: %v", len(failures), failures[0])
+	}
+}
