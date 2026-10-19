@@ -5,6 +5,7 @@ package secretstest
 
 import (
 	"encoding/pem"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -50,6 +51,11 @@ type Azure struct {
 	// those asked for.
 	TokenRequests            int
 	ManagedIdentityClientIDs []string
+	// hang: every Key Vault request waits, unanswered, until its client
+	// gives up; the token endpoints still answer.
+	hang bool
+	// reads counts the secret reads by name.
+	reads map[string]int
 }
 
 type azureSecret struct {
@@ -81,13 +87,38 @@ func (a *Azure) Put(name, value string, tags map[string]string) {
 	a.secrets = append(a.secrets, azureSecret{name: name, value: value, tags: tags})
 }
 
+// SetHang makes every Key Vault request wait, unanswered, until its client
+// gives up (on) or answers them again (off).
+func (a *Azure) SetHang(on bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.hang = on
+}
+
+// Reads returns the number of reads of the secret name.
+func (a *Azure) Reads(name string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.reads[name]
+}
+
 // IdentityEndpoint is the managed identity endpoint, for IDENTITY_ENDPOINT.
 func (a *Azure) IdentityEndpoint() string { return a.URL + "/msi/token" }
 
 func (a *Azure) serve(w http.ResponseWriter, r *http.Request) {
+	p := r.URL.Path
+	a.mu.Lock()
+	hang := a.hang && (p == "/secrets" || strings.HasPrefix(p, "/secrets/"))
+	a.mu.Unlock()
+	if hang {
+		// The server notices that the client went away only once the
+		// request body has been read.
+		_, _ = io.Copy(io.Discard, r.Body)
+		<-r.Context().Done()
+		return
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	p := r.URL.Path
 	switch {
 	case p == "/"+AzureTenant+"/v2.0/.well-known/openid-configuration":
 		base := a.URL + "/" + AzureTenant
@@ -150,6 +181,10 @@ func (a *Azure) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Azure) get(w http.ResponseWriter, name string) {
+	if a.reads == nil {
+		a.reads = map[string]int{}
+	}
+	a.reads[name]++
 	for _, s := range a.secrets {
 		if s.name == name {
 			writeJSON(w, http.StatusOK, map[string]any{"value": s.value, "id": a.URL + "/secrets/" + s.name + "/0123",

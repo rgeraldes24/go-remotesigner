@@ -172,3 +172,54 @@ func TestBulk(t *testing.T) {
 		t.Fatalf("%d batches with %d keys", len(batches), keys)
 	}
 }
+
+// TestLimits checks the bounds of every call: a vault that does not answer
+// fails the fetch and the listing once the configured timeout passes,
+// retries included, and a response larger than secrets.MaxResponseSize
+// fails without being read whole.
+func TestLimits(t *testing.T) {
+	f := secretstest.NewAzure(t)
+	f.Put("validator-1", seed, nil)
+	f.Put("huge", strings.Repeat("0", secrets.MaxResponseSize), nil)
+	ctx := context.Background()
+	v := vaultOf(f)
+	v.Timeout = 30 * time.Second
+	stderr := secretstest.CaptureStderr(t)
+	defer func() {
+		if out := stderr(); out != "" {
+			t.Errorf("the SDK wrote to stderr: %q", out)
+		}
+	}()
+
+	if _, err := New().Fetch(ctx, &secrets.Azure{AzureVault: v, SecretName: "huge"}); !errors.Is(err, secrets.ErrTooLarge) {
+		t.Errorf("a response larger than %d bytes: error = %v, want ErrTooLarge", secrets.MaxResponseSize, err)
+	}
+	if n := f.Reads("huge"); n != 1 {
+		t.Errorf("a response larger than the limit was requested %d times: it was retried", n)
+	}
+
+	v.Timeout = 300 * time.Millisecond
+	f.SetHang(true)
+	defer f.SetHang(false)
+	bounded := func(what string, call func() error) {
+		t.Helper()
+		start := time.Now()
+		if err := call(); err == nil {
+			t.Errorf("%s against a vault that does not answer succeeded", what)
+		}
+		if d := time.Since(start); d > 5*time.Second {
+			t.Errorf("%s took %v with a %v timeout", what, d, v.Timeout)
+		}
+	}
+	bounded("Fetch", func() error {
+		_, err := New().Fetch(ctx, &secrets.Azure{AzureVault: v, SecretName: "validator-1"})
+		return err
+	})
+	b, err := NewBulk(secrets.AzureBulk{AzureVault: v})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	bounded("List", func() error { _, err := b.List(ctx); return err })
+	bounded("Get", func() error { _, err := b.Get(ctx, "validator-1"); return err })
+}

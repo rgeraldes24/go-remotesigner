@@ -5,6 +5,7 @@ package secretstest
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -27,12 +28,16 @@ type AWS struct {
 	secrets []awsSecret
 	// AccessKeys are the access key ids of the requests' signatures.
 	AccessKeys []string
-	// Lists counts the ListSecrets calls.
+	// Lists counts the ListSecrets calls, and reads the GetSecretValue
+	// calls by secret name.
 	Lists int
+	reads map[string]int
 	// ListError, when set, is the error code every ListSecrets call
 	// answers with, such as AccessDeniedException (which the SDK does not
 	// retry).
 	ListError string
+	// hang: every request waits, unanswered, until its client gives up.
+	hang bool
 }
 
 type awsSecret struct {
@@ -73,6 +78,21 @@ func (a *AWS) SetListError(code string) {
 	a.ListError = code
 }
 
+// SetHang makes every request wait, unanswered, until its client gives up
+// (on) or answers them again (off).
+func (a *AWS) SetHang(on bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.hang = on
+}
+
+// Reads returns the number of GetSecretValue calls for the secret name.
+func (a *AWS) Reads(name string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.reads[name]
+}
+
 // PutBinary stores a binary secret.
 func (a *AWS) PutBinary(name string, value []byte) {
 	a.mu.Lock()
@@ -86,6 +106,16 @@ type awsFilter struct {
 }
 
 func (a *AWS) serve(w http.ResponseWriter, r *http.Request) {
+	a.mu.Lock()
+	hang := a.hang
+	a.mu.Unlock()
+	if hang {
+		// The server notices that the client went away only once the
+		// request body has been read.
+		_, _ = io.Copy(io.Discard, r.Body)
+		<-r.Context().Done()
+		return
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if auth := r.Header.Get("Authorization"); strings.Contains(auth, "Credential=") {
@@ -103,6 +133,10 @@ func (a *AWS) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Header.Get("X-Amz-Target") {
 	case "secretsmanager.GetSecretValue":
+		if a.reads == nil {
+			a.reads = map[string]int{}
+		}
+		a.reads[req.SecretID]++
 		for _, s := range a.secrets {
 			if s.name == req.SecretID {
 				out := map[string]any{"ARN": "arn:aws:secretsmanager:us-east-1:000000000000:secret:" + s.name,

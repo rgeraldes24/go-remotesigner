@@ -29,10 +29,10 @@
 // GOOGLE_APPLICATION_CREDENTIALS names, gcloud's user credentials, or the
 // metadata server's service account on GCE, GKE and Cloud Run. Each call
 // is bounded by secrets.DefaultTimeout, retries included, and each message
-// by secrets.MaxResponseSize. The SDK's logger is replaced by one that
-// discards, so GOOGLE_SDK_GO_LOGGING_LEVEL cannot make it log payloads, and
-// so is gRPC's, so GRPC_GO_LOG_SEVERITY_LEVEL cannot make it write to
-// stderr.
+// by secrets.MaxResponseSize: a larger message fails at once, unretried.
+// The SDK's logger is replaced by one that discards, so
+// GOOGLE_SDK_GO_LOGGING_LEVEL cannot make it log payloads, and so is
+// gRPC's, so GRPC_GO_LOG_SEVERITY_LEVEL cannot make it write to stderr.
 //
 // An endpoint override of the form http://host:port is an emulator or a
 // test fake: it is reached without TLS and without credentials. Any other
@@ -47,6 +47,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"time"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
@@ -68,6 +69,10 @@ func init() {
 	// signer's own log is the only output.
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
 }
+
+// callTimeout bounds each call, retries included: secrets.DefaultTimeout,
+// a variable so that the tests can shorten it.
+var callTimeout = secrets.DefaultTimeout
 
 // maxClients is the number of SDK clients a Client keeps, one per
 // endpoint.
@@ -136,10 +141,13 @@ func newClient(ctx context.Context, endpoint string) (*secretmanager.Client, err
 // projects/<project>/secrets/<name>.
 func access(ctx context.Context, sm *secretmanager.Client, resource string) ([]byte, error) {
 	resp, err := sm.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{Name: resource + "/versions/latest"},
-		gax.WithTimeout(secrets.DefaultTimeout))
+		gax.WithTimeout(callTimeout), gax.WithRetry(newAccessRetry))
 	switch {
 	case status.Code(err) == codes.NotFound:
 		return nil, fmt.Errorf("%w: %v", secrets.ErrNotFound, status.Convert(err).Message())
+	case tooLarge(err):
+		return nil, fmt.Errorf("access the latest version: %w: a response of more than %d bytes", secrets.ErrTooLarge,
+			secrets.MaxResponseSize)
 	case err != nil:
 		return nil, fmt.Errorf("access the latest version: %w", err)
 	case resp.GetPayload() == nil:
@@ -151,6 +159,32 @@ func access(ctx context.Context, sm *secretmanager.Client, resource string) ([]b
 		return nil, err
 	}
 	return append([]byte(nil), data...), nil
+}
+
+// tooLarge reports whether err is gRPC's refusal of a message larger than
+// the client accepts, secrets.MaxResponseSize.
+func tooLarge(err error) bool {
+	st, ok := status.FromError(err)
+	return ok && st.Code() == codes.ResourceExhausted && strings.Contains(st.Message(), "larger than max")
+}
+
+// accessRetry is the SDK's retry of AccessSecretVersion (Unavailable and
+// ResourceExhausted, backing off from 2 s), except for a message larger
+// than the client accepts: gRPC reports it as ResourceExhausted too, and it
+// would fail the same way until the call timeout.
+type accessRetry struct{ gax.Retryer }
+
+// Retry implements gax.Retryer.
+func (r accessRetry) Retry(err error) (time.Duration, bool) {
+	if tooLarge(err) {
+		return 0, false
+	}
+	return r.Retryer.Retry(err)
+}
+
+func newAccessRetry() gax.Retryer {
+	return accessRetry{gax.OnCodes([]codes.Code{codes.Unavailable, codes.ResourceExhausted},
+		gax.Backoff{Initial: 2 * time.Second, Max: 60 * time.Second, Multiplier: 2})}
 }
 
 // Bulk is the GCP Secret Manager bulk loader's store.
@@ -179,12 +213,16 @@ func (b *Bulk) Close() error { return b.sm.Close() }
 // secrets that the filter selects.
 func (b *Bulk) List(ctx context.Context) ([]string, error) {
 	it := b.sm.ListSecrets(ctx, &secretmanagerpb.ListSecretsRequest{Parent: b.parent, Filter: b.filter},
-		gax.WithTimeout(secrets.DefaultTimeout))
+		gax.WithTimeout(callTimeout))
 	var names []string
 	for {
 		s, err := it.Next()
 		if errors.Is(err, iterator.Done) {
 			return names, nil
+		}
+		if tooLarge(err) {
+			return nil, fmt.Errorf("unexpected error during GCP list-secrets operation: %w: a page of more than %d "+
+				"bytes", secrets.ErrTooLarge, secrets.MaxResponseSize)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("unexpected error during GCP list-secrets operation: %w", err)

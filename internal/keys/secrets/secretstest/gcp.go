@@ -34,6 +34,10 @@ type GCP struct {
 	secrets []gcpSecret
 	// Filters records the filter of each ListSecrets call.
 	Filters []string
+	// hang: every call waits, unanswered, until its client gives up.
+	hang bool
+	// reads counts the AccessSecretVersion calls by secret resource name.
+	reads map[string]int
 }
 
 type gcpSecret struct {
@@ -65,8 +69,39 @@ func (g *GCP) Put(project, name string, payload []byte, labels map[string]string
 	g.secrets = append(g.secrets, gcpSecret{name: "projects/" + project + "/secrets/" + name, payload: payload, labels: labels})
 }
 
+// SetHang makes every call wait, unanswered, until its client gives up
+// (on) or answers them again (off).
+func (g *GCP) SetHang(on bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.hang = on
+}
+
+// Reads returns the number of AccessSecretVersion calls for the secret
+// name of project.
+func (g *GCP) Reads(project, name string) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.reads["projects/"+project+"/secrets/"+name]
+}
+
+// wait holds a call until its client gives up, while the fake hangs.
+func (g *GCP) wait(ctx context.Context) error {
+	g.mu.Lock()
+	hang := g.hang
+	g.mu.Unlock()
+	if !hang {
+		return nil
+	}
+	<-ctx.Done()
+	return status.FromContextError(ctx.Err()).Err()
+}
+
 // ListSecrets implements the service.
-func (g *GCP) ListSecrets(_ context.Context, req *secretmanagerpb.ListSecretsRequest) (*secretmanagerpb.ListSecretsResponse, error) {
+func (g *GCP) ListSecrets(ctx context.Context, req *secretmanagerpb.ListSecretsRequest) (*secretmanagerpb.ListSecretsResponse, error) {
+	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.Filters = append(g.Filters, req.GetFilter())
@@ -106,14 +141,21 @@ func (g *GCP) ListSecrets(_ context.Context, req *secretmanagerpb.ListSecretsReq
 }
 
 // AccessSecretVersion implements the service.
-func (g *GCP) AccessSecretVersion(_ context.Context, req *secretmanagerpb.AccessSecretVersionRequest) (
+func (g *GCP) AccessSecretVersion(ctx context.Context, req *secretmanagerpb.AccessSecretVersionRequest) (
 	*secretmanagerpb.AccessSecretVersionResponse, error) {
+	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	name, ok := strings.CutSuffix(req.GetName(), "/versions/latest")
 	if !ok {
 		return nil, status.Errorf(codes.InvalidArgument, "the fake serves versions/latest only")
 	}
+	if g.reads == nil {
+		g.reads = map[string]int{}
+	}
+	g.reads[name]++
 	i := slices.IndexFunc(g.secrets, func(s gcpSecret) bool { return s.name == name })
 	if i < 0 {
 		return nil, status.Errorf(codes.NotFound, "Secret [%s] not found or has no versions.", name)

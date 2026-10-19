@@ -66,7 +66,8 @@ func (l LimitTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 	if resp.ContentLength > l.Max {
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("store response: %w: %d bytes, more than %d", ErrTooLarge, resp.ContentLength, l.Max)
+		return nil, &responseTooLarge{fmt.Sprintf("store response: %v: %d bytes, more than %d", ErrTooLarge,
+			resp.ContentLength, l.Max)}
 	}
 	resp.Body = &limitedBody{rc: resp.Body, max: l.Max, left: l.Max}
 	return resp, nil
@@ -94,10 +95,23 @@ func (b *limitedBody) Read(p []byte) (int, error) {
 }
 
 func (b *limitedBody) tooLarge() error {
-	return fmt.Errorf("store response: %w: more than %d bytes", ErrTooLarge, b.max)
+	return &responseTooLarge{fmt.Sprintf("store response: %v: more than %d bytes", ErrTooLarge, b.max)}
 }
 
 func (b *limitedBody) Close() error { return b.rc.Close() }
+
+// responseTooLarge is the ErrTooLarge of a response over the limit. A
+// retry would fail the same way, and it says so: azcore's retry policy,
+// which retries a body it could not read, skips an error with a
+// NonRetriable method.
+type responseTooLarge struct{ msg string }
+
+func (e *responseTooLarge) Error() string { return e.msg }
+
+func (e *responseTooLarge) Unwrap() error { return ErrTooLarge }
+
+// NonRetriable marks the error as permanent for azcore's retry policy.
+func (e *responseTooLarge) NonRetriable() {}
 
 // ReadBody reads a response body into one buffer sized from its declared
 // length, at most max bytes, so that no copy of a secret is left behind by

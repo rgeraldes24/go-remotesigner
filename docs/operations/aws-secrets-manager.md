@@ -99,7 +99,8 @@ bulk loader `secretsmanager:ListSecrets`:
 }
 ```
 
-The SDK logs nothing: its logger is a no-op and no request or response logging is turned on.
+The SDK logs nothing: its logger, which by default writes warnings to stderr in its own format, is replaced by a
+no-op, and no request or response logging is turned on (X81).
 
 ## 5. Requests and limits
 

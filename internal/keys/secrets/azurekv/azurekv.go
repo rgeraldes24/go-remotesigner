@@ -240,6 +240,10 @@ func (v *vault) get(ctx context.Context, name string) ([]byte, error) {
 		if errors.As(err, &re) && re.StatusCode == http.StatusNotFound {
 			return nil, fmt.Errorf("%w: secret %q doesn't exist", secrets.ErrNotFound, name)
 		}
+		if errors.Is(err, secrets.ErrTooLarge) {
+			return nil, fmt.Errorf("failed to fetch the secret: %w: a response of more than %d bytes", secrets.ErrTooLarge,
+				secrets.MaxResponseSize)
+		}
 		return nil, fmt.Errorf("failed to fetch the secret: %s", oneLine(err))
 	}
 	if resp.Value == nil {
@@ -297,6 +301,10 @@ func (b *Bulk) List(ctx context.Context) ([]string, error) {
 			defer cancel()
 			return pager.NextPage(ctx)
 		}()
+		if errors.Is(err, secrets.ErrTooLarge) {
+			return nil, fmt.Errorf("unexpected error during Azure list-secrets operation: %w: a page of more than %d "+
+				"bytes", secrets.ErrTooLarge, secrets.MaxResponseSize)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("unexpected error during Azure list-secrets operation: %s", oneLine(err))
 		}
