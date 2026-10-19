@@ -78,7 +78,7 @@ func newApp(stdout, stderr io.Writer, runSigner runFunc) *cli.App {
 	return &cli.App{
 		Name:            binaryName,
 		Usage:           "remote signer for QRL validator clients",
-		Version:         versionString(),
+		Version:         versionString() + flavourNotice,
 		Writer:          stdout,
 		ErrWriter:       stderr,
 		HideHelpCommand: true,

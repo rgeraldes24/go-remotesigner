@@ -11,14 +11,15 @@ Two flavours, built from the same commit with `CGO_ENABLED=0 -trimpath`:
 
 | Flavour | Build | Licences linked |
 |---|---|---|
-| `remotesigner` | default, with [execution mode](execution.md) | permissive only today: execution mode links no go-qrl yet; transaction signing will add go-qrl (LGPL-3.0-or-later) to this flavour only |
+| `remotesigner` | default, with [execution mode](execution.md) | permissive, and go-qrl's library (LGPL-3.0-or-later), unmodified, which execution mode signs transactions with: the binary is an LGPL combined work (section 2) |
 | `remotesigner-consensus` | `-tags noexecution` | permissive only, always: it never links go-qrl or any GPL or LGPL code |
 
 | File | Content |
 |---|---|
 | `<flavour>_<version>_<os>_<arch>.tar.gz` | for linux and darwin, amd64 and arm64: a directory with the binary, `LICENSE`, the flavour's `NOTICE`, `LICENSES/`, `third_party_licenses/`, `README.md`, and the release's systemd unit and example configuration files in `deploy/systemd/` and `deploy/config/` ([`deploy-systemd.md`](deploy-systemd.md) installs them from there) |
 | `<archive>.sbom.json` | the archive's SPDX SBOM (syft) |
-| `checksums.txt` | SHA-256 of every archive and SBOM |
+| `remotesigner-<version>-src-vendored.tar.gz` | the source of the release: the tagged tree with every module the binaries link in `vendor/` (`make release-src`), go-qrl included, which rebuilds the default flavour offline (`go build -mod=vendor ./cmd/remotesigner`) |
+| `checksums.txt` | SHA-256 of every archive, SBOM and the source archive |
 | `checksums.txt.sigstore.json` | the keyless cosign signature bundle of `checksums.txt` |
 | `ghcr.io/rgeraldes24/<flavour>:<version>` (and `:latest` unless a pre-release) | the multi-platform image ([`deploy-docker.md`](deploy-docker.md)), with an SBOM and a SLSA provenance attestation attached, signed with cosign |
 
@@ -29,23 +30,51 @@ links, under the module's path. `README.md` is the repository's, with each link 
 pointing at that file in the repository at the release's tag. The image carries the same files under
 `/usr/share/doc/remotesigner/`, and its
 `org.opencontainers.image.licenses` label is the SPDX expression of the licences the binary links, generated per
-flavour from `go-licenses report` (for example `Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND MIT`).
+flavour from `go-licenses report` (for example `Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND MIT` for the
+consensus flavour, and `Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND LGPL-3.0-or-later AND MIT` for the
+default one).
+
+**go-qrl and go-licenses.** go-licenses reads go-qrl's `COPYING`, which is the GPL text, and reports go-qrl as
+`GPL-3.0`; `save` would then copy the whole go-qrl module (35 MB, its GPL commands included) into every archive and
+image, as the source a GPL licence asks for. go-qrl's README licenses all of go-qrl outside `cmd/` under the LGPL, and
+the default flavour links only such packages. So the release tooling treats go-qrl apart:
+
+- `third_party_licenses/github.com/theQRL/go-qrl/` holds go-qrl's `COPYING` and `COPYING.LESSER` and none of its
+  source; the source goes with the release in `remotesigner-<version>-src-vendored.tar.gz`;
+- the licence label names `LGPL-3.0-or-later` for it. `tools/releasedocs` corrects only a go-qrl line that
+  go-licenses read from `COPYING`, and fails on go-qrl in the consensus flavour;
+- `make licenses` checks the default flavour with go-qrl's packages left out (the prefix `github.com/theQRL/go-qrl/`
+  ends in a slash, because go-licenses matches prefixes and the bare module path would also leave out go-qrllib) and
+  then runs two tests instead: every go-qrl file the default flavour links, on every target it builds for, carries the
+  LGPL notice or no GNU notice and none is under `cmd/` or `internal/`, and `LICENSES/` holds go-qrl's own LGPL and GPL
+  texts. The consensus flavour is checked with no exception.
 
 ## 2. NOTICE and licence texts per flavour
 
 [`tools/releasedocs`](../../tools/releasedocs/main.go) assembles each flavour's files from the repository
 (`make release-docs`, which goreleaser runs first):
 
-- `NOTICE`: the repository's [`NOTICE`](../../NOTICE). For the default flavour, a `NOTICE.execution` fragment, when
-  the repository has one, is appended: it will carry the go-qrl notice once execution mode links go-qrl. The consensus
-  flavour's NOTICE is the repository's NOTICE only.
-- `LICENSES/`: the texts in [`LICENSES/`](../../LICENSES). `GPL-3.0-or-later.txt` and `LGPL-3.0-or-later.txt`, when
-  present, ship in the default flavour only. Any other GNU GPL, LGPL or AGPL text, recognised by `GPL` in its file
-  name or by its GNU title line, makes `make release-docs` fail until it is listed as execution-only.
+- `NOTICE`: the repository's [`NOTICE`](../../NOTICE). For the default flavour,
+  [`NOTICE.execution`](../../NOTICE.execution) is appended: the go-qrl paragraph (the binary links the LGPL go-qrl
+  library unmodified; where its texts and the release's corresponding source are) and the notices of the three
+  modules only execution mode links (go-qrl, `holiman/uint256`, decred's `secp256k1`). The consensus flavour's NOTICE
+  is the repository's NOTICE only, which never mentions the LGPL.
+- `LICENSES/`: the texts in [`LICENSES/`](../../LICENSES). `GPL-3.0-or-later.txt` and `LGPL-3.0-or-later.txt`
+  (go-qrl's own `COPYING` and `COPYING.LESSER`, which a test keeps equal) and `ISC.txt` ship in the default flavour
+  only. Any other GNU GPL, LGPL or AGPL text, recognised by `GPL` in its file name or by its GNU title line, makes
+  `make release-docs` fail until it is listed as execution-only.
 
-Today both flavours link the same permissively licensed modules, so their files are identical. The release checks
-(section 4) enforce the split on what was built: an archive or image of the consensus flavour whose NOTICE mentions
-the LGPL, or whose `LICENSES/` holds a GNU GPL, LGPL or AGPL text by either test, whatever its name, fails them.
+The release checks (section 4) enforce the split on what was built: an archive or image of the consensus flavour
+whose NOTICE mentions the LGPL, whose `LICENSES/` holds a GNU GPL, LGPL or AGPL text by either test, whatever its name,
+or whose `third_party_licenses/` holds anything of go-qrl fails them, and so does an archive or image of the default
+flavour without the go-qrl paragraph, both GNU texts and go-qrl's licence files, or with go-qrl source.
+
+**The LGPL's obligations, and how a release meets them.** The default flavour is a combined work of
+go-remotesigner's Apache-2.0 code and the go-qrl library. Its archives and images carry the notice that go-qrl is
+used and is under the LGPL (NOTICE), the LGPL and GPL texts (`LICENSES/`), and `--version` prints the go-qrl notice
+with a pointer to those texts. The corresponding source is `remotesigner-<version>-src-vendored.tar.gz`, which builds
+the binary with a modified go-qrl in `vendor/`. go-qrl is never modified or copied into this repository; if that ever
+changes, the copy keeps go-qrl's LGPL headers in a directory of its own.
 
 ## 3. Verifying a release
 
@@ -74,6 +103,15 @@ docker buildx imagetools inspect ghcr.io/rgeraldes24/remotesigner-consensus:<ver
 
 ```
 go version -m remotesigner-consensus | grep -E 'dep\s+github.com/theQRL/go-qrl\s'    # prints nothing
+go version -m remotesigner | grep -E 'dep\s+github.com/theQRL/go-qrl\s'              # the go-qrl version
+```
+
+**The source archive rebuilds the default flavour.**
+
+```
+tar -xzf remotesigner-<version>-src-vendored.tar.gz
+cd remotesigner-<version>-src-vendored
+CGO_ENABLED=0 GOPROXY=off go build -mod=vendor -trimpath -o remotesigner ./cmd/remotesigner
 ```
 
 ## 4. The release dry run
@@ -92,8 +130,11 @@ make release-check
 - archives exist for both flavours and every target, and `checksums.txt` matches them;
 - every archive holds its binary, `LICENSE`, the flavour's `NOTICE`, exactly the flavour's `LICENSES/` texts,
   `third_party_licenses/` with a licence file of every module that `go version -m` lists for the binary (and the
-  module's `NOTICE` where its source has one), the repository's `deploy/config/` and `deploy/systemd/` files, and a
-  `README.md` whose relative links all name files the archive holds;
+  module's `NOTICE` where its source has one) and the go-qrl rules of section 2, the repository's `deploy/config/` and
+  `deploy/systemd/` files, and a `README.md` whose relative links all name files the archive holds;
+- the source archive (`REMOTESIGNER_RELEASE_DOCS`, the `build/release` directory) holds both NOTICE files, the GNU
+  texts and every module in `vendor/`, go-qrl at the version `go.mod` requires and no qrysm, is in `checksums.txt`,
+  and builds the default flavour offline from `vendor/` into a binary that links that go-qrl;
 - every binary is static and trimmed; the consensus binaries are built with `noexecution` and `go version -m` lists
   no go-qrl module;
 - every binary built for this machine, and every image of its architecture, reports the version goreleaser derived

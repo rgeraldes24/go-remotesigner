@@ -67,6 +67,25 @@ var (
 // lgpl matches a NOTICE that mentions the LGPL.
 var lgpl = regexp.MustCompile(`(?i)LGPL|Lesser General Public`)
 
+// executionTexts are the permissive LICENSES/ texts that only the default
+// flavour ships, for modules only execution mode links (decred's
+// secp256k1, ISC).
+var executionTexts = []string{"ISC.txt"}
+
+// gnuTexts are the GNU texts the default flavour must ship, because it
+// links go-qrl (LGPL-3.0-or-later, which supplements the GPL).
+var gnuTexts = []string{"GPL-3.0-or-later.txt", "LGPL-3.0-or-later.txt"}
+
+// goQRLLicences is where go-licenses save's output holds go-qrl's own
+// licence files in the default flavour; the consensus flavour has none of
+// them.
+const goQRLLicences = "third_party_licenses/github.com/theQRL/go-qrl/"
+
+// goQRLLicenceFiles are the files the default flavour ships there, and the
+// only ones: go-qrl's source goes with the release's vendored source
+// archive, not into every archive and image.
+var goQRLLicenceFiles = []string{"COPYING", "COPYING.LESSER"}
+
 // readRepo returns the content of a repository file.
 func readRepo(t *testing.T, name string) []byte {
 	t.Helper()
@@ -87,7 +106,8 @@ type releaseDocs struct {
 // wantDocs returns the licence files the flavour must ship, from the
 // repository: LICENSE; NOTICE, followed in the default flavour by
 // NOTICE.execution when the repository has that fragment; and the LICENSES/
-// texts, without the GNU texts (gnuText) in the consensus flavour.
+// texts, without the GNU texts (gnuText) and executionTexts in the
+// consensus flavour.
 func wantDocs(t *testing.T, flavour string) releaseDocs {
 	t.Helper()
 	d := releaseDocs{license: readRepo(t, "LICENSE"), notice: readRepo(t, "NOTICE"), texts: map[string][]byte{}}
@@ -116,7 +136,7 @@ func wantDocs(t *testing.T, flavour string) releaseDocs {
 			continue
 		}
 		data := readRepo(t, "LICENSES/"+e.Name())
-		if flavour != fullFlavour && gnuText(e.Name(), data) {
+		if flavour != fullFlavour && (gnuText(e.Name(), data) || slices.Contains(executionTexts, e.Name())) {
 			continue
 		}
 		d.texts[e.Name()] = data
@@ -162,10 +182,13 @@ func readTar(r io.Reader, strip int) (map[string]tarFile, error) {
 const qrllibLicense = "third_party_licenses/github.com/theQRL/go-qrllib/LICENSE"
 
 // licenceProblems returns what files, a release's tree, lacks for the
-// flavour: LICENSE, the flavour's NOTICE (without any LGPL mention in the
-// consensus flavour), exactly the flavour's LICENSES/ texts and, in the
-// consensus flavour, no GNU text (gnuText) whatever want lists, and the
-// third-party licence files of go-licenses save.
+// flavour: LICENSE, the flavour's NOTICE (with the LGPL paragraph in the
+// default flavour, without any LGPL mention in the consensus flavour),
+// exactly the flavour's LICENSES/ texts (with both GNU texts in the default
+// flavour and, in the consensus flavour, no GNU text (gnuText) whatever
+// want lists), and the third-party licence files of go-licenses save: in
+// the default flavour, go-qrl's COPYING and COPYING.LESSER and no go-qrl
+// source; in the consensus flavour, nothing of go-qrl.
 func licenceProblems(flavour string, want releaseDocs, files map[string]tarFile) []string {
 	var p []string
 	if f, ok := files["LICENSE"]; !ok || !bytes.Equal(f.data, want.license) {
@@ -177,6 +200,8 @@ func licenceProblems(flavour string, want releaseDocs, files map[string]tarFile)
 		p = append(p, "NOTICE missing")
 	case flavour == consensusFlavour && lgpl.Match(notice.data):
 		p = append(p, "the consensus flavour's NOTICE mentions the LGPL")
+	case flavour == fullFlavour && !lgpl.Match(notice.data):
+		p = append(p, "the default flavour's NOTICE lacks the go-qrl LGPL paragraph")
 	case !bytes.Equal(notice.data, want.notice):
 		p = append(p, "NOTICE is not the "+flavour+" flavour's NOTICE")
 	}
@@ -200,6 +225,28 @@ func licenceProblems(flavour string, want releaseDocs, files map[string]tarFile)
 	}
 	if _, ok := files[qrllibLicense]; !ok {
 		p = append(p, "third_party_licenses/ lacks go-qrllib's LICENSE")
+	}
+	if flavour == fullFlavour {
+		for _, name := range gnuTexts {
+			if !slices.Contains(got, name) && want.texts[name] == nil {
+				p = append(p, "LICENSES/"+name+" missing: the default flavour links go-qrl")
+			}
+		}
+		for _, name := range goQRLLicenceFiles {
+			if _, ok := files[goQRLLicences+name]; !ok {
+				p = append(p, goQRLLicences+name+" missing")
+			}
+		}
+	}
+	for name, f := range files {
+		rest, ok := strings.CutPrefix(name, goQRLLicences)
+		switch {
+		case !ok || f.hdr.Typeflag != tar.TypeReg:
+		case flavour == consensusFlavour:
+			p = append(p, name+": the consensus flavour links no go-qrl")
+		case !slices.Contains(goQRLLicenceFiles, rest):
+			p = append(p, name+": only go-qrl's licence files belong in the archive; its source is in the vendored source archive")
+		}
 	}
 	slices.Sort(p)
 	return p

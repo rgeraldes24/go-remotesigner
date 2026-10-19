@@ -16,17 +16,28 @@
 //   - NOTICE: the repository's NOTICE. The default flavour appends
 //     NOTICE.execution when the repository has one: that fragment holds the
 //     notices of the execution mode, which the consensus flavour never links;
-//   - LICENSES/: the generic licence texts, without the GPL and LGPL texts in
-//     the consensus flavour, which links permissively licensed code only. A
-//     GNU GPL, LGPL or AGPL text that executionOnly does not list, found by
-//     its file name or its title line, is an error rather than shipped in
-//     the consensus flavour;
+//   - LICENSES/: the generic licence texts, without the texts only execution
+//     mode needs (the GPL and LGPL texts, ISC) in the consensus flavour, which
+//     links permissively licensed code only. A GNU GPL, LGPL or AGPL text that
+//     executionOnly does not list, found by its file name or its title line,
+//     is an error rather than shipped in the consensus flavour;
 //   - third_party_licenses/: `go-licenses save` of the flavour's binary, each
-//     linked module's own licence and notice files;
+//     linked module's own licence and notice files. go-licenses classes
+//     go-qrl as GPL-3.0, from its COPYING, and would copy the whole go-qrl
+//     module (35 MB, its GPL commands included) as the source a GPL licence
+//     asks for. The default flavour therefore saves go-qrl apart: its COPYING
+//     and COPYING.LESSER only, the GPL text and the LGPL that supplements it.
+//     go-qrl's source goes with each release in the vendored source archive
+//     (make release-src), which is how the LGPL's corresponding source is
+//     provided;
 //
 // and <out>/<flavour>.licenses, the SPDX expression of the licences the
 // binary links (from `go-licenses report`), which the image carries in its
-// org.opencontainers.image.licenses label.
+// org.opencontainers.image.licenses label. go-qrl's library is
+// LGPL-3.0-or-later by its README, not GPL-3.0 as go-licenses reports it
+// from COPYING; the default flavour's expression says so, and a go-qrl in
+// the consensus flavour's report is an error. The test TestLinkedGoQRLIsLGPL
+// (test/repo) checks that every go-qrl file the binary links is LGPL.
 //
 // With -notes <tag> it instead prints the release notes of the tag: the
 // body of its CHANGELOG.md entry, which must be dated, with its relative
@@ -98,8 +109,22 @@ var deployDirs = []string{"deploy/config", "deploy/systemd"}
 
 // executionOnly are the LICENSES/ texts that only the execution flavour
 // ships: the texts of the LGPL code execution mode links and of the GPL it
-// refers to.
-var executionOnly = []string{"GPL-3.0-or-later.txt", "LGPL-3.0-or-later.txt"}
+// refers to, and of the ISC module it links (decred's secp256k1).
+var executionOnly = []string{"GPL-3.0-or-later.txt", "ISC.txt", "LGPL-3.0-or-later.txt"}
+
+// goQRL is the LGPL module execution mode links. goQRLIgnore is the
+// go-licenses prefix of its packages: go-licenses matches prefixes, and the
+// module path alone would also match go-qrllib.
+const (
+	goQRL       = "github.com/theQRL/go-qrl"
+	goQRLIgnore = goQRL + "/"
+	// goQRLLicence is go-qrl's licence: its library is LGPL-3.0-or-later.
+	goQRLLicence = "LGPL-3.0-or-later"
+)
+
+// goQRLLicenceFiles are the files of go-qrl's own that the default flavour
+// ships in third_party_licenses/github.com/theQRL/go-qrl/.
+var goQRLLicenceFiles = []string{"COPYING", "COPYING.LESSER"}
 
 var (
 	// gnuName matches the file name of a GNU GPL, LGPL or AGPL text.
@@ -161,12 +186,24 @@ func run(root, out, goLicenses, ref string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tl.run(f, "save", mainPkg, "--save_path", save, "--ignore", module); err != nil {
+		args := []string{"save", mainPkg, "--save_path", save, "--ignore", module}
+		if f.execution {
+			args = append(args, "--ignore", goQRLIgnore)
+		}
+		if _, err := tl.run(f, args...); err != nil {
 			return fmt.Errorf("%s: go-licenses save: %w", f.name, err)
+		}
+		if f.execution {
+			if err := saveGoQRL(root, save); err != nil {
+				return fmt.Errorf("%s: %w", f.name, err)
+			}
 		}
 		report, err := tl.run(f, "report", mainPkg)
 		if err != nil {
 			return fmt.Errorf("%s: go-licenses report: %w", f.name, err)
+		}
+		if report, err = goQRLReport(report, f); err != nil {
+			return fmt.Errorf("%s: %w", f.name, err)
 		}
 		expr, err := spdxExpression(report)
 		if err != nil {
@@ -368,6 +405,64 @@ func spdxExpression(report []byte) (string, error) {
 	}
 	slices.Sort(names)
 	return strings.Join(names, " AND "), nil
+}
+
+// goQRLReport corrects go-qrl's licence in a `go-licenses report` CSV:
+// go-licenses reads go-qrl's COPYING, the GPL text, and reports GPL-3.0;
+// the library the default flavour links is LGPL-3.0-or-later. Only a go-qrl
+// line whose licence file is COPYING is corrected; another one, and any
+// go-qrl line in the consensus flavour's report, is an error.
+func goQRLReport(report []byte, f flavour) ([]byte, error) {
+	r := csv.NewReader(bytes.NewReader(report))
+	r.FieldsPerRecord = 3
+	var out bytes.Buffer
+	w := csv.NewWriter(&out)
+	for {
+		rec, err := r.Read()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("go-licenses report: %w", err)
+		}
+		if rec[0] == goQRL || strings.HasPrefix(rec[0], goQRLIgnore) {
+			switch {
+			case !f.execution:
+				return nil, fmt.Errorf("go-licenses report: the %s flavour links %s", f.name, rec[0])
+			case !strings.HasSuffix(rec[1], "/COPYING") || rec[2] != "GPL-3.0":
+				return nil, fmt.Errorf("go-licenses report: %s is %s from %s, not GPL-3.0 from go-qrl's COPYING; "+
+					"check its licence before releasing", rec[0], rec[2], rec[1])
+			}
+			rec[2] = goQRLLicence
+		}
+		if err := w.Write(rec); err != nil {
+			return nil, err
+		}
+	}
+	w.Flush()
+	return out.Bytes(), w.Error()
+}
+
+// saveGoQRL writes go-qrl's licence files into the third_party_licenses/
+// directory save, as go-licenses save lays out the others.
+func saveGoQRL(root, save string) error {
+	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", goQRL)
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("go list -m %s: %w", goQRL, err)
+	}
+	src := strings.TrimSpace(string(out))
+	dst := filepath.Join(save, filepath.FromSlash(goQRL))
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, name := range goQRLLicenceFiles {
+		if err := copyFile(filepath.Join(src, name), filepath.Join(dst, name)); err != nil {
+			return fmt.Errorf("go-qrl's %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // goLicensesTool runs go-licenses in the repository root.

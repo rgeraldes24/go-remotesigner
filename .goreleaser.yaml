@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Release configuration (goreleaser v2). Two flavours, each shipped as
-# archives and as an image with its own licence files (tools/releasedocs):
+# archives and as an image with its own licence files (tools/releasedocs),
+# and the source with its dependencies vendored (make release-src):
 #
 #   - remotesigner, the default flavour;
 #   - remotesigner-consensus (-tags noexecution): consensus only, permissive
@@ -24,6 +25,10 @@ before:
     # links to the repository at the release's tag, deploy/config/ and deploy/systemd/) and
     # build/release/<flavour>.licenses (the SPDX expression of the image label).
     - make release-docs GO_LICENSES={{ envOrDefault "GO_LICENSES" "go-licenses" }} RELEASE_REF={{ .Tag }}
+    # build/release/remotesigner-<version>-src-vendored.tar.gz: the source with every
+    # linked module vendored, the corresponding source of the LGPL go-qrl the
+    # default flavour links. The release attaches it, and checksums.txt covers it.
+    - make release-src VERSION={{ .Version }}
 
 builds:
   - id: remotesigner
@@ -77,6 +82,8 @@ archives:
 
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: build/release/remotesigner-*-src-vendored.tar.gz
 
 # One SPDX SBOM per archive (syft).
 sboms:
@@ -159,6 +166,8 @@ release:
     owner: rgeraldes24
     name: go-remotesigner
   prerelease: auto
+  extra_files:
+    - glob: build/release/remotesigner-*-src-vendored.tar.gz
 
 # The release workflow publishes the tag's CHANGELOG.md entry as the release
 # notes (--release-notes, from tools/releasedocs -notes); this git log is
