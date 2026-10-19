@@ -300,13 +300,14 @@ stops, the larger of the two. Both responses must be 200 with every keystore imp
 
 | ID | Test | Threshold | Development-machine results | Verdict |
 |---|---|---|---|---|
-| B18 | `TestB18KeymanagerImport` | ≤ 100 × t_B10 / P + 10 s; no write-deadline error | run O: P = 8, t_B10 = 2.59 s (2.59 s before, 2.54 s after): imported in 35.9 s (23.3 s for the 64, 12.6 s for the 36), bound 42 s; peak RSS 4,448 MiB. Run M: t_B10 = 5.05 s: 60.7 s against 73 s; peak RSS 4,392 MiB. Run N: t_B10 = 2.86 s: 47.6 s against 45.7 s, missed | met on dev machine in runs M and O |
+| B18 | `TestB18KeymanagerImport` | ≤ 100 × t_B10 / P + 10 s; no write-deadline error | run O: P = 8, t_B10 = 2.59 s (2.59 s before, 2.54 s after): imported in 35.9 s (23.3 s for the 64, 12.6 s for the 36), bound 42 s; peak RSS 4,448 MiB. Run M: t_B10 = 5.05 s: 60.7 s against 73 s; peak RSS 4,392 MiB. Run N: t_B10 = 2.86 s: 47.6 s against 45.7 s, missed. Run P (2026-10-19, the final code): t_B10 = 2.66 s (2.59 s before, 2.66 s after): 43.0 s (29.4 s and 13.6 s) against 43.2 s; peak RSS 4,379 MiB | met on dev machine in runs M, O and P |
 
-Runs M, N and O, 2026-10-18, Go 1.26.9, Apple M2 (4 performance and 4 efficiency cores, 16 GiB, darwin/arm64), on a
-machine shared with other work: load average 9.4 at the start of run M and 18 at its end, 10.6 to 14.6 during run N,
-4.9 to 7.2 during run O. Runs M and N committed each imported key on its own (two synced store transactions and a
-directory sync per key, about 30 ms per key here); run N missed by 1.9 s. Run O is the code as it stands: the keys'
-files are written in parallel and the keys registered and enabled in one transaction each, which commits 64 keys in
-about 0.7 s instead of 2 s. The 64 keystores of the first request take eight rounds of P = 8 decrypts and the 36 of
-the second five, thirteen rounds in all, as one request of 100 would; the bound allows 12.5, so the 10 s also covers
-that last partial round.
+Runs M, N and O on 2026-10-18 and run P on 2026-10-19, Go 1.26.9, Apple M2 (4 performance and 4 efficiency cores,
+16 GiB, darwin/arm64), on a machine shared with other work: load average 9.4 at the start of run M and 18 at its end,
+10.6 to 14.6 during run N, 4.9 to 7.2 during run O, and 6.8 at the start of run P and 14.7 at its end. Runs M and N
+committed each imported key on its own (two synced store transactions and a directory sync per key, about 30 ms per
+key here); run N missed by 1.9 s. Runs O and P are the code as it stands: the keys' files are written in parallel and
+the keys registered and enabled in one transaction each, which commits 64 keys in about 0.7 s instead of 2 s. Run P
+met the bound by only 0.2 s, at a higher load than run O. The 64 keystores of the first request take eight rounds of
+P = 8 decrypts and the 36 of the second five, thirteen rounds in all, as one request of 100 would; the bound allows
+12.5, so the 10 s also covers that last partial round.
