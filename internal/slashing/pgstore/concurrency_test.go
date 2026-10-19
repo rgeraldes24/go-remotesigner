@@ -4,12 +4,14 @@
 package pgstore_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -449,6 +451,156 @@ func TestPostgresLockOrderNoDeadlock(t *testing.T) {
 		t.Errorf("Postgres detected %d deadlocks", n)
 	}
 }
+
+// validatorID is the database id of a registered key.
+func validatorID(t *testing.T, db *pgtest.DB, id slashing.KeyID) int32 {
+	t.Helper()
+	var vid int32
+	if err := db.Connect(t).QueryRow(bg, `SELECT id FROM validators WHERE pubkey_hash = $1`, id[:]).Scan(&vid); err != nil {
+		t.Fatal(err)
+	}
+	return vid
+}
+
+// holdLock takes the advisory lock (typ, vid) in a transaction on a session of its own, which the caller ends.
+func holdLock(t *testing.T, db *pgtest.DB, typ int, vid int32) pgx.Tx {
+	t.Helper()
+	tx, err := db.Connect(t).Begin(bg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(bg, fmt.Sprintf(`SELECT pg_advisory_xact_lock(%d, $1)`, typ), vid); err != nil {
+		t.Fatal(err)
+	}
+	return tx
+}
+
+// advisoryLock is a pg_advisory_xact_lock(type, validator id).
+type advisoryLock [2]int64
+
+// heldWhileWaiting waits until a session waits for the advisory lock (typ, vid), and returns the advisory locks that
+// session holds meanwhile, ordered by type and validator id.
+func heldWhileWaiting(t *testing.T, watch *pgx.Conn, typ int, vid int32) []advisoryLock {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var pid int32
+		err := watch.QueryRow(bg, `SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+			AND classid = $1 AND objid = $2 AND objsubid = 2`, typ, vid).Scan(&pid)
+		if errors.Is(err, pgx.ErrNoRows) {
+			if time.Now().After(deadline) {
+				t.Fatalf("no session waited for the advisory lock (%d, %d)", typ, vid)
+			}
+			time.Sleep(5 * time.Millisecond)
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, err := watch.Query(bg, `SELECT classid::bigint, objid::bigint FROM pg_locks
+			WHERE pid = $1 AND locktype = 'advisory' AND granted ORDER BY classid, objid`, pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		held, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (advisoryLock, error) {
+			var l advisoryLock
+			return l, r.Scan(&l[0], &l[1])
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return held
+	}
+}
+
+// The advisory locks are taken in one order everywhere, BLOCK(0), ATTESTATION(1), RANDAO(2): while another session
+// holds one of a validator's locks, the waiting store holds exactly the locks that come before it. Disabling a key
+// takes its block and then its attestation lock; a history transaction (import, pruning, the watermark repair)
+// takes both locks of each validator in turn, in KeyID order whatever order the call names them in; a RANDAO frontier
+// write or reset takes the RANDAO lock alone, and a write reads the row only once it holds the lock, so it sees what
+// the lock's previous holder wrote.
+func TestPostgresLockOrder(t *testing.T) {
+	db := migrated(t)
+	s := open(t, config(db))
+	register(t, s, 2)
+	watch := db.Connect(t)
+	ids := []slashing.KeyID{key(0), key(1)}
+	slices.SortFunc(ids, func(a, b slashing.KeyID) int { return bytes.Compare(a[:], b[:]) })
+	a, b := validatorID(t, db, ids[0]), validatorID(t, db, ids[1])
+	history := func() error {
+		return s.UpdateHistory(bg, []slashing.KeyID{ids[1], ids[0]}, func(slashing.KeyID, slashing.HistoryTx) error {
+			return nil
+		})
+	}
+	sorted := func(ls ...advisoryLock) []advisoryLock {
+		slices.SortFunc(ls, func(x, y advisoryLock) int { return slices.Compare(x[:], y[:]) })
+		return ls
+	}
+	for _, tc := range []struct {
+		name string
+		typ  int   // the lock another session holds
+		vid  int32 // of this validator
+		want []advisoryLock
+		call func() error
+	}{
+		{"disable", lockTypeAttestation, a, sorted(advisoryLock{0, int64(a)}), func() error {
+			return s.SetValidatorEnabled(bg, ids[0], false)
+		}},
+		{"history, first validator's attestation lock", lockTypeAttestation, a, sorted(advisoryLock{0, int64(a)}), history},
+		{"history, second validator's block lock", lockTypeBlock, b,
+			sorted(advisoryLock{0, int64(a)}, advisoryLock{1, int64(a)}), history},
+		{"history, second validator's attestation lock", lockTypeAttestation, b,
+			sorted(advisoryLock{0, int64(a)}, advisoryLock{1, int64(a)}, advisoryLock{0, int64(b)}), history},
+		{"RANDAO reset", lockTypeRandao, a, nil, func() error { return s.DeleteRandaoState(bg, ids[0]) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := holdLock(t, db, tc.typ, tc.vid)
+			done := make(chan error, 1)
+			go func() { done <- tc.call() }()
+			got := heldWhileWaiting(t, watch, tc.typ, tc.vid)
+			must(t, tx.Rollback(bg))
+			must(t, <-done)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("waiting for (%d, %d) while holding %v, want %v", tc.typ, tc.vid, got, tc.want)
+			}
+		})
+	}
+
+	t.Run("RANDAO write", func(t *testing.T) {
+		tx := holdLock(t, db, lockTypeRandao, a)
+		type result struct {
+			swapped bool
+			err     error
+		}
+		done := make(chan result, 1)
+		go func() {
+			ok, err := s.CompareAndSwapRandaoState(bg, ids[0], nil, slashing.RandaoState{Index: 9, LastSlot: 9})
+			done <- result{ok, err}
+		}()
+		if got := heldWhileWaiting(t, watch, lockTypeRandao, a); len(got) != 0 {
+			t.Errorf("waiting for the RANDAO lock while holding %v, want none", got)
+		}
+		// The lock's holder stores a frontier while the store waits.
+		if _, err := tx.Exec(bg, `INSERT INTO randao_reveal_state (validator_id, deepest_index, deepest_reveal,
+			last_new_slot) VALUES ($1, 5, $2, 5)`, a, make([]byte, 32)); err != nil {
+			t.Fatal(err)
+		}
+		must(t, tx.Commit(bg))
+		if r := <-done; r.err != nil || r.swapped {
+			t.Fatalf("first-use write over a frontier stored meanwhile: swapped %v, %v; want refused", r.swapped, r.err)
+		}
+		if st, ok, err := s.RandaoState(bg, ids[0]); err != nil || !ok || st.Index != 5 {
+			t.Fatalf("frontier %+v, %v, %v; want the one stored under the lock", st, ok, err)
+		}
+	})
+}
+
+// The advisory lock types, as the store numbers them.
+const (
+	lockTypeBlock       = 0
+	lockTypeAttestation = 1
+	lockTypeRandao      = 2
+)
 
 // split is one store whose SetValidatorEnabled goes through a second instance: the store contract's serialisation
 // test then checks that a disable on one replica waits for a transaction open on another.

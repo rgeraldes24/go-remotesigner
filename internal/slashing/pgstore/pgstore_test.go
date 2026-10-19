@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/pgstore"
@@ -346,6 +348,44 @@ func TestPostgresClosed(t *testing.T) {
 	}
 	if err := s.ViewHistory(bg, func(slashing.HistoryView) error { return nil }); !errors.Is(err, pgstore.ErrClosed) {
 		t.Fatalf("ViewHistory after Close: %v", err)
+	}
+}
+
+// The operations profile (docs/operations/postgres.md, section 5): a signing pool of 16 connections with 2 kept open,
+// each call bounded at 4.5 s, and every session with lock_timeout 2 s, statement_timeout 5 s and
+// idle_in_transaction_session_timeout 10 s; the pool the runner opens for pruning (MaxConns 1) has one connection. A
+// check-and-record that waits longer than lock_timeout for its validator's lock then fails, inside the call's bound,
+// instead of queueing.
+func TestPostgresOperationsProfile(t *testing.T) {
+	db := migrated(t)
+	s := open(t, config(db))
+	if c := s.Pool().Config(); c.MaxConns != 16 || c.MinConns != 2 || s.Timeout() != 4500*time.Millisecond {
+		t.Errorf("signing pool of %d connections, %d kept open, %v per call; want 16, 2 and 4.5s", c.MaxConns,
+			c.MinConns, s.Timeout())
+	}
+	for setting, want := range map[string]string{"lock_timeout": "2s", "statement_timeout": "5s",
+		"idle_in_transaction_session_timeout": "10s", "application_name": "remotesigner"} {
+		var got string
+		if err := s.Pool().QueryRow(bg, "SHOW "+setting).Scan(&got); err != nil || got != want {
+			t.Errorf("%s = %q (%v), want %q", setting, got, err, want)
+		}
+	}
+	prune := config(db)
+	prune.MaxConns, prune.MinConns = 1, 0
+	if c := open(t, prune).Pool().Config(); c.MaxConns != 1 || c.MinConns != 0 {
+		t.Errorf("pruning pool of %d connections, %d kept open; want 1 and 0", c.MaxConns, c.MinConns)
+	}
+
+	register(t, s, 1)
+	id := key(0)
+	tx := holdLock(t, db, 0, validatorID(t, db, id))
+	defer func() { _ = tx.Rollback(bg) }()
+	began := time.Now()
+	err := s.UpdateBlocks(bg, id, func(slashing.BlockTx) error { return nil })
+	took := time.Since(began)
+	var pe *pgconn.PgError
+	if !errors.As(err, &pe) || pe.Code != "55P03" || took < pgstore.LockTimeout || took >= s.Timeout() {
+		t.Fatalf("a block check behind a held lock: %v after %v; want lock_not_available (55P03) after 2 s", err, took)
 	}
 }
 
