@@ -88,9 +88,11 @@ type vaultKey struct {
 	authority, trust                   string
 }
 
-// vault is an SDK client and the timeout of its calls.
+// vault is an SDK client, the HTTP client it and its credential send
+// their requests with, and the timeout of its calls.
 type vault struct {
 	c       *azsecrets.Client
+	hc      *http.Client
 	timeout time.Duration
 }
 
@@ -98,8 +100,12 @@ type vault struct {
 func New() *Client {
 	c := &Client{}
 	c.clients.Max = secrets.DefaultAzureClientCache
+	c.clients.Close = func(v *vault) { v.hc.CloseIdleConnections() }
 	return c
 }
+
+// Close closes the idle connections of every cached SDK client.
+func (c *Client) Close() { c.clients.Purge() }
 
 // Fetch implements secrets.Fetcher for *secrets.Azure specs.
 func (c *Client) Fetch(ctx context.Context, s secrets.Spec) ([]byte, error) {
@@ -141,7 +147,8 @@ func newVault(v secrets.AzureVault) (*vault, error) {
 	}
 	// One HTTP client for the credential and the vault, as Web3Signer
 	// shares its Netty client.
-	opts := azcore.ClientOptions{Transport: secrets.HTTPClient(o), Logging: policy.LogOptions{IncludeBody: false}}
+	hc := secrets.HTTPClient(o)
+	opts := azcore.ClientOptions{Transport: hc, Logging: policy.LogOptions{IncludeBody: false}}
 	var (
 		cred azcore.TokenCredential
 		err  error
@@ -180,7 +187,7 @@ func newVault(v secrets.AzureVault) (*vault, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build the Azure Key Vault client: %s", oneLine(err))
 	}
-	return &vault{c: c, timeout: v.Timeout}, nil
+	return &vault{c: c, hc: hc, timeout: v.Timeout}, nil
 }
 
 // certPool reads the certificate file of the trust certificate override,
@@ -258,13 +265,15 @@ func oneLine(err error) string {
 	return s
 }
 
-// Bulk is the Azure Key Vault bulk loader's store.
+// Bulk is the Azure Key Vault bulk loader's store, built for one load, as
+// Web3Signer builds its AzureKeyVaultFactory for each load.
 type Bulk struct {
 	v    *vault
 	tags []secrets.Tag
 }
 
-// NewBulk returns the store of the bulk loader b.
+// NewBulk returns the store of the bulk loader b. Close it when the load is
+// done.
 func NewBulk(b secrets.AzureBulk) (*Bulk, error) {
 	v, err := newVault(b.AzureVault)
 	if err != nil {
@@ -272,6 +281,9 @@ func NewBulk(b secrets.AzureBulk) (*Bulk, error) {
 	}
 	return &Bulk{v: v, tags: b.Tags}, nil
 }
+
+// Close closes the store's idle connections.
+func (b *Bulk) Close() { b.v.hc.CloseIdleConnections() }
 
 // List implements secrets.Lister: the names of the vault's secrets that
 // carry every tag with its value (Web3Signer's subset match; no tags

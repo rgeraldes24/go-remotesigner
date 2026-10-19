@@ -133,6 +133,7 @@ func TestBulk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer b.Close()
 	batches, err := secrets.Bulk{Kind: secrets.KindAWS, Store: b}.Load(context.Background(), 2, nil)
 	if err != nil || len(batches) != 4 {
 		t.Fatalf("Load = %d batches, %v", len(batches), err)

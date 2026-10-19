@@ -37,7 +37,7 @@ func TestLocalStack(t *testing.T) {
 	ctx := context.Background()
 	conn := secrets.AWSConn{AuthMode: secrets.AWSSpecified, Region: "us-east-1", AccessKeyID: "test",
 		SecretAccessKey: []byte("test"), EndpointOverride: endpoint}
-	admin, err := newClient(ctx, conn)
+	admin, err := newClient(ctx, conn, storeHTTPClient())
 	if err != nil {
 		t.Fatal(err)
 	}

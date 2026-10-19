@@ -68,14 +68,14 @@ func (l LimitTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		_ = resp.Body.Close()
 		return nil, fmt.Errorf("store response: %w: %d bytes, more than %d", ErrTooLarge, resp.ContentLength, l.Max)
 	}
-	resp.Body = &limitedBody{rc: resp.Body, left: l.Max}
+	resp.Body = &limitedBody{rc: resp.Body, max: l.Max, left: l.Max}
 	return resp, nil
 }
 
-// limitedBody fails once more than its limit has been read.
+// limitedBody fails once more than max bytes have been read.
 type limitedBody struct {
-	rc   io.ReadCloser
-	left int64
+	rc        io.ReadCloser
+	max, left int64
 }
 
 func (b *limitedBody) Read(p []byte) (int, error) {
@@ -94,7 +94,7 @@ func (b *limitedBody) Read(p []byte) (int, error) {
 }
 
 func (b *limitedBody) tooLarge() error {
-	return fmt.Errorf("store response: %w: more than %d bytes", ErrTooLarge, MaxResponseSize)
+	return fmt.Errorf("store response: %w: more than %d bytes", ErrTooLarge, b.max)
 }
 
 func (b *limitedBody) Close() error { return b.rc.Close() }
