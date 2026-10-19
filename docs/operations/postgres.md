@@ -112,6 +112,7 @@ The profile is fixed; a `pool_*` parameter in the URL is refused.
 | Signing pool | 16 connections, 2 kept open | a 33-transaction burst at the attestation deadline runs in two waves; idle slots do not pay for connection setup |
 | Pruning pool | 1 connection | pruning never takes a connection signing needs |
 | One store call | 4.5 s, acquiring a connection and every retry included | a stalled database fails the signing request with 500 `STORE_UNAVAILABLE` before the API's 5 s write deadline |
+| Store commands (section 6) | 1 connection, 10 min per call | a command makes one call at a time; an online import writes each validator's whole history in one call |
 | Connecting | 5 s | |
 | `lock_timeout` | 2 s | a check-and-record that waits longer for a validator's lock fails instead of queueing |
 | `statement_timeout` | 5 s | |
@@ -143,7 +144,7 @@ With Postgres the store commands run while the replicas sign, under the same loc
 
 | Command | With Postgres |
 |---|---|
-| `consensus import --from=<file>` | One validator per transaction: a validator's locks are held only while its history is written. A key the import adds is registered disabled and enabled by the transaction that writes its history ([`migration.md`](migration.md#2-import-the-history)). |
+| `consensus import --from=<file>` | One validator per transaction: a validator's locks are held only while its history is written. A key the import adds is registered disabled and enabled by the transaction that writes its history ([`migration.md`](migration.md#2-import-the-history)). Writing a history takes two or three round trips per record, so 10,000 attestations take from a few seconds to tens of seconds depending on the round-trip time, and a signing request for that key that waits longer than `lock_timeout` for its locks meanwhile fails with 500 `STORE_UNAVAILABLE`: import a key's long history while it is not due to sign, or with the replicas stopped. |
 | `consensus export --to=<file>` | One consistent snapshot (`REPEATABLE READ`, read only), taken without locks. |
 | `consensus watermark-repair --epoch --slot` | Batches of 64 validators per transaction. |
 | `consensus set-high-watermark` | Waits for every check-and-record that read the old high watermark, so that once it returns no message decided under the old one is still to be recorded. |

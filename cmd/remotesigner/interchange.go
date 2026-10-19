@@ -83,7 +83,8 @@ func finishImport(stdout, stderr io.Writer, path string, res interchange.ImportR
 
 // importFile checks the whole file, then imports it into the store. Into Postgres, each validator is its own
 // transaction, so that an import holds a validator's locks only while it writes that validator, and signing
-// replicas wait for it no longer.
+// replicas wait for it no longer; a long history is written in one call, under the store command's long bound
+// (commandConfig), and a signing request for that key that waits longer than lock_timeout meanwhile fails.
 func importFile(ctx context.Context, target storeTarget, from string, root *slashing.Root) (interchange.ImportResult, error) {
 	f, err := os.Open(from)
 	if err != nil {

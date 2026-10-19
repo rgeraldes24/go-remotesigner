@@ -197,6 +197,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/offline.go` | new | | | |
 | `cmd/remotesigner/offline_test.go` | new | | | |
 | `cmd/remotesigner/store.go` | new | | | |
+| `cmd/remotesigner/store_test.go` | new | | | |
 | `deploy/config/postgres-ha.yaml` | new | | | |
 | `deploy/config/single-host.yaml` | new | | | |
 | `deploy/docker/Dockerfile` | new | | | |

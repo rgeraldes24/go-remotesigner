@@ -69,6 +69,11 @@ const (
 	// DefaultTimeout bounds one store call: acquiring a connection, the transaction and its retries. It leaves the
 	// rest of a signing request room inside the server's 5 s write deadline.
 	DefaultTimeout = 4500 * time.Millisecond
+	// CommandTimeout bounds one store call of a store command (consensus import, export, watermark-repair, ...):
+	// an online import writes a validator's whole history in one call, at two or three round trips per record, so
+	// the signing bound would fail a long but valid history. lock_timeout and statement_timeout still bound every
+	// wait and every statement.
+	CommandTimeout = 10 * time.Minute
 	// ConnectTimeout bounds opening one connection.
 	ConnectTimeout = 5 * time.Second
 	// Session settings of every connection.

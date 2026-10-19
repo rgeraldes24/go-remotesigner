@@ -57,7 +57,7 @@ func targetOf(c *cli.Context, mustExist bool) (storeTarget, error) {
 			_, _ = fmt.Fprintf(c.App.ErrWriter, "warning: %s: mode %04o: readable by group or other users\n", path, mode)
 		}}
 		return storeTarget{
-			pg:           &pgstore.Config{URL: u.Postgres, User: lineageString(c, flags.SlashingProtectionDBUser)},
+			pg:           commandConfig(u.Postgres, lineageString(c, flags.SlashingProtectionDBUser)),
 			passwordFile: lineageString(c, flags.SlashingProtectionDBPass),
 			policy:       policy,
 		}, nil
@@ -76,6 +76,13 @@ func targetOf(c *cli.Context, mustExist bool) (storeTarget, error) {
 		}
 	}
 	return storeTarget{path: path}, nil
+}
+
+// commandConfig is a store command's Postgres configuration: a pool of one connection, since a command makes one
+// call at a time, and pgstore.CommandTimeout per call, since an online import writes each validator's whole history
+// in one call. lock_timeout and statement_timeout bound its waits as they bound the signers'.
+func commandConfig(url, user string) *pgstore.Config {
+	return &pgstore.Config{URL: url, User: user, MaxConns: 1, MinConns: 0, Timeout: pgstore.CommandTimeout}
 }
 
 // lineageString returns a flag's value from the command or the nearest parent that sets it.
