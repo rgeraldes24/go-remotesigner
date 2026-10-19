@@ -13,13 +13,13 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets/secretstest"
 )
 
 // The environment of the tests against a real Vault: a dev server
@@ -31,13 +31,12 @@ const (
 	EnvVaultToken = "REMOTESIGNER_TEST_VAULT_TOKEN"
 )
 
-// devServer returns the dev server's address and root token, or skips t.
+// devServer returns the dev server's address and root token, or skips t
+// (fails it under make test-cloud).
 func devServer(t *testing.T) (*url.URL, string) {
 	t.Helper()
-	addr, token := os.Getenv(EnvVaultAddr), os.Getenv(EnvVaultToken)
-	if addr == "" || token == "" {
-		t.Skipf("set %s and %s to run against a Vault dev server (make test-cloud)", EnvVaultAddr, EnvVaultToken)
-	}
+	env := secretstest.CloudEnv(t, "a Vault dev server: make test-cloud", EnvVaultAddr, EnvVaultToken)
+	addr, token := env[0], env[1]
 	u, err := url.Parse(addr)
 	if err != nil {
 		t.Fatal(err)

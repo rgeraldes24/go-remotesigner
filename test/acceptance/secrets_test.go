@@ -191,11 +191,9 @@ const (
 // AWS bulk loader. A secret that turns bad keeps its keys and turns its
 // health check DOWN; a deleted secret's keys are evicted on reload.
 func TestSecretStoresDevServers(t *testing.T) {
-	vaultAddr, vaultToken, endpoint := os.Getenv(envVaultAddr), os.Getenv(envVaultToken), os.Getenv(envLocalStack)
-	if vaultAddr == "" || vaultToken == "" || endpoint == "" {
-		t.Skipf("set %s, %s and %s to run against a Vault dev server and LocalStack (make test-cloud)",
-			envVaultAddr, envVaultToken, envLocalStack)
-	}
+	env := secretstest.CloudEnv(t, "a Vault dev server and LocalStack: make test-cloud", envVaultAddr, envVaultToken,
+		envLocalStack)
+	vaultAddr, vaultToken, endpoint := env[0], env[1], env[2]
 	var rnd [6]byte
 	_, _ = rand.Read(rnd[:])
 	name := "remotesigner-" + hex.EncodeToString(rnd[:])
