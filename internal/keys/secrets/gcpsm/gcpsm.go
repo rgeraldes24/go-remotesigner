@@ -104,12 +104,13 @@ func (c *Client) Fetch(ctx context.Context, s secrets.Spec) ([]byte, error) {
 	}
 	// The client outlives this fetch, so it must not inherit the fetch's
 	// cancellation.
-	sm, err := c.clients.Get(g.EndpointOverride, func() (*secretmanager.Client, error) {
+	sm, release, err := c.clients.Get(g.EndpointOverride, func() (*secretmanager.Client, error) {
 		return newClient(context.WithoutCancel(ctx), g.EndpointOverride)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", g.Describe(), err)
 	}
+	defer release()
 	v, err := access(ctx, sm, g.Resource())
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", g.Describe(), err)

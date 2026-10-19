@@ -97,26 +97,59 @@ func TestCache(t *testing.T) {
 	var closed []string
 	c := Cache[string, string]{Max: 2, Close: func(v string) { closed = append(closed, v) }}
 	builds := 0
-	get := func(k string) string {
-		v, err := c.Get(k, func() (string, error) { builds++; return "client-" + k, nil })
+	get := func(k string) (string, func()) {
+		v, release, err := c.Get(k, func() (string, error) { builds++; return "client-" + k, nil })
 		if err != nil {
 			t.Fatal(err)
 		}
-		return v
+		return v, release
 	}
-	get("a")
-	get("b")
-	get("a") // a is now the most recently used
-	get("c") // evicts b
+	use := func(k string) { _, release := get(k); release() }
+	use("a")
+	use("b")
+	use("a") // a is now the most recently used
+	use("c") // evicts b
 	if builds != 3 || c.Len() != 2 || !slices.Equal(closed, []string{"client-b"}) {
 		t.Fatalf("builds %d, len %d, closed %v", builds, c.Len(), closed)
 	}
-	if _, err := c.Get("d", func() (string, error) { return "", errors.New("no") }); err == nil || c.Len() != 2 {
+	if _, _, err := c.Get("d", func() (string, error) { return "", errors.New("no") }); err == nil || c.Len() != 2 {
 		t.Fatal("a failed build was cached")
 	}
 	c.Purge()
 	if c.Len() != 0 || len(closed) != 3 {
 		t.Fatalf("after Purge: len %d, closed %v", c.Len(), closed)
+	}
+
+	// A client that a fetch still uses is closed when the fetch releases
+	// it, not when it is dropped: closing a GCP client cancels its calls.
+	closed = nil
+	_, releaseA := get("a")
+	_, releaseA2 := get("a")
+	use("b")
+	use("c") // evicts a, in use twice
+	if c.Len() != 2 || len(closed) != 0 {
+		t.Fatalf("an evicted client in use: len %d, closed %v", c.Len(), closed)
+	}
+	releaseA()
+	releaseA() // a second call releases nothing more
+	if len(closed) != 0 {
+		t.Fatalf("closed %v while a fetch still uses client-a", closed)
+	}
+	releaseA2()
+	if !slices.Equal(closed, []string{"client-a"}) {
+		t.Fatalf("after the last release: closed %v", closed)
+	}
+	_, releaseB := get("b")
+	c.Purge()
+	if !slices.Equal(closed, []string{"client-a", "client-c"}) {
+		t.Fatalf("Purge closed %v; client-b is in use", closed)
+	}
+	releaseB()
+	if !slices.Equal(closed, []string{"client-a", "client-c", "client-b"}) {
+		t.Fatalf("after releasing client-b: closed %v", closed)
+	}
+	if v, _ := get("b"); v != "client-b" || c.Len() != 1 {
+		t.Fatalf("after Purge the cache builds again: %q, len %d", v, c.Len())
 	}
 }
 

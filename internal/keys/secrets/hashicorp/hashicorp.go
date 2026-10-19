@@ -103,10 +103,11 @@ func (c *Client) fetch(ctx context.Context, h *secrets.Hashicorp) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	hc, err := c.httpClient(h, base.Scheme)
+	hc, release, err := c.httpClient(h, base.Scheme)
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	token := []byte(h.Token)
 	if h.AuthMethod == secrets.VaultAuthKubernetes {
 		if token, err = login(ctx, hc, base, h); err != nil {
@@ -139,8 +140,9 @@ func urls(h *secrets.Hashicorp) (base, read *url.URL, err error) {
 	return base, read, nil
 }
 
-// httpClient returns the cached HTTP client of h's connection settings.
-func (c *Client) httpClient(h *secrets.Hashicorp, scheme string) (*http.Client, error) {
+// httpClient returns the cached HTTP client of h's connection settings and
+// the function that releases it.
+func (c *Client) httpClient(h *secrets.Hashicorp, scheme string) (*http.Client, func(), error) {
 	k := connKey{scheme: scheme, addr: h.Addr(), http1: h.HTTPProtocolVersion == secrets.HTTP11, timeout: h.Timeout}
 	if h.TLSEnabled {
 		k.knownServers = h.TLSKnownServersFile

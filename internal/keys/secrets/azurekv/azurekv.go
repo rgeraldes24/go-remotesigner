@@ -117,10 +117,11 @@ func (c *Client) Fetch(ctx context.Context, s secrets.Spec) ([]byte, error) {
 	k := vaultKey{mode: v.AuthMode, vaultURL: v.VaultURL(), clientID: v.ClientID, tenantID: v.TenantID,
 		secret: secrets.Digest(v.ClientSecret), timeout: v.Timeout, authority: v.AuthorityHostOverride,
 		trust: v.TrustCertificateOverride}
-	kv, err := c.clients.Get(k, func() (*vault, error) { return newVault(v) })
+	kv, release, err := c.clients.Get(k, func() (*vault, error) { return newVault(v) })
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", a.Describe(), err)
 	}
+	defer release()
 	value, err := kv.get(ctx, a.SecretName)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", a.Describe(), err)

@@ -98,12 +98,13 @@ func (c *Client) Fetch(ctx context.Context, s secrets.Spec) ([]byte, error) {
 		region: a.Region, endpoint: a.EndpointOverride}
 	// The client outlives this fetch, so it must not inherit the fetch's
 	// cancellation.
-	sm, err := c.clients.Get(k, func() (*secretsmanager.Client, error) {
+	sm, release, err := c.clients.Get(k, func() (*secretsmanager.Client, error) {
 		return newClient(context.WithoutCancel(ctx), a.AWSConn, storeHTTPClient())
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", a.Describe(), err)
 	}
+	defer release()
 	v, err := get(ctx, sm, a.SecretName)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", a.Describe(), err)
