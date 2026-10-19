@@ -126,6 +126,28 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// A key of another common length is refused with a message that says what
+// it is, so that an execution key's extended seed, or a raw secret key, is
+// recognised for what it is (docs/operations/requirements.md section 2).
+func TestPrivateKeyLengthHints(t *testing.T) {
+	for _, tt := range []struct {
+		bytes int
+		want  string
+	}{
+		{32, "32 bytes; a QRL consensus key is the validator's 48-byte wallet seed"},
+		{51, "a 51-byte extended seed belongs to execution mode"},
+		{4896, "a 4,896-byte ML-DSA-87 secret key is not accepted"},
+		{47, "want a 48-byte seed"},
+	} {
+		dir := t.TempDir()
+		p := writeFile(t, dir, "k.yaml", "type: file-raw\nprivateKey: 0x"+strings.Repeat("ab", tt.bytes)+"\n", 0o600)
+		_, err := Config{Dir: dir, Policy: strict}.LoadFile(context.Background(), p)
+		if !errors.Is(err, ErrPrivateKey) || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%d bytes: %v, want %v saying %q", tt.bytes, err, ErrPrivateKey, tt.want)
+		}
+	}
+}
+
 func TestLoad(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, content string) { writeFile(t, dir, name, content, 0o600) }
