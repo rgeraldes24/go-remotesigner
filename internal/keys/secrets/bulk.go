@@ -1,3 +1,5 @@
+// Copyright 2020 ConsenSys AG.
+// Copyright 2022 ConsenSys AG.
 // Copyright 2023 ConsenSys AG.
 // Copyright 2026 The go-remotesigner Authors.
 //
