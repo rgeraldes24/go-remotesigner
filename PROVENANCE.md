@@ -74,6 +74,17 @@ nor `pkg/go-qrl-types` (tree `fc5b262a3483358cbd4ce6f7bd7ea0ce20306dfd`) at `0b9
 the latter reaches the keystore only as a dependency of the former. The hardened copy decrypts only and implements no
 wallet interface, so neither package is vendored or copied.
 
+The signer module links no go-qrl (`github.com/theQRL/go-qrl`, LGPL-3.0-or-later), and no go-qrl code is copied
+into it. The execution-mode key code outside `internal/execution` (the account keystore of
+`internal/keys/keystore/qrlv1/account.go` and its sealing helper in `internal/keys/keystoretest`, and the extended
+seed of `internal/crypto/mldsa87/extended.go`) and `TextHash` in `internal/execution/methods.go` are written from
+facts about go-qrl at `theQRL/go-qrl` `b92884a3a1d5`: the account keystore JSON that `accounts/keystore` writes (a
+flat `crypto` section, a `Q` address, an id and version 1; Argon2id and AES-256-GCM over the 51-byte extended seed;
+its light and standard Argon2id parameters), the extended seed (the descriptor `01 00 00`, then the 48-byte seed)
+and `accounts.TextHash` (Keccak-256 of `"\x19QRL Signed Message:\n"`, the data's length in decimal, and the data).
+The address and its QIP-55 form are go-qrllib's (MIT), which the signer calls. The keystore that go-qrl itself wrote,
+used as a test fixture, is described under "Golden vectors".
+
 ## Written from facts
 
 These components are written from specifications and facts, not from qrysm code. Their implementers do not open
@@ -123,6 +134,15 @@ and the round-trip check `vectorgen interchange-check`.
   `test/acceptance` builds and runs it in a temporary directory (`make vectors-contract`); its DTO-rename test
   copies the qrysm packages the tool links into a temporary directory and renames two JSON field names in the
   copy, so no qrysm file ever enters the repository. `tools/vectorgen/README.md` records the pin and how to bump it.
+- **The go-qrl keystore.** `gqrlKeystore` in `internal/keys/keystore/qrlv1/account_test.go` is an account keystore
+  written by go-qrl's own `accounts/keystore.EncryptKey` at `b92884a3a1d5`, with its light Argon2id parameters, for
+  the extended seed and password the test names. It is program output, data only. It was generated once by a
+  throwaway program outside the repository, which was not kept: a program that links go-qrl cannot live in the
+  signer module, and `EncryptKey` draws the salt and IV from `crypto/rand`, so no generator could reproduce the bytes
+  for `make vectors` to compare. It was checked again with go-qrl at that commit, from a scratch module requiring
+  `github.com/theQRL/go-qrl v0.3.4-0.20260608175446-b92884a3a1d5`: `keystore.DecryptKey` opens it with the password
+  and returns the extended seed, `Key.Address.Hex()` is the test's `gqrlAddress`, and `EncryptKey` of the same
+  key (a `keystore.Key` over `wallet.RestoreFromSeedHex` of the seed) writes the same layout and KDF parameters.
 - **The consumers.** The signer's `golden_test.go` files and `internal/vectors` read the data only. The seed
   expansion of the random-root sets is implemented twice, independently, from its description in
   `testdata/vectors/README.md`: once over qrysm's types in `tools/vectorgen`, once over the signer's types in
