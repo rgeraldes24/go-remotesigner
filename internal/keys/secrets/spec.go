@@ -253,15 +253,23 @@ type GCPBulk struct {
 
 // ParseTags parses tag filters written as KEY=VALUE. Each element may hold
 // several, separated by |, as Web3Signer's --aws-secrets-tag and
-// --azure-tags take them; a KEY without = has the empty value.
+// --azure-tags take them; a KEY without = has the empty value. Those flags
+// are maps in Web3Signer, so a KEY given twice keeps its last value, in
+// the place of its first.
 func ParseTags(elems []string) ([]Tag, error) {
 	var out []Tag
+	at := map[string]int{}
 	for _, e := range elems {
 		for _, kv := range strings.Split(e, "|") {
 			k, v, _ := strings.Cut(kv, "=")
 			if k == "" {
 				return nil, fmt.Errorf("%w: tag %q: want KEY=VALUE", ErrConfig, truncate(kv))
 			}
+			if i, ok := at[k]; ok {
+				out[i].Value = v
+				continue
+			}
+			at[k] = len(out)
 			out = append(out, Tag{Key: k, Value: v})
 		}
 	}

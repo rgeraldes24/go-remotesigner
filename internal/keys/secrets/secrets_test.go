@@ -159,6 +159,12 @@ func TestParseTags(t *testing.T) {
 	if err != nil || !slices.Equal(got, want) {
 		t.Fatalf("ParseTags = %v, %v", got, err)
 	}
+	// Web3Signer's tag flags are maps: a repeated name keeps its last value.
+	got, err = ParseTags([]string{"role=a|team=blue", "role=b"})
+	want = []Tag{{"role", "b"}, {"team", "blue"}}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("a repeated tag name: ParseTags = %v, %v, want %v", got, err, want)
+	}
 	if _, err := ParseTags([]string{"=x"}); !errors.Is(err, ErrConfig) {
 		t.Fatalf("empty key: %v", err)
 	}

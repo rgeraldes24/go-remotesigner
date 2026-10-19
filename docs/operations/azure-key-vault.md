@@ -84,7 +84,7 @@ remotesigner consensus --network=… \
 | `--azure-vault-auth-mode` | `CLIENT_SECRET` | As in section 2. |
 | `--azure-client-id`, `--azure-tenant-id`, `--azure-client-secret` | unset | As the mode needs; `CLIENT_SECRET` needs all three (Web3Signer does not check the client id at startup, X74). |
 | `--azure-response-timeout` | `60` | Seconds, as the document's `timeout`. |
-| `--azure-tags` | none | `TAG_NAME=TAG_VALUE`, repeated or separated by `\|`: a secret must carry every one with that exact value (an empty value matches an empty tag value). A value cannot contain a comma (X75). |
+| `--azure-tags` | none | `TAG_NAME=TAG_VALUE`, repeated or separated by `\|`: a secret must carry every one with that exact value (an empty value matches an empty tag value). A name given twice keeps its last value, as in Web3Signer; a value cannot contain a comma (X75). |
 
 Every selected secret is one source, `azure-bulk:<name>`. Keep the client secret off the command line: set
 `REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET` or put `azure-client-secret` in the `--config-file`.

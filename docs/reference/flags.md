@@ -118,7 +118,7 @@ up to 10 s, closes the store, wipes the keys and exits 0.
 | `--aws-secrets-region` | `REMOTESIGNER_CONSENSUS_AWS_SECRETS_REGION` | `aws-secrets-region` or `consensus.aws-secrets-region` | unset | AWS region of Secrets Manager; required for SPECIFIED authentication, else the SDK's (AWS_REGION, the shared config file) |
 | `--aws-endpoint-override` | `REMOTESIGNER_CONSENSUS_AWS_ENDPOINT_OVERRIDE` | `aws-endpoint-override` or `consensus.aws-endpoint-override` | unset | Secrets Manager endpoint URL instead of AWS's, for the bulk loader (a VPC endpoint, LocalStack) |
 | `--aws-secrets-prefixes-filter` | `REMOTESIGNER_CONSENSUS_AWS_SECRETS_PREFIXES_FILTER` | `aws-secrets-prefixes-filter` or `consensus.aws-secrets-prefixes-filter` | unset | Load only the secrets whose names start with one of these prefixes (comma-separated) |
-| `--aws-secrets-tag` | `REMOTESIGNER_CONSENSUS_AWS_SECRETS_TAG` | `aws-secrets-tag` or `consensus.aws-secrets-tag` | unset | Load only the secrets with these tags: TAG_NAME=TAG_VALUE, repeated or separated by \|; AWS matches any of the names and any of the non-empty values |
+| `--aws-secrets-tag` | `REMOTESIGNER_CONSENSUS_AWS_SECRETS_TAG` | `aws-secrets-tag` or `consensus.aws-secrets-tag` | unset | Load only the secrets with these tags: TAG_NAME=TAG_VALUE, repeated or separated by \|; a name given twice keeps its last value; AWS matches any of the names and any of the non-empty values |
 | `--aws-connection-cache-size` | `REMOTESIGNER_CONSENSUS_AWS_CONNECTION_CACHE_SIZE` | `aws-connection-cache-size` or `consensus.aws-connection-cache-size` | `1` | AWS Secrets Manager clients kept for aws-secret key-config documents during a load, by credentials and region |
 | `--gcp-secrets-enabled` | `REMOTESIGNER_CONSENSUS_GCP_SECRETS_ENABLED` | `gcp-secrets-enabled` or `consensus.gcp-secrets-enabled` | `false` | Bulk-load seeds from GCP Secret Manager: the latest version of every secret of --gcp-project-id that --gcp-secrets-filter selects, one 48-byte seed (hex) per line, with Application Default Credentials. Default flavour only. |
 | `--gcp-project-id` | `REMOTESIGNER_CONSENSUS_GCP_PROJECT_ID` | `gcp-project-id` or `consensus.gcp-project-id` | unset | GCP project of the bulk loader's secrets |
@@ -130,7 +130,7 @@ up to 10 s, closes the store, wipes the keys and exits 0.
 | `--azure-tenant-id` | `REMOTESIGNER_CONSENSUS_AZURE_TENANT_ID` | `azure-tenant-id` or `consensus.azure-tenant-id` | unset | Microsoft Entra ID tenant of CLIENT_SECRET authentication |
 | `--azure-client-secret` | `REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET` | `azure-client-secret` or `consensus.azure-client-secret` | unset | Client secret of CLIENT_SECRET authentication; prefer the environment variable or --config-file, which other users cannot read in the process list |
 | `--azure-response-timeout` | `REMOTESIGNER_CONSENSUS_AZURE_RESPONSE_TIMEOUT` | `azure-response-timeout` or `consensus.azure-response-timeout` | `60` | Seconds each Azure request and call may take |
-| `--azure-tags` | `REMOTESIGNER_CONSENSUS_AZURE_TAGS` | `azure-tags` or `consensus.azure-tags` | unset | Load only the secrets that carry all these tags: TAG_NAME=TAG_VALUE, repeated or separated by \| |
+| `--azure-tags` | `REMOTESIGNER_CONSENSUS_AZURE_TAGS` | `azure-tags` or `consensus.azure-tags` | unset | Load only the secrets that carry all these tags: TAG_NAME=TAG_VALUE, repeated or separated by \|; a name given twice keeps its last value |
 
 ## Execution flags
 
