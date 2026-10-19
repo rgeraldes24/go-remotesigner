@@ -169,8 +169,10 @@ attestation again, for example one that has moved to another signer.
 - It exits 0 and says so when the key is already disabled.
 
 A keymanager `DELETE` disables a key the same way, with the signer running
-([`keymanager.md`](keymanager.md#4-deleting-keys)); these two are the only ways the signer ever writes
-`enabled=false` for a key. Two things enable a key again: importing its keystore through the keymanager, whether the
+([`keymanager.md`](keymanager.md#4-deleting-keys)). These two write `enabled=false` on purpose. The only other write
+of it protects a key whose history fails to import: the keymanager `POST` and the offline `consensus import` disable
+a key whose element in the file fails, so that it cannot sign without the history the file meant to give it. A
+reload never writes it. Two things enable a key again: importing its keystore through the keymanager, whether the
 key is loaded or not ([`keymanager.md`](keymanager.md#3-importing-keys)), and an offline `consensus import` of a file
 whose element for the key imports cleanly ([`migration.md`](migration.md#2-import-the-history)), even when every
 record in it is already covered. So do not import the history of a key that has moved to another signer into this

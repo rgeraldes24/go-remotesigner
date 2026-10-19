@@ -195,7 +195,7 @@ written.
 |---|---|
 | [X15](../../DEVIATIONS.md) | Files named by the SHA-256 of the key, not by the key, mode `0600` |
 | [X16](../../DEVIATIONS.md) | Only the imported keys' history is written; a key whose history fails is an `error` and stays disabled; a file that cannot be read refuses the request before any keystore is opened; the export always names the network |
-| [X29](../../DEVIATIONS.md) | `enabled=false` is written only by a delete or `consensus disable-validator`, never by a reload |
+| [X29](../../DEVIATIONS.md) | A reload never writes `enabled=false`: a delete and `consensus disable-validator` write it on purpose, and an import for a key whose history fails |
 | [X68](../../DEVIATIONS.md) | `--key-config-path` required, `0700` directory, routes served during the startup load |
 | [X69](../../DEVIATIONS.md) | Import: at most 64 keystores, the keystore must declare its pubkey, password rules, keys enabled once their files are written, a loaded key that is disabled is enabled |
 | [X70](../../DEVIATIONS.md) | Delete: keys that are not loaded are disabled too; only keymanager-written keys can be deleted; disabled before evicted |
