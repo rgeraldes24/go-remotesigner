@@ -239,7 +239,8 @@ func TestParseRefusesAccountKeystore(t *testing.T) {
 // accounts/keystore.EncryptKey with the light Argon2id parameters, for the
 // extended seed gqrlExtendedSeed under gqrlPassword. gqrlAddress is go-qrl's
 // common.Address.Hex of the same key. The fixture was generated once outside
-// this module, which links no go-qrl.
+// this module, which links no go-qrl; PROVENANCE.md ("Golden vectors") says
+// how it was made and how to check it again.
 const (
 	gqrlExtendedSeed = "010000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf"
 	gqrlPassword     = "gqrl account password"
