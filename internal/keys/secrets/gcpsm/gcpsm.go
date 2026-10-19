@@ -28,7 +28,8 @@
 // Credentials are Application Default Credentials: the file
 // GOOGLE_APPLICATION_CREDENTIALS names, gcloud's user credentials, or the
 // metadata server's service account on GCE, GKE and Cloud Run. Each call
-// is bounded by secrets.DefaultTimeout, retries included, and each message
+// (an access, a page of a listing) is bounded by secrets.DefaultTimeout,
+// retries included, within a reload's deadline too, and each message
 // by secrets.MaxResponseSize: a larger message fails at once, unretried.
 // The SDK's logger is replaced by one that discards, so
 // GOOGLE_SDK_GO_LOGGING_LEVEL cannot make it log payloads, and so is
@@ -139,9 +140,14 @@ func newClient(ctx context.Context, endpoint string) (*secretmanager.Client, err
 
 // access returns the payload of the latest version of the secret resource,
 // projects/<project>/secrets/<name>.
+//
+// The call is bounded by its own context, not gax.WithTimeout, which the
+// SDK ignores when ctx already has a deadline, as a reload's does.
 func access(ctx context.Context, sm *secretmanager.Client, resource string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
 	resp, err := sm.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{Name: resource + "/versions/latest"},
-		gax.WithTimeout(callTimeout), gax.WithRetry(newAccessRetry))
+		gax.WithRetry(newAccessRetry))
 	switch {
 	case status.Code(err) == codes.NotFound:
 		return nil, fmt.Errorf("%w: %v", secrets.ErrNotFound, status.Convert(err).Message())
@@ -210,16 +216,11 @@ func NewBulk(ctx context.Context, b secrets.GCPBulk) (*Bulk, error) {
 func (b *Bulk) Close() error { return b.sm.Close() }
 
 // List implements secrets.Lister: the resource names of the project's
-// secrets that the filter selects.
+// secrets that the filter selects, page by page.
 func (b *Bulk) List(ctx context.Context) ([]string, error) {
-	it := b.sm.ListSecrets(ctx, &secretmanagerpb.ListSecretsRequest{Parent: b.parent, Filter: b.filter},
-		gax.WithTimeout(callTimeout))
 	var names []string
-	for {
-		s, err := it.Next()
-		if errors.Is(err, iterator.Done) {
-			return names, nil
-		}
+	for token := ""; ; {
+		page, next, err := b.listPage(ctx, token)
 		if tooLarge(err) {
 			return nil, fmt.Errorf("unexpected error during GCP list-secrets operation: %w: a page of more than %d "+
 				"bytes", secrets.ErrTooLarge, secrets.MaxResponseSize)
@@ -227,8 +228,39 @@ func (b *Bulk) List(ctx context.Context) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("unexpected error during GCP list-secrets operation: %w", err)
 		}
+		names = append(names, page...)
+		if next == "" {
+			return names, nil
+		}
+		token = next
+	}
+}
+
+// listPage returns the names on the page of token and the next page's
+// token, "" after the last page. The page is fetched under a context of its
+// own, bounded by callTimeout as each AWS and Azure page is: the iterator
+// keeps the context it is created with for every page it fetches.
+func (b *Bulk) listPage(ctx context.Context, token string) ([]string, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	it := b.sm.ListSecrets(ctx, &secretmanagerpb.ListSecretsRequest{Parent: b.parent, Filter: b.filter, PageToken: token})
+	// The first Next fetches the page (and the ones after it while they
+	// are empty); the rest of the page is buffered.
+	s, err := it.Next()
+	if errors.Is(err, iterator.Done) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	names := []string{s.GetName()}
+	for it.PageInfo().Remaining() > 0 {
+		if s, err = it.Next(); err != nil {
+			return nil, "", err
+		}
 		names = append(names, s.GetName())
 	}
+	return names, it.PageInfo().Token, nil
 }
 
 // Get implements secrets.Lister; name is a secret's resource name.
