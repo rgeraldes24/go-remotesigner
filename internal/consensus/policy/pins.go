@@ -46,7 +46,7 @@ func LoadFeeRecipientPins(path string) (*FeeRecipientPins, error) {
 // accepted as YAML) of entries with exactly two keys, `key` and
 // `fee_recipient`:
 //
-//   - key: 0x6a0520f46e95a03d3957eb79b5756ac5c57a29c57c4344c0ba4c2b19dd6fa73c
+//   - key: 0x9e7e647fffc2c484f3a36dc6450ccfa78eec68528fa00628b4e7e05854431e1b
 //     fee_recipient: Q2b3f5c7d…
 //
 // `key` is a key identifier as in API paths: the sha256 alias (0x + 64 hex)
