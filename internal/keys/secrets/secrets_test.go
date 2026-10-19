@@ -93,6 +93,43 @@ func TestReadBody(t *testing.T) {
 	}
 }
 
+// A body of unknown length (chunked) is read into a buffer that grows with
+// it, up to the limit, rather than into one of the limit's size.
+func TestReadBodyUnknownLength(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n, _ := strconv.Atoi(r.URL.Query().Get("n"))
+		for i := 0; i < n; i += 1000 {
+			_, _ = io.WriteString(w, strings.Repeat("x", min(1000, n-i)))
+			w.(http.Flusher).Flush() // no Content-Length
+		}
+	}))
+	defer srv.Close()
+	const limit = 3 * firstBodyBuffer
+	for _, tt := range []struct {
+		n       int
+		tooLong bool
+	}{{0, false}, {5, false}, {firstBodyBuffer, false}, {firstBodyBuffer + 1, false}, {limit, false},
+		{limit + 1, true}, {10 * limit, true}} {
+		resp, err := http.Get(fmt.Sprintf("%s?n=%d", srv.URL, tt.n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tt.n > 0 && resp.ContentLength != -1 {
+			t.Fatalf("n=%d: the response declares %d bytes", tt.n, resp.ContentLength)
+		}
+		b, err := ReadBody(resp, limit)
+		_ = resp.Body.Close()
+		switch {
+		case tt.tooLong && !errors.Is(err, ErrTooLarge):
+			t.Errorf("n=%d: error = %v, want ErrTooLarge", tt.n, err)
+		case !tt.tooLong && (err != nil || len(b) != tt.n || strings.Trim(string(b), "x") != ""):
+			t.Errorf("n=%d: ReadBody = %d bytes, %v", tt.n, len(b), err)
+		case !tt.tooLong && int64(cap(b)) > max(firstBodyBuffer, 2*int64(tt.n)):
+			t.Errorf("n=%d: a buffer of %d bytes", tt.n, cap(b))
+		}
+	}
+}
+
 func TestCache(t *testing.T) {
 	var closed []string
 	c := Cache[string, string]{Max: 2, Close: func(v string) { closed = append(closed, v) }}
