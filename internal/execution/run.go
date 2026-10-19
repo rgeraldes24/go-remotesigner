@@ -26,6 +26,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"os"
 	"strings"
@@ -90,6 +91,11 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	}
 	proxy, closeProxyLog := newProxy(ds, log)
 	defer closeProxyLog()
+	txs, closeTxs, err := transactionsFrom(cfg, proxy, log)
+	if err != nil {
+		return fmt.Errorf("refusing to start: %w", err)
+	}
+	defer closeTxs()
 
 	var tlsSrv *tlsconf.Server
 	authCfg := auth.Config{Mode: cfg.HTTP.AuthMode, SignTokenFile: cfg.SignTokenFile(), AdminTokenFile: cfg.AdminTokenFile()}
@@ -135,7 +141,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		TLS:            serverTLS,
 		HostAllowlist:  cfg.HTTP.HostAllowlist,
 		Auth:           authn,
-		Routes:         routes(newHandler(accounts, allow, proxy, log), accounts, loader, reloader, authn, ready.Load, log),
+		Routes:         routes(newHandler(accounts, allow, proxy, txs, log), accounts, loader, reloader, authn, ready.Load, log),
 		Ready:          ready.Load,
 		MaxConnections: cfg.HTTP.MaxConnections,
 		ReadTimeout:    ReadTimeout,
@@ -194,6 +200,12 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		ready.Store(true)
 		log.WithField("accounts", keys.Len()).Info("remotesigner execution is ready")
 	}()
+	chainCtx, stopChain := context.WithCancel(ctx)
+	chainDone := make(chan struct{})
+	go func() {
+		defer close(chainDone)
+		txs.chain.run(chainCtx, ChainCheckInterval)
+	}()
 
 	var serveErr error
 loop:
@@ -211,6 +223,13 @@ loop:
 				info, err := tlsSrv.Reload()
 				runner.LogTLSReload(log, cfg, info, err)
 			}
+			if txs.audit != nil {
+				if err := txs.audit.Reopen(); err != nil {
+					log.WithError(err).Error("Reopening the audit log failed; the signer keeps writing to the open file")
+				} else {
+					log.Info("Audit log reopened")
+				}
+			}
 		case serveErr = <-served:
 			serving--
 			log.WithError(serveErr).Error("A listener failed")
@@ -219,6 +238,8 @@ loop:
 	}
 
 	log.Info("Shutting down")
+	stopChain()
+	<-chainDone
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), runner.ShutdownTimeout)
 	defer cancel()
 	if ml != nil {
@@ -247,6 +268,43 @@ loop:
 	}
 	log.Info("Shutdown complete")
 	return serveErr
+}
+
+// transactionsFrom builds the transaction signer of cfg: the chain ID, the
+// policy file (or the default fee cap alone), the audit log and the
+// chain-ID check against the node. close closes the audit log.
+func transactionsFrom(cfg *config.Config, p *proxy, log logrus.FieldLogger) (*Transactions, func(), error) {
+	e := cfg.Execution
+	policy := OpenPolicy()
+	if e.PolicyFile != "" {
+		var err error
+		if policy, err = LoadPolicy(e.PolicyFile); err != nil {
+			return nil, nil, err
+		}
+	}
+	var audit *AuditLog
+	if e.AuditLogFile != "" {
+		var err error
+		if audit, err = OpenAuditLog(e.AuditLogFile); err != nil {
+			return nil, nil, err
+		}
+	}
+	chainID := new(big.Int).SetUint64(e.ChainID)
+	txs := NewTransactions(TransactionsConfig{ChainID: chainID, Policy: policy, Audit: audit,
+		NonceCrosscheck: e.NonceCrosscheck})
+	txs.chain = newChainMonitor(chainID, p, log)
+	log.WithFields(logrus.Fields{
+		"chain-id":         e.ChainID,
+		"policy-file":      e.PolicyFile != "",
+		"policy-accounts":  policy.Accounts(),
+		"audit-log":        e.AuditLogFile != "",
+		"nonce-crosscheck": e.NonceCrosscheck,
+	}).Info("Transaction signing configured")
+	return txs, func() {
+		if audit != nil {
+			_ = audit.Close()
+		}
+	}, nil
 }
 
 // routes are execution mode's API: the JSON-RPC endpoint, the account list

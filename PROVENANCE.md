@@ -307,8 +307,15 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/execution/accounts_w3s_test.go` | w3s-derived | Web3Signer | `signing/src/test/java/tech/pegasys/web3signer/signing/config/SecpArtifactSignerProviderAdapterTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/allowlist.go` | new | | | |
 | `internal/execution/allowlist_test.go` | new | | | |
+| `internal/execution/audit.go` | new | | | |
+| `internal/execution/audit_test.go` | new | | | |
+| `internal/execution/call.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/transaction/VertxNonceRequestTransmitter.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/transaction/EthNonceProvider.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/chainid.go` | new | | | |
+| `internal/execution/chainid_test.go` | new | | | |
 | `internal/execution/doc.go` | new | | | |
 | `internal/execution/downstream.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/WebClientOptionsFactory.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/DownstreamPathCalculator.java`<br>`commandline/src/main/java/tech/pegasys/web3signer/commandline/subcommands/Eth1SubCommand.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/fakegqrl_test.go` | new | | | |
+| `internal/execution/golden_test.go` | new | | | |
 | `internal/execution/handler.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/JsonRpcHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/RequestMapper.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/internalresponse/InternalResponseHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/JsonRpcErrorHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/HttpResponseFactory.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/util/ResponseCodeSelector.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/handler_test.go` | new | | | |
 | `internal/execution/helpers_test.go` | new | | | |
@@ -316,6 +323,9 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/execution/jsonrpc_test.go` | new | | | |
 | `internal/execution/methods.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/routes/eth1/JsonRpcRoute.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/Eth1AccountsHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/internalresponse/EthSignResultProvider.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/util/EthMessageUtil.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/methods_w3s_test.go` | w3s-derived | Web3Signer | `core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/EthAccountsIntegrationTest.java`<br>`core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/EthSignIntegrationTest.java`<br>`core/src/test/java/tech/pegasys/web3signer/core/service/jsonrpc/EthSignResultProviderTest.java`<br>`core/src/test/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/RequestMapperTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/payload.go` | new | | | |
+| `internal/execution/policy.go` | new | | | |
+| `internal/execution/policy_test.go` | new | | | |
 | `internal/execution/proxy.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/PassThroughHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/HeaderHelpers.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/VertxRequestTransmitter.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/ForwardedMessageResponder.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/proxy_test.go` | new | | | |
 | `internal/execution/proxy_w3s_test.go` | w3s-derived | Web3Signer | `core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/ProxyIntegrationTest.java`<br>`core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/FailedConnectionIntegrationTest.java`<br>`core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/TimeoutTest.java`<br>`core/src/test/java/tech/pegasys/web3signer/core/service/DownstreamPathCalculatorTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
@@ -324,6 +334,13 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/execution/run_test.go` | new | | | |
 | `internal/execution/scan.go` | new | | | |
 | `internal/execution/scan_test.go` | new | | | |
+| `internal/execution/senderlock.go` | new | | | |
+| `internal/execution/sendtx.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/SendTransactionHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/TransactionTransmitter.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/RetryingTransactionTransmitter.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/NonceTooLowRetryMechanism.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/RetryMechanism.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/sendtx_test.go` | new | | | |
+| `internal/execution/sendtx_w3s_test.go` | w3s-derived | Web3Signer | `core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/SigningEthSendTransactionIntegrationTest.java`<br>`core/src/test/java/tech/pegasys/web3signer/core/service/jsonrpc/sendtransaction/NonceTooLowRetryMechanismTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/transaction.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/internalresponse/EthSignTransactionResultProvider.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/EthSendTransactionJsonParameters.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/signing/TransactionSerializer.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/transaction_test.go` | new | | | |
+| `internal/execution/wallet.go` | new | | | |
 | `internal/hygiene/hygiene.go` | new | | | |
 | `internal/hygiene/hygiene_linux.go` | new | | | |
 | `internal/hygiene/hygiene_other.go` | new | | | |

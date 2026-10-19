@@ -79,6 +79,16 @@ type Execution struct {
 	AllowedMethods []string
 	// Keystores is the go-qrl account keystore directory.
 	Keystores Keystores
+	// ChainID is --chain-id, the chain transactions are signed for.
+	ChainID uint64
+	// PolicyFile is --execution-policy-file; empty applies the default fee
+	// cap only.
+	PolicyFile string
+	// AuditLogFile is --execution-audit-log-file; empty keeps no audit log.
+	AuditLogFile string
+	// NonceCrosscheck is --execution-nonce-crosscheck: refuse a nonce the
+	// node fills in far above its pending nonce.
+	NonceCrosscheck bool
 }
 
 // Downstream is the node execution mode forwards to (--downstream-http-*).
@@ -314,6 +324,7 @@ var (
 	ErrRandaoProtectionRequired      = fmt.Errorf("%w: --randao-protection-required refuses to keep RANDAO frontiers in memory, which --slashing-protection-enabled=false does", ErrRefused)
 	ErrNoSignToken                   = fmt.Errorf("%w: --http-auth-mode=token and token+mtls need --http-auth-token-file or --data-path", ErrRefused)
 	ErrSelfSignedNoDataPath          = fmt.Errorf("%w: --tls-generate-self-signed needs --data-path for its certificate", ErrRefused)
+	ErrPolicyFileNonLoopback         = fmt.Errorf("%w: execution mode on a non-loopback listener signs transactions only under a policy; set --execution-policy-file", ErrRefused)
 )
 
 // CheckFailSafes applies the startup fail-safes that depend only on the
@@ -354,7 +365,8 @@ func CheckFailSafes(c *Config, n *network.Network) error {
 }
 
 // CheckExecutionFailSafes applies the startup fail-safes of execution mode:
-// the listener and credential refusals that consensus mode applies too.
+// the listener and credential refusals that consensus mode applies too, and
+// the policy file that a non-loopback listener requires.
 func CheckExecutionFailSafes(c *Config) error {
 	var errs []error
 	refuse := func(cond bool, err error) {
@@ -374,6 +386,7 @@ func CheckExecutionFailSafes(c *Config) error {
 		refuse(c.HTTP.AuthMode == auth.ModeNone, ErrAuthNoneNonLoopback)
 		refuse(c.HTTP.AuthMode == auth.ModeToken && !c.TLS.Enabled() && !c.AllowPlaintextTokenAuth, ErrPlaintextToken)
 		refuse(loopbackOnly(c.HTTP.HostAllowlist), ErrLoopbackAllowlist)
+		refuse(c.Execution.PolicyFile == "", ErrPolicyFileNonLoopback)
 	}
 	return errors.Join(errs...)
 }

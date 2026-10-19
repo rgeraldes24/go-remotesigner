@@ -18,7 +18,7 @@ import (
 )
 
 func TestExecutionDefaults(t *testing.T) {
-	cfg, code, stderr := capture(t, "execution")
+	cfg, code, stderr := capture(t, "execution", "--chain-id=1337")
 	if code != exitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
@@ -33,6 +33,10 @@ func TestExecutionDefaults(t *testing.T) {
 	if cfg.HTTP.ListenPort != 9000 || cfg.HTTP.AuthMode != "token" || cfg.Consensus.Network.Network != "" {
 		t.Fatalf("global config %+v", cfg)
 	}
+	e := cfg.Execution
+	if e.ChainID != 1337 || e.PolicyFile != "" || e.AuditLogFile != "" || !e.NonceCrosscheck {
+		t.Fatalf("transaction settings %+v", e)
+	}
 }
 
 func TestExecutionFlags(t *testing.T) {
@@ -41,7 +45,9 @@ func TestExecutionFlags(t *testing.T) {
 		"--downstream-http-request-timeout=750", "--downstream-http-auth-header-file=/auth",
 		"--downstream-http-tls-enabled", "--downstream-http-tls-ca-file=/ca.pem",
 		"--downstream-http-proxy-host=proxy", "--downstream-http-proxy-port=3128",
-		"--execution-proxy-allowed-methods=qrl_*,net_version", "--keystores-path=/ks", "--keystores-password-file=/pw")
+		"--execution-proxy-allowed-methods=qrl_*,net_version", "--keystores-path=/ks", "--keystores-password-file=/pw",
+		"--chain-id=0x539", "--execution-policy-file=/policy.yaml", "--execution-audit-log-file=/audit.jsonl",
+		"--execution-nonce-crosscheck=false")
 	if code != exitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
@@ -49,7 +55,8 @@ func TestExecutionFlags(t *testing.T) {
 		AuthHeaderFile: "/auth", TLS: true, TLSCAFile: "/ca.pem", ProxyHost: "proxy", ProxyPort: 3128}
 	if cfg.Execution.Downstream != want || !slices.Equal(cfg.Execution.AllowedMethods, []string{"qrl_*", "net_version"}) ||
 		cfg.Execution.Keystores != (config.Keystores{Path: "/ks", PasswordFile: "/pw"}) || cfg.HTTP.ListenPort != 9100 ||
-		cfg.KeyConfigPath != "/keys" {
+		cfg.KeyConfigPath != "/keys" || cfg.Execution.ChainID != 1337 || cfg.Execution.PolicyFile != "/policy.yaml" ||
+		cfg.Execution.AuditLogFile != "/audit.jsonl" || cfg.Execution.NonceCrosscheck {
 		t.Fatalf("config %+v", cfg.Execution)
 	}
 }
@@ -58,7 +65,8 @@ func TestExecutionFlags(t *testing.T) {
 // section of the config file.
 func TestExecutionSources(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "config.yaml")
-	content := "http-listen-port: 9200\nexecution:\n  downstream-http-port: 9545\n  execution-proxy-allowed-methods: [\"*\"]\n"
+	content := "http-listen-port: 9200\nexecution:\n  downstream-http-port: 9545\n  execution-proxy-allowed-methods: [\"*\"]\n" +
+		"  chain-id: 1337\n"
 	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +90,7 @@ func TestExecutionSources(t *testing.T) {
 	if err := os.WriteFile(both, []byte("consensus:\n  network: e2e\nexecution:\n  downstream-http-port: 9545\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, code, stderr := capture(t, "--config-file="+both, "execution"); code != exitOK {
+	if _, code, stderr := capture(t, "--config-file="+both, "execution", "--chain-id=1"); code != exitOK {
 		t.Fatalf("both sections: %d %s", code, stderr)
 	}
 }
@@ -107,6 +115,9 @@ func TestExecutionUsageErrors(t *testing.T) {
 		{[]string{"execution", "--keystores-password-file=/pw", "--keystores-passwords-path=/d", "--keystores-path=/ks"}, "only one of"},
 		{[]string{"--http-auth-mode=mtls", "execution"}, "need TLS"},
 		{[]string{"--http-listen-port=70000", "execution"}, "not a TCP port"},
+		{[]string{"execution"}, "--chain-id is required"},
+		{[]string{"execution", "--chain-id=0"}, "--chain-id is required"},
+		{[]string{"execution", "--chain-id=-1"}, "chain-id"},
 	}
 	for _, tt := range tests {
 		_, code, stderr := capture(t, tt.args...)

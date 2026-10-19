@@ -21,14 +21,17 @@ The remotesigner and remotesigner-consensus binaries link the Go standard
 library and the Go modules below. remotesigner also links the modules listed
 under "Linked by remotesigner only": the SDKs of the AWS Secrets Manager,
 Azure Key Vault and GCP Secret Manager secret stores and the modules they
-bring in, which remotesigner-consensus does not link.
-github.com/prometheus/procfs is not linked on Windows or macOS. Each entry
-gives the copyright notice of the component, as its source states it, and its
-licence. LICENSES/ holds the generic texts of these licences (Apache-2.0.txt,
-MIT.txt, BSD-2-Clause.txt, BSD-3-Clause.txt). Each component's exact licence,
-with its own copyright notice and wording, is the LICENSE file in its source
-at the version recorded in go.sum; release archives and images carry those
-files, and the components' NOTICE files, in third_party_licenses/.
+bring in, which remotesigner-consensus does not link. The remotesigner
+binary's execution mode links further modules, which its release lists after
+this file (NOTICE.execution in the source repository); remotesigner-consensus
+links none of them either. github.com/prometheus/procfs is not linked on
+Windows or macOS. Each entry gives the copyright notice of the component, as
+its source states it, and its licence. LICENSES/ holds the generic texts of
+these licences (Apache-2.0.txt, MIT.txt, BSD-2-Clause.txt, BSD-3-Clause.txt).
+Each component's exact licence, with its own copyright notice and wording, is
+the LICENSE file in its source at the version recorded in go.sum; release
+archives and images carry those files, and the components' NOTICE files, in
+third_party_licenses/.
 
 The binaries also compile internal/keys/keystore/qrlv1/, a copy of the QRL
 keystore v1 implementation (go-qrl-wallet-encryptor-keystore, from

@@ -171,24 +171,25 @@ func TestQRLSignRefusals(t *testing.T) {
 	}
 }
 
-// health_status answers OK; the transaction methods are refused with
-// "method not enabled" and typed data with "method not found", and none of
-// them reaches the node, even when every method may be forwarded.
+// health_status answers OK; the transaction methods are answered by the
+// signer (here: invalid params, from is no address) and typed data is
+// refused with "method not found", and none of them reaches the node, even
+// when every method may be forwarded.
 func TestLocalMethodsNeverForwarded(t *testing.T) {
 	f := newFixture(t, 1, []string{"*"})
 	w := f.post(call(1, MethodHealthStatus), nil)
 	if r := decodeOne(t, w.Body.Bytes()); string(r.Result) != `"OK"` {
 		t.Fatalf("health_status: %s", w.Body)
 	}
-	for method, code := range map[string]int{
-		MethodSignTransaction: ErrMethodNotEnabled.Code,
-		MethodSendTransaction: ErrMethodNotEnabled.Code,
-		MethodSignTypedData:   ErrMethodNotFound.Code,
+	for method, want := range map[string]struct{ status, code int }{
+		MethodSignTransaction: {http.StatusBadRequest, ErrInvalidParams.Code},
+		MethodSendTransaction: {http.StatusBadRequest, ErrInvalidParams.Code},
+		MethodSignTypedData:   {http.StatusOK, ErrMethodNotFound.Code},
 	} {
 		w := f.post(call(9, method, map[string]any{"from": "Q00"}), nil)
 		r := decodeOne(t, w.Body.Bytes())
-		if w.Code != http.StatusOK || r.Error == nil || r.Error.Code != code {
-			t.Errorf("%s: %d %s, want error %d", method, w.Code, w.Body, code)
+		if w.Code != want.status || r.Error == nil || r.Error.Code != want.code {
+			t.Errorf("%s: %d %s, want %d error %d", method, w.Code, w.Body, want.status, want.code)
 		}
 	}
 	w = f.post(batch(call(1, MethodSendTransaction), call(2, MethodSignTransaction), call(3, MethodSignTypedData)), nil)
