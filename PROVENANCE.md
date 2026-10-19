@@ -316,6 +316,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/execution/downstream.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/WebClientOptionsFactory.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/DownstreamPathCalculator.java`<br>`commandline/src/main/java/tech/pegasys/web3signer/commandline/subcommands/Eth1SubCommand.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/fakegqrl_test.go` | new | | | |
 | `internal/execution/golden_test.go` | new | | | |
+| `internal/execution/gqrl_test.go` | new | | | |
 | `internal/execution/handler.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/JsonRpcHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/RequestMapper.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/internalresponse/InternalResponseHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/JsonRpcErrorHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/HttpResponseFactory.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/util/ResponseCodeSelector.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/handler_test.go` | new | | | |
 | `internal/execution/helpers_test.go` | new | | | |

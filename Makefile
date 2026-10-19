@@ -23,7 +23,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test test-postgres test-cloud fuzz fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check release-version image docker-smoke systemd-smoke clean
+.PHONY: all build build-consensus test test-postgres test-cloud fuzz gqrl-e2e fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check release-version image docker-smoke systemd-smoke clean
 
 all: build build-consensus
 
@@ -181,6 +181,24 @@ acceptance:
 B19_DURATION ?= 1h
 b19:
 	REMOTESIGNER_B19_DURATION=$(B19_DURATION) $(GO) test -count=1 -run '^TestB19IdleConnectionRace$$' -timeout 90m -v ./test/acceptance/
+
+## gqrl-e2e: execution mode against gqrl --dev (TestGQRLDev in internal/execution): a mined transfer, the nonce
+## retry, the chain-ID, payload, nonce cross-check and fee-cap refusals. gqrl is built from go-qrl at the commit
+## go.mod requires, in GQRL_SRC (cloned when missing), unless GQRL names a gqrl binary built from that commit.
+GQRL_COMMIT = $(lastword $(subst -, ,$(shell $(GO) list -m -f '{{.Version}}' github.com/theQRL/go-qrl)))
+GQRL_SRC   ?= build/go-qrl
+GQRL       ?=
+gqrl-e2e:
+	@if [ -z "$(GQRL)" ]; then \
+		set -e; \
+		test -d $(GQRL_SRC)/.git || git clone --filter=blob:none --no-checkout https://github.com/theQRL/go-qrl $(GQRL_SRC); \
+		git -C $(GQRL_SRC) -c advice.detachedHead=false checkout -q $(GQRL_COMMIT) 2>/dev/null || \
+			{ git -C $(GQRL_SRC) fetch -q --filter=blob:none origin && git -C $(GQRL_SRC) checkout -q $(GQRL_COMMIT); }; \
+		echo "building gqrl at go-qrl $(GQRL_COMMIT)"; \
+		cd $(GQRL_SRC) && CGO_ENABLED=0 $(GO) build -trimpath -o $(abspath $(BIN_DIR))/gqrl ./cmd/gqrl; \
+	fi
+	REMOTESIGNER_GQRL=$(if $(GQRL),$(abspath $(GQRL)),$(abspath $(BIN_DIR))/gqrl) \
+		$(GO) test -count=1 -timeout 10m -run '^TestGQRLDev$$' -v ./internal/execution/
 
 ## bench-b14: benchmark B14, a pruning run over 4,096 validators x 512 epochs in a bbolt store, with signing alongside
 bench-b14:
