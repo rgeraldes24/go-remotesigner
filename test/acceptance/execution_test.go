@@ -154,8 +154,8 @@ func reply(t *testing.T, body string) rpcReply {
 
 func textHash(data []byte) []byte {
 	h := sha3.NewLegacyKeccak256()
-	fmt.Fprintf(h, "\x19QRL Signed Message:\n%d", len(data))
-	h.Write(data)
+	_, _ = fmt.Fprintf(h, "\x19QRL Signed Message:\n%d", len(data))
+	_, _ = h.Write(data)
 	return h.Sum(nil)
 }
 
