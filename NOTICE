@@ -161,10 +161,20 @@ BSD 3-Clause License (LICENSES/BSD-3-Clause.txt):
     Copyright (c) 2011 Google Inc. All rights reserved.
   google.golang.org/api, package internal/third_party/uritemplates
     Copyright (c) 2013 Joshua Tacoma. All rights reserved.
+  google.golang.org/api, files internal/impersonate/impersonate.go and
+  internal/third_party/uritemplates/utils.go
+    Copyright 2020 The Go Authors. All rights reserved.
+    Copyright 2016 The Go Authors. All rights reserved.
   github.com/aws/aws-sdk-go-v2, package internal/sync/singleflight, and
   github.com/aws/smithy-go, packages internal/sync/singleflight and
   transport/http/protocol/internal/json/internal/stdlib
     Copyright (c) 2009 The Go Authors. All rights reserved.
+  github.com/aws/smithy-go, files encoding/xml/element.go,
+  encoding/xml/escape.go, encoding/json/escape.go and
+  document/json/encoder.go, copied from the Go standard library
+    Copyright 2009 The Go Authors. All rights reserved.
+    Copyright 2016 The Go Authors. All rights reserved.
+    Copyright 2010 The Go Authors.
   go.opentelemetry.io/otel, go.opentelemetry.io/otel/metric,
   go.opentelemetry.io/otel/trace,
   go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc
