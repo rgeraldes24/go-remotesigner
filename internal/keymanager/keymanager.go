@@ -31,8 +31,9 @@
 // slashing-protection history the request carries for the keys it is about
 // to add, writes the key's files into the key-config directory (0600, named
 // by the SHA-256 of the key) and only then loads and enables the key. A key
-// that fails any step is reported as an error and is not active; nothing
-// of it is left in the directory.
+// that fails any step is reported as an error and nothing of it is left in
+// the directory, unless its files were there before the import (an earlier
+// import wrote them): they stay, and the loads load the key from them.
 //
 // A delete disables the key in slashing protection first, so that nothing
 // signs with it after the history is read, then removes its files and
@@ -517,6 +518,11 @@ type pending struct {
 	i     int // its keystore
 	pk    mldsa87.PublicKey
 	files keyFiles
+	// keep: the key's files were in the directory before the import (an
+	// earlier import, not loaded yet: the startup load still running, or
+	// its load failed). A failure leaves them, as they were or as the
+	// import rewrote them for the same key, and leaves the loads to them.
+	keep bool
 }
 
 // commit adds the candidate keys: it writes their files, registers them in
@@ -525,7 +531,8 @@ type pending struct {
 // fails a step is an error and leaves nothing: its files are removed, it is
 // evicted, and its enabled flag is as it was (a key the store did not know
 // is registered, enabled, which is how any load would register it, unless
-// the history step registered it disabled). It returns the keys that a
+// the history step registered it disabled). A key whose files were in the
+// directory before keeps them instead, and stays as the loads make it. It returns the keys that a
 // load brought in from another source meanwhile and that are disabled, for
 // the caller to enable.
 func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, candidates []int,
@@ -533,17 +540,20 @@ func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, 
 	keys := make([]pending, len(candidates))
 	for n, i := range candidates {
 		pk := open[i].key.PublicKey()
-		keys[n] = pending{i: i, pk: pk, files: filesOf(m.cfg.Dir, &pk)}
+		files := filesOf(m.cfg.Dir, &pk)
+		keys[n] = pending{i: i, pk: pk, files: files, keep: files.exists()}
 	}
 	fail := func(p pending, msg string, err error) {
 		log := m.cfg.Log.WithField("key", p.pk.LogID())
 		log.WithError(err).Error("Keymanager import: " + msg)
-		if _, rerr := p.files.remove(); rerr != nil {
-			log.WithError(rerr).Error("Keymanager import: the files of a key that was not imported could not be removed")
+		if !p.keep {
+			if _, rerr := p.files.remove(); rerr != nil {
+				log.WithError(rerr).Error("Keymanager import: the files of a key that was not imported could not be removed")
+			}
+			// Mark the source changed, so that a load that read the files
+			// meanwhile drops what it read.
+			_, _ = m.cfg.Keys.Remove(p.files.source())
 		}
-		// Mark the source changed, so that a load that read the files
-		// meanwhile drops what it read.
-		_, _ = m.cfg.Keys.Remove(p.files.source())
 		if k := open[p.i].key; k != nil {
 			k.Zeroize()
 			open[p.i].key = nil
@@ -552,13 +562,16 @@ func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, 
 	}
 
 	written := make([]error, len(keys))
+	changed := make([]bool, len(keys))
 	source.Each(ctx, len(keys), commitWorkers, func(n int) {
 		p := keys[n]
-		written[n] = p.files.write(req.Keystores[p.i], req.Passwords[p.i])
+		changed[n], written[n] = p.files.write(req.Keystores[p.i], req.Passwords[p.i])
 	}, nil)
 	var ok []pending
 	for n, p := range keys {
 		if written[n] != nil {
+			// A write that failed after changing a name removed the files.
+			p.keep = p.keep && !changed[n]
 			fail(p, "the key's files could not be written", written[n])
 			continue
 		}
@@ -596,11 +609,13 @@ func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, 
 		if errors.Is(err, provider.ErrDuplicate) {
 			if e, has := m.cfg.Keys.Entry(p.pk.ID()); !has || e.Source != p.files.source() {
 				// Loaded from another source meanwhile.
-				if _, rerr := p.files.remove(); rerr != nil {
-					m.cfg.Log.WithField("key", p.pk.LogID()).WithError(rerr).
-						Error("Keymanager import: the files of a duplicate key could not be removed")
+				if !p.keep {
+					if _, rerr := p.files.remove(); rerr != nil {
+						m.cfg.Log.WithField("key", p.pk.LogID()).WithError(rerr).
+							Error("Keymanager import: the files of a duplicate key could not be removed")
+					}
+					_, _ = m.cfg.Keys.Remove(p.files.source())
 				}
-				_, _ = m.cfg.Keys.Remove(p.files.source())
 				var disabled bool
 				if results[p.i], disabled = m.loadedKey(ctx, &p.pk); disabled {
 					raced = append(raced, p)

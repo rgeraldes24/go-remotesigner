@@ -70,7 +70,7 @@ every route. The response has one result per keystore, in request order:
 |---|---|
 | `imported` | The key is loaded and enabled: the import wrote its files to `--key-config-path` and loaded it, or the key was loaded already but disabled in slashing protection, and the import enabled it (step 4) |
 | `duplicate` | The key is loaded and enabled already, or an earlier keystore of the request has it and was imported |
-| `error` | The keystore was not imported; `message` says why. Nothing of it is left: no file, no loaded key |
+| `error` | The keystore was not imported; `message` says why. Nothing of it is left: no file, no loaded key (a key whose files an earlier import wrote keeps them, step 7) |
 
 Each keystore goes through these steps, in order; a step that fails makes it an `error`:
 
@@ -112,16 +112,20 @@ Each keystore goes through these steps, in order; a step that fails makes it an 
    keystorePasswordFile: <sha256>.password
    ```
 
-   Each is written to a new temporary file (`O_EXCL`, mode `0600`, synced) and renamed over its name, the key-config
-   file last: a file or a symlink found at the name is replaced, never written through, and a load never sees half a
-   file or a key-config file without its keystore.
+   Each is written to a new temporary file (`O_EXCL`, mode `0600`, synced); once all three are, they are renamed over
+   their names, the key-config file last: a file or a symlink found at a name is replaced, never written through, and
+   a load never sees half a file or a key-config file without its keystore. A write that fails before the renames (a
+   full disk, for example) leaves the names as they were.
 7. **Load and enable.** The keys of the request are registered in slashing protection, loaded from their files and
    then enabled, together with the loaded keys that step 4 found disabled: a key that a delete or `consensus
    disable-validator` disabled is enabled again by its import, whether it is loaded or not, since the import proved
    that the caller holds it. If this step fails for a key, its files are removed, it is evicted and its enabled flag
    is left as it was: a key the store did not know stays registered, enabled, as any load of it would register it,
    unless step 5 wrote its history, which registers a new key disabled. A loaded key that cannot be enabled stays
-   loaded and disabled.
+   loaded and disabled. A key whose files were in `--key-config-path` before the import (written by an earlier
+   import, and not loaded yet because the startup load is still running or their load failed) keeps them whatever
+   step fails, rewritten by this import, or as they were when the write failed before its renames, and the loads
+   load it from them as they would have.
 
 An import that fails after step 5 leaves the history it wrote (history only adds protection), but it never enables a
 key that was disabled; a key new to the store whose history it wrote stays registered disabled until an import of it

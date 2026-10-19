@@ -716,6 +716,101 @@ func TestImportStoreFailure(t *testing.T) {
 	}
 }
 
+// A re-import that fails for a key whose files an earlier import wrote, and
+// that is not loaded yet (the process restarted and the startup load has
+// read the files but not applied them), keeps the files and lets the load
+// apply the key: the files load the same key, whatever step failed. A
+// write that fails before its renames (a full disk, here a read-only
+// directory) leaves them as they were.
+func TestImportFailureKeepsEarlierFiles(t *testing.T) {
+	var fs *failingStore
+	f := newFixture(t, fixtureOptions{store: func(s slashing.Store) slashing.Store {
+		fs = &failingStore{Store: s}
+		return fs
+	}})
+	a := newKey(t, "earlier", 0)
+	if rs, err := f.m.Import(bg, importReq("", a.qrlV1(t), []byte(password))); err != nil || rs[0].Status != Imported {
+		t.Fatalf("import: %+v %v", rs, err)
+	}
+	fl := filesOf(f.dir, &a.pk)
+	cfg := keyconfig.Config{Dir: f.dir, Policy: secretfile.Policy{Strict: true}, Decrypt: f.sem.Decrypt}
+	register := func(pks [][]byte) error { return f.engine.RegisterValidators(bg, pks) }
+	contents := func() []string {
+		var out []string
+		for _, p := range []string{fl.config(), fl.keystore(), fl.password()} {
+			data, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, string(data))
+		}
+		return out
+	}
+	for _, step := range []struct {
+		name   string
+		set    func(bool)
+		loaded bool // the import loaded the key before the step failed
+	}{
+		{"registration", func(on bool) { fs.failRegister = on }, false},
+		{"enabling", func(on bool) { fs.failEnable = on }, true},
+	} {
+		// The process restarts: the files are there, nothing is loaded,
+		// and the startup load lists the directory.
+		if _, err := f.keys.Remove(fl.source()); err != nil {
+			t.Fatal(err)
+		}
+		since := f.keys.Generation()
+		batches, err := cfg.Load(bg, 1, nil, nil)
+		if err != nil || len(batches) != 1 || batches[0].Err != nil {
+			t.Fatalf("load: %v %+v", err, batches)
+		}
+		step.set(true)
+		rs, err := f.m.Import(bg, importReq("", a.qrlV1(t), []byte(password)))
+		step.set(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantStatuses(t, rs, Error)
+		if len(f.files(t)) != 3 || f.loaded(a) != step.loaded {
+			t.Fatalf("%s failed: files %v, loaded %v", step.name, f.files(t), f.loaded(a))
+		}
+		if _, err := f.keys.ApplySince(since, batches, register, nil); err != nil {
+			t.Fatal(err)
+		}
+		if !f.loaded(a) || !f.status(t, a).Enabled {
+			t.Fatalf("%s failed: after the load, loaded %v, %+v", step.name, f.loaded(a), f.status(t, a))
+		}
+		keys, err := cfg.LoadFile(bg, fl.config())
+		if err != nil || len(keys) != 1 || keys[0].PublicKey() != a.pk {
+			t.Fatalf("%s failed: the files do not load the key: %v", step.name, err)
+		}
+		keys[0].Zeroize()
+	}
+
+	if _, err := f.keys.Remove(fl.source()); err != nil {
+		t.Fatal(err)
+	}
+	before := contents()
+	if err := os.Chmod(f.dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(f.dir, DirMode) })
+	if os.Geteuid() == 0 {
+		t.Skip("root writes into a read-only directory")
+	}
+	rs, err := f.m.Import(bg, importReq("", a.qrlV1(t), []byte(password)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatuses(t, rs, Error)
+	if err := os.Chmod(f.dir, DirMode); err != nil {
+		t.Fatal(err)
+	}
+	if got := contents(); !slices.Equal(got, before) || len(f.files(t)) != 3 {
+		t.Fatalf("a failed write changed the files: %v", f.files(t))
+	}
+}
+
 // A password with trailing line breaks opens the keystore as the password
 // file written for it will be read back: without them.
 func TestImportPasswordAsTheFileReadsIt(t *testing.T) {

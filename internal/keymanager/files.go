@@ -118,25 +118,51 @@ func (f keyFiles) configYAML() []byte {
 		"\nkeystoreFile: " + f.stem + ".json\nkeystorePasswordFile: " + f.stem + ".password\n")
 }
 
-// write writes the password file, the keystore and then the key-config
-// file, which the loader lists, so that a load never finds the key-config
-// file without the files it names. Each is written to a new temporary file
-// (O_EXCL, mode 0600, synced) and renamed over the final name: a file or a
-// symlink planted there is replaced, never written through, and a reader
-// sees the old file or the whole new one. On failure the files written so
-// far are removed. The caller syncs the directory (syncDir) once it has
-// written the files of every key it adds.
-func (f keyFiles) write(keystore, password []byte) error {
-	for _, w := range []struct {
+// write writes the password file, the keystore and the key-config file.
+// Each is written to a new temporary file (O_EXCL, mode 0600, synced) and,
+// once all three are, renamed over its name, in that order: the key-config
+// file, which the loader lists, comes last, so that a load never finds it
+// without the files it names. A file or a symlink planted at a name is
+// replaced, never written through, and a reader sees the old file or the
+// whole new one. A failure before the renames (a full disk fails there)
+// leaves every name as it was; one between them removes the key's files.
+// It reports whether it changed any name. The caller syncs the directory
+// (syncDir) once it has written the files of every key it adds.
+func (f keyFiles) write(keystore, password []byte) (changed bool, err error) {
+	files := [...]struct {
 		path string
 		data []byte
-	}{{f.password(), password}, {f.keystore(), keystore}, {f.config(), f.configYAML()}} {
-		if err := writeFile(w.path, w.data); err != nil {
+	}{{f.password(), password}, {f.keystore(), keystore}, {f.config(), f.configYAML()}}
+	var tmps []string
+	defer func() {
+		for _, tmp := range tmps {
+			_ = os.Remove(tmp) // a no-op once renamed
+		}
+	}()
+	for _, w := range files {
+		tmp, err := writeTemp(w.path, w.data)
+		if err != nil {
+			return false, err
+		}
+		tmps = append(tmps, tmp)
+	}
+	for i, w := range files {
+		if err := os.Rename(tmps[i], w.path); err != nil {
+			if i == 0 {
+				return false, err
+			}
 			_, _ = f.remove()
-			return err
+			return true, err
 		}
 	}
-	return nil
+	return true, nil
+}
+
+// exists reports whether the key's key-config file is in the directory: an
+// earlier import wrote the key's files.
+func (f keyFiles) exists() bool {
+	_, err := os.Lstat(f.config())
+	return err == nil
 }
 
 // remove removes the key-config file first, so that a load never finds it
@@ -178,20 +204,20 @@ func (f keyFiles) check(pk *mldsa87.PublicKey) error {
 	return nil
 }
 
-// writeFile writes data to path through a temporary file in the same
-// directory, created with O_EXCL and mode 0600, synced, and renamed over
-// path. Temporary names start with a dot, so the loaders never list them.
-func writeFile(path string, data []byte) error {
+// writeTemp writes data to a temporary file next to path, created with
+// O_EXCL and mode 0600, and synced, and returns its name, for the caller
+// to rename over path. Temporary names start with a dot, so the loaders
+// never list them. On failure nothing is left.
+func writeTemp(path string, data []byte) (string, error) {
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
-		return err
+		return "", err
 	}
 	tmp := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+"."+hex.EncodeToString(suffix[:])+".tmp")
 	t, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, FileMode)
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer func() { _ = os.Remove(tmp) }() // a no-op once renamed
 	// The umask may have narrowed the mode; it never widens it.
 	err = t.Chmod(FileMode)
 	if err == nil {
@@ -204,9 +230,10 @@ func writeFile(path string, data []byte) error {
 		err = cerr
 	}
 	if err != nil {
-		return err
+		_ = os.Remove(tmp)
+		return "", err
 	}
-	return os.Rename(tmp, path)
+	return tmp, nil
 }
 
 // syncDir makes the directory's entries durable, where the platform can.
