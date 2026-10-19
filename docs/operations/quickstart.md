@@ -2,7 +2,9 @@
 
 This page runs `remotesigner consensus` on one host, next to the qrysm validator client, with `file-raw` keys,
 generated bearer tokens and a file network. Every flag is listed in [`../reference/flags.md`](../reference/flags.md);
-the HTTP API is [`../contract.md`](../contract.md).
+the HTTP API is [`../contract.md`](../contract.md). Read [`requirements.md`](requirements.md) first: the networks the
+signer supports, and the rules a deployment must follow that the signer cannot check. To run it as a service, see
+[`deploy-systemd.md`](deploy-systemd.md) or [`deploy-docker.md`](deploy-docker.md).
 
 > This release signs all nine artifact types behind slashing protection, releases RANDAO reveals under the frontier
 > rule ([`randao.md`](randao.md)), and serves the operational API (`publicKeys`, `capabilities`, `highWatermark`,

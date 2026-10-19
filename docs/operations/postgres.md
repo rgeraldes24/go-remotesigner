@@ -80,6 +80,8 @@ remotesigner consensus migrate \
 - `consensus migrate` holds the session lock `pg_advisory_lock(3, 0)` while it reads and upgrades the schema, and
   runs each migration in its own transaction. Running it again is harmless: "already at schema version 1; nothing
   to do".
+- Upgrading replicas to a release that changes the schema means stopping all of them before the migration, since a
+  signer checks the version only when it starts ([`upgrade.md`](upgrade.md#4-postgres-replicas)).
 - `--slashing-protection-db-migrate` on `consensus` migrates at startup instead. Several replicas started together
   then migrate once: the others wait for the lock and find the schema current. It needs a role that may create
   tables, which the signers' role of section 2 is not, so the least-privilege setup runs `consensus migrate` as the

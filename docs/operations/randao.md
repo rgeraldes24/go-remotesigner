@@ -154,4 +154,5 @@ bin/remotesigner-consensus consensus migrate --slashing-protection-db-url=bolt:/
 ```
 
 While a signer holds the store, `consensus migrate` fails with "stop the signer first". A store written by a newer
-release is always refused; downgrades are not supported.
+release is always refused; downgrades are not supported. The upgrade steps, for one signer and for Postgres replicas,
+are in [`upgrade.md`](upgrade.md).
