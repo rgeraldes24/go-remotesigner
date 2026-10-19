@@ -118,13 +118,13 @@ jobs:
           VAULT_DEV_ROOT_TOKEN_ID: remotesigner-ci-root
           VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
         ports:
-          - 127.0.0.1:8200:8200
+          - 8200:8200
       localstack:
         image: localstack/localstack:4.14.0@sha256:3ebc37595918b8accb852f8048fef2aff047d465167edd655528065b07bc364a
         env:
           SERVICES: secretsmanager
         ports:
-          - 127.0.0.1:4566:4566
+          - 4566:4566
         options: >-
           --health-cmd "curl -sf http://localhost:4566/_localstack/health"
           --health-interval 5s --health-timeout 5s --health-retries 30
