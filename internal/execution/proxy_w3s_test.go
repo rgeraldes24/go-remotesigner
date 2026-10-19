@@ -26,8 +26,10 @@
 package execution
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
@@ -53,8 +55,10 @@ func w3sNode(t *testing.T) *fixture {
 	return newFixtureWith(t, 1, defaultAllow, d, nd)
 }
 
-// rpcRequestWithHeadersIsProxied: the request body and the node's response
-// pass unchanged, and the node is posted to at the configured path.
+// rpcRequestWithHeadersIsProxied: the node's response passes unchanged,
+// the node is posted to at the configured path, and it receives the same
+// request. Web3Signer passes the client's bytes on; here the node gets the
+// signer's encoding of the request (TestForwardedRequestIsTheCheckedOne).
 func TestW3SRPCRequestWithHeadersIsProxied(t *testing.T) {
 	f := w3sNode(t)
 	w := f.post(w3sRPCRequest, http.Header{"Accept": {"*/*"}})
@@ -62,10 +66,23 @@ func TestW3SRPCRequestWithHeadersIsProxied(t *testing.T) {
 		t.Fatalf("%d %v %s", w.Code, w.Header(), w.Body)
 	}
 	got := f.node.received()
-	if len(got) != 1 || string(got[0].body) != w3sRPCRequest || got[0].header.Get("Accept") != "*/*" ||
+	if len(got) != 1 || !sameJSON(t, got[0].body, []byte(w3sRPCRequest)) || got[0].header.Get("Accept") != "*/*" ||
 		got[0].path != "/arbitraryRootPath" {
 		t.Fatalf("the node received %+v", got)
 	}
+}
+
+// sameJSON reports whether two JSON texts hold the same value.
+func sameJSON(t *testing.T, a, b []byte) bool {
+	t.Helper()
+	var va, vb any
+	if err := json.Unmarshal(a, &va); err != nil {
+		t.Fatalf("%s: %v", a, err)
+	}
+	if err := json.Unmarshal(b, &vb); err != nil {
+		t.Fatalf("%s: %v", b, err)
+	}
+	return reflect.DeepEqual(va, vb)
 }
 
 // requestWithHostHeaderIsRenamedToXForwardedHost and

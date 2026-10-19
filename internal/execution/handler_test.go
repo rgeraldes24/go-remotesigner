@@ -229,6 +229,63 @@ func TestAllowlistBlocksMethods(t *testing.T) {
 	}
 }
 
+// The node runs the method the allowlist checked. gqrl decodes a request
+// into a struct with encoding/json, which also takes member names in another
+// case, the last one winning; the signer reads "method" exactly. Forwarding
+// the client's bytes would let a second "METHOD" member carry admin_* or a
+// transaction method past the allowlist, so every forwarded request, single
+// or in a batch, is the signer's own encoding of the four members it read.
+func TestForwardedRequestIsTheCheckedOne(t *testing.T) {
+	f := newFixture(t, 0, defaultAllow)
+	smuggling := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"qrl_blockNumber","METHOD":"admin_addPeer","params":["enode://x"]}`,
+		`{"jsonrpc":"2.0","id":1,"method":"qrl_blockNumber","Method":"qrl_signTransaction","params":[{}]}`,
+		`{"jsonrpc":"2.0","id":1,"method":"qrl_blockNumber","mEtHoD":"personal_unlockAccount","extra":true}`,
+		`{"jsonrpc":"2.0","id":1,"method":"admin_addPeer","method":"qrl_blockNumber"}`,
+	}
+	for _, body := range smuggling {
+		if r := decodeOne(t, f.post(body, nil).Body.Bytes()); string(r.Result) != `"node:qrl_blockNumber"` {
+			t.Errorf("%s: %+v %s, want the node's qrl_blockNumber", body, r.Error, r.Result)
+		}
+	}
+	for i, r := range decodeBatch(t, f.post(batch(smuggling...), nil).Body.Bytes()) {
+		if string(r.Result) != `"node:qrl_blockNumber"` {
+			t.Errorf("batch element %d: %+v %s, want the node's qrl_blockNumber", i, r.Error, r.Result)
+		}
+	}
+
+	got := f.node.received()
+	if len(got) != len(smuggling)+1 {
+		t.Fatalf("the node received %d requests, want %d", len(got), len(smuggling)+1)
+	}
+	var sent []json.RawMessage
+	for i, r := range got {
+		if i < len(smuggling) {
+			sent = append(sent, r.body)
+			continue
+		}
+		var elems []json.RawMessage
+		if err := json.Unmarshal(r.body, &elems); err != nil {
+			t.Fatal(err)
+		}
+		sent = append(sent, elems...)
+	}
+	for _, s := range sent {
+		var gqrl struct {
+			Method string `json:"method"`
+		}
+		var members map[string]json.RawMessage
+		if json.Unmarshal(s, &gqrl) != nil || json.Unmarshal(s, &members) != nil || gqrl.Method != "qrl_blockNumber" {
+			t.Fatalf("the node received %s", s)
+		}
+		for name := range members {
+			if name != "jsonrpc" && name != "id" && name != "method" && name != "params" {
+				t.Errorf("the node received member %q: %s", name, s)
+			}
+		}
+	}
+}
+
 // A batch is split: local requests are answered by the signer, refused ones
 // get -32601 and never reach the node, the rest go to the node as one
 // batch, and the responses come back in request order with the client's

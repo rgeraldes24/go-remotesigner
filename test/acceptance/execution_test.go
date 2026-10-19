@@ -226,7 +226,12 @@ func TestExecutionMode(t *testing.T) {
 				t.Errorf("%s: %s", m, body)
 			}
 		}
-		_, body := s.rpc(`[{"jsonrpc":"2.0","id":1,"method":"admin_peers"},{"jsonrpc":"2.0","id":2,"method":"qrl_blockNumber"}]`, nil)
+		// gqrl would also read a second member name in another case.
+		_, body := s.rpc(`{"jsonrpc":"2.0","id":3,"method":"qrl_blockNumber","METHOD":"admin_addPeer","params":["enode://x"]}`, nil)
+		if r := reply(t, body); string(r.Result) != `"node:qrl_blockNumber"` {
+			t.Errorf("METHOD member: %s", body)
+		}
+		_, body = s.rpc(`[{"jsonrpc":"2.0","id":1,"method":"admin_peers"},{"jsonrpc":"2.0","id":2,"method":"qrl_blockNumber"}]`, nil)
 		var rs []rpcReply
 		if err := json.Unmarshal([]byte(body), &rs); err != nil || len(rs) != 2 || rs[0].Error == nil ||
 			string(rs[1].Result) != `"node:qrl_blockNumber"` {
