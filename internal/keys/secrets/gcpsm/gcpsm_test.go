@@ -8,7 +8,10 @@ package gcpsm
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -186,4 +189,29 @@ func TestLimits(t *testing.T) {
 	defer func() { _ = b.Close() }()
 	bounded("List", func() error { _, err := b.List(ctx); return err })
 	bounded("Get", func() error { _, err := b.Get(ctx, "projects/p/secrets/validator-1"); return err })
+}
+
+// TestApplicationDefaultCredentials checks that a Google endpoint (any
+// override but http://) authenticates with Application Default
+// Credentials, here the key file GOOGLE_APPLICATION_CREDENTIALS names,
+// whose content no error quotes, and that an http:// emulator endpoint
+// never reads them.
+func TestApplicationDefaultCredentials(t *testing.T) {
+	f := secretstest.NewGCP(t)
+	f.Put("p", "validator-1", []byte(seed), nil)
+	file := filepath.Join(t.TempDir(), "service-account.json")
+	key := "-----BEGIN PRIVATE KEY-----\nU0VDUkVUS0VZTUFURVJJQUw=\n-----END PRIVATE KEY-----\n"
+	if err := os.WriteFile(file, []byte(`{"type":"service_account","client_email":"signer@p.iam.gserviceaccount.com",`+
+		`"private_key":`+strconv.Quote(key)+`}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", file)
+	ctx := context.Background()
+	_, err := New().Fetch(ctx, &secrets.GCP{ProjectID: "p", SecretName: "validator-1", EndpointOverride: "127.0.0.1:1"})
+	if err == nil || !strings.Contains(err.Error(), "credentials") || strings.Contains(err.Error(), "U0VDUkVU") {
+		t.Fatalf("a service-account key file that does not parse: error = %v, want a credentials error without the key", err)
+	}
+	if _, err := New().Fetch(ctx, &secrets.GCP{ProjectID: "p", SecretName: "validator-1", EndpointOverride: f.Endpoint}); err != nil {
+		t.Fatalf("an emulator endpoint read the credentials: %v", err)
+	}
 }
