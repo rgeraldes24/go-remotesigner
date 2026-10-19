@@ -74,7 +74,8 @@ would otherwise turn on (X81).
 ## 5. Requests and limits
 
 Each call (one page of the listing, one access of a version) may take 30 seconds, the SDK's retries included, and
-each gRPC message is read up to 4 MiB; a payload larger than 64 KiB fails its secret (X78).
+each gRPC message is read up to 4 MiB: a larger one fails at once, without the retries the SDK makes when the service
+answers that it is out of quota. A payload larger than 64 KiB fails its secret (X78).
 
 The hidden `--Xgcp-endpoint-override` (and a document's `endpointOverride`) replaces Google's endpoint, which
 Web3Signer cannot do: `host:port` (or `https://host:port`) keeps TLS and Application Default Credentials, for a

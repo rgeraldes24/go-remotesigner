@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets/secretstest"
@@ -146,4 +147,60 @@ func TestBulk(t *testing.T) {
 			k.Zeroize()
 		}
 	}
+}
+
+// TestLimits checks the bounds of every call: a store that does not answer
+// fails the fetch and the listing once the call timeout passes, retries
+// included, and a response larger than secrets.MaxResponseSize fails
+// without being read whole.
+func TestLimits(t *testing.T) {
+	isolate(t)
+	defer func(d time.Duration) { callTimeout = d }(callTimeout)
+	callTimeout = 30 * time.Second
+	f := secretstest.NewAWS(t)
+	f.Put("validator-1", seed, nil)
+	f.Put("huge", strings.Repeat("0", secrets.MaxResponseSize), nil)
+	ctx := context.Background()
+
+	// The SDK warns about the body it could not drain, among others; its
+	// warnings must not reach stderr, outside the signer's log.
+	stderr := secretstest.CaptureStderr(t)
+	defer func() {
+		if out := stderr(); out != "" {
+			t.Errorf("the SDK wrote to stderr: %q", out)
+		}
+	}()
+	_, err := New(1).Fetch(ctx, &secrets.AWS{AWSConn: specified(f.URL, "AKID"), SecretName: "huge"})
+	if !errors.Is(err, secrets.ErrTooLarge) {
+		t.Errorf("a response larger than %d bytes: error = %v, want ErrTooLarge", secrets.MaxResponseSize, err)
+	}
+	if n := f.Reads("huge"); n != 1 {
+		t.Errorf("a response larger than the limit was requested %d times: it was retried", n)
+	}
+
+	callTimeout = 300 * time.Millisecond
+	f.SetHang(true)
+	defer f.SetHang(false)
+	bounded := func(what string, call func() error) {
+		t.Helper()
+		start := time.Now()
+		err := call()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("%s against a store that does not answer: error = %v, want a deadline", what, err)
+		}
+		if d := time.Since(start); d > 5*time.Second {
+			t.Errorf("%s took %v with a %v call timeout", what, d, callTimeout)
+		}
+	}
+	bounded("Fetch", func() error {
+		_, err := New(1).Fetch(ctx, &secrets.AWS{AWSConn: specified(f.URL, "AKID"), SecretName: "validator-1"})
+		return err
+	})
+	b, err := NewBulk(ctx, secrets.AWSBulk{AWSConn: specified(f.URL, "AKID")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	bounded("List", func() error { _, err := b.List(ctx); return err })
+	bounded("Get", func() error { _, err := b.Get(ctx, "validator-1"); return err })
 }

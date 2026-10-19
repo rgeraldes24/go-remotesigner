@@ -102,8 +102,9 @@ endpoints and emulators:
 
 ## 6. Requests and limits
 
-The timeout bounds each request and each call, the SDK's retries included. A response is read up to 4 MiB and a
-value up to 64 KiB. No redirect is followed (X70, X78). Proxies are taken from `HTTPS_PROXY` and `NO_PROXY`.
+The timeout bounds each request and each call, the SDK's retries included. A response is read up to 4 MiB (a larger
+one fails at once: the SDK does not retry it, as it retries a body it could not read) and a value up to 64 KiB. No
+redirect is followed (X70, X78). Proxies are taken from `HTTPS_PROXY` and `NO_PROXY`.
 
 ## 7. Reload and health
 

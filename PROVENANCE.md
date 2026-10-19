@@ -382,6 +382,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/secrets/secretstest/aws.go` | new | | | |
 | `internal/keys/secrets/secretstest/azure.go` | new | | | |
 | `internal/keys/secrets/secretstest/gcp.go` | new | | | |
+| `internal/keys/secrets/secretstest/stderr.go` | new | | | |
 | `internal/keys/secrets/secretstest/vault.go` | new | | | |
 | `internal/keys/secrets/seed.go` | new | | | |
 | `internal/keys/secrets/seed_test.go` | new | | | |

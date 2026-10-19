@@ -11,6 +11,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets/secretstest"
@@ -127,4 +131,59 @@ func TestCachedClientOutlivesItsFetch(t *testing.T) {
 	if _, err := c.Fetch(context.Background(), spec); err != nil {
 		t.Fatalf("a later fetch with the cached client: %v", err)
 	}
+}
+
+// TestLimits checks the bounds of every call: a store that does not answer
+// fails the access and the listing once the call timeout passes, retries
+// included, and a message larger than secrets.MaxResponseSize fails as too
+// large at once, without the retries of a store that is out of quota.
+func TestLimits(t *testing.T) {
+	defer func(d time.Duration) { callTimeout = d }(callTimeout)
+	callTimeout = 30 * time.Second
+	f := secretstest.NewGCP(t)
+	f.Put("p", "validator-1", []byte(seed), nil)
+	f.Put("p", "huge", make([]byte, secrets.MaxResponseSize), nil)
+	ctx := context.Background()
+	c := New()
+	defer c.Close()
+	stderr := secretstest.CaptureStderr(t)
+	defer func() {
+		if out := stderr(); out != "" {
+			t.Errorf("the SDK wrote to stderr: %q", out)
+		}
+	}()
+
+	_, err := c.Fetch(ctx, &secrets.GCP{ProjectID: "p", SecretName: "huge", EndpointOverride: f.Endpoint})
+	if !errors.Is(err, secrets.ErrTooLarge) {
+		t.Errorf("a message larger than %d bytes: error = %v, want ErrTooLarge", secrets.MaxResponseSize, err)
+	}
+	if n := f.Reads("p", "huge"); n != 1 {
+		t.Errorf("a message larger than the limit was requested %d times: it was retried", n)
+	}
+
+	callTimeout = 300 * time.Millisecond
+	f.SetHang(true)
+	defer f.SetHang(false)
+	bounded := func(what string, call func() error) {
+		t.Helper()
+		start := time.Now()
+		err := call()
+		if status.Code(err) != codes.DeadlineExceeded && !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("%s against a store that does not answer: error = %v, want a deadline", what, err)
+		}
+		if d := time.Since(start); d > 5*time.Second {
+			t.Errorf("%s took %v with a %v call timeout", what, d, callTimeout)
+		}
+	}
+	bounded("Fetch", func() error {
+		_, err := c.Fetch(ctx, &secrets.GCP{ProjectID: "p", SecretName: "validator-1", EndpointOverride: f.Endpoint})
+		return err
+	})
+	b, err := NewBulk(ctx, secrets.GCPBulk{ProjectID: "p", EndpointOverride: f.Endpoint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = b.Close() }()
+	bounded("List", func() error { _, err := b.List(ctx); return err })
+	bounded("Get", func() error { _, err := b.Get(ctx, "projects/p/secrets/validator-1"); return err })
 }

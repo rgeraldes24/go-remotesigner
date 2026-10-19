@@ -31,8 +31,9 @@
 // config files, web identity, and the ECS and EC2 instance roles. Every
 // request goes through the store HTTP client (a timeout, no redirect, a
 // bounded response) and each call is bounded by secrets.DefaultTimeout,
-// retries included. The SDK logs nothing: its logger is the default no-op
-// and no request or response logging is turned on.
+// retries included. The SDK logs nothing: its logger, which by default
+// writes warnings to stderr, is replaced by a no-op, and no request or
+// response logging is turned on.
 package awssm
 
 import (
@@ -46,9 +47,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
+	"github.com/aws/smithy-go/logging"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
 )
+
+// callTimeout bounds each call, retries included, and each HTTP request:
+// secrets.DefaultTimeout, a variable so that the tests can shorten it.
+var callTimeout = secrets.DefaultTimeout
 
 // Client fetches the secrets of aws-secret documents. It keeps up to the
 // configured number of SDK clients, by credentials, region and endpoint
@@ -107,12 +113,14 @@ func (c *Client) Fetch(ctx context.Context, s secrets.Spec) ([]byte, error) {
 
 // storeHTTPClient is the HTTP client of one SDK client.
 func storeHTTPClient() *http.Client {
-	return secrets.HTTPClient(secrets.HTTPOptions{Timeout: secrets.DefaultTimeout})
+	return secrets.HTTPClient(secrets.HTTPOptions{Timeout: callTimeout})
 }
 
 // newClient builds an SDK client for conn that sends its requests with hc.
 func newClient(ctx context.Context, conn secrets.AWSConn, hc *http.Client) (*secretsmanager.Client, error) {
-	opts := []func(*config.LoadOptions) error{config.WithHTTPClient(hc)}
+	// The SDK's default logger writes its warnings to stderr, outside the
+	// signer's log.
+	opts := []func(*config.LoadOptions) error{config.WithHTTPClient(hc), config.WithLogger(logging.Nop{})}
 	if conn.Region != "" {
 		opts = append(opts, config.WithRegion(conn.Region))
 	}
@@ -145,7 +153,7 @@ func newClient(ctx context.Context, conn secrets.AWSConn, hc *http.Client) (*sec
 
 // get returns the latest value of the secret name: its SecretString.
 func get(ctx context.Context, sm *secretsmanager.Client, name string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, secrets.DefaultTimeout)
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	out, err := sm.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(name)})
 	var nf *types.ResourceNotFoundException
@@ -216,7 +224,7 @@ func (b *Bulk) List(ctx context.Context) ([]string, error) {
 	var names []string
 	for p.HasMorePages() {
 		page, err := func() (*secretsmanager.ListSecretsOutput, error) {
-			ctx, cancel := context.WithTimeout(ctx, secrets.DefaultTimeout)
+			ctx, cancel := context.WithTimeout(ctx, callTimeout)
 			defer cancel()
 			return p.NextPage(ctx)
 		}()
