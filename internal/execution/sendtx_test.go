@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
@@ -108,7 +109,8 @@ func TestSendTransactionFill(t *testing.T) {
 // The payload check: a node that answers qrl_fillTransaction with another
 // to, value, input, access list or chain ID, or with another type of
 // transaction, is refused, and nothing is signed or sent. An absent access
-// list is empty and an absent chainId is --chain-id.
+// list is empty and an absent chainId is --chain-id. The sender is always
+// the request's from, whatever the answer names.
 func TestSendTransactionPayloadCheck(t *testing.T) {
 	other := common.Address{0x22}
 	tests := []struct {
@@ -152,6 +154,57 @@ func TestSendTransactionPayloadCheck(t *testing.T) {
 		s := g.sentTxs()[0]
 		if s.Value().Sign() != 0 || len(s.AccessList()) != 0 || s.ChainId().Int64() != testChainID || len(s.Data()) != 0 {
 			t.Fatalf("sent %+v", s)
+		}
+	})
+	t.Run("from is the request's", func(t *testing.T) {
+		// go-qrl's transaction has no from. A node that names another loaded
+		// account as from in its answer changes nothing: the request's from
+		// selects the key, and the sent transaction is that account's.
+		f, g := sendFixture(t, 2)
+		_, addr := f.key(0)
+		_, other := f.key(1)
+		g.set(func(g *fakeGQRL) { g.nonces[common.Address(f.accounts.List()[1].Address)] = 9 })
+		var mu sync.Mutex
+		rewrote := false
+		f.node.setHandler(func(w http.ResponseWriter, r *http.Request) {
+			rec := httptest.NewRecorder()
+			g.serve(rec, r)
+			data := rec.Body.Bytes()
+			var resp, result, tx map[string]json.RawMessage
+			if json.Unmarshal(data, &resp) == nil && json.Unmarshal(resp["result"], &result) == nil &&
+				result["raw"] != nil && json.Unmarshal(result["tx"], &tx) == nil {
+				q, _ := json.Marshal(other)
+				tx["from"], result["from"] = q, q
+				result["tx"], _ = json.Marshal(tx)
+				resp["result"], _ = json.Marshal(result)
+				data, _ = json.Marshal(resp)
+				mu.Lock()
+				rewrote = true
+				mu.Unlock()
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(data)
+		})
+		if code, r := f.sendTx(t, 1, txObject("from", addr, "to", recipient, "value", "0x1")); code != http.StatusOK || r.Error != nil {
+			t.Fatalf("%d %+v", code, r.Error)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if !rewrote {
+			t.Fatal("the node's fill answer named no from")
+		}
+		var fill []map[string]json.RawMessage
+		if err := json.Unmarshal(g.callsOf(MethodFillTransaction)[0].Params, &fill); err != nil ||
+			!strings.EqualFold(strings.Trim(string(fill[0]["from"]), `"`), addr) {
+			t.Fatalf("fill from %s (%v), want %s", fill[0]["from"], err, addr)
+		}
+		sent := g.sentTxs()
+		if len(sent) != 1 {
+			t.Fatalf("%d sent", len(sent))
+		}
+		from, err := types.Sender(types.NewZondSigner(big.NewInt(testChainID)), sent[0])
+		if err != nil || !strings.EqualFold(from.Hex(), addr) || sent[0].Nonce() != 0 {
+			t.Fatalf("sent from %s nonce %d (%v), want %s nonce 0", from.Hex(), sent[0].Nonce(), err, addr)
 		}
 	})
 	t.Run("not type 0x2", func(t *testing.T) {

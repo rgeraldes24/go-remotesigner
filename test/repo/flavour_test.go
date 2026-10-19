@@ -4,6 +4,7 @@
 package repo
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,6 +83,94 @@ func TestConsensusFlavourLinksNoGoQRL(t *testing.T) {
 	}
 	if strings.Contains(string(out), executionPackage) {
 		t.Fatalf("the binary records %s", executionPackage)
+	}
+}
+
+// goQRLCommit is the go-qrl commit the default flavour links, theQRL's own
+// go-qrl. Moving it is a deliberate change that NOTICE.execution, the
+// transaction vectors (make vectors) and the gqrl end-to-end test (make
+// gqrl-e2e) follow.
+const goQRLCommit = "b92884a3a1d5"
+
+// The signer module requires theQRL's go-qrl at goQRLCommit and has no
+// replace directive, so that go install builds what the release builds and
+// no fork stands in for go-qrl; and it requires no module of the cyyber
+// stack, which only the tools/vectorgen modules link.
+func TestGoQRLRequirement(t *testing.T) {
+	cmd := exec.Command("go", "mod", "edit", "-json")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go mod edit -json: %v", err)
+	}
+	var mod struct {
+		Require []struct{ Path, Version string }
+		Replace []struct{ Old struct{ Path string } }
+	}
+	if err := json.Unmarshal(out, &mod); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range mod.Replace {
+		t.Errorf("go.mod replaces %s", r.Old.Path)
+	}
+	found := false
+	for _, r := range mod.Require {
+		if r.Path == goQRLModule {
+			found = true
+			if !strings.HasSuffix(r.Version, "-"+goQRLCommit) {
+				t.Errorf("go.mod requires %s %s, not commit %s", goQRLModule, r.Version, goQRLCommit)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("go.mod does not require %s", goQRLModule)
+	}
+	sum, err := os.ReadFile(filepath.Join(root, "go.sum"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.SplitSeq(string(sum), "\n") {
+		if strings.HasPrefix(line, "github.com/cyyber/") {
+			t.Errorf("go.sum names a module of the cyyber stack: %s", line)
+		}
+	}
+}
+
+// Only internal/execution imports go-qrl, in its code and in its tests, on
+// every target: the rule the lint's depguard applies, checked without the
+// linter. The consensus flavour's packages import none of it, tests
+// included.
+func TestGoQRLImportedOnlyByExecution(t *testing.T) {
+	format := `{{.ImportPath}}{{range .Imports}} {{.}}{{end}}{{range .TestImports}} {{.}}{{end}}` +
+		`{{range .XTestImports}} {{.}}{{end}}`
+	imported := false
+	for _, tg := range noticeTargets {
+		for _, tags := range noticeFlavours {
+			cmd := exec.Command("go", "list", "-e", "-tags", tags, "-f", format, "./...")
+			cmd.Dir = root
+			cmd.Env = append(os.Environ(), "GOOS="+tg[0], "GOARCH="+tg[1], "CGO_ENABLED=0")
+			out, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("go list -tags %q for %s/%s: %v", tags, tg[0], tg[1], err)
+			}
+			for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+				f := strings.Fields(line)
+				pkg := f[0]
+				inExecution := pkg == executionPackage || strings.HasPrefix(pkg, executionPackage+"/")
+				for _, imp := range f[1:] {
+					if imp != goQRLModule && !strings.HasPrefix(imp, goQRLModule+"/") {
+						continue
+					}
+					imported = imported || inExecution
+					if !inExecution || tags == "noexecution" {
+						t.Errorf("%s/%s, tags %q: %s imports %s", tg[0], tg[1], tags, pkg, imp)
+					}
+				}
+			}
+		}
+	}
+	if !imported {
+		t.Error("internal/execution imports no go-qrl package")
 	}
 }
 
