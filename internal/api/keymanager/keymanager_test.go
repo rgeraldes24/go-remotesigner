@@ -5,8 +5,10 @@ package keymanager
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -162,15 +164,19 @@ func serve(t *testing.T, h http.Handler, method, body string) (int, []byte) {
 	return rec.Code, out
 }
 
-// The three routes answer in the contract's shapes: a list, per-keystore
-// import results and per-key delete results with the interchange.
-func TestHandlersConform(t *testing.T) {
-	log := logrus.New()
-	log.SetOutput(io.Discard)
-	store := memstore.New()
-	gvr := slashing.Root{1}
+// gvr is the network of the handlers' stores.
+var gvr = slashing.Root{1}
+
+// newHandlers serves the routes over a Manager whose store wrap returns
+// from a memory store bound to gvr (nil keeps it), logging to log.
+func newHandlers(t *testing.T, log *logrus.Logger, wrap func(slashing.Store) slashing.Store) *Handlers {
+	t.Helper()
+	var store slashing.Store = memstore.New()
 	if _, err := store.PinGenesisValidatorsRoot(t.Context(), gvr); err != nil {
 		t.Fatal(err)
+	}
+	if wrap != nil {
+		store = wrap(store)
 	}
 	keys := provider.New(log)
 	t.Cleanup(keys.Close)
@@ -179,19 +185,34 @@ func TestHandlersConform(t *testing.T) {
 	if err := km.PrepareDir(dir, true, nil); err != nil {
 		t.Fatal(err)
 	}
-	h := &Handlers{Log: log, Manager: km.New(km.Config{Dir: dir, Keys: keys, Engine: slashing.NewEngine(store),
+	return &Handlers{Log: log, Manager: km.New(km.Config{Dir: dir, Keys: keys, Engine: slashing.NewEngine(store),
 		Store: store, History: true, Decrypt: sem.Decrypt, Workers: 2, Log: log})}
+}
 
+// testKeystore is a deposit CLI keystore under the password "pw", and the
+// hex of its public key.
+func testKeystore(t *testing.T, tag string) (ks []byte, pkHex string) {
+	t.Helper()
 	sealer, err := keystoretest.NewSealer("pw", keystoretest.Cheapest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	seed := keystoretest.Seed("handlers", 0)
-	ks, err := sealer.DepositCLI(seed, 0, true)
+	seed := keystoretest.Seed(tag, 0)
+	ks, err = sealer.DepositCLI(seed, 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkHex, _ := keystoretest.PublicKeyHex(seed)
+	pkHex, _ = keystoretest.PublicKeyHex(seed)
+	return ks, pkHex
+}
+
+// The three routes answer in the contract's shapes: a list, per-keystore
+// import results and per-key delete results with the interchange.
+func TestHandlersConform(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+	h := newHandlers(t, log, nil)
+	ks, pkHex := testKeystore(t, "handlers")
 	history := `{"metadata":{"interchange_format_version":"5","genesis_validators_root":"0x` + hex.EncodeToString(gvr[:]) +
 		`"},"data":[{"pubkey":"0x` + pkHex + `","signed_blocks":[{"slot":"3"}],"signed_attestations":[]}]}`
 
@@ -232,5 +253,56 @@ func TestHandlersConform(t *testing.T) {
 		`"slashing_protection":`+quote(other)+`}`)
 	if code != 400 || !bytes.Contains(body, []byte(`"BAD_FIELD"`)) {
 		t.Fatalf("other network: %d %s", code, body)
+	}
+}
+
+// rootFails is a store whose genesis validators root cannot be read.
+type rootFails struct{ slashing.Store }
+
+func (rootFails) GenesisValidatorsRoot(context.Context) (slashing.Root, bool, error) {
+	return slashing.Root{}, false, errors.New("store down")
+}
+
+// A slashing_protection the import refuses, or one element of it that
+// fails, puts nothing of the body into the log, at any level: the
+// refusal is logged by its kind. A store that cannot be read to check the
+// history is 500 STORE_UNAVAILABLE, not a client error.
+func TestImportLogsNoInterchange(t *testing.T) {
+	var out bytes.Buffer
+	log := logrus.New()
+	log.SetOutput(&out)
+	log.SetLevel(logrus.TraceLevel)
+	h := newHandlers(t, log, nil)
+	ks, pkHex := testKeystore(t, "logs")
+	const fragment = "BODY-FRAGMENT-"
+	marker := fragment + strings.Repeat("x", 50_000)
+	root := `"genesis_validators_root":"0x` + hex.EncodeToString(gvr[:]) + `"`
+	body := func(history string) string {
+		return `{"keystores":[` + quote(string(ks)) + `],"passwords":["pw"],"slashing_protection":` + quote(history) + `}`
+	}
+	for _, c := range []struct {
+		history string
+		code    int
+		want    string
+	}{
+		{`{"metadata":{"interchange_format_version":"` + marker + `",` + root + `},"data":[]}`, 400, `"BAD_FIELD"`},
+		{`{"metadata":{"interchange_format_version":"5",` + root + `,"` + marker + `":1},"data":[]}`, 400, `"BAD_FIELD"`},
+		{`{"metadata":{"interchange_format_version":"5",` + root + `},"data":[{"pubkey":"0x` + pkHex +
+			`","signed_blocks":[],"` + marker + `":1}]}`, 200, `"status":"error"`},
+	} {
+		code, resp := serve(t, h.Import(), http.MethodPost, body(c.history))
+		if code != c.code || !bytes.Contains(resp, []byte(c.want)) || len(resp) > 1000 {
+			t.Fatalf("import: %d %.1000s", code, resp)
+		}
+	}
+	if strings.Contains(out.String(), fragment) || !strings.Contains(out.String(), "unsupported interchange_format_version") {
+		t.Fatalf("log:\n%.2000s", out.String())
+	}
+
+	h = newHandlers(t, log, func(s slashing.Store) slashing.Store { return rootFails{s} })
+	history := `{"metadata":{"interchange_format_version":"5",` + root + `},"data":[]}`
+	if code, resp := serve(t, h.Import(), http.MethodPost, body(history)); code != 500 ||
+		!bytes.Contains(resp, []byte(`"STORE_UNAVAILABLE"`)) {
+		t.Fatalf("store failure: %d %s", code, resp)
 	}
 }

@@ -88,6 +88,9 @@ const (
 type Result struct {
 	Status  Status
 	Message string
+	// log replaces Message in the log when Message repeats request data
+	// (an error of the request's interchange): bodies are never logged.
+	log string
 }
 
 // Key is one loaded key, as the list reports it.
@@ -107,9 +110,66 @@ var (
 	// many passwords as keystores missing).
 	ErrRequest = errors.New("keymanager: malformed request")
 	// ErrInterchange: the request's slashing-protection history cannot be
-	// read, or is for another network. Nothing was imported.
+	// read, or is for another network. Nothing was imported. The error's
+	// message names the kind of refusal only, never a value of the file.
 	ErrInterchange = errors.New("keymanager: slashing_protection refused")
+	// ErrStore: the slashing-protection store could not be read to check
+	// the request's history. Nothing was imported.
+	ErrStore = errors.New("keymanager: the slashing-protection store could not be read")
 )
+
+// refusal is an ErrInterchange that keeps its cause for errors.Is, but
+// whose message names only the kind of refusal: the interchange decoder's
+// errors quote the file's field names and values, which are request data
+// and never reach the log.
+type refusal struct{ cause error }
+
+func (r refusal) Error() string {
+	kind := "the file is not an EIP-3076 interchange this signer reads"
+	switch {
+	case errors.Is(r.cause, slashing.ErrGenesisValidatorsRootMismatch):
+		kind = "the file is for another genesis validators root"
+	case errors.Is(r.cause, interchange.ErrVersion):
+		kind = "unsupported interchange_format_version"
+	}
+	return ErrInterchange.Error() + ": " + kind
+}
+
+func (r refusal) Unwrap() []error { return []error{ErrInterchange, r.cause} }
+
+// loggable returns err for the log: an error that describes the request's
+// interchange becomes its kind alone.
+func loggable(err error) error {
+	if errors.Is(err, interchange.ErrFormat) || errors.Is(err, interchange.ErrVersion) ||
+		errors.Is(err, slashing.ErrGenesisValidatorsRootMismatch) {
+		return refusal{cause: err}
+	}
+	return err
+}
+
+// maxDetail bounds the part of a result's message that repeats an error of
+// the request's interchange.
+const maxDetail = 160
+
+// detail renders an error of the request's interchange for a result's
+// message, which goes back to the caller and never to the log: printable
+// ASCII, at most maxDetail bytes, since the error may quote field names of
+// any length from the file.
+func detail(err error) string {
+	s := err.Error()
+	b := make([]byte, 0, min(len(s), maxDetail)+len("…"))
+	for i := 0; i < len(s) && i < maxDetail; i++ {
+		c := s[i]
+		if c < 0x20 || c >= 0x7f {
+			c = '?'
+		}
+		b = append(b, c)
+	}
+	if len(s) > maxDetail {
+		b = append(b, "…"...)
+	}
+	return string(b)
+}
 
 // Config configures a Manager.
 type Config struct {
@@ -197,8 +257,8 @@ type opened struct {
 // in order: imported (the key was added, or it was loaded but disabled and
 // is now enabled), duplicate (the key is loaded and enabled already, or an
 // earlier keystore of the request has it and was imported) or error. It
-// fails as a whole, before any keystore is opened, with ErrRequest or
-// ErrInterchange.
+// fails as a whole, before any keystore is opened, with ErrRequest,
+// ErrInterchange or ErrStore.
 //
 // Only the history of the keys about to be added or enabled is imported,
 // and their enabled flag is left alone until they are loaded; a key whose
@@ -270,7 +330,8 @@ func (m *Manager) Import(ctx context.Context, req ImportRequest) ([]Result, erro
 	if history && len(candidates)+len(reenable) > 0 {
 		failed, err := m.importHistory(ctx, req.SlashingProtection, open, slices.Concat(candidates, reenable))
 		if err != nil {
-			m.cfg.Log.WithError(err).Error("Keymanager import: the slashing-protection history could not be imported")
+			m.cfg.Log.WithError(loggable(err)).
+				Error("Keymanager import: the slashing-protection history could not be imported")
 		}
 		keep := func(idxs []int, notDone, disabled string) []int {
 			kept := idxs[:0]
@@ -281,7 +342,8 @@ func (m *Manager) Import(ctx context.Context, req ImportRequest) ([]Result, erro
 					results[i] = Result{Status: Error, Message: "slashing_protection could not be imported; " + notDone}
 				case bad:
 					results[i] = Result{Status: Error, Message: "its slashing-protection history could not be imported " +
-						"(" + herr.Error() + "); " + disabled}
+						"(" + detail(herr) + "); " + disabled,
+						log: "its slashing-protection history could not be imported; " + disabled}
 				default:
 					kept = append(kept, i)
 				}
@@ -408,7 +470,7 @@ func (m *Manager) boundRoot(ctx context.Context) (slashing.Root, bool, error) {
 func (m *Manager) checkInterchange(ctx context.Context, data []byte) error {
 	gvr, known, err := m.boundRoot(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: read the genesis validators root: %w", ErrInterchange, err)
+		return fmt.Errorf("%w: the genesis validators root: %w", ErrStore, err)
 	}
 	err = interchange.Decode(bytes.NewReader(data), func(md interchange.Metadata) error {
 		if known && md.GenesisValidatorsRoot != gvr {
@@ -418,7 +480,7 @@ func (m *Manager) checkInterchange(ctx context.Context, data []byte) error {
 		return nil
 	}, func(int, interchange.Entry, *interchange.EntryError) error { return nil })
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrInterchange, err)
+		return refusal{cause: err}
 	}
 	return nil
 }
@@ -582,7 +644,11 @@ func (m *Manager) logImport(open []opened, results []Result) {
 		if r.Status != Error {
 			continue
 		}
-		f := logrus.Fields{"keystore": i, "reason": r.Message}
+		reason := r.Message
+		if r.log != "" {
+			reason = r.log
+		}
+		f := logrus.Fields{"keystore": i, "reason": reason}
 		if k := open[i].key; k != nil {
 			pk := k.PublicKey()
 			f["key"] = pk.LogID()

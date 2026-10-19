@@ -95,10 +95,12 @@ Each keystore goes through these steps, in order; a step that fails makes it an 
    keys about to be imported or enabled is imported, and nothing of any other key in the file: no record, no
    registration. The whole file is read before any keystore is decrypted: a file that is not EIP-3076 version 5 to
    its end, or that names a genesis validators root other than the signer's, refuses the request with `400
-   BAD_FIELD` and nothing is written. A data element of such a key that fails (an invalid record, a watermark beyond
-   the high watermark) makes that key an `error`; the key is disabled in slashing protection, and not loaded when it
-   was not. The import leaves the enabled flag of the other keys alone at this step. A store not bound to a network
-   yet is bound to the file's root. With slashing protection disabled the history is ignored, with a WARN.
+   BAD_FIELD` and nothing is written; a store that cannot be read for this check fails it with `500
+   STORE_UNAVAILABLE`. A data element of such a key that fails (an invalid record, a watermark beyond the high
+   watermark) makes that key an `error`, whose `message` quotes at most 160 printable characters of the element's
+   error; the key is disabled in slashing protection, and not loaded when it was not. The import leaves the enabled
+   flag of the other keys alone at this step. A store not bound to a network yet is bound to the file's root. With
+   slashing protection disabled the history is ignored, with a WARN.
 6. **Files.** For a key that is not loaded, three files are written in `--key-config-path`, named by the hex SHA-256
    of the public key (a public key in hex is longer than a file name may be): `<sha256>.password` (the password as
    given), `<sha256>.json` (the keystore as given) and `<sha256>.yaml`:
@@ -184,8 +186,11 @@ during the old signer's startup load is safe (section 1): the key does not come 
 
 Request bodies are never logged, at any level, `TRACE` included: not on success, not when a body does not parse.
 The log has, per request, the number of keys per status, and per key its short form (`0x`, the first 10 hex
-characters of the key, `…` and the first 8 of its SHA-256) and the status or the reason of an `error`; a failed request is logged at `DEBUG` with its route and reason
-code. Passwords and keystores are decoded into buffers that are wiped once the import is done. The `message` of an
+characters of the key, `…` and the first 8 of its SHA-256) and the status or the reason of an `error`; a failed
+request is logged at `DEBUG` with its route and reason code. Nothing of a `slashing_protection` reaches the log
+either: a refused one is logged by the kind of refusal (unreadable, another interchange version, another network),
+and the reason logged for a key whose history element fails leaves out the part of the `message` that quotes the
+element. Passwords and keystores are decoded into buffers that are wiped once the import is done. The `message` of an
 `error` holds no password, key material or file path; the log line next to it has the path where a file could not be
 written.
 

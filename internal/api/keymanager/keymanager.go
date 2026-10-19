@@ -128,9 +128,14 @@ func (h *Handlers) Import() http.Handler {
 		rs, err := h.Manager.Import(r.Context(), req)
 		switch {
 		case errors.Is(err, km.ErrInterchange):
+			// err names the kind of refusal only, never a value of the body.
 			h.Log.WithError(err).Warn("Keymanager import refused: its slashing_protection cannot be imported")
 			server.WriteError(w, h.Log, r, apierr.New(apierr.BadField, "slashing_protection cannot be imported").
 				In("slashing_protection"))
+			return
+		case errors.Is(err, km.ErrStore):
+			h.Log.WithError(err).Error("Keymanager import failed: the slashing-protection store could not be read")
+			server.WriteError(w, h.Log, r, apierr.New(apierr.StoreUnavailable, "slashing-protection store"))
 			return
 		case err != nil:
 			server.WriteError(w, h.Log, r, apierr.New(apierr.InvariantViolation, "keystores and passwords"))

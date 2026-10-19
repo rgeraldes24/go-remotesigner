@@ -334,7 +334,8 @@ func TestKeymanagerRefusesSpoofedAndOversizedKeystores(t *testing.T) {
 
 // At TRACE, neither a body that does not parse nor imports, deletes and
 // lists put a password, a keystore's ciphertext, a token or a full public
-// key into the log.
+// key into the log, and neither does a slashing_protection that is refused
+// or has an element that fails: no part of it reaches the log.
 func TestKeymanagerLogsNoSecretsAtTrace(t *testing.T) {
 	s := startKM(t, options{global: []string{"--logging=TRACE"}})
 	s.waitReady()
@@ -356,7 +357,21 @@ func TestKeymanagerLogsNoSecretsAtTrace(t *testing.T) {
 			t.Fatalf("broken body: %d %s", code, out)
 		}
 	}
-	code, r, out := s.km("POST", importBody(t, []string{ks, other.keystore(t)}, []string{kmPassword, wrong}, ""))
+	const fragment = "km-body-fragment-"
+	marker := fragment + strings.Repeat("y", 4096)
+	third, gvr := newKMKey(t, "km-trace", 2), goldenGVR(t)
+	refused := `{"metadata":{"interchange_format_version":"` + marker + `","genesis_validators_root":"` + gvr +
+		`"},"data":[]}`
+	if code, _, out := s.km("POST", importBody(t, []string{third.keystore(t)}, []string{kmPassword}, refused)); code != 400 {
+		t.Fatalf("refused slashing_protection: %d %s", code, out)
+	}
+	failing := interchangeDoc(gvr, `{"pubkey":"`+third.pubkey+`","signed_blocks":[],"signed_attestations":[],"`+
+		marker+`":1}`)
+	code, r, out := s.km("POST", importBody(t, []string{third.keystore(t)}, []string{kmPassword}, failing))
+	if code != 200 || !slices.Equal(r.statuses(), []string{"error"}) {
+		t.Fatalf("failing element: %d %s", code, out)
+	}
+	code, r, out = s.km("POST", importBody(t, []string{ks, other.keystore(t)}, []string{kmPassword, wrong}, ""))
 	if code != 200 || !slices.Equal(r.statuses(), []string{"imported", "error"}) {
 		t.Fatalf("import: %d %s", code, out)
 	}
@@ -376,6 +391,7 @@ func TestKeymanagerLogsNoSecretsAtTrace(t *testing.T) {
 	for name, secret := range map[string]string{
 		"password": kmPassword, "wrong password": wrong, "ciphertext": ciphertext, "admin token": s.adminToken(),
 		"sign token": s.signToken(), "public key": k.pubkey[2:], "other public key": other.pubkey[2:],
+		"third public key": third.pubkey[2:], "slashing_protection fragment": fragment,
 	} {
 		if strings.Contains(logs, secret) {
 			t.Fatalf("the log holds the %s", name)

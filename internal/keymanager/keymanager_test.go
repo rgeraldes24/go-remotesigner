@@ -228,6 +228,46 @@ func TestImportHistoryFilterAndRefusal(t *testing.T) {
 	}
 }
 
+// Neither an interchange the import refuses nor an element of it that
+// fails reaches the log: the decoder's errors quote the file's field names
+// and values, which are request data. The refusal names its kind only, and
+// a key's result repeats a bounded, printable part of its element's error.
+func TestImportKeepsTheHistoryOutOfTheLog(t *testing.T) {
+	f := newFixture(t)
+	a := newKey(t, "logged", 0)
+	const fragment = "BODY-FRAGMENT-"
+	marker := fragment + strings.Repeat("x", 100_000)
+	root := `"genesis_validators_root":"0x` + hex.EncodeToString(gvr[:]) + `"`
+	for _, c := range []struct {
+		name, doc string
+		kind      error
+	}{
+		{"version", `{"metadata":{"interchange_format_version":"` + marker + `",` + root + `},"data":[]}`, interchange.ErrVersion},
+		{"metadata field", `{"metadata":{"interchange_format_version":"5",` + root + `,"` + marker + `":1},"data":[]}`,
+			interchange.ErrFormat},
+		{"document field", `{"metadata":{"interchange_format_version":"5",` + root + `},"data":[],"` + marker + `":1}`,
+			interchange.ErrFormat},
+	} {
+		_, err := f.m.Import(bg, importReq(c.doc, a.qrlV1(t), []byte(password)))
+		if !errors.Is(err, ErrInterchange) || !errors.Is(err, c.kind) || len(err.Error()) > 200 {
+			t.Fatalf("%s: %.300v", c.name, err)
+		}
+	}
+	element := `{"pubkey":"` + a.hex + `","signed_blocks":[],"signed_attestations":[],"` + marker + `":1}`
+	rs, err := f.m.Import(bg, importReq(doc(gvr, element), a.qrlV1(t), []byte(password)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatuses(t, rs, Error)
+	if msg := rs[0].Message; len(msg) > 400 || !strings.Contains(msg, "unknown field "+fragment+"xxx") ||
+		!strings.Contains(msg, "the key is disabled and not imported") {
+		t.Fatalf("message %.500q", msg)
+	}
+	if out := f.log.String(); strings.Contains(out, fragment) || !strings.Contains(out, "a keystore was not imported") {
+		t.Fatalf("log:\n%.2000s", out)
+	}
+}
+
 // A store not bound to a network yet is pinned to the history's root.
 func TestImportPinsAnUnboundStore(t *testing.T) {
 	f := newFixture(t, fixtureOptions{unbound: true})
@@ -559,10 +599,18 @@ func TestImportRacesAReload(t *testing.T) {
 	}
 }
 
-// failingStore fails the writes its flags name.
+// failingStore fails the writes its flags name, and the read of the
+// genesis validators root with failRoot.
 type failingStore struct {
 	slashing.Store
-	failRegister, failEnable bool
+	failRegister, failEnable, failRoot bool
+}
+
+func (s *failingStore) GenesisValidatorsRoot(ctx context.Context) (slashing.Root, bool, error) {
+	if s.failRoot {
+		return slashing.Root{}, false, errors.New("store down")
+	}
+	return s.Store.GenesisValidatorsRoot(ctx)
 }
 
 func (s *failingStore) RegisterValidators(ctx context.Context, pks [][]byte) error {
@@ -647,6 +695,24 @@ func TestImportFailureRollsBack(t *testing.T) {
 		if st := f.status(t, c.key); f.loaded(c.key) || !st.Registered || st.Enabled == c.history || len(f.files(t)) != 0 {
 			t.Fatalf("new key, history %v: loaded %v, %+v, files %v", c.history, f.loaded(c.key), st, f.files(t))
 		}
+	}
+}
+
+// A store that cannot be read to check the request's history fails the
+// import with ErrStore, a server fault, not with ErrInterchange.
+func TestImportStoreFailure(t *testing.T) {
+	var fs *failingStore
+	f := newFixture(t, fixtureOptions{store: func(s slashing.Store) slashing.Store {
+		fs = &failingStore{Store: s, failRoot: true}
+		return fs
+	}})
+	a := newKey(t, "storefail", 0)
+	_, err := f.m.Import(bg, importReq(doc(gvr, entry(a.hex, []uint64{1})), a.qrlV1(t), []byte(password)))
+	if !errors.Is(err, ErrStore) || errors.Is(err, ErrInterchange) {
+		t.Fatalf("import: %v", err)
+	}
+	if f.loaded(a) || len(f.files(t)) != 0 {
+		t.Fatal("the failed import changed something")
 	}
 }
 
