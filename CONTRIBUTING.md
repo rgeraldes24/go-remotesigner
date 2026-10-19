@@ -49,7 +49,9 @@ Signed-off-by: Jane Doe <jane@example.org>
   Apache-2.0-headed protos and the facts recorded in `PROVENANCE.md`; do not open qrysm's Go source while working on
   them. Only the nested, never-shipped modules `tools/vectorgen` and `tools/vectorgen/contract` may link qrysm.
 - go-qrl (LGPL-3.0) may be imported only under the top-level `internal/execution/`, and never its `cmd/` or
-  `internal/` packages (which are GPL-3.0).
+  `internal/` packages (which are GPL-3.0). It is required at one commit with no `replace` and never modified; a
+  new go-qrl package is checked by `make licenses`, whose tests require every linked go-qrl file to be LGPL. Moving
+  the pin also moves `make gqrl-e2e`, which builds gqrl at the same commit.
 - New dependencies must carry one of: Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0 (weak copyleft:
   modified MPL files must stay available as source). CI runs `go-licenses check` against that list.
 - Do not edit anything under `third_party/`. It holds pristine upstream copies whose git tree ids are verified, and

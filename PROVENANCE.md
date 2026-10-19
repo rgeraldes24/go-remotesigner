@@ -74,8 +74,29 @@ nor `pkg/go-qrl-types` (tree `fc5b262a3483358cbd4ce6f7bd7ea0ce20306dfd`) at `0b9
 the latter reaches the keystore only as a dependency of the former. The hardened copy decrypts only and implements no
 wallet interface, so neither package is vendored or copied.
 
-The signer module links no go-qrl (`github.com/theQRL/go-qrl`, LGPL-3.0-or-later), and no go-qrl code is copied
-into it. The execution-mode key code outside `internal/execution` (the account keystore of
+## go-qrl
+
+The default flavour links go-qrl (`github.com/theQRL/go-qrl`, LGPL-3.0-or-later) at `theQRL/go-qrl` `b92884a3a1d5`
+(`v0.3.4-0.20260608175446-b92884a3a1d5`, no `replace`), unmodified, as a library: `internal/execution` imports its
+`common`, `common/hexutil`, `core/types` and `crypto/pqcrypto/wallet` packages to build, encode and sign
+transactions (`types.DynamicFeeTx`, `types.SignTx`, `types.NewZondSigner`, `types.Sender`) and to read and write
+gqrl's JSON encodings. depguard allows go-qrl nowhere else and never its `cmd/**` or `internal/**`, the consensus
+flavour (`-tags noexecution`) links none of it, and `test/repo` checks that every linked go-qrl file is LGPL
+(`TestLinkedGoQRLIsLGPL`). No go-qrl code is copied into this repository: the `pqcrypto/wallet.Wallet` adapter of
+`internal/execution/wallet.go` implements go-qrl's interface over this project's key, and the transaction methods'
+behaviour (gqrl's required members, the `{raw, tx}` result, `qrl_fillTransaction`'s defaults, the transaction-pool
+messages the retry matches) is written from facts about gqrl at that commit (`internal/qrlapi/api.go` and
+`transaction_args.go`, `core/txpool`), not from its code. `NOTICE.execution` and `docs/operations/release.md` record
+what the LGPL asks of the default flavour and how a release provides it.
+
+The fill-sign-send flow of `qrl_sendTransaction`, its nonce retry loop and the signer's own downstream calls are
+classed `w3s-derived` (Web3Signer's `SendTransactionHandler`, `TransactionTransmitter`, `RetryingTransactionTransmitter`,
+`NonceTooLowRetryMechanism`, `RetryMechanism`, `VertxNonceRequestTransmitter` and `EthNonceProvider`), as is
+`qrl_signTransaction` (`EthSignTransactionResultProvider`, `EthSendTransactionJsonParameters`,
+`TransactionSerializer`). The parts with no Web3Signer counterpart (the wallet adapter, the payload check, the
+policy file, the audit log, the chain-ID check, the per-sender locks) are classed `new`.
+
+No go-qrl code is copied into the signer module. The execution-mode key code outside `internal/execution` (the account keystore of
 `internal/keys/keystore/qrlv1/account.go` and its sealing helper in `internal/keys/keystoretest`, and the extended
 seed of `internal/crypto/mldsa87/extended.go`) and `TextHash` in `internal/execution/methods.go` are written from
 facts about go-qrl at `theQRL/go-qrl` `b92884a3a1d5`: the account keystore JSON that `accounts/keystore` writes (a
@@ -134,6 +155,11 @@ and the round-trip check `vectorgen interchange-check`.
   `test/acceptance` builds and runs it in a temporary directory (`make vectors-contract`); its DTO-rename test
   copies the qrysm packages the tool links into a temporary directory and renames two JSON field names in the
   copy, so no qrysm file ever enters the repository. `tools/vectorgen/README.md` records the pin and how to bump it.
+- **The transaction vectors.** `testdata/vectors/transactions/signing.json` holds transactions signed by go-qrl's own
+  `types.SignTx` at the go-qrl commit qrysm pins (`cyyber/go-qrl` `a9f196d809aa`), in deterministic mode, with
+  their signing hashes; `vectorgen` writes them, and `internal/execution/golden_test.go` requires the signer's
+  `qrl_signTransaction`, built on `theQRL/go-qrl` `b92884a3a1d5`, to reproduce them byte for byte. Program output,
+  data only, like the other vectors.
 - **The go-qrl keystore.** `gqrlKeystore` in `internal/keys/keystore/qrlv1/account_test.go` is an account keystore
   written by go-qrl's own `accounts/keystore.EncryptKey` at `b92884a3a1d5`, with its light Argon2id parameters, for
   the extended seed and password the test names. It is program output, data only. It was generated once by a
