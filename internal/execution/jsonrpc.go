@@ -96,31 +96,47 @@ func (r *Request) responseID() json.RawMessage {
 // decodeRequest reads one request object. A body that is not JSON is a
 // parse error; JSON that is not a valid request is an invalid request, with
 // the request's id when it has a valid one, so that the error response can
-// carry it.
+// carry it. Only the four members a request defines are decoded, under
+// their exact names, the last of each winning, as in a decoded map; the
+// others are stepped over, not collected. The request's members are
+// slices of data.
 func decodeRequest(data []byte) (*Request, *Error) {
 	if !json.Valid(data) {
 		return nil, ErrParse
 	}
-	var members map[string]json.RawMessage
-	if err := json.Unmarshal(data, &members); err != nil {
+	var id, version, method, params []byte // nil when absent
+	var buf [len("jsonrpc")]byte
+	isObject := members(data, func(name, value []byte) {
+		switch string(memberName(name, &buf)) {
+		case "id":
+			id = value
+		case "jsonrpc":
+			version = value
+		case "method":
+			method = value
+		case "params":
+			params = value
+		}
+	})
+	if !isObject {
 		return nil, ErrInvalidRequest.with("a request must be a JSON object")
 	}
 	req := &Request{}
-	if id, ok := members["id"]; ok {
+	if id != nil {
 		if !validID(id) {
 			return nil, ErrInvalidRequest.with("id must be a string, a number or null")
 		}
 		req.ID = id
 	}
-	var version string
-	if v, ok := members["jsonrpc"]; !ok || json.Unmarshal(v, &version) != nil || version != Version {
+	var v string
+	if version == nil || json.Unmarshal(version, &v) != nil || v != Version {
 		return req, ErrInvalidRequest.with(`jsonrpc must be "2.0"`)
 	}
-	if m, ok := members["method"]; !ok || json.Unmarshal(m, &req.Method) != nil || req.Method == "" {
+	if method == nil || json.Unmarshal(method, &req.Method) != nil || req.Method == "" {
 		return req, ErrInvalidRequest.with("method must be a non-empty string")
 	}
-	if p, ok := members["params"]; ok && !bytes.Equal(p, nullID) {
-		req.Params = p
+	if params != nil && !bytes.Equal(params, nullID) {
+		req.Params = params
 	}
 	return req, nil
 }

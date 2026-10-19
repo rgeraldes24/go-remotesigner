@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -430,6 +431,67 @@ func TestBatchOversizedAllocation(t *testing.T) {
 	w := f.post("["+strings.Repeat("1,", 2*MaxBatch)+"}", nil)
 	if r := decodeOne(t, w.Body.Bytes()); w.Code != http.StatusBadRequest || r.Error == nil || r.Error.Code != ErrParse.Code {
 		t.Errorf("an invalid oversized array: %d %s, want 400 -32700", w.Code, w.Body)
+	}
+}
+
+// allocatedBy returns the bytes allocated while fn ran.
+func allocatedBy(fn func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	fn()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
+}
+
+// manyMembers renders a call of method of size bytes or a few fewer: its
+// own members, then as many tiny members as fit, under the names key(0),
+// key(1) and so on, each a JSON string's contents.
+func manyMembers(method string, size int, key func(int) string) string {
+	var b strings.Builder
+	b.WriteString(strings.TrimSuffix(call(1, method), "}"))
+	for i := 0; ; i++ {
+		m := `,"` + key(i) + `":0`
+		if b.Len()+len(m)+1 > size {
+			break
+		}
+		b.WriteString(m)
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+// The members of a request that it does not define are stepped over, not
+// collected: a request of the largest size, of tiny members under distinct
+// names, plain or escaped, costs a small part of its own size in
+// allocations, and the node gets the four members alone.
+func TestManyMembersAllocation(t *testing.T) {
+	f := newFixture(t, 0, defaultAllow)
+	for _, tt := range []struct {
+		name string
+		key  func(int) string
+	}{
+		{"plain names", func(i int) string { return strconv.FormatInt(int64(i), 16) }},
+		{"escaped names", func(i int) string { return `\u0061` + strconv.FormatInt(int64(i), 16) }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := []byte(manyMembers("qrl_blockNumber", BodyLimit, tt.key))
+			before := len(f.node.received())
+			w := httptest.NewRecorder()
+			allocated := allocatedBy(func() {
+				f.handler.serveSingle(w, httptest.NewRequest(http.MethodPost, "/", nil), body)
+			})
+			if allocated > uint64(len(body))/8 {
+				t.Errorf("%d bytes allocated for a body of %d", allocated, len(body))
+			}
+			if r := decodeOne(t, w.Body.Bytes()); w.Code != http.StatusOK || string(r.Result) != `"node:qrl_blockNumber"` {
+				t.Errorf("%d %s", w.Code, w.Body)
+			}
+			got := f.node.received()
+			if len(got) != before+1 || string(got[before].body) != `{"jsonrpc":"2.0","id":1,"method":"qrl_blockNumber"}` {
+				t.Errorf("the node received %d requests, the last %.200s", len(got)-before, got[len(got)-1].body)
+			}
+		})
 	}
 }
 

@@ -49,13 +49,15 @@ test-postgres:
 	$(GO) test -count=1 -run Postgres ./test/acceptance/
 
 ## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, the strict
-## request decoders, the network configuration parser, the keystore decoder and the EIP-3076 interchange
+## request decoders, the JSON-RPC request decoder against encoding/json, the network configuration parser, the
+## keystore decoder and the EIP-3076 interchange
 FUZZTIME ?= 10s
 fuzz: fuzz-keystore fuzz-interchange
 	$(GO) test -run '^$$' -fuzz '^FuzzParseConfig$$' -fuzztime $(FUZZTIME) ./internal/network/
 	$(GO) test -run '^$$' -fuzz '^FuzzHashTreeRootDifferential$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeSignRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRandaoRevealRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
+	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRequest$$' -fuzztime $(FUZZTIME) ./internal/execution/
 
 ## fuzz-target: one fuzz target FUZZ of the package FUZZPKG, FUZZTIME long, for example
 ## `make fuzz-target FUZZ=FuzzParseConfig FUZZPKG=./internal/network/ FUZZTIME=30m`; the nightly workflow runs the
