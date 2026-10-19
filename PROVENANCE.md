@@ -393,6 +393,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/slashing/interchange/safety_test.go` | new | | | |
 | `internal/slashing/memstore/memstore.go` | new |  |  |  |
 | `internal/slashing/memstore/memstore_test.go` | new |  |  |  |
+| `internal/slashing/pgstore/bench_test.go` | new | | | |
 | `internal/slashing/pgstore/concurrency_test.go` | new | | | |
 | `internal/slashing/pgstore/history.go` | new | | | |
 | `internal/slashing/pgstore/migrate.go` | new | | | |

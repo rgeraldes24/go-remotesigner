@@ -21,7 +21,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test test-postgres fuzz fuzz-keystore fuzz-interchange bench-b14 contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check image docker-smoke systemd-smoke clean
+.PHONY: all build build-consensus test test-postgres fuzz fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check image docker-smoke systemd-smoke clean
 
 all: build build-consensus
 
@@ -144,6 +144,12 @@ b19:
 ## bench-b14: benchmark B14, a pruning run over 4,096 validators x 512 epochs in a bbolt store, with signing alongside
 bench-b14:
 	REMOTESIGNER_BENCH=1 $(GO) test -count=1 -run '^TestB14' -timeout 30m -v ./internal/slashing/boltstore/
+
+## bench-postgres: benchmarks B13 (Postgres slashing transactions and the stalled-database bound) and B14 (Postgres
+## variant) against the server REMOTESIGNER_TEST_POSTGRES names; B14 writes about 1 GB to it
+bench-postgres:
+	@test -n "$$REMOTESIGNER_TEST_POSTGRES" || { echo "bench-postgres: set REMOTESIGNER_TEST_POSTGRES" >&2; exit 2; }
+	REMOTESIGNER_BENCH=1 $(GO) test -count=1 -run '^TestB1[34]' -timeout 60m -v ./internal/slashing/pgstore/
 
 ## bench-e2e: the end-to-end benchmarks B7 (attestation burst), B8 (contribution burst), B9 (RANDAO reveals) and
 ## B20 (TLS handshake storm)
