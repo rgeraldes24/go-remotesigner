@@ -13,9 +13,10 @@ reveals that are layers of a hash onion ([`../spec/randao-onion.md`](../spec/ran
 **Testnet V2 (live since 2026-04-01) is not supported, and cannot be.** It runs an older stack whose signing context
 is 4 bytes, whose addresses are 20 bytes, whose RANDAO reveal is a signature and whose containers have other shapes.
 Its validators derive the same public keys from the same seeds, but no signature this signer makes verifies there,
-and it has no endpoint for a signature-based RANDAO reveal. Do not point the signer at a Testnet V2 configuration:
-nothing in the configuration lets the signer tell the two apart (Testnet V1, Testnet V2 and the old betanet share the
-fork version `0x20000089`), so it would start and sign messages that the network rejects. The networks the signer
+and the signer cannot make a signature-based RANDAO reveal at all. Do not point the signer at a Testnet V2
+configuration: it cannot tell one from a supported configuration, since networks are not identified by their fork
+version, which Testnet V1, Testnet V2 and the old betanet share (`0x20000089`). It would start and sign messages
+that the network rejects. The networks the signer
 knows by name, and how to give it a configuration file, are in [`../spec/network-config.md`](../spec/network-config.md).
 
 ## 2. One seed is a validator key or an account key, never both
@@ -53,13 +54,14 @@ same local network as the signers. Every duty waits for a round trip to the sign
   moment, and up to about 18 MB: under 0.2 s on a 1 Gbit/s LAN, 1 to 1.5 s at 100 Mbit/s, and 8 to 15 s over a
   10 Mbit/s WAN link, which misses the deadline. The API's read timeout for one body is a quarter of the slot (15 s on
   60-second slots).
-- **Attestations** for every validator are due at the same moment, a third into the slot, so the round-trip time
-  adds to each of them at once.
+- **Attestations** of every validator with a duty in the slot are due at the same moment, a third into the slot, so
+  the round-trip time adds to all of them at once.
 - **RANDAO reveals** come before the block is built, so their round trip delays every proposal.
 - **Postgres** adds four or five round trips between a signer and the database to every block and attestation
   ([`postgres.md`](postgres.md#5-pool-and-timeout-profile)).
 
 The signer's own work is small by comparison: on the development machine a burst of 158 sign requests at once was
 answered within about 0.3 s, and 16 contributions at once within 35 ms each ([`../benchmarks.md`](../benchmarks.md),
-B7 and B8). Over a WAN the network, not the signer, decides whether duties are on time. Keep the signer's port off the internet too: it is meant for the
-validator clients of one operator, behind TLS and its tokens ([`tls.md`](tls.md)).
+B7 and B8). Over a WAN the network, not the signer, decides whether duties are on time. Keep the signer's port off
+the internet too: it is meant for the validator clients of one operator, behind TLS and its tokens
+([`tls.md`](tls.md)).

@@ -20,8 +20,9 @@ task, described in [`migration.md`](migration.md).
 
 The validator client checks the major of the signer's contract version (`api_version` in `capabilities`) at its
 start and refuses one it does not support ([`../contract.md`](../contract.md#16-capabilities-and-api_version)). Releases
-with the same contract major work with the same validator clients; the release notes say when a release needs a newer
-qrysm client.
+with the same contract major work with the same validator clients
+([`../contract.md`](../contract.md#20-versioning-and-change-control)); the release notes say when a release needs a
+newer qrysm client.
 
 ## 2. The schema-version rule
 
@@ -44,7 +45,8 @@ release uses version 1, the first schema of both backends. At startup the signer
   needs a role that may create and alter tables: the schema owner, not the signers' role
   ([`postgres.md`](postgres.md#3-creating-and-upgrading-the-schema-consensus-migrate)).
 - A store already at the release's version is left alone: `… is already at schema version 1; nothing to do`. Running
-  it on every upgrade is therefore safe, and the steps below do.
+  it on every upgrade of a stopped signer is therefore safe, and section 3 does; for Postgres replicas, section 4
+  says when.
 - A store of a newer version is refused, as at startup.
 
 Every schema change in a later release ships its migration and a test that upgrades a store of the version before.
