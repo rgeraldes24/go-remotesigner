@@ -198,9 +198,13 @@ characters of the key, `…` and the first 8 of its SHA-256) and the status or t
 request is logged at `DEBUG` with its route and reason code. Nothing of a `slashing_protection` reaches the log
 either: a refused one is logged by the kind of refusal (unreadable, another interchange version, another network),
 and the reason logged for a key whose history element fails leaves out the part of the `message` that quotes the
-element. Passwords and keystores are decoded into buffers that are wiped once the import is done. The `message` of an
-`error` holds no password, key material or file path; the log line next to it has the path where a file could not be
-written.
+element. The `message` of an `error` holds no password, key material or file path; the log line next to it has the
+path where a file could not be written.
+
+An import's body is read into one buffer, which is copied and wiped whenever the body outgrows it, and the passwords
+and keystores are decoded into buffers of their own; all of them are wiped once the import is done, and what was read
+is wiped when the body cannot be read to its end. The read buffers of Go's HTTP and TLS layers are out of the
+signer's reach.
 
 ## 7. Differences from Web3Signer
 

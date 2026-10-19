@@ -956,3 +956,74 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// recordingReader serves data in reads of at most step bytes, then err (or
+// io.EOF), and keeps every buffer it was handed, so that a test can see
+// what is left in them.
+type recordingReader struct {
+	data []byte
+	step int
+	err  error
+	bufs [][]byte
+}
+
+func (r *recordingReader) Read(p []byte) (int, error) {
+	r.bufs = append(r.bufs, p)
+	if len(r.data) == 0 {
+		if r.err != nil {
+			return 0, r.err
+		}
+		return 0, io.EOF
+	}
+	n := copy(p[:min(len(p), r.step)], r.data)
+	r.data = r.data[n:]
+	return n, nil
+}
+
+// A secret body is read into one buffer: once the caller wipes the one it
+// gets, nothing of the body is left in any buffer it was read into, whether
+// the Content-Length sized the buffer or it grew; after a failed read
+// nothing is left at all.
+func TestReadSecretBodyLeavesNoCopy(t *testing.T) {
+	body := bytes.Repeat([]byte("secret-password-"), 10_000)
+	for _, c := range []struct {
+		name string
+		hint int
+		err  error
+	}{
+		{"sized", len(body), nil},
+		{"grown", 0, nil},
+		{"failed", 0, errors.New("connection reset")},
+	} {
+		r := &recordingReader{data: bytes.Clone(body), step: 1000, err: c.err}
+		got, err := readAllWiped(r, c.hint)
+		switch {
+		case c.err != nil:
+			if !errors.Is(err, c.err) || got != nil {
+				t.Fatalf("%s: %v, %d bytes", c.name, err, len(got))
+			}
+		case err != nil || !bytes.Equal(got, body):
+			t.Fatalf("%s: %v, %d bytes", c.name, err, len(got))
+		case c.hint > 0 && cap(got) != c.hint+1:
+			t.Fatalf("%s: the buffer grew to %d bytes", c.name, cap(got))
+		default:
+			clear(got[:cap(got)])
+		}
+		for i, b := range r.bufs {
+			if bytes.Count(b, []byte{0}) != len(b) {
+				t.Fatalf("%s: read %d left body bytes in its buffer", c.name, i)
+			}
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	if got, e := ReadSecretBody(req); e != nil || !bytes.Equal(got, body) {
+		t.Fatalf("read: %v, %d bytes", e, len(got))
+	}
+	req = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Body = http.MaxBytesReader(rec, req.Body, 1000)
+	if _, e := ReadSecretBody(req); e == nil || e.Reason != apierr.BodyTooLarge {
+		t.Fatalf("over the limit: %v", e)
+	}
+}

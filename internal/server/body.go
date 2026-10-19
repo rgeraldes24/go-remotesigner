@@ -147,13 +147,61 @@ func (s *Server) limitBody(rt *Route, next http.Handler) http.Handler {
 // end (the client stopped sending, or a read timeout) is 400 MALFORMED_JSON.
 func ReadBody(r *http.Request) ([]byte, *apierr.Error) {
 	data, err := io.ReadAll(r.Body)
+	if e := bodyError(err); e != nil {
+		return nil, e
+	}
+	return data, nil
+}
+
+// ReadSecretBody reads the whole request body like ReadBody, for a body that
+// carries secrets (the keymanager's passwords): io.ReadAll leaves a copy of
+// the body in the chunks it assembles the result from. It reads into one
+// buffer, sized from the Content-Length when the request has one; when the
+// body outgrows it, it is copied into a buffer twice its size and wiped.
+// On an error everything read is wiped. The only copy of the body left is
+// the one returned, which the caller wipes once it is done. The read
+// buffers of the HTTP and TLS layers are out of its reach.
+func ReadSecretBody(r *http.Request) ([]byte, *apierr.Error) {
+	hint := 0
+	if r.ContentLength > 0 {
+		hint = int(r.ContentLength)
+	}
+	data, err := readAllWiped(r.Body, hint)
+	return data, bodyError(err)
+}
+
+// readAllWiped reads r to its end into one buffer of hint+1 bytes (room for
+// the read that ends it), or 512 at least; each buffer it outgrows is wiped
+// once copied, and what it read is wiped on an error.
+func readAllWiped(r io.Reader, hint int) ([]byte, error) {
+	buf := make([]byte, 0, max(hint+1, 512))
+	for {
+		if len(buf) == cap(buf) {
+			next := make([]byte, len(buf), 2*cap(buf))
+			copy(next, buf)
+			clear(buf)
+			buf = next
+		}
+		n, err := r.Read(buf[len(buf):cap(buf)])
+		buf = buf[:len(buf)+n]
+		if err == io.EOF {
+			return buf, nil
+		}
+		if err != nil {
+			clear(buf[:cap(buf)])
+			return nil, err
+		}
+	}
+}
+
+func bodyError(err error) *apierr.Error {
 	var tooLarge *http.MaxBytesError
 	switch {
 	case err == nil:
-		return data, nil
+		return nil
 	case errors.As(err, &tooLarge):
-		return nil, apierr.New(apierr.BodyTooLarge, "body over the route limit")
+		return apierr.New(apierr.BodyTooLarge, "body over the route limit")
 	default:
-		return nil, apierr.New(apierr.MalformedJSON, "body could not be read")
+		return apierr.New(apierr.MalformedJSON, "body could not be read")
 	}
 }

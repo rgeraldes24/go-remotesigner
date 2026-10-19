@@ -113,7 +113,7 @@ func results(rs []km.Result) []result {
 // Import serves POST /qrl/v1/keystores.
 func (h *Handlers) Import() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, e := server.ReadBody(r)
+		body, e := server.ReadSecretBody(r)
 		if e != nil {
 			server.WriteError(w, h.Log, r, e)
 			return
