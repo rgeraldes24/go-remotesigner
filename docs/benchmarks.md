@@ -417,7 +417,7 @@ No benchmark is assigned to the secret stores. Their SDKs are linked by the defa
 binaries were measured before and after they landed, built as the release builds them (`CGO_ENABLED=0 -trimpath
 -ldflags '-s -w'`), on the development machine (Apple M2, Go 1.26.9). These are dev-machine numbers (MB is 10^6
 bytes). The "after" sizes were measured on 2026-10-19 at load average 13-25, from other work, which does not change a
-size, with the milestone complete: smithy-go a direct requirement, and the review fixes (each GCP page under its own
+size, with every secret store in: smithy-go a direct requirement, and the later fixes (each GCP page under its own
 timeout, the reference-counted client cache, unsized response bodies read into a growing buffer).
 
 | Target | `remotesigner` before | `remotesigner` after | `remotesigner-consensus` before | `remotesigner-consensus` after |
