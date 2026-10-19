@@ -13,6 +13,20 @@
   "postUpdateOptions": [
     "gomodTidy"
   ],
+  "packageRules": [
+    {
+      "description": [
+        "LocalStack 4.14.0 is the last release that serves Secrets Manager without LOCALSTACK_AUTH_TOKEN, which neither make test-cloud nor the cloud-secrets job has: its image (Makefile and ci.yml) gets digest updates only, until a token is wired in."
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "localstack/localstack"
+      ],
+      "allowedVersions": "<=4.14.0"
+    }
+  ],
   "ignorePaths": [
     "third_party/**",
     "tools/vectorgen/**"
