@@ -113,6 +113,44 @@ func TestProxyRequestHeaders(t *testing.T) {
 	}
 }
 
+// Nor do they reach it as trailers of a chunked request: the node gets the
+// signer's body with its length, and no trailer. This holds for single
+// requests and batches.
+func TestProxyRequestTrailers(t *testing.T) {
+	f := newFixture(t, 0, defaultAllow)
+	srv := httptest.NewServer(f.handler)
+	defer srv.Close()
+	for _, body := range []string{call(1, "qrl_blockNumber"), batch(call(1, "qrl_blockNumber"))} {
+		c, err := net.Dial("tcp", srv.Listener.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = fmt.Fprintf(c, "POST / HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"+
+			"Transfer-Encoding: chunked\r\nTrailer: Authorization, Cookie, X-Forwarded-For\r\n\r\n"+
+			"%x\r\n%s\r\n0\r\nAuthorization: Bearer 0xclienttoken\r\nCookie: session=secret\r\n"+
+			"X-Forwarded-For: 192.0.2.60\r\n\r\n", len(body), body)
+		_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+		resp, err := http.ReadResponse(bufio.NewReader(c), nil)
+		_ = c.Close()
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: %v %v", body, resp, err)
+		}
+	}
+	got := f.node.received()
+	if len(got) != 2 {
+		t.Fatalf("the node received %d requests", len(got))
+	}
+	for i, r := range got {
+		if len(r.trailer) != 0 || len(r.transferEncoding) != 0 || r.contentLength != int64(len(r.body)) {
+			t.Errorf("request %d: trailer %v, transfer encoding %v, length %d for %d bytes", i, r.trailer,
+				r.transferEncoding, r.contentLength, len(r.body))
+		}
+		if r.header.Get("Authorization") != "" || r.header.Get("Cookie") != "" || r.header.Get("X-Forwarded-For") != "" {
+			t.Errorf("request %d: headers %v", i, r.header)
+		}
+	}
+}
+
 // The node's Set-Cookie and Access-Control-* headers never reach the
 // client; its other headers and its status do.
 func TestProxyResponseHeaders(t *testing.T) {
