@@ -371,6 +371,48 @@ func TestTimeouts(t *testing.T) {
 	}
 }
 
+// A route's WriteTimeout replaces the server's write deadline (the
+// keymanager's 10 minutes): a handler that answers after the server's
+// deadline gets its response through on such a route only.
+func TestRouteWriteTimeout(t *testing.T) {
+	slow := func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(600 * time.Millisecond)
+		_, _ = io.WriteString(w, "late")
+	}
+	s := newTestServer(t, func(c *Config) {
+		c.WriteTimeout = 200 * time.Millisecond
+		c.Routes = []Route{
+			{Method: http.MethodGet, Pattern: "/server-deadline", Scope: auth.ScopeSign, Handler: http.HandlerFunc(slow)},
+			{Method: http.MethodGet, Pattern: "/route-deadline", Scope: auth.ScopeSign, WriteTimeout: time.Minute,
+				Handler: http.HandlerFunc(slow)},
+		}
+	})
+	base := serve(t, s)
+	get := func(path string) (string, error) {
+		req, err := http.NewRequest(http.MethodGet, base+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = "localhost"
+		req.Header.Set("Authorization", "Bearer "+signTok)
+		// A fresh connection per request: the server closes the one whose
+		// deadline passed.
+		resp, err := (&http.Client{Transport: &http.Transport{DisableKeepAlives: true}}).Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		return string(body), err
+	}
+	if body, err := get("/route-deadline"); err != nil || body != "late" {
+		t.Fatalf("route deadline: %q %v", body, err)
+	}
+	if body, err := get("/server-deadline"); err == nil && body == "late" {
+		t.Fatal("the server's write deadline did not apply")
+	}
+}
+
 // serve starts s on a loopback port and returns its base URL; the server is
 // shut down when the test ends.
 func serve(t *testing.T, s *Server) string {
