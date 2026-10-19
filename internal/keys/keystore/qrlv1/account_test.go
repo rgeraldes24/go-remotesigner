@@ -234,3 +234,76 @@ func TestParseRefusesAccountKeystore(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 }
+
+// A keystore that go-qrl itself wrote, at the commit DESIGN pins (b92884a):
+// accounts/keystore.EncryptKey with the light Argon2id parameters, for the
+// extended seed gqrlExtendedSeed under gqrlPassword. gqrlAddress is go-qrl's
+// common.Address.Hex of the same key. The fixture was generated once outside
+// this module, which links no go-qrl.
+const (
+	gqrlExtendedSeed = "010000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf"
+	gqrlPassword     = "gqrl account password"
+	gqrlAddress      = "QC9CD783BbB87765B7395C856348Ef35b107bd9e35484648E35C18D1449Da8E12B49376B92C6F29dE62fAF272cFE1afAf31808733089F90c4b1E67E6Ceda0BE09"
+	gqrlKeystore     = `{"address":"Qc9cd783bbb87765b7395c856348ef35b107bd9e35484648e35c18d1449da8e12b49376b92c6f29de62faf272cfe1afaf31808733089f90c4b1e67e6ceda0be09","crypto":{"cipher":"aes-256-gcm","ciphertext":"866f40521dbc0f9b9fe58bf9d9b96a04811e37cf259af1f9a1c24402ac356ebcc51ffd6830670aa826e213977c75fd47f0799eb23324165357b8e36fb9eb4318d71285","cipherparams":{"iv":"7d48373d2a8d0c9c434ce69e"},"kdf":"argon2id","kdfparams":{"dklen":32,"m":4096,"p":1,"salt":"d5135aa3a0e542e4eb2969b5c07fb5d88347542f87bb7df9ef8de19a8d71d05d","t":8}},"id":"3198bc9c-6672-5ab3-d995-4942343ae5b6","version":1}`
+)
+
+// The hardened decryptor opens what gqrl writes: the address check passes,
+// the key is the extended seed's, the QIP-55 form is go-qrl's own, and the
+// keystore is refused in consensus mode and under another address.
+func TestGoQRLAccountKeystore(t *testing.T) {
+	ks, err := ParseAccount([]byte(gqrlKeystore))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ks.KDF != (KDF{T: 8, M: 4096, P: 1}) || ks.UUID != "3198bc9c-6672-5ab3-d995-4942343ae5b6" {
+		t.Fatalf("KDF %+v, id %q", ks.KDF, ks.UUID)
+	}
+	pw := NewPassword(TrimPassword([]byte(gqrlPassword + "\n"))) // as a password file holds it
+	defer pw.Wipe()
+	key, err := ks.Decrypt(pw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer key.Zeroize()
+
+	extBytes, err := hex.DecodeString(gqrlExtendedSeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := mldsa87.FromExtendedSeed51((*[mldsa87.ExtendedSeedSize]byte)(extBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer want.Zeroize()
+	if key.PublicKey() != want.PublicKey() {
+		t.Fatal("the key gqrl's keystore holds is not its extended seed's")
+	}
+	pk := key.PublicKey()
+	addr := pk.Address()
+	if got := mldsa87.ChecksumAddress(addr); got != gqrlAddress {
+		t.Fatalf("QIP-55 address %s, go-qrl's %s", got, gqrlAddress)
+	}
+	if declared, _ := ks.Address(); declared != addr {
+		t.Fatal("the declared address is not the derived one")
+	}
+
+	wrong := NewPassword([]byte("wrong"))
+	defer wrong.Wipe()
+	if _, err := ks.Decrypt(wrong); !errors.Is(err, ErrPassword) {
+		t.Fatalf("wrong password: %v", err)
+	}
+	if _, err := Parse([]byte(gqrlKeystore)); !errors.Is(err, ErrFormat) {
+		t.Fatalf("consensus Parse: %v", err)
+	}
+	other := accountAddress(t, testExtendedSeed(t, 5))
+	moved, err := ParseAccount([]byte(strings.Replace(gqrlKeystore, "Q"+hex.EncodeToString(addr[:]), other, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k, err := moved.Decrypt(pw); !errors.Is(err, ErrAddressMismatch) {
+		if k != nil {
+			k.Zeroize()
+		}
+		t.Fatalf("gqrl's keystore under another address: %v", err)
+	}
+}
