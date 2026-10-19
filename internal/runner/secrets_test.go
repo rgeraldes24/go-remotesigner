@@ -223,41 +223,62 @@ func TestRunSecretStoreLoadOrder(t *testing.T) {
 
 // A store that stops answering cannot hold a reload past --reload-timeout:
 // the reload completes with errors, the bulk loader keeps its keys, which
-// still sign, and its check is DOWN until the store answers again.
+// still sign, and its check is DOWN until the store answers again. GCP's
+// calls carry the reload's deadline into the SDK, which then ignores its
+// own call timeout; the reload is bounded all the same.
 func TestRunSecretStoreReloadTimeout(t *testing.T) {
-	isolateAWS(t)
-	cfg := baseConfig(t)
-	cfg.ReloadTimeout = time.Second
-	aws := secretstest.NewAWS(t)
-	aws.Put("validators/a", seedHex(1), nil)
-	cfg.Consensus.SecretStores = secretStoresConfig(aws.URL)
-	r := start(t, cfg)
-	r.waitReady(t)
-	r.waitReload(t, "completed")
-	sel := goldenCase(t, "minimal", signingroot.AggregationSlot, "typical")
-	check := func(want string) {
-		t.Helper()
-		if code, body := r.post(t, "/api/v1/consensus/sign/"+pubkeyHex(t, 1), r.sign, sel.RequestJSON); code != 200 {
-			t.Fatalf("sign: %d %s", code, body)
-		}
-		_, checks := r.health(t)
-		c := checks[ops.CheckAWSBulkLoading]
-		if got := c["status"].(string) + " " + fmt.Sprint(c["data"]); got != want {
-			t.Errorf("%s: %s, want %s", ops.CheckAWSBulkLoading, got, want)
-		}
-	}
+	for _, tt := range []struct {
+		kind, check string
+		setup       func(t *testing.T, cfg *config.Config) (hang func(bool))
+	}{
+		{secrets.KindAWS, ops.CheckAWSBulkLoading, func(t *testing.T, cfg *config.Config) func(bool) {
+			aws := secretstest.NewAWS(t)
+			aws.Put("validators/a", seedHex(1), nil)
+			cfg.Consensus.SecretStores = secretStoresConfig(aws.URL)
+			return aws.SetHang
+		}},
+		{secrets.KindGCP, ops.CheckGCPBulkLoading, func(t *testing.T, cfg *config.Config) func(bool) {
+			g := secretstest.NewGCP(t)
+			g.Put("p", "a", []byte(seedHex(1)), nil)
+			cfg.Consensus.SecretStores = config.SecretStores{AWSClientCacheSize: 1,
+				GCP: &secrets.GCPBulk{ProjectID: "p", EndpointOverride: g.Endpoint}}
+			return g.SetHang
+		}},
+	} {
+		t.Run(tt.kind, func(t *testing.T) {
+			isolateAWS(t)
+			cfg := baseConfig(t)
+			cfg.ReloadTimeout = time.Second
+			hang := tt.setup(t, cfg)
+			r := start(t, cfg)
+			r.waitReady(t)
+			r.waitReload(t, "completed")
+			sel := goldenCase(t, "minimal", signingroot.AggregationSlot, "typical")
+			check := func(want string) {
+				t.Helper()
+				if code, body := r.post(t, "/api/v1/consensus/sign/"+pubkeyHex(t, 1), r.sign, sel.RequestJSON); code != 200 {
+					t.Fatalf("sign: %d %s", code, body)
+				}
+				_, checks := r.health(t)
+				c := checks[tt.check]
+				if got := c["status"].(string) + " " + fmt.Sprint(c["data"]); got != want {
+					t.Errorf("%s: %s, want %s", tt.check, got, want)
+				}
+			}
 
-	aws.SetHang(true)
-	begin := time.Now()
-	r.reload(t, "completed_with_errors")
-	if d := time.Since(begin); d > 4*time.Second {
-		t.Errorf("the reload took %v with a %v --reload-timeout", d, cfg.ReloadTimeout)
-	}
-	check("DOWN map[error-count:1 keys-loaded:1]")
+			hang(true)
+			begin := time.Now()
+			r.reload(t, "completed_with_errors")
+			if d := time.Since(begin); d > 4*time.Second {
+				t.Errorf("the reload took %v with a %v --reload-timeout", d, cfg.ReloadTimeout)
+			}
+			check("DOWN map[error-count:1 keys-loaded:1]")
 
-	aws.SetHang(false)
-	r.reload(t, "completed")
-	check("UP map[error-count:0 keys-loaded:1]")
+			hang(false)
+			r.reload(t, "completed")
+			check("UP map[error-count:0 keys-loaded:1]")
+		})
+	}
 }
 
 // secretStoresConfig enables the AWS bulk loader against the fake at

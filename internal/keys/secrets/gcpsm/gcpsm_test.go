@@ -138,8 +138,10 @@ func TestCachedClientOutlivesItsFetch(t *testing.T) {
 
 // TestLimits checks the bounds of every call: a store that does not answer
 // fails the access and the listing once the call timeout passes, retries
-// included, and a message larger than secrets.MaxResponseSize fails as too
-// large at once, without the retries of a store that is out of quota.
+// included, also under a context that already has a later deadline, as a
+// reload's has (gax.WithTimeout alone would leave the call to that
+// deadline), and a message larger than secrets.MaxResponseSize fails as
+// too large at once, without the retries of a store that is out of quota.
 func TestLimits(t *testing.T) {
 	defer func(d time.Duration) { callTimeout = d }(callTimeout)
 	callTimeout = 30 * time.Second
@@ -167,28 +169,32 @@ func TestLimits(t *testing.T) {
 	callTimeout = 300 * time.Millisecond
 	f.SetHang(true)
 	defer f.SetHang(false)
-	bounded := func(what string, call func() error) {
-		t.Helper()
-		start := time.Now()
-		err := call()
-		if status.Code(err) != codes.DeadlineExceeded && !errors.Is(err, context.DeadlineExceeded) {
-			t.Errorf("%s against a store that does not answer: error = %v, want a deadline", what, err)
-		}
-		if d := time.Since(start); d > 5*time.Second {
-			t.Errorf("%s took %v with a %v call timeout", what, d, callTimeout)
-		}
-	}
-	bounded("Fetch", func() error {
-		_, err := c.Fetch(ctx, &secrets.GCP{ProjectID: "p", SecretName: "validator-1", EndpointOverride: f.Endpoint})
-		return err
-	})
 	b, err := NewBulk(ctx, secrets.GCPBulk{ProjectID: "p", EndpointOverride: f.Endpoint})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = b.Close() }()
-	bounded("List", func() error { _, err := b.List(ctx); return err })
-	bounded("Get", func() error { _, err := b.Get(ctx, "projects/p/secrets/validator-1"); return err })
+	reload, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	for name, ctx := range map[string]context.Context{"no deadline": ctx, "a reload's deadline": reload} {
+		bounded := func(what string, call func() error) {
+			t.Helper()
+			start := time.Now()
+			err := call()
+			if status.Code(err) != codes.DeadlineExceeded && !errors.Is(err, context.DeadlineExceeded) {
+				t.Errorf("%s with %s against a store that does not answer: error = %v, want a deadline", what, name, err)
+			}
+			if d := time.Since(start); d > 5*time.Second {
+				t.Errorf("%s with %s took %v with a %v call timeout", what, name, d, callTimeout)
+			}
+		}
+		bounded("Fetch", func() error {
+			_, err := c.Fetch(ctx, &secrets.GCP{ProjectID: "p", SecretName: "validator-1", EndpointOverride: f.Endpoint})
+			return err
+		})
+		bounded("List", func() error { _, err := b.List(ctx); return err })
+		bounded("Get", func() error { _, err := b.Get(ctx, "projects/p/secrets/validator-1"); return err })
+	}
 }
 
 // TestApplicationDefaultCredentials checks that a Google endpoint (any
