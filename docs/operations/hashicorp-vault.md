@@ -118,5 +118,6 @@ rewrite the file. A fetch that fails (Vault down, 403, a bad value) fails the fi
 
 `make test-cloud` runs the client's and the built binary's tests against a real Vault: it starts the pinned
 `hashicorp/vault` image as a dev server in Docker (or uses `REMOTESIGNER_TEST_VAULT_ADDR` and
-`REMOTESIGNER_TEST_VAULT_TOKEN` when they are set, as the CI job `cloud-secrets` does). A dev server is for tests only:
-it keeps everything in memory and starts unsealed with a root token.
+`REMOTESIGNER_TEST_VAULT_TOKEN` when they are set, as the CI job `cloud-secrets` does). It fails unless each of its
+three server tests ran and passed; `make test` skips them. A dev server is for tests only: it keeps everything in
+memory and starts unsealed with a root token.
