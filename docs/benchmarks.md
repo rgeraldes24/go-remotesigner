@@ -415,19 +415,20 @@ P = 8 decrypts and the 36 of the second five, thirteen rounds in all, as one req
 
 No benchmark is assigned to the secret stores. Their SDKs are linked by the default flavour only, and the release
 binaries were measured before and after they landed, built as the release builds them (`CGO_ENABLED=0 -trimpath
--ldflags '-s -w'`), on the development machine (Apple M2, Go 1.26.9). These are dev-machine numbers, measured twice
-(2026-10-18 at load average 11-23 and 2026-10-19 at 9-15, from other work, which does not change a size) with the
-same results.
+-ldflags '-s -w'`), on the development machine (Apple M2, Go 1.26.9). These are dev-machine numbers (MB is 10^6
+bytes). The "after" sizes were measured on 2026-10-19 at load average 13-25, from other work, which does not change a
+size, with the milestone complete: smithy-go a direct requirement, and the review fixes (each GCP page under its own
+timeout, the reference-counted client cache, unsized response bodies read into a growing buffer).
 
 | Target | `remotesigner` before | `remotesigner` after | `remotesigner-consensus` before | `remotesigner-consensus` after |
 |---|---|---|---|---|
-| linux/amd64 | 13.99 MB | 26.66 MB | 13.99 MB | 14.59 MB |
+| linux/amd64 | 13.99 MB | 26.70 MB | 13.99 MB | 14.60 MB |
 | linux/arm64 | 12.98 MB | 24.71 MB | 12.98 MB | 13.57 MB |
-| darwin/arm64 | 13.32 MB | 25.58 MB | 13.32 MB | 13.90 MB |
+| darwin/arm64 | 13.32 MB | 25.63 MB | 13.32 MB | 13.92 MB |
 
 - **Default flavour: +12.7 MB** (linux/amd64), from aws-sdk-go-v2, cloud.google.com/go/secretmanager with gRPC,
   OpenTelemetry and the Google auth libraries, and azure-sdk-for-go with MSAL.
-- **Consensus flavour: +0.60 MB**, which links no cloud SDK (`TestCloudSDKsInDefaultFlavourOnly`). The upgrades of
+- **Consensus flavour: +0.61 MB**, which links no cloud SDK (`TestCloudSDKsInDefaultFlavourOnly`). The upgrades of
   `google.golang.org/protobuf` and `golang.org/x/*` that the SDKs required account for 0.02 MB of it (the base rebuilt
   with only those upgrades: 14.01 MB). The rest is the HashiCorp Vault client, which works in both flavours, and the
   part of `net/http` it is the first to use: the HTTP client, its transport and its HTTP/2 client.
