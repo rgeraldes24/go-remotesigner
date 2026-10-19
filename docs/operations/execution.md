@@ -1,13 +1,15 @@
 # Execution mode
 
-`remotesigner execution` holds QRL account keys for wallets and tools that talk JSON-RPC: it lists the accounts,
-signs messages with them, and forwards everything else to a gqrl node, so that the node holds no keys. It is the
-execution-layer counterpart of `remotesigner consensus`, and a port of Web3Signer's `eth1` mode. Every flag is in
-[`../reference/flags.md`](../reference/flags.md#execution-flags); the differences from Web3Signer are rows X28 and
-X76-X87 of [`DEVIATIONS.md`](../../DEVIATIONS.md).
+`remotesigner execution` holds QRL account keys for wallets and tools that talk JSON-RPC: it lists the accounts, signs
+messages and transactions with them, sends transactions through a gqrl node, and forwards everything else to that
+node, so that the node holds no keys. It is the execution-layer counterpart of `remotesigner consensus`, and a port of
+Web3Signer's `eth1` mode. Every flag is in [`../reference/flags.md`](../reference/flags.md#execution-flags); the
+differences from Web3Signer are rows X25, X26, X28, X76-X87 and X102-X106 of [`DEVIATIONS.md`](../../DEVIATIONS.md).
 
-This release answers `qrl_accounts`, `qrl_sign` and `health_status`. Transaction signing (`qrl_signTransaction`,
-`qrl_sendTransaction`) is not part of it: both methods are refused (section 4) and never reach the node.
+It answers `qrl_accounts`, `qrl_sign`, `qrl_signTransaction`, `qrl_sendTransaction` and `health_status`
+(section 4). Transactions are signed for one chain, `--chain-id`, under a fee cap and a per-account policy, and
+recorded in an audit log (sections 8 to 10). The default flavour links the go-qrl library (LGPL-3.0-or-later) to
+build and sign them (section 11).
 
 ## 1. The process and the flavours
 
@@ -26,8 +28,12 @@ file) and `--http-listen-port`, and its own key directories.
 ```
 remotesigner --data-path=/var/lib/remotesigner-execution --key-config-path=/etc/remotesigner/accounts \
   --http-listen-port=9100 \
-  execution --downstream-http-host=127.0.0.1 --downstream-http-port=8545
+  execution --chain-id=1337 --downstream-http-host=127.0.0.1 --downstream-http-port=8545 \
+  --execution-audit-log-file=/var/lib/remotesigner-execution/audit.jsonl
 ```
+
+`--chain-id` is required: it is the chain every transaction is signed for (section 8). On a listener that is not
+loopback, `--execution-policy-file` is required too (section 9).
 
 The signer listens at once, writes `<data-path>/remotesigner.ports` and the sign token (`<data-path>/auth-token`, as
 in consensus mode), and loads the account keys. Until that load finishes, `POST /` and `publicKeys` answer 503
@@ -97,7 +103,8 @@ Commit-Boost do not exist.
 | `qrl_accounts` | The loaded addresses in QIP-55 form, sorted by address. Its `params` must be absent, `null` or `[]` (-32602 otherwise). |
 | `qrl_sign` | `params: [address, data]`, as gqrl's: `data` is `0x` hex (text is refused with -32602). The signer signs `keccak256("\x19QRL Signed Message:\n" + len(data) + data)`, go-qrl's `accounts.TextHash`, with hedged ML-DSA-87, verifies the signature, and returns the raw 4,627-byte signature in `0x` hex: no public key, no recovery byte. An address that is not loaded is -32000. |
 | `health_status` | `"OK"` |
-| `qrl_signTransaction`, `qrl_sendTransaction` | -32604 "Method not enabled": not available in this release. Never forwarded, so the node never signs with keys of its own. |
+| `qrl_signTransaction` | `params: [transaction]`, as gqrl's: `from`, `nonce`, `gas`, `maxFeePerGas` and `maxPriorityFeePerGas` are required. The signer signs the type-0x2 transaction and returns `{"raw": "0x02…", "tx": {…}}` (section 8). It never asks the node. |
+| `qrl_sendTransaction` | `params: [transaction]`. The signer completes the transaction with the node's `qrl_fillTransaction` when it lacks a nonce, gas, a fee cap or a chain ID, checks the node's answer, signs, and sends it with `qrl_sendRawTransaction` under the client's `id`; the result is the transaction hash, or the node's error (section 8). |
 | `qrl_signTypedData` | -32601: typed-data signing is not offered. Never forwarded. |
 | anything else | Forwarded to the node when `--execution-proxy-allowed-methods` allows it (section 6), otherwise -32601 "Method not found". |
 
@@ -110,8 +117,10 @@ The errors the signer itself returns:
 | -32601 | Method not found | 200 |
 | -32602 | Invalid params | 400 |
 | -32603 | Internal error | 500 |
-| -32604 | Method not enabled | 200 |
-| -32000 | No unlocked account matches the Sender (`qrl_sign` for an address that is not loaded) | 200 |
+| -32603 | Internal error (the node refused a send's nonce 11 times, section 8) | 400 |
+| -32603 | Internal error (waiting for the account's earlier transactions until the request ended) | 503 |
+| -32003 | Transaction rejected: the chain ID, the fee cap, the account's policy or the node's fill answer (sections 8 and 9); `data` says why | 200 |
+| -32000 | No unlocked account matches the Sender (`qrl_sign` or a transaction method for an address that is not loaded) | 200 |
 | -32000 | Failed to connect to downstream node / Connection to downstream node timed out / Invalid response from downstream node | 504, 504 and 502 (section 6) |
 
 An error may carry a `data` string that says more. A request without an `id` is a notification: a notification of
@@ -154,7 +163,13 @@ receive the client's credentials:
 - **Methods.** `--execution-proxy-allowed-methods` lists method names, prefixes ending in `*`, or `*` for every
   method. The default, `qrl_*,net_*,web3_*`, forwards the chain, network and client namespaces; `admin_*`,
   `debug_*`, `personal_*`, `miner_*`, `txpool_*`, `eth_*` and clef's `account_*` are refused with -32601. Names are
-  case-sensitive. The list applies to every element of a batch. An empty value forwards nothing.
+  case-sensitive. The list applies to every element of a batch. An empty value forwards nothing. The signer's own
+  methods are never forwarded, whatever the list says. The list governs only what clients send: the signer's own
+  calls for transactions (`qrl_chainId`, `qrl_fillTransaction`, `qrl_getTransactionCount`, `qrl_sendRawTransaction`)
+  go to the node whatever it allows, so a list that leaves out `qrl_*` still lets `qrl_sendTransaction` work, while
+  clients can no longer call those methods themselves. With the default list a client may also send a transaction it
+  signed itself with `qrl_sendRawTransaction`, or ask the node for `qrl_fillTransaction`; neither involves the
+  signer's keys.
 - **Request bodies.** The node never gets the client's bytes: each forwarded request is re-encoded from what the
   signer decoded, its `jsonrpc`, `id`, `method` and `params`, and any other member is dropped. gqrl decodes member
   names without regard to case, the last one winning, so a body with both `method` and `METHOD` would otherwise run
@@ -191,9 +206,161 @@ Execution mode runs behind the same server as consensus mode ([`tls.md`](tls.md)
 - **The rest.** The host allowlist (403 `HOST_NOT_ALLOWED`), the `Origin` refusal (403 `ORIGIN_NOT_ALLOWED`: there
   is no CORS), `Content-Type: application/json` (415), the connection cap `--http-max-connections`, the large-body
   gate, TLS 1.3, and the startup fail-safes of a non-loopback listener: no `--http-auth-mode=none`, no token over
-  plaintext HTTP without `--Xallow-plaintext-token-auth`, no host allowlist of loopback names only.
+  plaintext HTTP without `--Xallow-plaintext-token-auth`, no host allowlist of loopback names only, and no start
+  without `--execution-policy-file` (section 9).
 - **Health.** `/upcheck` and `/healthcheck` as in consensus mode, with the checks `default-check`,
   `keys-check/config-files-loading` and, with a keystore directory, `keys-check/keystores-bulk-loading`.
   `GET /reload` reports the last load, `POST /reload` (admin token) starts one.
 - **Metrics.** With `--metrics-enabled`, the metrics listener serves the Go and process metrics, `process_release`,
   `signing_signers_loaded_count` and the HTTP metrics of the API listener ([`metrics.md`](metrics.md)).
+
+## 8. Transactions
+
+Transactions are go-qrl's own: a type-0x2 (dynamic fee) `DynamicFeeTx`, the only type QRL has, signed with go-qrl's
+`types.SignTx` and `types.NewZondSigner(--chain-id)`. The signer passes go-qrl a `pqcrypto/wallet.Wallet` over the
+loaded key, which signs and verifies but never gives out the seed. The signing hash is
+`keccak256(0x02 ‖ rlp([chainId, nonce, maxPriorityFeePerGas, maxFeePerGas, gas, to, value, input, accessList,
+descriptor, extraParams]))` with the descriptor `01 00 00` and empty `extraParams`. Signatures are hedged ML-DSA-87,
+so signing the same transaction twice gives two hashes. Each signature is verified, and the sender recovered from the
+signed transaction must be `from`, before it leaves the signer.
+
+**The transaction object.** Both methods take one object with gqrl's member names and encodings (`Q` addresses, `0x`
+quantities without leading zeros, `0x` data):
+
+| Member | |
+|---|---|
+| `from` | required: a loaded account, else -32000 |
+| `to` | the recipient; absent creates a contract, which needs `input` |
+| `value` | Planck (10^18 Planck = 1 quanta); absent is 0 |
+| `gas`, `maxFeePerGas`, `maxPriorityFeePerGas`, `nonce` | required by `qrl_signTransaction`; `qrl_sendTransaction` asks the node for those it lacks. `maxFeePerGas` may not be below `maxPriorityFeePerGas` |
+| `input` (or `data`) | call data; when both are given they must be equal |
+| `accessList` | signed as given; absent is empty |
+| `chainId` | must be `--chain-id`; absent is `--chain-id` |
+| `type` | optional; must be `0x2` |
+
+Other members are ignored, as gqrl ignores them. A member that does not decode is -32602, with the member's name and
+go-qrl's reason in `data`.
+
+**`qrl_signTransaction`** returns gqrl's result:
+
+```json
+{"raw": "0x02f91c…", "tx": {"type": "0x2", "chainId": "0x539", "nonce": "0x0", "to": "Q…", "gas": "0x5208",
+  "maxPriorityFeePerGas": "0x3b9aca00", "maxFeePerGas": "0x2e90edd001", "value": "0x1", "input": "0x",
+  "accessList": [], "descriptor": "0x010000", "extraParams": "0x", "signature": "0x…", "publicKey": "0x…",
+  "hash": "0x…"}}
+```
+
+`raw` is what `qrl_sendRawTransaction` takes. A signed transaction is about 7.3 KB: the 4,627-byte signature and the
+2,592-byte public key travel with it.
+
+**`qrl_sendTransaction`** holds a lock for `from` from the first step to the node's answer, so that two calls for one
+account never take the same nonce:
+
+1. If the request lacks a nonce, gas, a fee cap or a chain ID, the signer calls the node's `qrl_fillTransaction` with
+   its own encoding of the request, which runs gqrl's defaults (the pool nonce, a gas estimate, the suggested tip and
+   twice the base fee).
+2. It checks the answer (the payload check): the answer must be a type-0x2 transaction whose `to`, `value`, `input`,
+   `accessList` and `chainId` are the request's, an absent `accessList` counting as empty and an absent `chainId` as
+   `--chain-id`. `from` is never the node's to choose: it comes from the request and selects the key. Of the answer
+   the signer takes only the nonce, gas and fee caps the request lacked, and builds the transaction again from the
+   request and those values. A node that changes anything else gets -32003 "the node's qrl_fillTransaction answer
+   changed the transaction's to" (or `value`, `input`, `accessList`, `chainId`), and nothing is signed.
+3. With `--execution-nonce-crosscheck` (the default), a nonce the node filled in is compared with the node's
+   `qrl_getTransactionCount(from, "pending")`; more than 64 above it is refused (-32003), because the transaction
+   would wait in the pool behind a gap. A nonce the client chose is not checked.
+4. The chain ID, the fee cap and the account's policy apply (below and section 9).
+5. The signer signs, writes the audit entry (section 10) and sends `qrl_sendRawTransaction([raw])` under the
+   client's `id`. The node's answer is returned: the transaction hash, or the node's own error with HTTP 200.
+6. If the client did not choose the nonce and the node answers -32000 with a message containing `nonce too low`,
+   `already known` or `replacement transaction underpriced`, another transaction holds that nonce: the signer goes back
+   to step 1, up to 10 times, and then gives up with -32603 and HTTP 400. With hedged signatures a resent nonce gives
+   "replacement transaction underpriced" rather than "already known". A nonce the client chose is never retried.
+
+The lock is per process. Several signers in front of one node, or a client that also signs elsewhere, rely on the
+retries, as Web3Signer does. The signer's own calls to the node carry none of the client's headers, only the
+`--downstream-http-auth-header-file` credential, and are bounded like forwarded calls (section 6): a node that cannot
+be reached is 504, a malformed or non-200 answer is -32000 "Invalid response from downstream node" with 502.
+
+**The chain ID.** `--chain-id` is the chain every transaction is signed for. A request with another `chainId` is
+refused (-32003). At startup and every 10 minutes the signer also asks the node for `qrl_chainId`: while the node's
+answer differs from `--chain-id`, both transaction methods refuse every transaction, with "the downstream node's chain
+ID is …, not --chain-id …", and an ERROR line is logged at each check. A check the node does not answer keeps the
+last verdict; until the first answer, transactions are signed. `qrl_sign` signs no transaction and is not affected.
+
+**The fee cap.** A transaction's fee, `gas × maxFeePerGas`, the most it can pay, may be at most 1 quanta
+(10^18 Planck), gqrl's own default `--rpc.txfeecap`, unless the account's policy sets another `max-fee`. It applies to
+both methods, and in `qrl_sendTransaction` to the fees the node filled in.
+
+## 9. The policy file
+
+`--execution-policy-file` names a YAML file of per-account policies. It is read at startup; a file that does not
+parse stops the signer. A non-loopback listener refuses to start without one. Without a file (loopback only), every
+loaded account may sign any transaction within the fee cap.
+
+```yaml
+# Accounts the file does not name get the default section, or may sign nothing when it is absent.
+default:
+  max-fee: 100000000000000000          # 0.1 quanta
+  contract-creation: false
+accounts:
+  Q2a5b…:                              # Q and 128 hex characters, either case after the Q
+    allowed-recipients:
+      - Q9f0e…
+      - Q11c4…
+    max-value: 5000000000000000000     # 5 quanta, in Planck
+    max-fee: 1000000000000000000       # gas × maxFeePerGas, in Planck
+    contract-creation: false
+    max-data-bytes: 0                  # plain transfers only
+    max-transactions-per-hour: 30
+```
+
+| Key | Meaning | When absent |
+|---|---|---|
+| `allowed-recipients` | the only `to` addresses the account may send to; a contract creation has none and is governed by `contract-creation` | any recipient |
+| `max-value` | the largest `value`, in Planck | no limit |
+| `max-fee` | the largest `gas × maxFeePerGas`, in Planck | 1 quanta |
+| `contract-creation` | whether a transaction without `to` may be signed | `false` |
+| `max-data-bytes` | the longest `input` | no limit |
+| `max-transactions-per-hour` | the most transactions signed in any hour (0 to 100,000) | no limit |
+
+Amounts are decimal integers of Planck (YAML integers or strings, `_` allowed as a separator). Unknown keys, an
+address that is not `Q` and 128 hex characters, an account named twice (in any spelling) and a file that names no
+account and has no default are refused. The hourly count is kept in memory, per process: a restart resets it, and
+each signer in front of one node counts only its own transactions. A `qrl_sendTransaction` counts once however often
+it retries. A refusal is -32003 "Transaction rejected" with the reason in `data`, which names no address.
+
+## 10. The audit log
+
+`--execution-audit-log-file` names an append-only [JSON Lines](https://jsonlines.org/) file, created with mode 0600.
+It records, one object per line:
+
+| `outcome` | Written when |
+|---|---|
+| `signed` | a transaction was signed, before it leaves the signer (returned by `qrl_signTransaction` or sent by `qrl_sendTransaction`) |
+| `sent` | the node accepted a sent transaction |
+| `node-refused` | the node refused a sent transaction; `reason` is its message (a retry follows when step 6 of section 8 applies) |
+| `refused` | the signer refused a transaction: an unknown account, the chain ID, the fee cap, the policy or the node's fill answer; `reason` says which |
+
+```json
+{"time":"2026-10-20T08:15:02.731Z","method":"qrl_sendTransaction","outcome":"signed","hash":"0x5bfe…","from":"Q45F3…","to":"Q1111…","nonce":"0x7","value":"0xde0b6b3a7640000","fee":"0xeebe0b40ed208","chainId":"0x539"}
+```
+
+`fee` is `gas × maxFeePerGas`. The fields a refusal had no value for are absent. Each line is written and synced
+before the request goes on; if the log cannot be written, the signature is discarded and the request fails with
+-32603, so no signature leaves the signer without its line. On SIGHUP the signer opens the path again, so a log
+rotator can move the file away and signal the signer.
+
+## 11. go-qrl and the LGPL
+
+The default flavour builds and signs transactions with the go-qrl library (`github.com/theQRL/go-qrl`, licensed
+under the GNU Lesser General Public License v3.0 or later), at the commit `go.mod` requires, unmodified. Only
+`internal/execution` imports it, and only its library packages, never `cmd/**` or `internal/**`; a lint rule and the
+release checks enforce both. The consensus flavour, `remotesigner-consensus`, links none of it.
+
+The default flavour is therefore an LGPL combined work: go-remotesigner's code stays Apache-2.0 and go-qrl stays LGPL.
+Its releases carry what the LGPL asks ([`release.md`](release.md#2-notice-and-licence-texts-per-flavour)): the NOTICE
+appends [`NOTICE.execution`](../../NOTICE.execution), which says that go-qrl is used and under the LGPL; `LICENSES/`
+holds the LGPL and GPL texts; `--version` prints go-qrl's notice with a pointer to them; and each release attaches
+`remotesigner-<version>-src-vendored.tar.gz`, the source with every dependency vendored, from which the binary can be
+rebuilt with a modified go-qrl. Anyone who needs a permissively licensed binary uses `remotesigner-consensus`, which
+has no execution mode.
