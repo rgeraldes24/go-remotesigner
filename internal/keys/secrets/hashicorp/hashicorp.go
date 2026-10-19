@@ -61,8 +61,9 @@ import (
 const maxTokenFile = 64 << 10
 
 // Client reads Vault secrets. It keeps one HTTP client per server and
-// connection settings, as Web3Signer keeps one per server URI. It is safe
-// for concurrent use.
+// connection settings, as Web3Signer keeps one per server URI, until
+// Close; the known-servers file is read when the HTTP client is built. It
+// is safe for concurrent use.
 type Client struct {
 	clients secrets.Cache[connKey, *http.Client]
 }
@@ -82,7 +83,9 @@ func New(maxServers int) *Client {
 	return c
 }
 
-// Close closes the idle connections of every cached HTTP client.
+// Close drops every cached HTTP client and closes its idle connections.
+// The client stays usable: the next fetch builds a new HTTP client, which
+// reads the known-servers file again.
 func (c *Client) Close() { c.clients.Purge() }
 
 // Fetch implements secrets.Fetcher for *secrets.Hashicorp specs.

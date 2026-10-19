@@ -320,7 +320,7 @@ func Consensus() []cli.Flag {
 		&cli.StringFlag{Name: AWSEndpointOverride, Usage: "Secrets Manager endpoint URL instead of AWS's, for the bulk loader (a VPC endpoint, LocalStack)"},
 		&cli.StringSliceFlag{Name: AWSSecretsPrefixesFilter, Usage: "Load only the secrets whose names start with one of these prefixes (comma-separated)"},
 		&cli.StringSliceFlag{Name: AWSSecretsTag, Usage: "Load only the secrets with these tags: TAG_NAME=TAG_VALUE, repeated or separated by |; AWS matches any of the names and any of the non-empty values"},
-		&cli.IntFlag{Name: AWSConnectionCacheSize, Value: secrets.DefaultAWSClientCache, Usage: "AWS Secrets Manager clients kept for aws-secret key-config documents, by credentials and region"},
+		&cli.IntFlag{Name: AWSConnectionCacheSize, Value: secrets.DefaultAWSClientCache, Usage: "AWS Secrets Manager clients kept for aws-secret key-config documents during a load, by credentials and region"},
 		&cli.BoolFlag{Name: GCPSecretsEnabled, Usage: "Bulk-load seeds from GCP Secret Manager: the latest version of every secret of --gcp-project-id that --gcp-secrets-filter selects, one 48-byte seed (hex) per line, with Application Default Credentials. Default flavour only."},
 		&cli.StringFlag{Name: GCPProjectID, Usage: "GCP project of the bulk loader's secrets"},
 		&cli.StringFlag{Name: GCPSecretsFilter, Usage: "Secret Manager list filter (https://cloud.google.com/secret-manager/docs/filtering); empty loads every secret of the project"},

@@ -24,6 +24,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystoretest"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets/secretstest"
+	"github.com/rgeraldes24/go-remotesigner/internal/server/tlsconf"
 )
 
 // hashicorpDoc is a hashicorp key-config document for the secret at path
@@ -36,6 +37,61 @@ func hashicorpDoc(t *testing.T, v *secretstest.Vault, path string) string {
 	}
 	return fmt.Sprintf("type: hashicorp\nserverHost: %s\nserverPort: %s\nkeyPath: %s\ntoken: %s\ntimeout: 5000\n",
 		u.Hostname(), u.Port(), path, v.Token)
+}
+
+// Each load builds the key-config documents' store clients again, as
+// Web3Signer does, so that a rewritten Vault known-servers file applies to
+// the next reload that fetches the document: a pin added makes it load, a
+// pin removed makes it fail, and it keeps its key.
+func TestRunVaultKnownServersRotation(t *testing.T) {
+	cfg := baseConfig(t)
+	v := secretstest.NewVault(t, true)
+	v.Put("/v1/secret/data/k4", map[string]any{"value": seedHex(4)})
+	u, err := url.Parse(v.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin := func(content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(cfg.KeyConfigPath, "known_servers"), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	doc := func(extra string) {
+		t.Helper()
+		body := fmt.Sprintf("type: hashicorp\nserverHost: %s\nserverPort: %s\nkeyPath: /v1/secret/data/k4\ntoken: %s\n"+
+			"tlsEnabled: true\ntlsKnownServersPath: known_servers\n%s", u.Hostname(), u.Port(), v.Token, extra)
+		if err := os.WriteFile(filepath.Join(cfg.KeyConfigPath, "vault.yaml"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pin(u.Host + " " + tlsconf.FingerprintOf([]byte("the previous certificate")).String() + "\n")
+	doc("")
+	r := start(t, cfg)
+	r.waitReady(t)
+	r.waitReload(t, "completed_with_errors")
+	check := func(want string) {
+		t.Helper()
+		_, checks := r.health(t)
+		c := checks[ops.CheckConfigFilesLoading]
+		if got := c["status"].(string) + " " + fmt.Sprint(c["data"]); got != want {
+			t.Errorf("%s: %s, want %s", ops.CheckConfigFilesLoading, got, want)
+		}
+	}
+	check("DOWN map[error-count:1 keys-loaded:0]")
+
+	pin(u.Host + " " + tlsconf.FingerprintOf(v.Certificate().Raw).String() + "\n")
+	r.reload(t, "completed")
+	check("UP map[error-count:0 keys-loaded:1]")
+
+	pin("# revoked\n")
+	doc("keyName: value\n") // changed, so fetched again
+	r.reload(t, "completed_with_errors")
+	check("DOWN map[error-count:1 keys-loaded:1]")
+	sel := goldenCase(t, "minimal", signingroot.AggregationSlot, "typical")
+	if code, body := r.post(t, "/api/v1/consensus/sign/"+pubkeyHex(t, 4), r.sign, sel.RequestJSON); code != 200 {
+		t.Fatalf("the failed document's key: %d %s", code, body)
+	}
 }
 
 // The secret stores as key sources, with Web3Signer's load order and

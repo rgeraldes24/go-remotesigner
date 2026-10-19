@@ -9,9 +9,13 @@ import (
 )
 
 // Cache holds up to Max store clients, by the connection settings they
-// were built from, so that the documents of one store share one client.
-// When it is full, the least recently used client is dropped, and closed
-// once no fetch uses it.
+// were built from, so that the documents of one store share one client
+// within a load, as in Web3Signer, which builds its store factories, and
+// so their caches, for each load. The runner purges the caches after each
+// load for the same reason: the next load builds new clients, which read
+// the trust files (a Vault known-servers file, an Azure trust certificate)
+// again. When the cache is full, the least recently used client is
+// dropped, and closed once no fetch uses it.
 type Cache[K comparable, V any] struct {
 	// Max is the number of clients kept; at least one is.
 	Max int

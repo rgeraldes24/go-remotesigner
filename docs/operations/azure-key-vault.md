@@ -63,8 +63,10 @@ timeout: 60                             # seconds, default 60
 | `endpointOverride`, `authorityHostOverride`, `trustCertificateOverride` | no | Web3Signer's overrides (section 5); a relative `trustCertificateOverride` is relative to the key-config directory. |
 
 **A file with a `clientSecret` is a secret file** under `--strict-file-permissions`: keep it at `0600`
-([`reload.md`](reload.md#secret-files)). Up to 10 SDK clients are kept for the documents, by credentials, vault and
-overrides, as Web3Signer's `AzureKeyVaultFactory` does, so a vault's token is fetched once, not once per document.
+([`reload.md`](reload.md#secret-files)). Up to 10 SDK clients are kept for the documents during a load, by
+credentials, vault and overrides, as Web3Signer's `AzureKeyVaultFactory` does, so a vault's token is fetched once per
+load, not once per document. Each load builds them again, so a replaced `trustCertificateOverride` file applies to
+the next reload that fetches the document.
 
 ## 4. The bulk loader
 

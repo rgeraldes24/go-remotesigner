@@ -218,7 +218,7 @@ func (l *KeyLoader) addBulk(kind, check, what string) {
 		}})
 }
 
-// Close releases the secret-store clients.
+// Close releases the secret-store clients that the last load left.
 func (l *KeyLoader) Close() { l.stores.close() }
 
 // workers is the number of sources loaded at once. A reload runs while the
@@ -270,6 +270,11 @@ func (l *KeyLoader) load(ctx, loadCtx context.Context) (int, error) {
 		b, err := s.load(loadCtx, w, unchanged, l.progress(s.what))
 		batches, counts[i] = l.collect(batches, b, err, s.prefix, s.wholeMsg, s.oneMsg)
 	}
+	// The key-config documents' store clients last one load, as Web3Signer
+	// builds its store factories for each load: the next load builds them
+	// again and so reads their trust files (a Vault known-servers file, an
+	// Azure trust certificate) again.
+	l.stores.close()
 	if errors.Is(loadCtx.Err(), context.DeadlineExceeded) {
 		l.log.WithField("reload-timeout", l.timeout).
 			Warn("The reload ran past --reload-timeout; the sources not loaded by then keep their previous keys")

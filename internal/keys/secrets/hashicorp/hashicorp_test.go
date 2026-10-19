@@ -191,6 +191,43 @@ func TestFetchTLS(t *testing.T) {
 	}
 }
 
+// One Client reads the known-servers file when it builds the server's HTTP
+// client, and again after Close, which the runner calls after each load:
+// a pin added or removed takes effect on the next load, as with
+// Web3Signer's connection factory, built for each load.
+func TestKnownServersRotation(t *testing.T) {
+	v := secretstest.NewVault(t, true)
+	v.Put("/v1/secret/data/k1", map[string]any{"value": seed})
+	fp := tlsconf.FingerprintOf(v.Certificate().Raw)
+	other := tlsconf.FingerprintOf([]byte("the previous certificate"))
+	h := specFor(t, v.Server, "/v1/secret/data/k1", v.Token)
+	h.TLSKnownServersFile = filepath.Join(t.TempDir(), "known_servers")
+	write := func(content string) {
+		t.Helper()
+		if err := os.WriteFile(h.TLSKnownServersFile, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := New(16)
+	defer c.Close()
+	fetch := func() error { _, err := c.Fetch(context.Background(), h); return err }
+
+	write(h.Addr() + " " + other.String() + "\n")
+	if err := fetch(); err == nil || !strings.Contains(err.Error(), "not listed") {
+		t.Fatalf("a certificate that is not pinned: %v", err)
+	}
+	write(h.Addr() + " " + fp.String() + "\n")
+	c.Close()
+	if err := fetch(); err != nil {
+		t.Fatalf("after the pin was added and the client closed: %v", err)
+	}
+	write("# revoked\n")
+	c.Close()
+	if err := fetch(); err == nil || !strings.Contains(err.Error(), "not listed") {
+		t.Fatalf("after the pin was removed and the client closed: %v", err)
+	}
+}
+
 func TestFetchKubernetes(t *testing.T) {
 	v := secretstest.NewVault(t, false)
 	v.Put("/v1/secret/data/k1", map[string]any{"value": seed})
