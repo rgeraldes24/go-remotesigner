@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keyconfig"
@@ -647,6 +648,42 @@ func TestImportUsesTheSemaphore(t *testing.T) {
 	}
 	if after, _ := f.sem.Stats(); after-before != 5 {
 		t.Fatalf("%d decrypts", after-before)
+	}
+}
+
+// An imported key takes part in the versioned loads. Its source has no
+// version yet, so the first load after the import decrypts it once more
+// and records the files' version; a later load keeps it without a decrypt.
+// The files are aged past source.RacyWindow first, as they are for a load
+// that starts two seconds or more after the import.
+func TestImportedKeysVersionedLoads(t *testing.T) {
+	f := newFixture(t)
+	a := newKey(t, "versioned", 0)
+	if rs, err := f.m.Import(bg, importReq("", a.qrlV1(t), []byte(password))); err != nil || rs[0].Status != Imported {
+		t.Fatalf("import: %+v %v", rs, err)
+	}
+	old := time.Now().Add(-time.Minute)
+	for _, name := range f.files(t) {
+		if err := os.Chtimes(filepath.Join(f.dir, name), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := keyconfig.Config{Dir: f.dir, Policy: secretfile.Policy{Strict: true}, Decrypt: f.sem.Decrypt}
+	unchanged := func(src, version string) bool { return f.keys.Unchanged(src, version, nil) }
+	for load, want := range []int64{1, 0} {
+		before, _ := f.sem.Stats()
+		since := f.keys.Generation()
+		batches, err := cfg.Load(bg, 1, unchanged, nil)
+		if err != nil || len(batches) != 1 || batches[0].Err != nil {
+			t.Fatalf("load %d: %v %+v", load, err, batches)
+		}
+		if _, err := f.keys.ApplySince(since, batches, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		if after, _ := f.sem.Stats(); after-before != want || batches[0].Keep != (want == 0) || !f.loaded(a) {
+			t.Fatalf("load %d: %d decrypts (want %d), keep %v, loaded %v", load, after-before, want,
+				batches[0].Keep, f.loaded(a))
+		}
 	}
 }
 
