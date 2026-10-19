@@ -48,7 +48,7 @@ httpProtocolVersion: HTTP_2                 # HTTP_1_1 or HTTP_2 (default)
 | `kubernetesRole` | for `KUBERNETES` | The Vault role bound to the pod's service account. |
 | `kubernetesServiceAccountTokenPath` | no | The service-account token file; default `/var/run/secrets/kubernetes.io/serviceaccount/token`. |
 | `kubernetesAuthPath` | no | The auth method's mount path; default `kubernetes`. Surrounding slashes are dropped; an empty, `.` or `..` segment is refused. |
-| `tlsEnabled` | no | `true` connects over HTTPS; default `false`. |
+| `tlsEnabled` | no | `true` connects over HTTPS; default `false`, as in Web3Signer. Without it the token and the seed cross the network unencrypted: keep `false` for a Vault on the same host or a dev server only. |
 | `tlsKnownServersPath` | no | With `tlsEnabled`, a file of trusted server certificates (section 4). |
 | `timeout` | no | Milliseconds each request may take, from connecting to reading the response; default 10000. |
 | `httpProtocolVersion` | no | `HTTP_2` (default) or `HTTP_1_1`. Over plain HTTP the signer always speaks HTTP/1.1. |

@@ -691,6 +691,12 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
     ([section 7](#7-request-envelope-and-validation-pipeline)).
   - A request that matches no route gets a 404 or 405 `{code, message}` body without a `reason`, and one that the
     HTTP server cannot parse gets Go's plain-text 400 or 431 ([section 11](#11-errors)).
+
+  The secret-store key sources added these:
+  - `/healthcheck` lists `keys-check/azure-bulk-loading`, `keys-check/aws-bulk-loading` and
+    `keys-check/gcp-bulk-loading` when the matching bulk loader is enabled, with the same `data` as the other
+    `keys-check/*` checks. A check id is a free string in the `HealthCheck` schema, so no shape changes
+    ([section 17](#17-supporting-endpoints)).
 - Open items, which would change the wire behaviour, so they wait for a contract version and the matching qrysm
   client change:
   - Keeping the registration bound on while the genesis time is unknown: it needs only the wall clock, but a
