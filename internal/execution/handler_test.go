@@ -42,6 +42,7 @@ func TestQRLAccounts(t *testing.T) {
 	for _, body := range []string{
 		call(1, MethodAccounts),
 		`{"jsonrpc":"2.0","id":1,"method":"qrl_accounts","params":[]}`,
+		"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"qrl_accounts\",\"params\": [ \n\t] }",
 		`{"jsonrpc":"2.0","id":1,"method":"qrl_accounts","params":null}`,
 	} {
 		w := f.post(body, nil)
@@ -518,6 +519,56 @@ func TestManyMembersAllocation(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// The params of a local method are read no further than the parameters it
+// takes: a call of the largest size whose params are an array of tiny
+// elements costs a small part of its size in allocations, alone or in a
+// batch, and is refused with -32602.
+func TestLocalParamsAllocation(t *testing.T) {
+	f := newFixture(t, 1, defaultAllow)
+	_, addr := f.key(0)
+	for _, method := range []string{MethodSign, MethodAccounts} {
+		for _, inBatch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, in a batch %v", method, inBatch), func(t *testing.T) {
+				head := `{"jsonrpc":"2.0","id":1,"method":"` + method + `","params":["` + addr + `"`
+				if inBatch {
+					head = "[" + head
+				}
+				var b strings.Builder
+				b.WriteString(head)
+				for b.Len()+len(" ,1")+len("]}]") <= BodyLimit {
+					b.WriteString(" ,1")
+				}
+				b.WriteString("]}")
+				serve := f.handler.serveSingle
+				if inBatch {
+					b.WriteString("]")
+					serve = f.handler.serveBatch
+				}
+				body := []byte(b.String())
+				w := httptest.NewRecorder()
+				allocated := allocatedBy(func() { serve(w, httptest.NewRequest(http.MethodPost, "/", nil), body) })
+				if allocated > uint64(len(body))/8 {
+					t.Errorf("%d bytes allocated for a body of %d", allocated, len(body))
+				}
+				var r rpcResponse
+				if inBatch {
+					if rs := decodeBatch(t, w.Body.Bytes()); len(rs) == 1 {
+						r = rs[0]
+					}
+				} else {
+					r = decodeOne(t, w.Body.Bytes())
+				}
+				if r.Error == nil || r.Error.Code != ErrInvalidParams.Code || string(r.ID) != "1" {
+					t.Errorf("%d %s, want -32602", w.Code, w.Body)
+				}
+			})
+		}
+	}
+	if n := len(f.node.received()); n != 0 {
+		t.Fatalf("the node received %d requests", n)
 	}
 }
 

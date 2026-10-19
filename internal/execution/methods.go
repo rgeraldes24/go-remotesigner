@@ -26,7 +26,6 @@
 package execution
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -50,7 +49,10 @@ const (
 	MethodSignTypedData   = "qrl_signTypedData"
 )
 
-// method answers one intercepted request.
+// method answers one intercepted request. A method that takes parameters
+// finds them with elements, which stops past the last one it takes; params
+// decoded whole, of the largest size and of tiny elements, would cost tens
+// of times their size.
 type method func(ctx context.Context, req *Request) (any, *Error)
 
 // methods is the table of intercepted methods. Transaction signing is not
@@ -78,7 +80,7 @@ func notEnabled(_ context.Context, req *Request) (any, *Error) {
 // qrlAccounts is qrl_accounts: the loaded addresses in QIP-55 form, sorted
 // by address. Its params must be absent, null or an empty array.
 func (h *Handler) qrlAccounts(_ context.Context, req *Request) (any, *Error) {
-	if req.Params != nil && !bytes.Equal(bytes.Join(bytes.Fields(req.Params), nil), []byte("[]")) {
+	if _, ok := elements(req.Params, 0); req.Params != nil && !ok {
 		return nil, ErrInvalidParams.with(MethodAccounts + " takes no parameters")
 	}
 	list := h.accounts.List()
@@ -95,8 +97,8 @@ func (h *Handler) qrlAccounts(_ context.Context, req *Request) (any, *Error) {
 // recoverable and carry no public key: verifiers take it from
 // GET /api/v1/execution/publicKeys.
 func (h *Handler) qrlSign(_ context.Context, req *Request) (any, *Error) {
-	var params []json.RawMessage
-	if err := json.Unmarshal(req.Params, &params); err != nil || len(params) != 2 {
+	params, ok := elements(req.Params, 2)
+	if !ok || len(params) != 2 {
 		return nil, ErrInvalidParams.with(MethodSign + " takes [address, data]")
 	}
 	var addrText, dataText string
