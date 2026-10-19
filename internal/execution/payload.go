@@ -107,7 +107,7 @@ func (h *Handler) complete(ctx context.Context, a *txArgs) (filled, *refusal, *E
 		if e != nil {
 			return filled{}, nil, e
 		}
-		if want.tx.Nonce > pending+maxNonceAhead {
+		if n := want.tx.Nonce; n > pending && n-pending > maxNonceAhead {
 			return filled{}, fillRefusal("has nonce %d, more than %d above the node's pending nonce %d",
 				want.tx.Nonce, maxNonceAhead, pending), nil
 		}
