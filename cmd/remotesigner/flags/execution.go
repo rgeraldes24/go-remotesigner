@@ -55,7 +55,7 @@ func Execution() []cli.Flag {
 		&cli.StringFlag{Name: DownstreamHTTPHost, Value: DefaultDownstreamHost, Usage: "Host of the gqrl node that forwarded requests go to"},
 		&cli.UintFlag{Name: DownstreamHTTPPort, Value: DefaultDownstreamPort, Usage: "HTTP JSON-RPC port of the gqrl node"},
 		&cli.StringFlag{Name: DownstreamHTTPPath, Value: DefaultDownstreamPath, Usage: "Path on the gqrl node that requests are posted to; a plain URL path"},
-		&cli.UintFlag{Name: DownstreamHTTPRequestTimeout, Value: DefaultDownstreamTimeoutMS, Usage: "Milliseconds to wait for the node to connect, complete TLS and send its response headers; it is then answered with 504"},
+		&cli.UintFlag{Name: DownstreamHTTPRequestTimeout, Value: DefaultDownstreamTimeoutMS, Usage: "Milliseconds to wait for the node to connect, complete TLS, send its response headers and send each further part of its response body; a request it holds up is answered with 504"},
 		&cli.StringFlag{Name: DownstreamHTTPAuthHeaderFile, Usage: "File whose first line is the Authorization header value sent to the node (for example \"Bearer <token>\"), in place of any client credential; a secret file, read at startup", TakesFile: true},
 		&cli.BoolFlag{Name: DownstreamHTTPTLSEnabled, Usage: "Connect to the node over TLS (https), verifying its certificate against the system roots or --downstream-http-tls-ca-file"},
 		&cli.StringFlag{Name: DownstreamHTTPTLSCAFile, Usage: "PEM CAs that replace the system roots for the node's certificate; needs --downstream-http-tls-enabled", TakesFile: true},

@@ -29,9 +29,11 @@ package execution
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -50,11 +52,14 @@ type Handler struct {
 	proxy    *proxy
 	table    map[string]method
 	log      logrus.FieldLogger
+	// deadline ends a request's downstream exchange and local work: the
+	// endpoint's write timeout, after which no response can be written.
+	deadline time.Duration
 }
 
 // newHandler builds the endpoint's handler.
 func newHandler(accounts *Accounts, allow *Allowlist, p *proxy, log logrus.FieldLogger) *Handler {
-	h := &Handler{accounts: accounts, allow: allow, proxy: p, log: log}
+	h := &Handler{accounts: accounts, allow: allow, proxy: p, log: log, deadline: WriteTimeout(p.ds.timeout)}
 	h.table = h.methods()
 	return h
 }
@@ -65,6 +70,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, h.log, r, e)
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), h.deadline)
+	defer cancel()
+	r = r.WithContext(ctx)
 	if isBatch(body) {
 		h.serveBatch(w, r, body)
 		return

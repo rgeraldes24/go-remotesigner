@@ -81,11 +81,13 @@ func CheckDownstreamPath(p string) error {
 
 // downstream is where requests are forwarded and how: the target URL, a
 // transport that follows no redirects and never reads proxy settings from
-// the environment, and the Authorization value from the credentials file.
+// the environment, the Authorization value from the credentials file, and
+// the timeout, which also bounds each wait for response data (idleBody).
 type downstream struct {
 	target    *url.URL
 	transport *http.Transport
 	auth      logging.Secret // nil without --downstream-http-auth-header-file
+	timeout   time.Duration
 }
 
 // newDownstream builds the downstream client from the flags. The
@@ -127,6 +129,7 @@ func newDownstream(d config.Downstream, policy secretfile.Policy) (*downstream, 
 			Path:   DownstreamPath(d.Path),
 		},
 		transport: t,
+		timeout:   timeout,
 	}
 	if d.AuthHeaderFile != "" {
 		auth, err := readAuthHeader(d.AuthHeaderFile, policy)

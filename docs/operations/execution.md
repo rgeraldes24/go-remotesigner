@@ -165,9 +165,11 @@ receive the client's credentials:
 - **No redirects.** A redirect from the node is passed back as it is; the signer never follows it. In a batch it
   is an "Invalid response from downstream node" error.
 - **Timeouts and failures.** `--downstream-http-request-timeout` (milliseconds, default 5000) bounds the connection,
-  the TLS handshake and the wait for the node's response headers. A node that cannot be reached gets 504 "Failed to
-  connect to downstream node", one that does not answer in time 504 "Connection to downstream node timed out", a TLS
-  failure 502.
+  the TLS handshake, the wait for the node's response headers and each wait for more of its response body. A whole
+  request ends at the endpoint's write timeout, the downstream timeout plus 30 seconds, however slowly the node
+  answers. A node that cannot be reached gets 504 "Failed to connect to downstream node", one that does not answer in
+  time 504 "Connection to downstream node timed out" (in a batch, in place of each forwarded answer; a single
+  response the node stops sending is cut off), a TLS failure 502.
 - **TLS and HTTP proxies.** `--downstream-http-tls-enabled` connects with https, checking the node's certificate
   against the system roots or the PEM CAs of `--downstream-http-tls-ca-file`. `--downstream-http-proxy-host` and
   `--downstream-http-proxy-port` route requests through an HTTP proxy; the proxy environment variables are never
