@@ -8,9 +8,13 @@ package awssm
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,7 +33,9 @@ func isolate(t *testing.T) {
 	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "credentials"))
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
 	for _, v := range []string{"AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID",
-		"AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_SECRETS_MANAGER"} {
+		"AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_SECRETS_MANAGER",
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+		"AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_ROLE_ARN"} {
 		t.Setenv(v, "")
 	}
 }
@@ -77,22 +83,71 @@ func TestFetch(t *testing.T) {
 	}
 }
 
+// TestEnvironmentCredentials checks ENVIRONMENT authentication, the SDK's
+// default chain: the environment, the shared credentials file and the
+// container (ECS, EKS Pod Identity) credentials endpoint, which stands for
+// the instance identities here; the region comes from the environment
+// when the connection names none.
 func TestEnvironmentCredentials(t *testing.T) {
-	isolate(t)
 	f := secretstest.NewAWS(t)
 	f.Put("validator-1", seed, nil)
+	conn := secrets.AWSConn{AuthMode: secrets.AWSEnvironment, EndpointOverride: f.URL}
+	fetch := func() error {
+		t.Helper()
+		got, err := New(1).Fetch(context.Background(), &secrets.AWS{AWSConn: conn, SecretName: "validator-1"})
+		if err == nil && string(got) != seed {
+			t.Fatalf("Fetch = %q", got)
+		}
+		return err
+	}
+
+	isolate(t)
 	t.Setenv("AWS_ACCESS_KEY_ID", "AKIDENV")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "env-secret")
-	conn := secrets.AWSConn{AuthMode: secrets.AWSEnvironment, EndpointOverride: f.URL}
-	if _, err := New(1).Fetch(context.Background(), &secrets.AWS{AWSConn: conn, SecretName: "validator-1"}); err == nil ||
-		!strings.Contains(err.Error(), "no AWS region") {
+	if err := fetch(); err == nil || !strings.Contains(err.Error(), "no AWS region") {
 		t.Fatalf("no region: %v", err)
 	}
 	t.Setenv("AWS_REGION", "eu-west-1")
-	got, err := New(1).Fetch(context.Background(), &secrets.AWS{AWSConn: conn, SecretName: "validator-1"})
-	if err != nil || string(got) != seed || f.AccessKeys[len(f.AccessKeys)-1] != "AKIDENV" {
-		t.Fatalf("Fetch = %q, %v, signed with %v", got, err, f.AccessKeys)
+	if err := fetch(); err != nil || f.AccessKeys[len(f.AccessKeys)-1] != "AKIDENV" {
+		t.Fatalf("environment: %v, signed with %v", err, f.AccessKeys)
 	}
+
+	t.Run("shared credentials file", func(t *testing.T) {
+		isolate(t)
+		t.Setenv("AWS_REGION", "eu-west-1")
+		file := filepath.Join(t.TempDir(), "credentials")
+		if err := os.WriteFile(file, []byte("[validators]\naws_access_key_id = AKIDFILE\n"+
+			"aws_secret_access_key = file-secret\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", file)
+		t.Setenv("AWS_PROFILE", "validators")
+		if err := fetch(); err != nil || f.AccessKeys[len(f.AccessKeys)-1] != "AKIDFILE" {
+			t.Fatalf("shared credentials file: %v, signed with %v", err, f.AccessKeys)
+		}
+	})
+
+	t.Run("container credentials endpoint", func(t *testing.T) {
+		isolate(t)
+		t.Setenv("AWS_REGION", "eu-west-1")
+		var calls atomic.Int64
+		creds := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			if r.Header.Get("Authorization") != "container-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"AccessKeyId":"AKIDROLE","SecretAccessKey":"role-secret","Token":"role-session",` +
+				`"Expiration":"` + time.Now().Add(time.Hour).UTC().Format(time.RFC3339) + `"}`))
+		}))
+		defer creds.Close()
+		t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", creds.URL+"/v2/credentials")
+		t.Setenv("AWS_CONTAINER_AUTHORIZATION_TOKEN", "container-token")
+		if err := fetch(); err != nil || f.AccessKeys[len(f.AccessKeys)-1] != "AKIDROLE" || calls.Load() == 0 {
+			t.Fatalf("container credentials: %v, signed with %v, %d endpoint calls", err, f.AccessKeys, calls.Load())
+		}
+	})
 }
 
 func TestBulk(t *testing.T) {
