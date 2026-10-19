@@ -415,8 +415,9 @@ P = 8 decrypts and the 36 of the second five, thirteen rounds in all, as one req
 
 No benchmark is assigned to the secret stores. Their SDKs are linked by the default flavour only, and the release
 binaries were measured before and after they landed, built as the release builds them (`CGO_ENABLED=0 -trimpath
--ldflags '-s -w'`), on the development machine (Apple M2, Go 1.26.9, load average 11-23 from other work, which does
-not change a size).
+-ldflags '-s -w'`), on the development machine (Apple M2, Go 1.26.9). These are dev-machine numbers, measured twice
+(2026-10-18 at load average 11-23 and 2026-10-19 at 9-15, from other work, which does not change a size) with the
+same results.
 
 | Target | `remotesigner` before | `remotesigner` after | `remotesigner-consensus` before | `remotesigner-consensus` after |
 |---|---|---|---|---|
