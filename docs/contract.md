@@ -712,6 +712,12 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
     has a constraint to the same effect, so `GET …/highWatermark` serves both fields or `{}`, as the
     `HighWatermark` schema says; a store that holds one part anyway answers 500 `STORE_UNAVAILABLE`
     ([section 5](#5-endpoints); DEVIATIONS.md row X113).
+
+  The secret-store key sources added these:
+  - `/healthcheck` lists `keys-check/azure-bulk-loading`, `keys-check/aws-bulk-loading` and
+    `keys-check/gcp-bulk-loading` when the matching bulk loader is enabled, with the same `data` as the other
+    `keys-check/*` checks. A check id is a free string in the `HealthCheck` schema, so no shape changes
+    ([section 17](#17-supporting-endpoints)).
 - Open items, which would change the wire behaviour, so they wait for a contract version and the matching qrysm
   client change:
   - Keeping the registration bound on while the genesis time is unknown: it needs only the wall clock, but a
