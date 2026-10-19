@@ -183,6 +183,35 @@ one.
 
 Removing a key's files only evicts it (section 3.1); it does not disable it.
 
+### 5.1 Enabling a key again
+
+A disabled key stays disabled across restarts, reloads and evictions, on every replica. Enable it again only once no
+other signer and no validator client's own keystore can sign for it: the store cannot see their history. Then, in
+order of preference:
+
+1. **Import its keystore through the keymanager** (`--key-manager-api-enabled`): `POST /qrl/v1/keystores` with the
+   keystore, its password and, when the key signed elsewhere since it was disabled here, that signer's history in
+   `slashing_protection` ([`keymanager.md`](keymanager.md#3-importing-keys)). The result is `imported`. This works
+   whatever source loads the key: a loaded key is enabled where it is, without any file written, and a key that is
+   not loaded is written to `--key-config-path` and loaded. There is no need to `DELETE` it first; a `DELETE`
+   disables it again and removes the files the keymanager wrote for it.
+2. **Import its history offline**, for a key without a keystore (a `file-raw` seed) or a signer without the
+   keymanager: `consensus import` of an EIP-3076 file whose element for the key imports cleanly enables it, even
+   when the store already holds every record in it ([`migration.md`](migration.md#2-import-the-history)). The key's
+   own history serves:
+
+   ```
+   remotesigner --data-path=/var/lib/remotesigner consensus --network=<network> export --keys=<id> --to=key.json
+   remotesigner --data-path=/var/lib/remotesigner consensus --network=<network> import --from=key.json
+   ```
+
+   With bbolt the signer must be stopped for both; with Postgres both run online. A key that has no history in the
+   store is left out of the export (the command says so on stderr); for it, an element with empty
+   `signed_blocks` and `signed_attestations` lists, under the store's genesis validators root, does the same.
+
+The keymanager answers `imported` for the key, and the offline import counts it among the validators it imported;
+from then on its blocks, attestations and new RANDAO layers no longer get `412 VALIDATOR_DISABLED`.
+
 ## 6. Memory for keystore decryption
 
 Every keystore decrypt runs Argon2id. One process-wide semaphore admits the decrypts of the startup load and of

@@ -90,6 +90,12 @@ on the same keystore (section 3). The signer budgets 512 MiB per standard-KDF ke
   unless `--strict-file-permissions=false` is given, which loads it with a WARN
   ([`reload.md`](reload.md#secret-files)). `keystore verify` applies the same rule. Keep password files readable by
   the signer's user only (`chmod 0400` or `0600`).
+- A password is read from its file at each load, never kept between loads. The signer holds its forms as byte
+  buffers and overwrites them once the load (or the keymanager import, or `keystore verify`) is done with them. The
+  normalisation that builds forms 1 and 2 goes through Go strings, though, which cannot be overwritten: those copies
+  of the password stay in the process's memory until the garbage collector reuses it. `--disable-core-dumps` (the
+  default) keeps them out of core dumps and away from debuggers and other processes of the same user, and
+  `--mlock-all` keeps them out of swap ([`tls.md`](tls.md#8-process-hygiene-linux)).
 
 ## 4. Checking keystores
 

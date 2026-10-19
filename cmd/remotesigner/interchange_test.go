@@ -442,3 +442,52 @@ func TestFinishImport(t *testing.T) {
 		})
 	}
 }
+
+// The offline way to enable a disabled key again (docs/operations/reload.md
+// section 5.1): export the key's own history and import that file. A key
+// without history is left out of the export, and an element with empty
+// lists enables it instead.
+func TestEnableAgainByExportAndImport(t *testing.T) {
+	data := t.TempDir()
+	db := filepath.Join(data, "slashing-protection.db")
+	file := interchangeFile(t, gvrHex, entry(0, `{"slot":"10","signing_root":"`+rootHex(1)+`"}`,
+		`{"source_epoch":"1","target_epoch":"2","signing_root":"`+rootHex(2)+`"}`), entry(5, ``, ``))
+	if code, stdout, stderr := runCLI(t, "--data-path="+data, "consensus", "import", "--from="+file); code != exitOK {
+		t.Fatalf("import: exit %d %s %s", code, stdout, stderr)
+	}
+	for _, k := range []int{0, 5} {
+		if code, _, stderr := runCLI(t, "--data-path="+data, "consensus", "disable-validator", "--key="+pkHex(k)); code != exitOK {
+			t.Fatalf("disable key %d: exit %d %s", k, code, stderr)
+		}
+	}
+	enabled := func(k int) bool {
+		t.Helper()
+		s := openTestStore(t, db)
+		defer closeStore(t, s)
+		return statusOf(t, s, k).Enabled
+	}
+	if enabled(0) || enabled(5) {
+		t.Fatal("disable-validator left a key enabled")
+	}
+
+	own := filepath.Join(t.TempDir(), "key.json")
+	code, _, stderr := runCLI(t, "--data-path="+data, "consensus", "export", "--keys="+pkHex(0)+","+pkHex(5), "--to="+own)
+	if code != exitOK || !strings.Contains(stderr, "no history for key") {
+		t.Fatalf("export: exit %d, stderr %q; want key 5 noted as without history", code, stderr)
+	}
+	if code, stdout, stderr := runCLI(t, "--data-path="+data, "consensus", "import", "--from="+own); code != exitOK ||
+		!strings.Contains(stdout, "imported 1 of 1 validator(s)") || !strings.Contains(stdout, "already covered") {
+		t.Fatalf("import of the key's own history: exit %d %s %s", code, stdout, stderr)
+	}
+	if !enabled(0) || enabled(5) {
+		t.Fatalf("after importing key 0's own history: key 0 enabled %v, key 5 enabled %v", enabled(0), enabled(5))
+	}
+
+	empty := interchangeFile(t, gvrHex, entry(5, ``, ``))
+	if code, stdout, stderr := runCLI(t, "--data-path="+data, "consensus", "import", "--from="+empty); code != exitOK {
+		t.Fatalf("import of an empty element: exit %d %s %s", code, stdout, stderr)
+	}
+	if !enabled(5) {
+		t.Fatal("an empty element did not enable key 5")
+	}
+}

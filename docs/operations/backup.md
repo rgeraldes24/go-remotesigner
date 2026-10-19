@@ -70,8 +70,10 @@ signer signs, give the store that history back, in order of preference:
    ([`migration.md`](migration.md#8-no-history-to-import)). It never lowers a watermark, so it is safe to run on a
    backup that turns out to be recent.
 
-Keys that were disabled after the backup (keymanager `DELETE`) come back enabled from an older backup; disable them
-again, or remove them from the key configuration, before starting.
+Keys that were disabled after the backup (keymanager `DELETE`, `consensus disable-validator`) come back enabled from
+an older backup, and an import enables every key whose history it imports cleanly, those disabled before the backup
+included ([`migration.md`](migration.md#2-import-the-history)). Disable them again, or remove them from the key
+configuration, before starting.
 
 ## 4. Why an old backup is safe for RANDAO
 
