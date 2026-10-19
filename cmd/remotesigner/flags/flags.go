@@ -189,8 +189,9 @@ func Overrides() map[string]Override {
 		},
 		AllowGVRTOFU: {
 			Refused: "A non-loopback API listener for a file network when no source gives the genesis validators " +
-				"root: neither --network-genesis-validators-root nor --network-genesis-state. Built-in public " +
-				"networks never pin on first use.",
+				"root: neither --network-genesis-validators-root nor --network-genesis-state. A built-in network " +
+				"never pins on first use: without one of those flags it refuses to start (exit code 1) on any " +
+				"listener, and the override does not change that.",
 			Risk: "The first request that carries the network's fork version pins its genesis validators root " +
 				"into the slashing-protection store for good, and every later request must match it. Networks " +
 				"built from one configuration share their fork version, so the first client to reach the signer " +
