@@ -193,8 +193,8 @@ order of preference:
    keystore, its password and, when the key signed elsewhere since it was disabled here, that signer's history in
    `slashing_protection` ([`keymanager.md`](keymanager.md#3-importing-keys)). The result is `imported`. This works
    whatever source loads the key: a loaded key is enabled where it is, without any file written, and a key that is
-   not loaded is written to `--key-config-path` and loaded. There is no need to `DELETE` it first; a `DELETE`
-   disables it again and removes the files the keymanager wrote for it.
+   not loaded is written to `--key-config-path` and loaded. There is no need to `DELETE` it first: a `DELETE`
+   would only disable it again.
 2. **Import its history offline**, for a key without a keystore (a `file-raw` seed) or a signer without the
    keymanager: `consensus import` of an EIP-3076 file whose element for the key imports cleanly enables it, even
    when the store already holds every record in it ([`migration.md`](migration.md#2-import-the-history)). The key's
