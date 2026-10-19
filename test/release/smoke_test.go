@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // The smoke test's chain: the end-to-end file network with its interop
@@ -625,15 +627,68 @@ func TestDockerGuideMatchesSmoke(t *testing.T) {
 	if g, s := volumeTargets(guide["--volume"]), volumeTargets(smoke["--volume"]); !slices.Equal(g, s) {
 		t.Errorf("mounts: the guide has %q, the smoke test %q", g, s)
 	}
-	chainValue := regexp.MustCompile(`^(--network-genesis-time|--network-genesis-validators-root)=.*`)
-	normal := func(args []string) []string {
-		out := make([]string, len(args))
-		for i, a := range args {
-			out[i] = chainValue.ReplaceAllString(a, "$1=<value>")
-		}
-		return out
-	}
-	if g, s := normal(args), normal(e.signerArgs(nil)); !slices.Equal(g, s) {
+	if g, s := withoutChainValues(args), withoutChainValues(e.signerArgs(nil)); !slices.Equal(g, s) {
 		t.Errorf("signer arguments:\n the guide      %q\n the smoke test %q", g, s)
+	}
+}
+
+// chainValue is a signer argument that carries one chain's value.
+var chainValue = regexp.MustCompile(`^(--network-genesis-time|--network-genesis-validators-root)=.*`)
+
+// withoutChainValues returns args with the chain's values replaced by a
+// placeholder, which the guide, the smoke test and the compose example each
+// give their own way.
+func withoutChainValues(args []string) []string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		out[i] = chainValue.ReplaceAllString(a, "$1=<value>")
+	}
+	return out
+}
+
+// TestComposeMatchesGuide keeps the compose example's signer in step with
+// the Docker guide's `docker run` example, and so with the smoke test that
+// runs it: the same arguments, chain values aside, the same mounts, memory
+// limit and stop grace period, and the same hardening.
+func TestComposeMatchesGuide(t *testing.T) {
+	opts, args := guideRun(t)
+	guide := dockerOptions(opts)
+	var c struct {
+		Services map[string]struct {
+			Command         []string `yaml:"command"`
+			ReadOnly        bool     `yaml:"read_only"`
+			CapDrop         []string `yaml:"cap_drop"`
+			SecurityOpt     []string `yaml:"security_opt"`
+			MemLimit        string   `yaml:"mem_limit"`
+			StopGracePeriod string   `yaml:"stop_grace_period"`
+			Volumes         []string `yaml:"volumes"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(readRepo(t, "deploy/docker/compose.yaml"), &c); err != nil {
+		t.Fatal(err)
+	}
+	s, ok := c.Services["signer"]
+	if !ok {
+		t.Fatal("deploy/docker/compose.yaml has no signer service")
+	}
+	if g, s := withoutChainValues(args), withoutChainValues(s.Command); !slices.Equal(g, s) {
+		t.Errorf("signer arguments:\n the guide   %q\n compose.yaml %q", g, s)
+	}
+	if g, s := volumeTargets(guide["--volume"]), volumeTargets(s.Volumes); !slices.Equal(g, s) {
+		t.Errorf("mounts: the guide has %q, compose.yaml %q", g, s)
+	}
+	for _, tt := range []struct{ option, guide, compose string }{
+		{"--memory / mem_limit", strings.Join(guide["--memory"], ","), s.MemLimit},
+		{"--stop-timeout / stop_grace_period", strings.Join(guide["--stop-timeout"], ",") + "s", s.StopGracePeriod},
+		{"--cap-drop / cap_drop", strings.Join(guide["--cap-drop"], ","), strings.Join(s.CapDrop, ",")},
+		{"--security-opt / security_opt", strings.Join(guide["--security-opt"], ",") + ":true",
+			strings.Join(s.SecurityOpt, ",")},
+	} {
+		if tt.guide != tt.compose {
+			t.Errorf("%s: the guide gives %q, compose.yaml %q", tt.option, tt.guide, tt.compose)
+		}
+	}
+	if _, ok := guide["--read-only"]; !ok || !s.ReadOnly {
+		t.Errorf("read-only root file system: the guide %v, compose.yaml %v", ok, s.ReadOnly)
 	}
 }

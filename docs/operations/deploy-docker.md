@@ -260,8 +260,9 @@ key volume, then the signer with a file network, its genesis time and validators
 keystore directory with its password file; a client container that reaches `https://signer:9000` by name, pins the
 generated certificate by its logged fingerprint, and calls `/upcheck` and `publicKeys`; `consensus migrate` on the
 stopped signer's data volume, as an upgrade runs it ([`upgrade.md`](upgrade.md#3-one-signer)); the refusals without a
-certificate, a host allowlist or a network; and the compose file's configuration. A test that needs no Docker checks
-that section 3's `docker run` command and the smoke test's use the same mounts, hardening and arguments. CI runs it for both flavours, and
+certificate, a host allowlist or a network; and the compose file's configuration. Tests that need no Docker check
+that section 3's `docker run` command, the smoke test and the compose example's signer use the same mounts,
+hardening and arguments. CI runs it for both flavours, and
 `make release-check` runs the same test on the release dry run's images ([`release.md`](release.md#4-the-release-dry-run)).
 
 ## 9. Orchestrators
