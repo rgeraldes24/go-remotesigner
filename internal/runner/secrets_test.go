@@ -353,7 +353,7 @@ func isolateAWS(t *testing.T) {
 	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "config"))
 	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "credentials"))
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	for _, v := range []string{"AWS_PROFILE", "AWS_REGION", "AWS_ENDPOINT_URL"} {
+	for _, v := range []string{"AWS_PROFILE", "AWS_REGION", "AWS_ENDPOINT_URL", "AWS_CA_BUNDLE"} {
 		t.Setenv(v, "")
 	}
 }

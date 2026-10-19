@@ -110,6 +110,12 @@ Each call (a `GetSecretValue`, one page of `ListSecrets`) may take 30 seconds, t
 response is read up to 4 MiB; a value larger than 64 KiB fails its secret. No redirect is followed (X70, X78).
 Proxies are taken from `HTTPS_PROXY` and `NO_PROXY`. A secret scheduled for deletion is not listed.
 
+**`AWS_CA_BUNDLE` and the shared config's `ca_bundle` are not supported**: the SDK can add a CA bundle only to its
+own HTTP client, and the signer sends every request through its bounded one, so with either set every `aws-secret`
+document and the bulk loader fail with a configuration error. To trust a private CA (a TLS-inspecting proxy, a VPC
+endpoint behind one, LocalStack over TLS), set `SSL_CERT_FILE` (or `SSL_CERT_DIR`) on Linux; it replaces the system
+roots, so the file must also hold the public CAs that AWS's endpoints chain to when the signer reaches them.
+
 ## 6. Reload and health
 
 On `POST /reload` the bulk loader lists the secrets again and loads every one; an `aws-secret` document is fetched
