@@ -207,3 +207,19 @@ func TestRunPostgresPasswordSources(t *testing.T) {
 		}
 	})
 }
+
+// The pruner's store has a pool of one connection (TestPostgresOperationsProfile in pgstore shows such a pool holds
+// one) and pins no root, whatever the signing store's configuration.
+func TestPruningPoolConfig(t *testing.T) {
+	gvr := slashing.Root{1}
+	signing := pgstore.Config{URL: "postgres://signer@db/signer", User: "signer", Password: "secret",
+		GenesisValidatorsRoot: &gvr, OnPin: func(slashing.Root) {}}
+	pc := pruningConfig(signing)
+	if pc.MaxConns != 1 || pc.MinConns != 0 || pc.GenesisValidatorsRoot != nil || pc.OnPin != nil {
+		t.Errorf("pruning store: %d connections, %d kept open, root %v, pin hook set %v; want 1, 0 and neither",
+			pc.MaxConns, pc.MinConns, pc.GenesisValidatorsRoot, pc.OnPin != nil)
+	}
+	if pc.URL != signing.URL || pc.User != signing.User || pc.Password != signing.Password {
+		t.Error("the pruning store connects to another database or as another role than the signing store")
+	}
+}

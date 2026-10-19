@@ -194,10 +194,7 @@ func openPostgres(ctx context.Context, cfg *config.Config, gvr *slashing.Root, o
 	if err != nil {
 		return nil, fmt.Errorf("refusing to start: %w", err)
 	}
-	// Pruning has a pool of one connection, so that it never takes a connection signing needs.
-	prune := pc
-	prune.GenesisValidatorsRoot, prune.OnPin, prune.MaxConns, prune.MinConns = nil, nil, 1, 0
-	pruner, err := pgstore.Open(ctx, prune)
+	pruner, err := pgstore.Open(ctx, pruningConfig(pc))
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("refusing to start: %w", err)
@@ -209,6 +206,13 @@ func openPostgres(ctx context.Context, cfg *config.Config, gvr *slashing.Root, o
 	}).Info("Slashing protection uses the Postgres store")
 	return &storeSet{store: store, kind: consensus.ProtectionPostgres, pruner: pruner, shared: true, health: h.up,
 		stop: h.close}, nil
+}
+
+// pruningConfig is the configuration of the pruner's store: a pool of one connection, so that pruning never takes a
+// connection signing needs, and no root to pin, which the signing store has pinned or checked.
+func pruningConfig(pc pgstore.Config) pgstore.Config {
+	pc.GenesisValidatorsRoot, pc.OnPin, pc.MaxConns, pc.MinConns = nil, nil, 1, 0
+	return pc
 }
 
 // dbHealth is Web3Signer's database health check: a query bounded by the timeout, run at startup and then every
