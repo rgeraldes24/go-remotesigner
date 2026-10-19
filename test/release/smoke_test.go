@@ -221,21 +221,8 @@ func newSmokeEnv(t *testing.T, image string) *smokeEnv {
 	e := &smokeEnv{t: t, image: image, prefix: "remotesigner-smoke-" + hex.EncodeToString(id[:])}
 
 	// One keystore, with the light KDF.
-	var index struct {
-		Keystores []struct{ File, Password, Pubkey string } `json:"keystores"`
-	}
-	if err := json.Unmarshal(readRepo(t, "testdata/vectors/keystores/index.json"), &index); err != nil {
-		t.Fatalf("keystore index: %v", err)
-	}
 	var password string
-	for _, k := range index.Keystores {
-		if k.File == smokeKeystore {
-			e.pubkey, password = k.Pubkey, k.Password
-		}
-	}
-	if e.pubkey == "" {
-		t.Fatalf("testdata/vectors/keystores/index.json lists no %s", smokeKeystore)
-	}
+	e.pubkey, password = smokeKeystoreKey(t)
 	var nets struct {
 		Networks []struct {
 			Name string `json:"name"`
@@ -262,7 +249,7 @@ func newSmokeEnv(t *testing.T, image string) *smokeEnv {
 	// says.
 	e.keys = e.keyVolume([]volumeEntry{
 		{name: "keystores/", mode: 0o700},
-		{name: "keystores/keystore-m_12381_238_0_0-1760000000.json", mode: 0o600,
+		{name: "keystores/" + smokeKeystoreName, mode: 0o600,
 			content: string(readRepo(t, smokeKeystoreInRepo))},
 		{name: "password.txt", mode: 0o600, content: password + "\n"},
 	})
@@ -273,6 +260,29 @@ func newSmokeEnv(t *testing.T, image string) *smokeEnv {
 	docker(t, "network", "create", e.network)
 	return e
 }
+
+// smokeKeystoreKey returns the public key and the password of the smoke
+// test's keystore, from the keystore vectors' index.
+func smokeKeystoreKey(t *testing.T) (pubkey, password string) {
+	t.Helper()
+	var index struct {
+		Keystores []struct{ File, Password, Pubkey string } `json:"keystores"`
+	}
+	if err := json.Unmarshal(readRepo(t, "testdata/vectors/keystores/index.json"), &index); err != nil {
+		t.Fatalf("keystore index: %v", err)
+	}
+	for _, k := range index.Keystores {
+		if k.File == smokeKeystore {
+			return k.Pubkey, k.Password
+		}
+	}
+	t.Fatalf("testdata/vectors/keystores/index.json lists no %s", smokeKeystore)
+	return "", ""
+}
+
+// smokeKeystoreName is the smoke test's keystore under the name the deposit
+// CLI gives it.
+const smokeKeystoreName = "keystore-m_12381_238_0_0-1760000000.json"
 
 // volumeEntry is a file, or a directory when its name ends in "/", of a
 // volume keyVolume fills.

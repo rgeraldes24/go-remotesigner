@@ -51,15 +51,17 @@ sudo install -m 0600 -o remotesigner -g remotesigner key-0.yaml /var/lib/remotes
 | `/etc/remotesigner/network.yaml` | root, `0644` | the chain's qrysm-format config |
 | `/var/lib/remotesigner/` | remotesigner, `0700` | written by the signer: `auth-token`, `admin-token`, `tls/`, `slashing-protection.db`, `remotesigner.ports` |
 | `/var/lib/remotesigner/keys/` | remotesigner, `0700`, files `0600` | one key-config file per key |
+| `/var/lib/remotesigner/keystores/`, `keystores-password.txt` | remotesigner, `0700`, files `0600` | keystores and their password, instead of key-config files or next to them (below) |
 
 A key-config file with a seed, and a password file, that its group or other users can read is refused
 (`--strict-file-permissions`, [`reload.md`](reload.md#secret-files)). Back up `/var/lib/remotesigner`; losing
 `slashing-protection.db` loses the slashing-protection history.
 
-**Keystores instead of seeds.** Keystores from the deposit CLI or qrysm's `validator accounts backup` go into a
-keystore directory of their own (copy the `keystore-*.json` files, and only them: every `*.json` file there is
-loaded), with the password they were created with in a file next to it:
+**Keystores, instead of seeds or next to them.** Keystores from the deposit CLI or qrysm's `validator accounts
+backup` go into a keystore directory of their own (copy the `keystore-*.json` files, and only them: every `*.json`
+file there is loaded), with the password they were created with in a file next to it:
 
+<!-- systemd-smoke -->
 ```
 sudo install -d -m 0700 -o remotesigner -g remotesigner /var/lib/remotesigner/keystores
 sudo install -m 0600 -o remotesigner -g remotesigner validator_keys/keystore-*.json /var/lib/remotesigner/keystores/
@@ -69,13 +71,7 @@ sudo -u remotesigner remotesigner consensus keystore verify --keystores-path=/va
 ```
 
 The last command decrypts every keystore as the signer will and prints each key's identifier
-([`keystores.md`](keystores.md#4-checking-keystores)). Then add the directory to the `consensus:` section of the
-configuration (section 3):
-
-```yaml
-  keystores-path: /var/lib/remotesigner/keystores
-  keystores-password-file: /var/lib/remotesigner/keystores-password.txt
-```
+([`keystores.md`](keystores.md#4-checking-keystores)). Section 3 adds the directory to the configuration.
 
 A key-config file can also name one keystore and its password file (`type: file-keystore`,
 [`reload.md`](reload.md#1-key-sources)). Decrypting a standard-KDF keystore takes about 1.5 s of one core and up to
@@ -107,6 +103,19 @@ The file binds the API to every interface over TLS 1.3, with a certificate gener
 (files the service user can read) and drop `tls-generate-self-signed`. Unknown keys are refused, so a typo fails the
 start (exit code 2) instead of falling back to a default. The file never sets `Xallow-*` overrides; do not add
 them.
+
+With keystores (section 2), add their directory to the `consensus:` section, which ends the example file:
+
+<!-- systemd-smoke -->
+```
+sudo tee -a /etc/remotesigner/remotesigner.yaml >/dev/null <<'EOF'
+  keystores-path: /var/lib/remotesigner/keystores
+  keystores-password-file: /var/lib/remotesigner/keystores-password.txt
+EOF
+```
+
+The signer loads the key-config files of `key-config-path` and the keystores together; with keystores only, leave
+`/var/lib/remotesigner/keys/` empty.
 
 ## 4. Start
 
@@ -188,10 +197,12 @@ The unit takes everything else away; `systemd-analyze security remotesigner` rat
 | `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `RestrictNamespaces`, `RestrictRealtime`, `RestrictSUIDSGID`, `LockPersonality`, `MemoryDenyWriteExecute`, `RemoveIPC` | IP and Unix sockets only; no namespaces, real-time scheduling, set-id files or writable executable memory |
 | `SystemCallArchitectures=native`, `SystemCallFilter=@system-service` and `~@privileged` | only the system calls of an ordinary service |
 
-`make systemd-smoke` runs this page's installation in a container that runs systemd: the binary, a key file and a
-network file are put in place, and then the commands of sections 2, 3 and 4 run exactly as written (the blocks marked
-for it in this page's source). It checks that the unit serves TLS, `/upcheck` and `publicKeys`, writes its files
-`0600`/`0700` as the service user, reloads, and stops with exit code 0. CI runs it on every pull request.
+`make systemd-smoke` runs this page's installation in a container that runs systemd: the binary, a key file, a
+deposit CLI keystore with its password file and a network file are put in place, and then the commands of sections
+2, 3 and 4 run exactly as written (the blocks marked for it in this page's source). It checks that the unit serves
+TLS, `/upcheck` and `publicKeys` with both keys, writes its files `0600`/`0700` as the service user, reloads, runs
+the upgrade steps of [`upgrade.md`](upgrade.md#3-one-signer) as written there, and stops with exit code 0. CI runs it
+on every pull request.
 
 ## 8. More than one signer: Postgres
 

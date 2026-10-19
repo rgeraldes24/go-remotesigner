@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,12 +26,28 @@ const systemdBase = "ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1d
 
 // systemdGuide is the systemd deployment guide, whose blocks marked
 // systemdBlock the smoke test runs as written, and whose block marked
-// systemdCheckBlock it runs once the signer is up.
+// systemdCheckBlock it runs once the signer is up. upgradeGuide's block
+// marked systemdUpgradeBlock is the upgrade of a systemd signer, which it
+// runs last.
 const (
-	systemdGuide      = "docs/operations/deploy-systemd.md"
-	systemdBlock      = "<!-- systemd-smoke -->"
-	systemdCheckBlock = "<!-- systemd-smoke:check -->"
+	systemdGuide        = "docs/operations/deploy-systemd.md"
+	systemdBlock        = "<!-- systemd-smoke -->"
+	systemdCheckBlock   = "<!-- systemd-smoke:check -->"
+	upgradeGuide        = "docs/operations/upgrade.md"
+	systemdUpgradeBlock = "<!-- systemd-smoke:upgrade -->"
 )
+
+// systemdSudo stands in for sudo in the smoke test's container, where every
+// command already runs as root: it runs the command, as the user -u names
+// when given.
+const systemdSudo = `#!/bin/sh
+if [ "$1" = -u ]; then
+	user=$2
+	shift 2
+	exec runuser -u "$user" -- "$@"
+fi
+exec "$@"
+`
 
 // markedBlocks returns the code blocks of a Markdown text that directly
 // follow the line marker, in order.
@@ -55,22 +72,39 @@ func guideScript(t *testing.T) string {
 	return "set -e\n" + strings.Join(blocks, "\n") + "\n"
 }
 
-// The guide's marked blocks are its installation, from the service user to
-// the started unit, and nothing that waits forever, such as journalctl -f:
-// the smoke test runs them as written. The check block reads /upcheck and
-// publicKeys. This runs without Docker, so a guide edit that breaks the
-// smoke test fails every test run.
+// The guide's marked blocks are its installation, from the service user,
+// a key file and a keystore directory to the started unit, and nothing that
+// waits forever, such as journalctl -f: the smoke test runs them as
+// written. The check block reads /upcheck and publicKeys, and the upgrade
+// guide's block stops, migrates and starts the unit. This runs without
+// Docker, so a guide edit that breaks the smoke test fails every test run.
 func TestSystemdGuideBlocks(t *testing.T) {
 	script := guideScript(t)
 	for _, want := range []string{"useradd --system", "install -d -m 0700 -o remotesigner -g remotesigner",
 		"/etc/remotesigner/remotesigner.yaml", "/etc/remotesigner/network.yaml", "/etc/systemd/system/",
-		"systemctl daemon-reload", "systemctl enable --now remotesigner"} {
+		"systemctl daemon-reload", "systemctl enable --now remotesigner",
+		"validator_keys/keystore-*.json", "sudo -u remotesigner remotesigner consensus keystore verify",
+		"  keystores-path: /var/lib/remotesigner/keystores"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("the guide's installation lacks %q:\n%s", want, script)
 		}
 	}
 	if strings.Contains(script, " -f") && strings.Contains(script, "journalctl") {
 		t.Errorf("the guide's installation follows a log, which never returns:\n%s", script)
+	}
+	upgrade := markedBlocks(string(readRepo(t, upgradeGuide)), systemdUpgradeBlock)
+	if len(upgrade) != 1 {
+		t.Fatalf("%s: want one block marked %s, got %d", upgradeGuide, systemdUpgradeBlock, len(upgrade))
+	}
+	for _, want := range []string{"systemctl stop remotesigner",
+		"sudo -u remotesigner remotesigner --config-file=/etc/remotesigner/remotesigner.yaml consensus migrate",
+		"systemctl start remotesigner"} {
+		if !strings.Contains(upgrade[0], want) {
+			t.Errorf("%s: the systemd upgrade lacks %q:\n%s", upgradeGuide, want, upgrade[0])
+		}
+	}
+	if strings.ContainsAny(upgrade[0], "<>") || strings.Contains(upgrade[0], " -f") {
+		t.Errorf("%s: the systemd upgrade has a placeholder or follows a log:\n%s", upgradeGuide, upgrade[0])
 	}
 	checks := markedBlocks(string(readRepo(t, systemdGuide)), systemdCheckBlock)
 	if len(checks) != 1 || !strings.Contains(checks[0], "/upcheck") || !strings.Contains(checks[0], "publicKeys") {
@@ -89,9 +123,10 @@ func TestSystemdGuideBlocks(t *testing.T) {
 // deploy/config/single-host.yaml in a container that runs systemd, by
 // running the systemd deployment guide's own commands, and checks that the
 // hardened unit runs the signer: TLS with the generated certificate for the allowlist names,
-// /upcheck and publicKeys, its files owned by the service user and closed
-// to others, `systemctl reload` re-reading the tokens and certificate, and a
-// clean stop. It runs when REMOTESIGNER_SYSTEMD_SMOKE=1 (make systemd-smoke)
+// /upcheck and publicKeys with the key file's and the keystore's keys, its
+// files owned by the service user and closed to others, `systemctl reload`
+// re-reading the tokens and certificate, the upgrade guide's stop, migrate
+// and start, and a clean stop. It runs when REMOTESIGNER_SYSTEMD_SMOKE=1 (make systemd-smoke)
 // and needs a Docker daemon that runs privileged containers.
 func TestSystemdSmoke(t *testing.T) {
 	if os.Getenv("REMOTESIGNER_SYSTEMD_SMOKE") != "1" {
@@ -106,6 +141,9 @@ func TestSystemdSmoke(t *testing.T) {
 	if err := json.Unmarshal(readRepo(t, "testdata/vectors/keys/interop.json"), &keys); err != nil || len(keys.Keys) == 0 {
 		t.Fatalf("interop keys: %v", err)
 	}
+	keystorePubkey, keystorePassword := smokeKeystoreKey(t)
+	wantKeys := []string{keys.Keys[0].Pubkey, keystorePubkey}
+	slices.Sort(wantKeys)
 	ctx := t.TempDir()
 	build := exec.Command("go", "build", "-trimpath", "-o", filepath.Join(ctx, "remotesigner"), "../../cmd/remotesigner")
 	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+arch, "CGO_ENABLED=0")
@@ -113,16 +151,20 @@ func TestSystemdSmoke(t *testing.T) {
 		t.Fatalf("build remotesigner: %v: %s", err, out)
 	}
 	// The guide's working directory: the repository's unit and example
-	// configuration at their paths, the chain's config and one key file,
-	// which its commands install. The binary is already installed (the
-	// guide's section 1), and sudo runs its command as root does.
+	// configuration at their paths, the chain's config, one key file and a
+	// deposit CLI output directory with one keystore and its password, which
+	// its commands install. The binary is already installed (the guide's
+	// section 1), and sudo runs its command as root, or as the user -u names.
 	for name, content := range map[string][]byte{
 		"guide/deploy/systemd/remotesigner.service": readRepo(t, "deploy/systemd/remotesigner.service"),
 		"guide/deploy/config/single-host.yaml":      readRepo(t, "deploy/config/single-host.yaml"),
 		"guide/config.yaml":                         readRepo(t, smokeNetwork),
 		"guide/key-0.yaml":                          fmt.Appendf(nil, "type: file-raw\nkeyType: ML_DSA_87\nprivateKey: %q\n", keys.Keys[0].Seed),
+		"guide/validator_keys/" + smokeKeystoreName: readRepo(t, smokeKeystoreInRepo),
+		"guide/keystores-password.txt":              []byte(keystorePassword + "\n"),
 		"guide/install.sh":                          []byte(guideScript(t)),
-		"sudo":                                      []byte("#!/bin/sh\nexec \"$@\"\n"),
+		"guide/upgrade.sh":                          []byte("set -e\n" + markedBlocks(string(readRepo(t, upgradeGuide)), systemdUpgradeBlock)[0] + "\n"),
+		"sudo":                                      []byte(systemdSudo),
 		"Dockerfile": []byte("FROM " + systemdBase + "\n" +
 			"RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends " +
 			"systemd systemd-sysv curl ca-certificates && rm -rf /var/lib/apt/lists/*\n" +
@@ -178,19 +220,24 @@ func TestSystemdSmoke(t *testing.T) {
 	}
 
 	waitFor("systemd did not start", `state=$(systemctl is-system-running); [ "$state" = running ] || [ "$state" = degraded ]`)
-	if out, code := sh("cd /root/guide && sh -x install.sh"); code != 0 {
+	out, code := sh("cd /root/guide && sh -x install.sh")
+	if code != 0 {
 		t.Fatalf("the guide's installation: exit %d: %s", code, out)
+	}
+	if !strings.Contains(out, "1 keystores: 1 OK, 0 refused") {
+		t.Errorf("the guide's keystore verify did not check the keystore: %s", out)
 	}
 
 	const curl = "curl --silent --show-error --fail --cacert /var/lib/remotesigner/tls/cert.pem "
 	if out := waitFor("no /upcheck", curl+"https://signer.internal:9000/upcheck"); strings.TrimSpace(out) != "OK" {
 		t.Errorf("/upcheck: %q", out)
 	}
-	out := waitFor("no publicKeys", curl+`-H "Authorization: Bearer $(cat /var/lib/remotesigner/auth-token)" `+
-		"https://signer.internal:9000/api/v1/consensus/publicKeys")
+	publicKeys := curl + `-H "Authorization: Bearer $(cat /var/lib/remotesigner/auth-token)" ` +
+		"https://signer.internal:9000/api/v1/consensus/publicKeys"
+	out = waitFor("no publicKeys", publicKeys)
 	var listed []string
-	if err := json.Unmarshal([]byte(out), &listed); err != nil || len(listed) != 1 || listed[0] != keys.Keys[0].Pubkey {
-		t.Errorf("publicKeys: %v: %.80s", err, out)
+	if err := json.Unmarshal([]byte(out), &listed); err != nil || !slices.Equal(listed, wantKeys) {
+		t.Errorf("publicKeys: %v: %.80s; want the key file's and the keystore's key", err, out)
 	}
 	files := waitFor("stat", "stat -c '%n %a %U' /var/lib/remotesigner /var/lib/remotesigner/auth-token "+
 		"/var/lib/remotesigner/admin-token /var/lib/remotesigner/tls /var/lib/remotesigner/tls/cert.pem "+
@@ -214,6 +261,19 @@ func TestSystemdSmoke(t *testing.T) {
 		t.Fatalf("systemctl reload: %s", out)
 	}
 	waitFor("no reload logged", `journalctl --no-pager -u remotesigner | grep -q "TLS files reloaded"`)
+
+	// The upgrade guide's steps, with the binary already in place: stop,
+	// migrate the store as the service user, start.
+	out, code = sh("cd /root/guide && sh -x upgrade.sh")
+	if code != 0 || !strings.Contains(out, "is already at schema version") || !strings.Contains(out, "nothing to do") {
+		t.Fatalf("the upgrade guide's steps: exit %d: %s", code, out)
+	}
+	if out := waitFor("no /upcheck after the upgrade", curl+"https://signer.internal:9000/upcheck"); strings.TrimSpace(out) != "OK" {
+		t.Errorf("/upcheck after the upgrade: %q", out)
+	}
+	if out := waitFor("no publicKeys after the upgrade", publicKeys); !strings.Contains(out, keystorePubkey) {
+		t.Errorf("publicKeys after the upgrade: %.80s", out)
+	}
 	if out, code := sh("systemctl stop remotesigner && systemctl show remotesigner --property=ExecMainStatus --value"); code != 0 || strings.TrimSpace(out) != "0" {
 		t.Errorf("stop: exit status %q (code %d), want 0", out, code)
 	}

@@ -58,11 +58,17 @@ The signer is down from the stop to the next `200 OK` from `/upcheck`: plan the 
 duties, as for a backup.
 
 **systemd** ([`deploy-systemd.md`](deploy-systemd.md)): install the new binary over the old one (`install` replaces
-the file, which the running process does not notice), stop the service, migrate the store as the service user with
-the service's configuration, and start it again:
+the file, which the running process does not notice):
 
 ```
 sudo install -m 0755 remotesigner-consensus_<version>_linux_amd64/remotesigner-consensus /usr/local/bin/remotesigner
+```
+
+Then stop the service, migrate the store as the service user with the service's configuration, and start it again
+(`make systemd-smoke` runs this block as written):
+
+<!-- systemd-smoke:upgrade -->
+```
 sudo systemctl stop remotesigner
 sudo -u remotesigner remotesigner --config-file=/etc/remotesigner/remotesigner.yaml consensus migrate
 sudo systemctl start remotesigner
