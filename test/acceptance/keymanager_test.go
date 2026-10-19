@@ -533,3 +533,39 @@ func TestKeymanagerDuringTheStartupLoad(t *testing.T) {
 		t.Fatalf("imported key %+v", st)
 	}
 }
+
+// A key that `consensus disable-validator` disabled keeps its keymanager
+// files, so it is loaded again after the restart: an import of its keystore
+// enables it, and the next import is a duplicate.
+func TestKeymanagerImportEnablesADisabledKey(t *testing.T) {
+	data, dir := t.TempDir(), kmDir(t)
+	k := newKMKey(t, "km-disabled", 0)
+	body := importBody(t, []string{k.keystore(t)}, []string{kmPassword}, "")
+	s := startKM(t, options{keys: dir, data: data})
+	s.waitReady()
+	if code, r, out := s.km("POST", body); code != 200 || r.Data[0].Status != "imported" {
+		t.Fatalf("import: %d %s", code, out)
+	}
+	s.stop()
+	if code, out := runOffline(t, "--data-path="+data, "consensus", "disable-validator", "--key="+k.pubkey); code != 0 {
+		t.Fatalf("disable-validator: exit %d %s", code, out)
+	}
+
+	s = startKM(t, options{keys: dir, data: data})
+	s.waitReady()
+	if code, reason := s.sign(t, k.pubkey, goldenAttestation(t)); code != 412 || reason != "VALIDATOR_DISABLED" {
+		t.Fatalf("attestation of the disabled key: %d %s", code, reason)
+	}
+	for _, want := range []string{"imported", "duplicate"} {
+		if code, r, out := s.km("POST", body); code != 200 || r.Data[0].Status != want {
+			t.Fatalf("import, want %s: %d %s", want, code, out)
+		}
+	}
+	if code, reason := s.sign(t, k.pubkey, goldenAttestation(t)); code != 200 {
+		t.Fatalf("attestation after the import: %d %s", code, reason)
+	}
+	s.stop()
+	if st := storeStatus(t, data, k.pubkey); !st.Enabled {
+		t.Fatalf("%+v", st)
+	}
+}

@@ -261,6 +261,122 @@ func TestReimportEnables(t *testing.T) {
 	}
 }
 
+// A key that is loaded but disabled is enabled by an import of its
+// keystore, after the request's history for it is imported: one whose
+// keymanager files `consensus disable-validator` left in place, and one
+// that a delete disabled before a read-only source loaded it (a delete
+// during the startup load). Its files are left as they are, and the next
+// import is a duplicate. A history element that fails, or a failed enable,
+// leaves it disabled.
+func TestImportEnablesALoadedDisabledKey(t *testing.T) {
+	var fs *failingStore
+	f := newFixture(t, fixtureOptions{store: func(s slashing.Store) slashing.Store {
+		fs = &failingStore{Store: s}
+		return fs
+	}})
+	managed, readOnly := newKey(t, "enable", 0), newKey(t, "enable", 1)
+	if rs, err := f.m.Import(bg, importReq("", managed.qrlV1(t), []byte(password))); err != nil || rs[0].Status != Imported {
+		t.Fatalf("import: %+v %v", rs, err)
+	}
+	if err := f.store.SetValidatorEnabled(bg, slashing.KeyID(managed.pk.ID()), false); err != nil { // disable-validator
+		t.Fatal(err)
+	}
+	if rs, _ := f.m.Delete(bg, []mldsa87.PublicKey{readOnly.pk}); rs[0].Status != NotFound {
+		t.Fatalf("delete before the load: %+v", rs)
+	}
+	k, err := mldsa87.FromSeed48(readOnly.seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := keyconfig.Source(filepath.Join(f.dir, "validator.yaml"))
+	if err := f.keys.Add(provider.Batch{Source: src, Keys: []*mldsa87.Key{k}, Meta: []provider.Meta{{Keystore: true}}},
+		func(pks [][]byte) error { return f.engine.RegisterValidators(bg, pks) }); err != nil {
+		t.Fatal(err)
+	}
+	files := f.files(t)
+	for _, key := range []testKey{managed, readOnly} {
+		if st := f.status(t, key); !f.loaded(key) || st.Enabled {
+			t.Fatalf("before: loaded %v, %+v", f.loaded(key), st)
+		}
+	}
+
+	// A failing element, then a failing enable, leave both disabled.
+	bad := `{"pubkey":"` + readOnly.hex + `","signed_blocks":[{"slot":"x"}],"signed_attestations":[]}`
+	rs, err := f.m.Import(bg, importReq(doc(gvr, entry(managed.hex, []uint64{20}), bad),
+		managed.qrlV1(t), []byte(password), readOnly.qrlV1(t), []byte(password)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatuses(t, rs, Imported, Error)
+	if !strings.Contains(rs[1].Message, "stays disabled") || f.status(t, readOnly).Enabled {
+		t.Fatalf("failing element: %+v, %+v", rs, f.status(t, readOnly))
+	}
+	if err := f.store.SetValidatorEnabled(bg, slashing.KeyID(managed.pk.ID()), false); err != nil {
+		t.Fatal(err)
+	}
+	fs.failEnable = true
+	rs, err = f.m.Import(bg, importReq("", managed.qrlV1(t), []byte(password)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatuses(t, rs, Error)
+	if !strings.Contains(rs[0].Message, "stays disabled") || f.status(t, managed).Enabled || !f.loaded(managed) {
+		t.Fatalf("failing enable: %+v, %+v", rs, f.status(t, managed))
+	}
+	fs.failEnable = false
+
+	rs, err = f.m.Import(bg, importReq(doc(gvr, entry(managed.hex, []uint64{30}), entry(readOnly.hex, []uint64{40})),
+		managed.qrlV1(t), []byte(password), readOnly.qrlV1(t), []byte(password), readOnly.depositCLI(t, 0), []byte(password)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatuses(t, rs, Imported, Imported, Duplicate)
+	for key, want := range map[testKey]string{managed: "low 30 - -; b20 b30", readOnly: "low 40 - -; b40"} {
+		if st := f.status(t, key); !f.loaded(key) || !st.Enabled || f.history(t, key) != want {
+			t.Fatalf("after: loaded %v, %+v, history %q (want %q)", f.loaded(key), st, f.history(t, key), want)
+		}
+	}
+	if e, _ := f.keys.Entry(readOnly.pk.ID()); e.Source != src || !slices.Equal(f.files(t), files) {
+		t.Fatalf("source %s, files %v (were %v)", e.Source, f.files(t), files)
+	}
+	rs, err = f.m.Import(bg, importReq("", managed.qrlV1(t), []byte(password), readOnly.qrlV1(t), []byte(password)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatuses(t, rs, Duplicate, Duplicate)
+}
+
+// A key that a load brings in from another source while the import writes
+// its files is a duplicate of that source; when a delete had disabled it,
+// the import enables it.
+func TestImportEnablesAKeyLoadedMeanwhile(t *testing.T) {
+	f := newFixture(t)
+	a := newKey(t, "meanwhile", 0)
+	if rs, _ := f.m.Delete(bg, []mldsa87.PublicKey{a.pk}); rs[0].Status != NotFound {
+		t.Fatalf("delete: %+v", rs)
+	}
+	src := keyconfig.Source(filepath.Join(f.dir, "validator.yaml"))
+	f.m.afterWrite = func() {
+		k, err := mldsa87.FromSeed48(a.seed)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if err := f.keys.Add(provider.Batch{Source: src, Keys: []*mldsa87.Key{k}}, nil); err != nil {
+			t.Error(err)
+		}
+	}
+	rs, err := f.m.Import(bg, importReq(doc(gvr, entry(a.hex, []uint64{7})), a.qrlV1(t), []byte(password)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatuses(t, rs, Imported)
+	if e, _ := f.keys.Entry(a.pk.ID()); e == nil || e.Source != src || !f.status(t, a).Enabled || len(f.files(t)) != 0 ||
+		f.history(t, a) != "low 7 - -; b7" {
+		t.Fatalf("entry %+v, %+v, files %v, history %q", e, f.status(t, a), f.files(t), f.history(t, a))
+	}
+}
+
 // A key that is not loaded is disabled anyway: not_active when it has
 // history, not_found when it has none (a key the store never saw is
 // registered disabled). A read-only key is an error and stays enabled; a

@@ -570,7 +570,8 @@ golden fixture for each check.
     decryption, and the derived public key must equal the declared one. A `slashing_protection` that is not an
     EIP-3076 v5 interchange to its end, or names another GVR, is `400 BAD_FIELD` before any keystore is decrypted.
     Only the history of the imported keys is written; a key whose history fails is `error` and stays disabled. An
-    imported key is enabled, also when a delete had disabled it.
+    imported key is enabled, also when a delete or `consensus disable-validator` had disabled it, and a key that is
+    loaded but disabled is enabled and reported `imported` (a loaded, enabled key is `duplicate`).
   - `DELETE` persists `enabled=false` for every key it does not refuse, loaded or not (`deleted`, `not_active`,
     `not_found`); a read-only key is `error`. `slashing_protection` is an EIP-3076 v5 export of the disabled keys
     that always carries the GVR, or the empty string when the signer is bound to no GVR yet (and so holds no history).
@@ -649,6 +650,8 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
   - `DELETE /qrl/v1/keystores` disables keys that are not loaded too; its `slashing_protection` is the empty string
     when the signer is bound to no GVR yet.
   - The keymanager routes answer during the startup load, and a running load does not undo their changes.
+  - A `POST /qrl/v1/keystores` of a key that is loaded but disabled imports its history, enables it and reports
+    `imported`; `duplicate` is a key that is loaded and enabled.
   - A `DELETE /qrl/v1/keystores` body needs `Content-Type: application/json`, as a POST's does: 415
     `UNSUPPORTED_MEDIA_TYPE` otherwise, which the operation already lists.
 - Known gaps, to be closed by the next version (the signer already behaves this way at `1.0.0`):

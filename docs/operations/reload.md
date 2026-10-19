@@ -170,10 +170,11 @@ attestation again, for example one that has moved to another signer.
 
 A keymanager `DELETE` disables a key the same way, with the signer running
 ([`keymanager.md`](keymanager.md#4-deleting-keys)); these two are the only ways the signer ever writes
-`enabled=false` for a key. Two things enable a key again: importing it through the keymanager
-([`keymanager.md`](keymanager.md#3-importing-keys)), and an offline `consensus import` of a file whose element for the
-key imports cleanly ([`migration.md`](migration.md#2-import-the-history)), even when every record in it is already
-covered. So do not import the history of a key that has moved to another signer into this one.
+`enabled=false` for a key. Two things enable a key again: importing its keystore through the keymanager, whether the
+key is loaded or not ([`keymanager.md`](keymanager.md#3-importing-keys)), and an offline `consensus import` of a file
+whose element for the key imports cleanly ([`migration.md`](migration.md#2-import-the-history)), even when every
+record in it is already covered. So do not import the history of a key that has moved to another signer into this
+one.
 
 Removing a key's files only evicts it (section 3.1); it does not disable it.
 

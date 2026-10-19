@@ -51,6 +51,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -193,14 +194,17 @@ type opened struct {
 }
 
 // Import imports the keystores of req and returns one result per keystore,
-// in order: imported, duplicate (the key is loaded already, or an earlier
-// keystore of the request has it and was imported) or error. It fails as a
-// whole, before any keystore is opened, with ErrRequest or ErrInterchange.
+// in order: imported (the key was added, or it was loaded but disabled and
+// is now enabled), duplicate (the key is loaded and enabled already, or an
+// earlier keystore of the request has it and was imported) or error. It
+// fails as a whole, before any keystore is opened, with ErrRequest or
+// ErrInterchange.
 //
-// Only the history of the keys about to be added is imported, and their
-// enabled flag is left alone until their files are written; a key whose
+// Only the history of the keys about to be added or enabled is imported,
+// and their enabled flag is left alone until they are loaded; a key whose
 // history fails is disabled and reported as an error. A key is enabled, as
-// a key re-imported after a delete must be, once it is loaded.
+// a key re-imported after a delete or `consensus disable-validator` must
+// be, once it is loaded: the import proved that the caller holds it.
 func (m *Manager) Import(ctx context.Context, req ImportRequest) ([]Result, error) {
 	n := len(req.Keystores)
 	if n > MaxKeystores || len(req.Passwords) != n {
@@ -236,9 +240,9 @@ func (m *Manager) Import(ctx context.Context, req ImportRequest) ([]Result, erro
 	defer m.mu.Unlock()
 	// What follows commits; it runs to its end even when the client goes.
 	ctx = context.WithoutCancel(ctx)
-	first := map[provider.ID]int{} // the keystore each candidate key comes from
-	copyOf := map[int]int{}        // a later keystore of a candidate key, and its first
-	var candidates []int
+	first := map[provider.ID]int{} // the keystore each key the import adds or enables comes from
+	copyOf := map[int]int{}        // a later keystore of such a key, and its first
+	var candidates, reenable []int // keys to add, and loaded keys to enable
 	for i := range open {
 		o := &open[i]
 		if o.err != nil {
@@ -251,34 +255,48 @@ func (m *Manager) Import(ctx context.Context, req ImportRequest) ([]Result, erro
 			continue
 		}
 		if _, loaded := m.cfg.Keys.Entry(id); loaded {
-			results[i] = Result{Status: Duplicate}
+			pk := o.key.PublicKey()
+			var disabled bool
+			if results[i], disabled = m.loadedKey(ctx, &pk); disabled {
+				first[id] = i
+				reenable = append(reenable, i)
+			}
 			continue
 		}
 		first[id] = i
 		candidates = append(candidates, i)
 	}
 
-	if history && len(candidates) > 0 {
-		failed, err := m.importHistory(ctx, req.SlashingProtection, open, candidates)
-		kept := candidates[:0]
-		for _, i := range candidates {
-			pk := open[i].key.PublicKey()
-			switch herr, bad := failed[slashing.KeyID(pk.ID())]; {
-			case err != nil:
-				results[i] = Result{Status: Error, Message: "slashing_protection could not be imported; not imported"}
-			case bad:
-				results[i] = Result{Status: Error, Message: "its slashing-protection history could not be imported " +
-					"(" + herr.Error() + "); the key is disabled and not imported"}
-			default:
-				kept = append(kept, i)
-			}
-		}
+	if history && len(candidates)+len(reenable) > 0 {
+		failed, err := m.importHistory(ctx, req.SlashingProtection, open, slices.Concat(candidates, reenable))
 		if err != nil {
 			m.cfg.Log.WithError(err).Error("Keymanager import: the slashing-protection history could not be imported")
 		}
-		candidates = kept
+		keep := func(idxs []int, notDone, disabled string) []int {
+			kept := idxs[:0]
+			for _, i := range idxs {
+				pk := open[i].key.PublicKey()
+				switch herr, bad := failed[slashing.KeyID(pk.ID())]; {
+				case err != nil:
+					results[i] = Result{Status: Error, Message: "slashing_protection could not be imported; " + notDone}
+				case bad:
+					results[i] = Result{Status: Error, Message: "its slashing-protection history could not be imported " +
+						"(" + herr.Error() + "); " + disabled}
+				default:
+					kept = append(kept, i)
+				}
+			}
+			return kept
+		}
+		candidates = keep(candidates, "not imported", "the key is disabled and not imported")
+		reenable = keep(reenable, "the key stays disabled", "the key stays disabled")
 	}
-	m.commit(ctx, open, req, candidates, results)
+	raced := m.commit(ctx, open, req, candidates, results)
+	enable := make([]pending, 0, len(reenable)+len(raced))
+	for _, i := range reenable {
+		enable = append(enable, pending{i: i, pk: open[i].key.PublicKey()})
+	}
+	m.enable(ctx, append(enable, raced...), results)
 	for i, j := range copyOf {
 		if results[j].Status == Imported {
 			results[i] = Result{Status: Duplicate}
@@ -324,6 +342,51 @@ func (m *Manager) open(ctx context.Context, data, password []byte) opened {
 		return opened{err: err}
 	}
 	return opened{key: k, meta: provider.Meta{DerivationPath: ks.Path, Keystore: true}}
+}
+
+// loadedKey is the result of a keystore whose key is loaded already: a
+// duplicate, unless slashing protection holds the key disabled (a delete
+// while it was not loaded yet, or `consensus disable-validator`), which
+// the import then enables, as it does a key it adds. It reports whether
+// the key is disabled.
+func (m *Manager) loadedKey(ctx context.Context, pk *mldsa87.PublicKey) (Result, bool) {
+	st, err := m.cfg.Store.ValidatorStatus(ctx, slashing.KeyID(pk.ID()))
+	if err != nil {
+		m.cfg.Log.WithField("key", pk.LogID()).WithError(err).
+			Error("Keymanager import: the slashing-protection status of a loaded key could not be read")
+		return Result{Status: Error, Message: "the key is loaded, but its slashing-protection status could not be " +
+			"read"}, false
+	}
+	if !st.Registered || st.Enabled {
+		return Result{Status: Duplicate}, false
+	}
+	return Result{}, true
+}
+
+// enable enables loaded keys that are disabled, in one transaction, once
+// the history the request carries for them is imported, and sets their
+// results.
+func (m *Manager) enable(ctx context.Context, keys []pending, results []Result) {
+	if len(keys) == 0 {
+		return
+	}
+	ids := make([]slashing.KeyID, len(keys))
+	for n, p := range keys {
+		ids[n] = slashing.KeyID(p.pk.ID())
+	}
+	err := m.cfg.Store.UpdateHistory(ctx, ids, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
+		return tx.SetEnabled(true)
+	})
+	for _, p := range keys {
+		if err != nil {
+			m.cfg.Log.WithField("key", p.pk.LogID()).WithError(err).
+				Error("Keymanager import: a loaded key could not be enabled in slashing protection")
+			results[p.i] = Result{Status: Error, Message: "the key is loaded, but it could not be enabled in slashing " +
+				"protection; it stays disabled"}
+			continue
+		}
+		results[p.i] = Result{Status: Imported}
+	}
 }
 
 // boundRoot returns the root the store is pinned to, else the network's.
@@ -400,8 +463,11 @@ type pending struct {
 // fails a step is an error and leaves nothing: its files are removed, it is
 // evicted, and its enabled flag is as it was (a key the store did not know
 // is registered, enabled, which is how any load would register it, unless
-// the history step registered it disabled).
-func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, candidates []int, results []Result) {
+// the history step registered it disabled). It returns the keys that a
+// load brought in from another source meanwhile and that are disabled, for
+// the caller to enable.
+func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, candidates []int,
+	results []Result) (raced []pending) {
 	keys := make([]pending, len(candidates))
 	for n, i := range candidates {
 		pk := open[i].key.PublicKey()
@@ -437,13 +503,13 @@ func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, 
 		ok = append(ok, p)
 	}
 	if len(ok) == 0 {
-		return
+		return nil
 	}
 	if err := syncDir(m.cfg.Dir); err != nil {
 		for _, p := range ok {
 			fail(p, "the key's files could not be written", err)
 		}
-		return
+		return nil
 	}
 	if m.afterWrite != nil {
 		m.afterWrite()
@@ -457,7 +523,7 @@ func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, 
 		for _, p := range ok {
 			fail(p, "the key could not be registered in slashing protection", err)
 		}
-		return
+		return nil
 	}
 	var loaded []pending
 	for _, p := range ok {
@@ -473,7 +539,10 @@ func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, 
 						Error("Keymanager import: the files of a duplicate key could not be removed")
 				}
 				_, _ = m.cfg.Keys.Remove(p.files.source())
-				results[p.i] = Result{Status: Duplicate}
+				var disabled bool
+				if results[p.i], disabled = m.loadedKey(ctx, &p.pk); disabled {
+					raced = append(raced, p)
+				}
 				continue
 			}
 			// A load read the files just written and loaded the key from
@@ -487,7 +556,7 @@ func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, 
 		loaded = append(loaded, p)
 	}
 	if len(loaded) == 0 {
-		return
+		return raced
 	}
 	ids := make([]slashing.KeyID, len(loaded))
 	for n, p := range loaded {
@@ -503,6 +572,7 @@ func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, 
 		}
 		results[p.i] = Result{Status: Imported}
 	}
+	return raced
 }
 
 func (m *Manager) logImport(open []opened, results []Result) {

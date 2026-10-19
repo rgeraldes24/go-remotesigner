@@ -68,8 +68,8 @@ every route. The response has one result per keystore, in request order:
 
 | `status` | Meaning |
 |---|---|
-| `imported` | The key is loaded and enabled, and its files are in `--key-config-path` |
-| `duplicate` | The key is loaded already, or an earlier keystore of the request has it and was imported |
+| `imported` | The key is loaded and enabled: the import wrote its files to `--key-config-path` and loaded it, or the key was loaded already but disabled in slashing protection, and the import enabled it (step 4) |
+| `duplicate` | The key is loaded and enabled already, or an earlier keystore of the request has it and was imported |
 | `error` | The keystore was not imported; `message` says why. Nothing of it is left: no file, no loaded key |
 
 Each keystore goes through these steps, in order; a step that fails makes it an `error`:
@@ -85,20 +85,23 @@ Each keystore goes through these steps, in order; a step that fails makes it an 
    and every reload, so an import never holds more Argon2id memory than they may. The public key the seed derives
    must equal the declared one: a keystore that declares another key's pubkey (someone else's validator) is an
    `error`, and nothing is written for either key.
-4. **Duplicates.** A key that is loaded already is a `duplicate`. Of two keystores of one key in a request, the first
-   that opens is imported and a later one is a `duplicate`; if the first fails after it opened, the later ones are an
-   `error` naming it.
+4. **Duplicates.** A key that is loaded and enabled already is a `duplicate`, and nothing changes for it, its history
+   included. A key that is loaded but disabled goes on to step 5 and is enabled at step 7, without any file written
+   or changed: a key that `consensus disable-validator` disabled (its files stay, so it loads again after the
+   restart), and one that a `DELETE` disabled before a load brought it in, from any source (the startup load still
+   running, for example). Of two keystores of one key in a request, the first that opens is imported and a later one
+   is a `duplicate`; if the first fails after it opened, the later ones are an `error` naming it.
 5. **History.** When the request carries `slashing_protection` and slashing protection is enabled, the history of the
-   keys about to be imported is imported, and nothing of any other key in the file: no record, no registration. The
-   whole file is read before any keystore is decrypted: a file that is not EIP-3076 version 5 to its end, or that names
-   a genesis validators root other than the signer's, refuses the request with `400 BAD_FIELD` and nothing is
-   written. A data element of an imported key that fails (an invalid record, a watermark beyond the high watermark)
-   makes that key an `error`; the key is disabled in slashing protection and not loaded. The import leaves the
-   enabled flag of the other keys alone at this step. A store not bound to a network yet is bound to the file's
-   root. With slashing protection disabled the history is ignored, with a WARN.
-6. **Files.** Three files are written in `--key-config-path`, named by the hex SHA-256 of the public key (a public key
-   in hex is longer than a file name may be): `<sha256>.password` (the password as given), `<sha256>.json` (the
-   keystore as given) and `<sha256>.yaml`:
+   keys about to be imported or enabled is imported, and nothing of any other key in the file: no record, no
+   registration. The whole file is read before any keystore is decrypted: a file that is not EIP-3076 version 5 to
+   its end, or that names a genesis validators root other than the signer's, refuses the request with `400
+   BAD_FIELD` and nothing is written. A data element of such a key that fails (an invalid record, a watermark beyond
+   the high watermark) makes that key an `error`; the key is disabled in slashing protection, and not loaded when it
+   was not. The import leaves the enabled flag of the other keys alone at this step. A store not bound to a network
+   yet is bound to the file's root. With slashing protection disabled the history is ignored, with a WARN.
+6. **Files.** For a key that is not loaded, three files are written in `--key-config-path`, named by the hex SHA-256
+   of the public key (a public key in hex is longer than a file name may be): `<sha256>.password` (the password as
+   given), `<sha256>.json` (the keystore as given) and `<sha256>.yaml`:
 
    ```yaml
    type: file-keystore
@@ -111,10 +114,12 @@ Each keystore goes through these steps, in order; a step that fails makes it an 
    file last: a file or a symlink found at the name is replaced, never written through, and a load never sees half a
    file or a key-config file without its keystore.
 7. **Load and enable.** The keys of the request are registered in slashing protection, loaded from their files and
-   then enabled: a key that a delete (or `consensus disable-validator`) disabled is enabled again by its import. If
-   this step fails for a key, its files are removed, it is evicted and its enabled flag is left as it was: a key the
-   store did not know stays registered, enabled, as any load of it would register it, unless step 5 wrote its
-   history, which registers a new key disabled.
+   then enabled, together with the loaded keys that step 4 found disabled: a key that a delete or `consensus
+   disable-validator` disabled is enabled again by its import, whether it is loaded or not, since the import proved
+   that the caller holds it. If this step fails for a key, its files are removed, it is evicted and its enabled flag
+   is left as it was: a key the store did not know stays registered, enabled, as any load of it would register it,
+   unless step 5 wrote its history, which registers a new key disabled. A loaded key that cannot be enabled stays
+   loaded and disabled.
 
 An import that fails after step 5 leaves the history it wrote (history only adds protection), but it never enables a
 key that was disabled; a key new to the store whose history it wrote stays registered disabled until an import of it
@@ -146,8 +151,8 @@ For each key the signer first persists `enabled=false`, so that from then on it 
 attestations and new RANDAO layers with `412 VALIDATOR_DISABLED`, then removes the files and evicts the key. A key
 that is not loaded is disabled too, so that a load that brings it in later, from any source, cannot make it sign:
 the startup load still running, a reload of a source that had failed to load, or the key's file put back. Only an
-import (section 3), or a clean offline `consensus import` of its history
-([`migration.md`](migration.md#2-import-the-history)), enables a key again.
+import of its keystore (section 3), whether the key is loaded by then or not, or a clean offline `consensus import` of
+its history ([`migration.md`](migration.md#2-import-the-history)), enables a key again.
 
 `slashing_protection` is an EIP-3076 version 5 interchange of every key the delete disabled that has history: the same
 document `consensus export --keys=<the keys>` writes, from one consistent read after the keys were disabled, so no
@@ -192,5 +197,5 @@ written.
 | [X16](../../DEVIATIONS.md) | Only the imported keys' history is written; a key whose history fails is an `error` and stays disabled; a file that cannot be read refuses the request before any keystore is opened; the export always names the network |
 | [X29](../../DEVIATIONS.md) | `enabled=false` is written only by a delete or `consensus disable-validator`, never by a reload |
 | [X68](../../DEVIATIONS.md) | `--key-config-path` required, `0700` directory, routes served during the startup load |
-| [X69](../../DEVIATIONS.md) | Import: at most 64 keystores, the keystore must declare its pubkey, password rules, keys enabled once their files are written |
+| [X69](../../DEVIATIONS.md) | Import: at most 64 keystores, the keystore must declare its pubkey, password rules, keys enabled once their files are written, a loaded key that is disabled is enabled |
 | [X70](../../DEVIATIONS.md) | Delete: keys that are not loaded are disabled too; only keymanager-written keys can be deleted; disabled before evicted |
