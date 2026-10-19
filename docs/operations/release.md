@@ -97,8 +97,9 @@ make release-check
   checks, and has `/data` owned by the nonroot user with mode `0700`;
 - the images of this machine's architecture, one per flavour, pass the Docker smoke test
   ([`deploy-docker.md`](deploy-docker.md#8-building-the-image)): run hardened, with a read-only root file system and
-  no capabilities, they serve TLS as the nonroot user to a client container that pins the generated certificate,
-  and refuse to start without a certificate, a host allowlist or a network.
+  no capabilities, as the Docker guide runs them, they check and load a keystore, serve TLS as the nonroot user to a
+  client container that pins the generated certificate, migrate a stopped signer's data volume, and refuse to start
+  without a certificate, a host allowlist or a network.
 
 `make docker-smoke` runs the same smoke test on an image `make image` builds, and `make systemd-smoke` checks the
 systemd unit ([`deploy-systemd.md`](deploy-systemd.md#7-what-the-unit-restricts)).

@@ -194,7 +194,7 @@ A non-loopback `--http-listen-host` refuses to start (exit code 1) when:
 | `--http-auth-mode=token` over plaintext HTTP | configure TLS (section 1); `--Xallow-plaintext-token-auth` accepts the risk instead and is never set by the shipped image |
 | `--http-host-allowlist` with loopback names only | add the names clients use |
 | `--slashing-protection-enabled=false` | none: protection can be disabled only when every listener is loopback |
-| GVR to be pinned on first use, genesis time unknown | pass them, or the matching `--Xallow-…` flag ([`quickstart.md`](quickstart.md#10-listening-beyond-loopback)) |
+| GVR to be pinned on first use, genesis time unknown | pass them, or accept the risk with the matching `--Xallow-…` flag ([`../reference/flags.md`](../reference/flags.md#what-each-override-accepts)) |
 | a non-loopback metrics listener with a loopback-only `--metrics-host-allowlist` | add the name Prometheus scrapes with |
 
 TLS lifts only the plaintext-token refusal; every other one still applies. All applicable refusals are reported

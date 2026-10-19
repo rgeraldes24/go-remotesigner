@@ -56,23 +56,31 @@ A key-config file with a seed, and a password file, that its group or other user
 (`--strict-file-permissions`, [`reload.md`](reload.md#secret-files)). Back up `/var/lib/remotesigner`; losing
 `slashing-protection.db` loses the slashing-protection history.
 
-**Keystores instead of seeds.** For keystores from the deposit CLI or qrysm's `validator accounts backup`, put the
-`keystore-*.json` files (and only them) in a directory such as `/var/lib/remotesigner/keystores/`, the password they
-were created with in a file such as `/var/lib/remotesigner/keystores-password.txt` (owner `remotesigner`, mode
-`0600`), and add to the `consensus:` section of the configuration:
+**Keystores instead of seeds.** Keystores from the deposit CLI or qrysm's `validator accounts backup` go into a
+keystore directory of their own (copy the `keystore-*.json` files, and only them: every `*.json` file there is
+loaded), with the password they were created with in a file next to it:
+
+```
+sudo install -d -m 0700 -o remotesigner -g remotesigner /var/lib/remotesigner/keystores
+sudo install -m 0600 -o remotesigner -g remotesigner validator_keys/keystore-*.json /var/lib/remotesigner/keystores/
+sudo install -m 0600 -o remotesigner -g remotesigner keystores-password.txt /var/lib/remotesigner/
+sudo -u remotesigner remotesigner consensus keystore verify --keystores-path=/var/lib/remotesigner/keystores \
+  --keystores-password-file=/var/lib/remotesigner/keystores-password.txt
+```
+
+The last command decrypts every keystore as the signer will and prints each key's identifier
+([`keystores.md`](keystores.md#4-checking-keystores)). Then add the directory to the `consensus:` section of the
+configuration (section 3):
 
 ```yaml
   keystores-path: /var/lib/remotesigner/keystores
   keystores-password-file: /var/lib/remotesigner/keystores-password.txt
 ```
 
-Check them first with `sudo -u remotesigner remotesigner consensus keystore verify --keystores-path
-/var/lib/remotesigner/keystores --keystores-password-file /var/lib/remotesigner/keystores-password.txt`
-([`keystores.md`](keystores.md#4-checking-keystores)). A key-config file can also name one keystore and its password
-file (`type: file-keystore`, [`reload.md`](reload.md#1-key-sources)). Decrypting a standard-KDF keystore takes about
-1.5 s of one core and up to 512 MiB; the signer runs as many at once as the memory limit allows, which is half of the
-RAM unless the unit sets one (`MemoryMax=` in a drop-in, section 6;
-[`reload.md`](reload.md#6-memory-for-keystore-decryption)).
+A key-config file can also name one keystore and its password file (`type: file-keystore`,
+[`reload.md`](reload.md#1-key-sources)). Decrypting a standard-KDF keystore takes about 1.5 s of one core and up to
+512 MiB; the signer runs as many at once as the memory limit allows, which is half of the RAM unless the unit sets
+one (`MemoryMax=` in a drop-in, section 6; [`reload.md`](reload.md#6-memory-for-keystore-decryption)).
 
 ## 3. Configuration
 
@@ -83,7 +91,10 @@ sudo install -m 0644 deploy/config/single-host.yaml /etc/remotesigner/remotesign
 sudo install -m 0644 config.yaml /etc/remotesigner/network.yaml
 ```
 
-Edit `/etc/remotesigner/remotesigner.yaml` before the first start:
+`config.yaml` is the chain's qrysm-format config file, which the network publishes with its genesis time and genesis
+validators root. Only Testnet V3 and test networks of the same stack are supported
+([`requirements.md`](requirements.md#1-testnet-v3-only-testnet-v2-is-unsupported)). Edit
+`/etc/remotesigner/remotesigner.yaml` before the first start:
 
 | Key | Set it to |
 |---|---|

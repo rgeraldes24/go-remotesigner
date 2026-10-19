@@ -202,7 +202,9 @@ The defaults bind `127.0.0.1`. A non-loopback `--http-listen-host` turns on fail
 | genesis time unknown | pass `--network-genesis-time` or `--network-genesis-state` (or `--Xallow-unknown-genesis-time`) |
 | a non-loopback `--metrics-host` with a `--metrics-host-allowlist` of loopback names only | add the name Prometheus scrapes with |
 
-Requests are also refused whatever the listener: any `Origin` header (403), a `Host` outside the allowlist (403), a
+Each `--X…` override, the risk it accepts and what to configure instead, is explained in
+[`../reference/flags.md`](../reference/flags.md#what-each-override-accepts). Requests are also refused whatever the
+listener: any `Origin` header (403), a `Host` outside the allowlist (403), a
 POST (or keymanager `DELETE`) that is not `application/json` (415), and bodies over the route limit (413). At most
 `--http-max-connections` (1,024) connections are open at once; further ones wait.
 

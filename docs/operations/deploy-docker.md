@@ -92,7 +92,12 @@ chmod 0700 keys keys/keystores && chmod 0600 keys/password.txt keys/keystores/*
 sudo chown -R 65532:65532 keys
 ```
 
-Check them with the image before the first start; it decrypts every keystore as the signer will and prints each
+**The chain.** The signer needs the chain's qrysm-format config file, its genesis time and its genesis validators
+root, which the network publishes; its `genesis.ssz` gives the last two (`--network-genesis-state=/network/genesis.ssz`
+in place of the two flags). Only Testnet V3 and test networks of the same stack are supported
+([`requirements.md`](requirements.md#1-testnet-v3-only-testnet-v2-is-unsupported)).
+
+Check the keys with the image before the first start; it decrypts every keystore as the signer will and prints each
 key's identifier ([`keystores.md`](keystores.md#4-checking-keystores)):
 
 ```
@@ -130,8 +135,8 @@ docker logs -f signer
 ```
 
 `make docker-smoke` runs this command, with the same mounts, flags and key layout, on every pull request (section 8).
-`/upcheck` answers `503` while the keys load, then `200 OK`; the log says when each source has loaded
-(`Keys loaded`). Publish the API port (`-p 9000:9000`) only if validator clients outside Docker connect to it, and
+`/upcheck` answers `503` while the keys load, then `200 OK`; the log line `Keys loaded` then reports the keys loaded
+(`loaded=`) and the sources that failed (`errors=`), each failure logged at ERROR before it. Publish the API port (`-p 9000:9000`) only if validator clients outside Docker connect to it, and
 then add the name or address they use to `--http-host-allowlist`.
 
 **With the keymanager API** (`--key-manager-api-enabled`, [`keymanager.md`](keymanager.md)), the signer writes the
