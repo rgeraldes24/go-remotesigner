@@ -486,6 +486,29 @@ func TestImportFailureRollsBack(t *testing.T) {
 			t.Fatalf("%s failed: loaded %v, %+v, files %v", step.name, f.loaded(a), f.status(t, a), f.files(t))
 		}
 	}
+
+	// A key the store did not know: without history, a failed enable
+	// leaves it registered and enabled, as any load would register it;
+	// with history, the history step registered it disabled, and it stays
+	// so.
+	fs.failRegister, fs.failEnable = false, true
+	for _, c := range []struct {
+		key     testKey
+		history bool
+	}{{newKey(t, "rollback", 1), false}, {newKey(t, "rollback", 2), true}} {
+		h := ""
+		if c.history {
+			h = doc(gvr, entry(c.key.hex, []uint64{40}))
+		}
+		rs, err := f.m.Import(bg, importReq(h, c.key.qrlV1(t), []byte(password)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantStatuses(t, rs, Error)
+		if st := f.status(t, c.key); f.loaded(c.key) || !st.Registered || st.Enabled == c.history || len(f.files(t)) != 0 {
+			t.Fatalf("new key, history %v: loaded %v, %+v, files %v", c.history, f.loaded(c.key), st, f.files(t))
+		}
+	}
 }
 
 // A password with trailing line breaks opens the keystore as the password

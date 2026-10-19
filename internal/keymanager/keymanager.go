@@ -398,7 +398,8 @@ type pending struct {
 // enables them all in one transaction, and sets their results. A key that
 // fails a step is an error and leaves nothing: its files are removed, it is
 // evicted, and its enabled flag is as it was (a key the store did not know
-// is registered, enabled, which is how any load would register it).
+// is registered, enabled, which is how any load would register it, unless
+// the history step registered it disabled).
 func (m *Manager) commit(ctx context.Context, open []opened, req ImportRequest, candidates []int, results []Result) {
 	keys := make([]pending, len(candidates))
 	for n, i := range candidates {

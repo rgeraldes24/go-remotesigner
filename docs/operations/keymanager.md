@@ -111,11 +111,13 @@ Each keystore goes through these steps, in order; a step that fails makes it an 
    file or a key-config file without its keystore.
 7. **Load and enable.** The keys of the request are registered in slashing protection, loaded from their files and
    then enabled: a key that a delete (or `consensus disable-validator`) disabled is enabled again by its import. If
-   this step fails for a key, its files are removed, it is evicted and its enabled flag is left as it was (a key the
-   store did not know stays registered, enabled, as any load of it would register it).
+   this step fails for a key, its files are removed, it is evicted and its enabled flag is left as it was: a key the
+   store did not know stays registered, enabled, as any load of it would register it, unless step 5 wrote its
+   history, which registers a new key disabled.
 
 An import that fails after step 5 leaves the history it wrote (history only adds protection), but it never enables a
-key that was disabled. The first reload after an import decrypts each imported key once more: files that were written
+key that was disabled; a key new to the store whose history it wrote stays registered disabled until an import of it
+succeeds. The first reload after an import decrypts each imported key once more: files that were written
 less than two seconds before a load starts are always read again (see [`reload.md`](reload.md)); later reloads keep
 it without decrypting.
 
