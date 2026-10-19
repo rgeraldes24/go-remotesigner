@@ -125,6 +125,30 @@ func decodeRequest(data []byte) (*Request, *Error) {
 	return req, nil
 }
 
+// wireRequest is a request as the signer forwards it to the node: the
+// members the signer decoded, under their exact names, and nothing else.
+// The node never sees the client's bytes. gqrl decodes a request into a
+// struct with encoding/json, which also matches member names in another
+// case ("METHOD"), the last one winning, while the allowlist checks the
+// "method" member alone: a forwarded copy of the client's bytes could run a
+// method the allowlist never saw.
+type wireRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"` // absent for a notification
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+// wire returns the request as it is forwarded, with id in place of the
+// client's id; a notification stays one whatever id is.
+func (r *Request) wire(id json.RawMessage) wireRequest {
+	w := wireRequest{JSONRPC: Version, Method: r.Method, Params: r.Params}
+	if !r.Notification() {
+		w.ID = id
+	}
+	return w
+}
+
 // validID reports whether a raw id is a string, a number or null.
 func validID(id json.RawMessage) bool {
 	if len(id) == 0 {

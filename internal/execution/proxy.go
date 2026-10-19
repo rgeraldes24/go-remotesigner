@@ -30,6 +30,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -142,10 +143,17 @@ func (b *cappedBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// forward proxies one request whose body has been read and decoded. The
+// forward proxies one decoded request. The node gets the signer's encoding
+// of it (wireRequest), with the client's id, not the client's body. The
 // rewritten request carries no Upgrade header, so ReverseProxy refuses a
 // 101 from the node instead of opening a tunnel past the method allowlist.
-func (p *proxy) forward(w http.ResponseWriter, r *http.Request, req *Request, body []byte) {
+func (p *proxy) forward(w http.ResponseWriter, r *http.Request, req *Request) {
+	body, err := json.Marshal(req.wire(req.ID))
+	if err != nil {
+		p.log.WithError(err).Error("Encoding a forwarded request failed")
+		writeResponse(w, http.StatusInternalServerError, encodeResult(req.responseID(), nil, ErrInternal))
+		return
+	}
 	r = r.WithContext(context.WithValue(r.Context(), requestKey{}, req))
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))

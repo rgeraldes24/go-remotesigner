@@ -113,7 +113,7 @@ func (h *Handler) serveSingle(w http.ResponseWriter, r *http.Request, body []byt
 	case !h.allow.Allows(req.Method):
 		writeResponse(w, http.StatusOK, encodeResult(req.ID, nil, ErrMethodNotFound))
 	default:
-		h.proxy.forward(w, r, req, body)
+		h.proxy.forward(w, r, req)
 	}
 }
 
@@ -207,28 +207,17 @@ func (h *Handler) methodOf(req *Request) method {
 	return h.table[req.Method]
 }
 
-// outRequest is a request as the signer forwards it in a batch.
-type outRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      *int            `json:"id,omitempty"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-
 // forwardBatch sends the forwarded requests to the node as one batch and
-// puts each response in its request's slot. Each forwarded request carries
-// its position in the client's batch as its id, so that the responses are
-// matched whatever ids the client chose (they may repeat, or be null); the
-// client's id is put back into each response. Notifications stay
-// notifications. A request the node does not answer gets an error.
+// puts each response in its request's slot. Each forwarded request is the
+// signer's own encoding (wireRequest) and carries its position in the
+// client's batch as its id, so that the responses are matched whatever ids
+// the client chose (they may repeat, or be null); the client's id is put
+// back into each response. Notifications stay notifications. A request the
+// node does not answer gets an error.
 func (h *Handler) forwardBatch(r *http.Request, slots []slot, forwarded []int) {
-	out := make([]outRequest, len(forwarded))
+	out := make([]wireRequest, len(forwarded))
 	for k, i := range forwarded {
-		req := slots[i].req
-		out[k] = outRequest{JSONRPC: Version, Method: req.Method, Params: req.Params}
-		if !req.Notification() {
-			out[k].ID = &forwarded[k]
-		}
+		out[k] = slots[i].req.wire(json.RawMessage(strconv.Itoa(i)))
 	}
 	fail := func(e *Error) {
 		for _, i := range forwarded {
