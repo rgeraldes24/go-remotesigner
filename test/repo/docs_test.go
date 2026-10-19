@@ -4,10 +4,16 @@
 package repo
 
 import (
+	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 )
 
 // operatorPages are the pages of the operator documentation, each with the
@@ -32,7 +38,8 @@ var operatorPages = []struct {
 		"## 5. Rotating tokens and certificates with SIGHUP"}},
 	{"docs/operations/keystores.md", []string{"## 1. Formats", "## 3. Password files", "## 4. Checking keystores"}},
 	{"docs/operations/reload.md", []string{"## 1. Key sources", "## 3. Reload", "## 5. Disabling a validator",
-		"### 5.1 Enabling a key again", "## 6. Memory for keystore decryption", "60 KiB"}},
+		"### 5.1 Enabling a key again", "## 6. Memory for keystore decryption", "60 KiB",
+		"**Large fleets.**"}},
 	{"docs/operations/keymanager.md", []string{"## 3. Importing keys", "## 4. Deleting keys"}},
 	{"docs/operations/migration.md", []string{"## 2. Import the history", "## 3. Fence the store with a high watermark",
 		"## 7. Exporting and moving back", "Why a source below the repaired epoch is safe"}},
@@ -88,5 +95,39 @@ func TestOperatorDocs(t *testing.T) {
 			strings.HasSuffix(f.path, ".md") && !slices.Contains(listed, f.path) {
 			t.Errorf("%s is not in the operator documentation list (and maybe not in the README)", f.path)
 		}
+	}
+}
+
+// The upgrade notes name the schema version this release reads and writes,
+// and quote the startup refusals as the store reports them, so that a
+// release that changes the schema, or its messages, changes the notes too.
+func TestUpgradeNotesSchema(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(root, "docs/operations/upgrade.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Lines wrap anywhere in the prose.
+	doc := strings.Join(strings.Fields(string(data)), " ")
+	v := slashing.SchemaVersion
+	for _, want := range []string{
+		fmt.Sprintf("This release uses version %d,", v),
+		fmt.Sprintf("is already at schema version %d; nothing to do", v),
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("upgrade.md does not say %q", want)
+		}
+	}
+	// Distinct numbers stand for the placeholders <n> (the store's version)
+	// and <m> (the release's).
+	const stored, expected, newer = 7001, 7002, 7003
+	placeholders := strings.NewReplacer(strconv.Itoa(stored), "<n>", strconv.Itoa(expected), "<m>")
+	older := placeholders.Replace((&slashing.SchemaError{Stored: stored, Expected: expected}).Error())
+	if !strings.Contains(doc, "`"+older+"`") {
+		t.Errorf("upgrade.md does not quote the refusal of an older store, %q", older)
+	}
+	msg := placeholders.Replace((&slashing.SchemaError{Stored: newer, Expected: expected}).Error())
+	_, tail, ok := strings.Cut(msg, ", written by")
+	if !ok || !strings.Contains(doc, "`… written by"+tail+"`") {
+		t.Errorf("upgrade.md does not quote the refusal of a newer store, %q", msg)
 	}
 }
