@@ -68,7 +68,8 @@ The service account needs `roles/secretmanager.secretAccessor` on the secrets, a
 `secretmanager.secrets.list` on the project (for example `roles/secretmanager.viewer`).
 
 The SDK's logger is replaced by one that discards everything, so `GOOGLE_SDK_GO_LOGGING_LEVEL=debug`, which would
-otherwise log request and response payloads, has no effect (X81).
+otherwise log request and response payloads, has no effect, and so is gRPC's, which `GRPC_GO_LOG_SEVERITY_LEVEL`
+would otherwise turn on (X81).
 
 ## 5. Requests and limits
 

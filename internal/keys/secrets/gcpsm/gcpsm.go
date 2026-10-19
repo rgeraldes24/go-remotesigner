@@ -30,7 +30,9 @@
 // metadata server's service account on GCE, GKE and Cloud Run. Each call
 // is bounded by secrets.DefaultTimeout, retries included, and each message
 // by secrets.MaxResponseSize. The SDK's logger is replaced by one that
-// discards, so GOOGLE_SDK_GO_LOGGING_LEVEL cannot make it log payloads.
+// discards, so GOOGLE_SDK_GO_LOGGING_LEVEL cannot make it log payloads, and
+// so is gRPC's, so GRPC_GO_LOG_SEVERITY_LEVEL cannot make it write to
+// stderr.
 //
 // An endpoint override of the form http://host:port is an emulator or a
 // test fake: it is reached without TLS and without credentials. Any other
@@ -42,6 +44,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 
@@ -53,11 +56,18 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/status"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
 )
+
+func init() {
+	// gRPC writes to stderr when GRPC_GO_LOG_SEVERITY_LEVEL is set; the
+	// signer's own log is the only output.
+	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
+}
 
 // maxClients is the number of SDK clients a Client keeps, one per
 // endpoint.
