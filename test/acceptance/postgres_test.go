@@ -116,19 +116,25 @@ func metricValue(t *testing.T, text, sample string) float64 {
 // Two replicas on one database alternate proposals for one key over 20 slots: each slot's reveal request goes to
 // both at once, the slot's leader first. Every request is answered 200 with the same reveal from both replicas, so
 // no layer is released twice: per slot one replica moves the frontier and the other re-reveals that layer, and
-// across the 20 slots the frontier moves 20 times, to 20 distinct layers, with no 412 or 429. Each replica has its
-// own new-layer bucket, so their burst covers the moves each makes.
+// across the 20 slots the frontier moves 20 times, to 20 distinct layers, with no 412 or 429. Then each of 10 more
+// slots goes to one replica only, the two in turn: every one moves the frontier, although the next layer a replica
+// precomputed after its own last move is stale by then, because the other replica moved the frontier since. Each
+// replica has its own new-layer bucket, so their burst covers the moves each makes.
 func TestPostgresReplicasAlternateProposals(t *testing.T) {
 	db := migratedDB(t)
 	keysDir := t.TempDir()
 	keys := writeInteropKeys(t, keysDir)
 	k := keys[0]
+	const (
+		slots     = 20 // served by both replicas
+		alternate = 10 // served by one replica each, in turn
+	)
 	replicas := make([]*signer, 2)
 	for i := range replicas {
 		replicas[i] = start(t, options{keys: keysDir,
 			global: []string{"--metrics-enabled", "--metrics-port=0"},
-			consensus: append(pgFlags(t, db), "--signing-clock-skew-slots=25", "--randao-new-layer-burst=20",
-				"--randao-full-scan-min-interval=1ms")})
+			consensus: append(pgFlags(t, db), "--signing-clock-skew-slots="+strconv.Itoa(slots+alternate+2),
+				"--randao-new-layer-burst="+strconv.Itoa(slots+alternate+2), "--randao-full-scan-min-interval=1ms")})
 		replicas[i].waitReady()
 	}
 	tokens := []string{replicas[0].signToken(), replicas[1].signToken()}
@@ -141,16 +147,19 @@ func TestPostgresReplicasAlternateProposals(t *testing.T) {
 		}
 	}
 
-	const slots = 20
 	first := currentSlot()
 	commitment := k.RandaoCommitment
 	released := map[string]bool{}
-	for i := range slots {
+	for i := range slots + alternate {
 		slot := first + uint64(i)
 		leader := i % 2
-		results := make(chan revealResult, 2)
+		serving := []int{leader, 1 - leader}
+		if i >= slots {
+			serving = serving[:1]
+		}
+		results := make(chan revealResult, len(serving))
 		var wg sync.WaitGroup
-		for _, r := range []int{leader, 1 - leader} {
+		for _, r := range serving {
 			wg.Go(func() {
 				code, body, err := revealRaw(replicas[r], tokens[r], k.Pubkey, slot, commitment, forkInfo)
 				results <- revealResult{replica: r, code: code, body: body, err: err}
@@ -172,7 +181,7 @@ func TestPostgresReplicasAlternateProposals(t *testing.T) {
 			}
 			reveals = append(reveals, out.Reveal)
 		}
-		if reveals[0] != reveals[1] {
+		if len(reveals) == 2 && reveals[0] != reveals[1] {
 			t.Fatalf("slot %d: the replicas released %s and %s", slot, reveals[0], reveals[1])
 		}
 		if released[reveals[0]] {
@@ -216,8 +225,9 @@ func TestPostgresReplicasAlternateProposals(t *testing.T) {
 		t.Logf("replica %d moved the frontier %v times and re-revealed %v layers", i, n, re)
 		moves, reReveals = moves+n, reReveals+re
 	}
-	if moves != slots || reReveals != slots {
-		t.Errorf("%v frontier moves and %v re-reveals across the replicas, want %d and %d", moves, reReveals, slots, slots)
+	if moves != slots+alternate || reReveals != slots {
+		t.Errorf("%v frontier moves and %v re-reveals across the replicas, want %d and %d", moves, reReveals,
+			slots+alternate, slots)
 	}
 	var index, last int64
 	conn := db.Connect(t)
@@ -225,8 +235,8 @@ func TestPostgresReplicasAlternateProposals(t *testing.T) {
 		Scan(&index, &last); err != nil {
 		t.Fatal(err)
 	}
-	if uint64(index) != onion.DefaultLength-slots || uint64(last) != first+slots-1 {
-		t.Errorf("stored frontier m=%d last=%d, want m=%d last=%d", index, last, onion.DefaultLength-slots, first+slots-1)
+	if want := onion.DefaultLength - slots - alternate; uint64(index) != want || uint64(last) != first+slots+alternate-1 {
+		t.Errorf("stored frontier m=%d last=%d, want m=%d last=%d", index, last, want, first+slots+alternate-1)
 	}
 }
 
