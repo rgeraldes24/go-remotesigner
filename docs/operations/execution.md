@@ -13,8 +13,10 @@ This release answers `qrl_accounts`, `qrl_sign` and `health_status`. Transaction
 
 Execution mode is a process of its own, never a part of the consensus signer: one process serves one mode. Only the
 default flavour, `remotesigner`, has the `execution` command. The consensus-only flavour, `remotesigner-consensus`
-(built with `-tags noexecution`), has no execution code at all and refuses the command and an `execution:` section
-in its config file ([`release.md`](release.md)).
+(built with `-tags noexecution`), has no `execution` command, JSON-RPC endpoint or proxy (its build leaves out
+`internal/execution`) and links no go-qrl; it refuses the command and an `execution:` section in its config file
+([`release.md`](release.md)). The account-key parsing that execution mode shares with the key loaders is built into
+both flavours.
 
 The two modes share the global flags. To run both on one host, give each its own `--data-path` (tokens, the ports
 file) and `--http-listen-port`, and its own key directories.
