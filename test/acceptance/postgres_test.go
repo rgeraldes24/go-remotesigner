@@ -238,6 +238,30 @@ func TestPostgresReplicasAlternateProposals(t *testing.T) {
 	if want := onion.DefaultLength - slots - alternate; uint64(index) != want || uint64(last) != first+slots+alternate-1 {
 		t.Errorf("stored frontier m=%d last=%d, want m=%d last=%d", index, last, want, first+slots+alternate-1)
 	}
+
+	// consensus randao-state reset runs online: the key's row is gone, and its next reveal on a replica is a first use
+	// of the commitment it is sent, one layer below it.
+	code, out := runOffline(t, append([]string{"consensus", "randao-state", "reset", "--key=" + k.Pubkey}, pgFlags(t, db)...)...)
+	if code != 0 || !strings.Contains(out, "its next reveal is a first use") {
+		t.Fatalf("randao-state reset online: exit %d %s", code, out)
+	}
+	var rows int
+	if err := conn.QueryRow(context.Background(), `SELECT count(*) FROM randao_reveal_state`).Scan(&rows); err != nil ||
+		rows != 0 {
+		t.Fatalf("%d frontier rows after the reset (%v), want 0", rows, err)
+	}
+	slot := first + slots + alternate
+	code, body, err := revealRaw(replicas[1], tokens[1], k.Pubkey, slot, commitment, forkInfo)
+	if err != nil || code != 200 {
+		t.Fatalf("reveal after the reset: %d %s %v", code, body, err)
+	}
+	if err := conn.QueryRow(context.Background(), `SELECT deepest_index, last_new_slot FROM randao_reveal_state`).
+		Scan(&index, &last); err != nil {
+		t.Fatal(err)
+	}
+	if want := onion.DefaultLength - slots - alternate - 1; uint64(index) != want || uint64(last) != slot {
+		t.Errorf("frontier after the reset m=%d last=%d, want m=%d last=%d", index, last, want, slot)
+	}
 }
 
 // attestationAt is the golden attestation with its source and target epochs moved to source and target and no
@@ -375,5 +399,76 @@ func TestPostgresDisableValidatorOnline(t *testing.T) {
 	code, out = runOffline(t, append([]string{"consensus", "export", "--to=" + file}, pgFlags(t, db)...)...)
 	if code != 0 || !strings.Contains(out, "exported 3 validator(s), 0 block(s) and 3 attestation(s)") {
 		t.Fatalf("export online: exit %d %s", code, out)
+	}
+}
+
+// The history commands run online against the database two replicas sign from (docs/operations/postgres.md,
+// section 6), and both replicas apply what each command wrote from their next request, without a restart: consensus
+// import of qrysm's export, the high watermark set and removed, and the low-watermark repair.
+func TestPostgresStoreCommandsOnline(t *testing.T) {
+	file, gvr := qrysmExport(t)
+	db := migratedDB(t)
+	keysDir := t.TempDir()
+	keys := writeInteropKeys(t, keysDir)
+	store := pgFlags(t, db)
+	opts := options{keys: keysDir, noNetwork: true,
+		consensus: append([]string{"--network=end-to-end-mainnet", "--network-genesis-validators-root=" + gvr}, store...)}
+	replicas := []*signer{start(t, opts), start(t, opts)}
+	for _, r := range replicas {
+		r.waitReady()
+	}
+	command := func(args ...string) string {
+		t.Helper()
+		code, out := runOffline(t, append(append([]string{"consensus"}, args...), store...)...)
+		if code != 0 {
+			t.Fatalf("consensus %s online: exit %d %s", strings.Join(args, " "), code, out)
+		}
+		return out
+	}
+	pk, golden := attestation(t, "", "")
+	refused := func(what string, body []byte, want string) {
+		t.Helper()
+		for i, r := range replicas {
+			if code, reason := r.sign(t, pk, body); code != 412 || reason != want {
+				t.Fatalf("replica %d, %s: %d %s; want 412 %s", i, what, code, reason, want)
+			}
+		}
+	}
+	highWatermark := func(want string) {
+		t.Helper()
+		for i, r := range replicas {
+			if code, body, _ := r.do(request{path: "/api/v1/consensus/highWatermark", token: r.signToken()}); code != 200 ||
+				body != want {
+				t.Fatalf("replica %d, highWatermark: %d %s; want %s", i, code, body, want)
+			}
+		}
+	}
+
+	if out := command("import", "--from="+file); !strings.Contains(out, "imported 4 of 4 validator(s)") {
+		t.Fatalf("import online: %s", out)
+	}
+	// qrysm signed (9, 10) for key 0: the golden (8, 10) is a double vote.
+	refused("the golden attestation after the import", golden, "SLASHING_DOUBLE_VOTE")
+
+	command("set-high-watermark", "--epoch=40", "--slot=5120")
+	highWatermark(`{"epoch":"40","slot":"5120"}`)
+	_, beyond := attestation(t, "12", "41")
+	refused("an attestation beyond the high watermark", beyond, "SLASHING_ABOVE_HIGH_WATERMARK")
+	command("set-high-watermark", "--remove")
+	highWatermark(`{}`)
+
+	// The replicas registered their keys, which include the four the import wrote.
+	if out := command("watermark-repair", "--epoch=40", "--slot=2560"); !strings.Contains(out,
+		fmt.Sprintf("raised the low watermarks of %d validator(s)", len(keys))) {
+		t.Fatalf("watermark-repair online: %s", out)
+	}
+	_, below := attestation(t, "12", "13")
+	refused("an attestation below the repaired watermark", below, "SLASHING_BELOW_WATERMARK")
+	_, above := attestation(t, "40", "41")
+	for i, r := range replicas {
+		// The second replica answers the first one's attestation as a repeat of the same message.
+		if code, reason := r.sign(t, pk, above); code != 200 {
+			t.Fatalf("replica %d, an attestation above the repaired watermark: %d %s", i, code, reason)
+		}
 	}
 }
