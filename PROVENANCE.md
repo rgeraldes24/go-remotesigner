@@ -611,6 +611,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `tools/vectorgen/roots.go` | new | | | |
 | `tools/vectorgen/signing.go` | new | | | |
 | `tools/vectorgen/stream.go` | new | | | |
+| `tools/vectorgen/transactions.go` | new | | | |
 | `tools/vectorgen/vectorgen_test.go` | new | | | |
 | `tools/vectorgen/verify.go` | new | | | |
 | `tools/vectorgen/verify_test.go` | new | | | |
