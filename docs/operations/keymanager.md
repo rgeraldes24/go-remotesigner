@@ -158,6 +158,11 @@ configured, none pinned) nothing was ever recorded, so it is the empty string; a
 message says that the key is disabled but its history could not be exported: export it with `consensus export` once
 the signer is stopped.
 
+With slashing protection disabled (`--slashing-protection-enabled=false`, allowed only when every listener is
+loopback) the store is in memory: a delete still disables the key there, removes its files and evicts it, but the
+disable does not outlive a restart, and `slashing_protection` is an interchange without data that names the network
+(the empty string when none is known).
+
 ## 5. Moving a key to another signer
 
 1. `DELETE` the key on the old signer and keep the response's `slashing_protection`. The key is disabled there for

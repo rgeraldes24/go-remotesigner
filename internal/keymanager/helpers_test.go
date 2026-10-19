@@ -24,6 +24,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/signer/provider"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/boltstore"
+	"github.com/rgeraldes24/go-remotesigner/internal/slashing/memstore"
 )
 
 var bg = context.Background()
@@ -64,6 +65,9 @@ type fixture struct {
 type fixtureOptions struct {
 	unbound bool // the store has no genesis validators root
 	store   func(slashing.Store) slashing.Store
+	// noProtection: slashing protection is disabled, so the store is a
+	// memory store and the manager keeps no history.
+	noProtection bool
 }
 
 func newFixture(t *testing.T, opts ...fixtureOptions) *fixture {
@@ -83,6 +87,9 @@ func newFixture(t *testing.T, opts ...fixtureOptions) *fixture {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	f := &fixture{dir: filepath.Join(t.TempDir(), "keys"), store: s, sem: argon.New(4, 1<<30), log: &lockedBuffer{}}
+	if o.noProtection {
+		f.store = memstore.New()
+	}
 	if o.store != nil {
 		f.store = o.store(s)
 	}
@@ -96,7 +103,7 @@ func newFixture(t *testing.T, opts ...fixtureOptions) *fixture {
 	t.Cleanup(f.keys.Close)
 	f.engine = slashing.NewEngine(f.store)
 	f.m = New(Config{
-		Dir: f.dir, Keys: f.keys, Engine: f.engine, Store: f.store, History: true,
+		Dir: f.dir, Keys: f.keys, Engine: f.engine, Store: f.store, History: !o.noProtection,
 		GenesisValidatorsRoot: func() (slashing.Root, bool) { return gvr, !o.unbound },
 		Decrypt:               f.sem.Decrypt, Workers: 4, Changed: func() { f.changed++ }, Log: l,
 	})

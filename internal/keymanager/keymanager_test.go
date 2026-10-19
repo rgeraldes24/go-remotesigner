@@ -319,6 +319,28 @@ func TestDeleteUnbound(t *testing.T) {
 	}
 }
 
+// With slashing protection disabled an import ignores the request's
+// history (with a WARN), and a delete still deletes; its export is an
+// empty interchange that names the network, or the empty string when no
+// network is known.
+func TestNoProtection(t *testing.T) {
+	for _, unbound := range []bool{false, true} {
+		f := newFixture(t, fixtureOptions{noProtection: true, unbound: unbound})
+		a, b := newKey(t, "noprotection", 0), newKey(t, "noprotection", 1)
+		rs, err := f.m.Import(bg, importReq(doc(gvr, entry(a.hex, []uint64{4})), a.qrlV1(t), []byte(password)))
+		if err != nil || rs[0].Status != Imported || !strings.Contains(f.log.String(), "slashing protection is disabled") {
+			t.Fatalf("unbound %v: import %+v %v", unbound, rs, err)
+		}
+		rs, export := f.m.Delete(bg, []mldsa87.PublicKey{a.pk, b.pk})
+		wantStatuses(t, rs, Deleted, NotFound)
+		named := strings.Contains(string(export), `"genesis_validators_root": "0x`+hex.EncodeToString(gvr[:])+`"`)
+		if f.loaded(a) || len(f.files(t)) != 0 || named == unbound || (unbound && export != nil) ||
+			strings.Contains(string(export), a.hex[2:]) {
+			t.Fatalf("unbound %v: export %q, loaded %v, files %v", unbound, export, f.loaded(a), f.files(t))
+		}
+	}
+}
+
 // The delete's export is interchange.Export with the key filter, so the
 // same placeholder rule applies: after a watermark repair raised a key's
 // watermarks above its records, the export carries the watermark records.

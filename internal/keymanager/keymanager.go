@@ -63,6 +63,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/signer/provider"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/interchange"
+	"github.com/rgeraldes24/go-remotesigner/internal/slashing/memstore"
 )
 
 // MaxKeystores is the largest number of keystores one import takes.
@@ -630,18 +631,19 @@ func (m *Manager) delete(ctx context.Context, pk *mldsa87.PublicKey) (Result, bo
 // history.
 func (m *Manager) export(ctx context.Context, ids []slashing.KeyID) ([]byte, map[slashing.KeyID]bool, error) {
 	missing := map[slashing.KeyID]bool{}
+	store := m.cfg.Store
 	if !m.cfg.History {
-		for _, id := range ids {
-			missing[id] = true
-		}
-		return nil, missing, slashing.ErrNoGenesisValidatorsRoot
+		// Slashing protection is disabled, so no history is kept: the
+		// export is an empty store's, which names the network when it is
+		// known, as Web3Signer's empty-data export does.
+		store = memstore.New()
 	}
 	opts := interchange.ExportOptions{Keys: ids}
 	if gvr, ok, err := m.boundRoot(ctx); err == nil && ok {
 		opts.GenesisValidatorsRoot = &gvr
 	}
 	var buf bytes.Buffer
-	res, err := interchange.Export(ctx, m.cfg.Store, &buf, opts)
+	res, err := interchange.Export(ctx, store, &buf, opts)
 	if err != nil {
 		return nil, nil, err
 	}
