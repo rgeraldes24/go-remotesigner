@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 )
 
@@ -113,20 +114,58 @@ func (e *responseTooLarge) Unwrap() error { return ErrTooLarge }
 // NonRetriable marks the error as permanent for azcore's retry policy.
 func (e *responseTooLarge) NonRetriable() {}
 
-// ReadBody reads a response body into one buffer sized from its declared
-// length, at most max bytes, so that no copy of a secret is left behind by
-// a growing buffer. The caller wipes the result.
+// ReadBody reads a response body, at most max bytes, so that no copy of a
+// secret is left behind: a body of declared length into one buffer of that
+// size, and one of unknown length (chunked, or from a proxy) into a buffer
+// that starts small and doubles, wiping each buffer it outgrows, so that
+// such a body costs what it holds, not max. The caller wipes the result.
 func ReadBody(resp *http.Response, max int64) ([]byte, error) {
-	limit := max
-	if resp.ContentLength >= 0 && resp.ContentLength < max {
-		limit = resp.ContentLength
-	}
-	b, err := secretfile.ReadLimited(resp.Body, limit)
-	if errors.Is(err, secretfile.ErrTooLarge) {
-		if limit < max {
+	tooLarge := fmt.Errorf("store response: %w: more than %d bytes", ErrTooLarge, max)
+	switch n := resp.ContentLength; {
+	case n > max:
+		return nil, tooLarge
+	case n >= 0:
+		b, err := secretfile.ReadLimited(resp.Body, n)
+		if errors.Is(err, secretfile.ErrTooLarge) {
 			return nil, errors.New("store response: longer than its Content-Length")
 		}
-		return nil, fmt.Errorf("store response: %w: more than %d bytes", ErrTooLarge, max)
+		return b, err
+	}
+	b, err := readGrowing(resp.Body, max)
+	if errors.Is(err, ErrTooLarge) {
+		return nil, tooLarge
 	}
 	return b, err
+}
+
+// firstBodyBuffer is the buffer a body of unknown length is first read
+// into.
+const firstBodyBuffer = 4 << 10
+
+// readGrowing reads r, which must hold at most max bytes, into a buffer of
+// firstBodyBuffer bytes that doubles as it fills, up to max+1. Each buffer
+// it outgrows is wiped, and so is what it read when r fails or holds more
+// than max bytes.
+func readGrowing(r io.Reader, max int64) ([]byte, error) {
+	buf := make([]byte, 0, int(min(max+1, firstBodyBuffer)))
+	for {
+		if len(buf) == cap(buf) {
+			next := make([]byte, len(buf), int(min(max+1, 2*int64(cap(buf)))))
+			copy(next, buf)
+			mldsa87.Wipe(buf)
+			buf = next
+		}
+		n, err := r.Read(buf[len(buf):cap(buf)])
+		buf = buf[:len(buf)+n]
+		switch {
+		case int64(len(buf)) > max:
+			mldsa87.Wipe(buf)
+			return nil, ErrTooLarge
+		case errors.Is(err, io.EOF):
+			return buf, nil
+		case err != nil:
+			mldsa87.Wipe(buf)
+			return nil, err
+		}
+	}
 }

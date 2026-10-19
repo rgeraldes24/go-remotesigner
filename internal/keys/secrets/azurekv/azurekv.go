@@ -48,7 +48,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -60,6 +59,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
 )
 
@@ -196,14 +196,17 @@ func newVault(v secrets.AzureVault) (*vault, error) {
 }
 
 // certPool reads the certificate file of the trust certificate override,
-// PEM or DER, into a pool that holds only its certificates.
+// PEM or DER, into a pool that holds only its certificates. The file must
+// be a regular file of at most maxCertFile bytes, checked before it is
+// read.
 func certPool(path string) (*x509.CertPool, error) {
-	data, err := os.ReadFile(path)
+	data, err := secretfile.ReadCapped(path, maxCertFile)
+	if errors.Is(err, secretfile.ErrTooLarge) {
+		return nil, fmt.Errorf("trust certificate override %s: %w: more than %d bytes", path, secrets.ErrTooLarge,
+			maxCertFile)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("trust certificate override: %w", err)
-	}
-	if len(data) > maxCertFile {
-		return nil, fmt.Errorf("trust certificate override %s: %w", path, secrets.ErrTooLarge)
 	}
 	pool, n := x509.NewCertPool(), 0
 	if !bytes.Contains(data, []byte("-----BEGIN")) {

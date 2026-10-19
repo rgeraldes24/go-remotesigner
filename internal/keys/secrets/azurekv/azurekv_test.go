@@ -80,6 +80,23 @@ func TestTrustCertificateOverride(t *testing.T) {
 	if _, err := New().Fetch(context.Background(), &secrets.Azure{AzureVault: v, SecretName: "validator-1"}); err == nil {
 		t.Fatal("a file without a certificate was accepted")
 	}
+	// A file over the limit is refused from its size, and anything but a
+	// regular file without reading it.
+	huge := filepath.Join(t.TempDir(), "huge.pem")
+	if err := os.WriteFile(huge, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(huge, maxCertFile+1); err != nil {
+		t.Fatal(err)
+	}
+	v.TrustCertificateOverride = huge
+	if _, err := New().Fetch(context.Background(), &secrets.Azure{AzureVault: v, SecretName: "validator-1"}); !errors.Is(err, secrets.ErrTooLarge) {
+		t.Fatalf("a file over %d bytes: %v, want ErrTooLarge", maxCertFile, err)
+	}
+	v.TrustCertificateOverride = t.TempDir()
+	if _, err := New().Fetch(context.Background(), &secrets.Azure{AzureVault: v, SecretName: "validator-1"}); err == nil {
+		t.Fatal("a directory was accepted as the certificate file")
+	}
 }
 
 func TestManagedIdentity(t *testing.T) {
