@@ -49,12 +49,14 @@ test-postgres:
 	$(GO) test -count=1 -run Postgres ./test/acceptance/
 
 ## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, the strict
-## request decoders, the keystore decoder and the EIP-3076 interchange
+## request decoders, the JSON-RPC request decoder against encoding/json, the keystore decoder and the EIP-3076
+## interchange
 FUZZTIME ?= 10s
 fuzz: fuzz-keystore fuzz-interchange
 	$(GO) test -run '^$$' -fuzz '^FuzzHashTreeRootDifferential$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeSignRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRandaoRevealRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
+	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRequest$$' -fuzztime $(FUZZTIME) ./internal/execution/
 
 ## fuzz-keystore: the keystore decoder fuzz alone; the nightly workflow runs it with FUZZTIME=30m
 fuzz-keystore:

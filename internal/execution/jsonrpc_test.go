@@ -30,6 +30,24 @@ func TestDecodeRequest(t *testing.T) {
 		{`{"jsonrpc":"2.0","id":false,"method":"m"}`, ErrInvalidRequest, "", "", "", false},
 		{`{"jsonrpc":2.0,"id":1,"method":"m"}`, ErrInvalidRequest, "1", "", "", false},
 		{`{"jsonrpc":"2.0","id":1,"method":null}`, ErrInvalidRequest, "1", "", "", false},
+		{`null`, ErrInvalidRequest, "", "", "", false},
+		{`"x"`, ErrInvalidRequest, "", "", "", false},
+		// Names match exactly, as decoded map keys do: escapes decoded, case kept.
+		{`{"jsonrpc":"2.0","id":1,"METHOD":"x","Method":"y","method":"m"}`, nil, "1", "m", "", false},
+		{`{"jsonrpc":"2.0","id":1,"Method":"m"}`, ErrInvalidRequest, "1", "", "", false},
+		{`{"jsonrpc":"2.0","id":1,"\u006dethod":"m","p\u0061r\u0061ms":[2]}`, nil, "1", "m", "[2]", false},
+		{`{"jsonrpc":"2.0","id":1,"\u004dethod":"m"}`, ErrInvalidRequest, "1", "", "", false},
+		{`{"jsonrpc":"2.0","id":1,"method\u0000":"m","metho\u00e9":"m","method\n":"m"}`, ErrInvalidRequest, "1", "", "", false},
+		{`{"jsonrpc":"2\u002e0","id":1,"method":"m"}`, nil, "1", "m", "", false},
+		// The last of a repeated member wins.
+		{`{"jsonrpc":"2.0","id":1,"method":"a","id":2,"method":"m","params":[1],"params":null}`, nil, "2", "m", "", false},
+		{`{"jsonrpc":"2.0","id":[1],"id":3,"method":"m"}`, nil, "3", "m", "", false},
+		// Values are stepped over whole: strings that hold brackets, quotes
+		// and escapes, nested containers, white space anywhere.
+		{`{"x":{"a":"}\"],{","b":[{"c":"\\"},[]],"d":"\u005d"},"jsonrpc":"2.0","y":[1,"]",{}],"id":4,"method":"m"}`,
+			nil, "4", "m", "", false},
+		{" \t{ \"jsonrpc\" : \"2.0\" ,\n\"id\" : 5 , \"method\" : \"m\" , \"params\" : [ 1 , { } ] , \"z\" : true }\r\n",
+			nil, "5", "m", "[ 1 , { } ]", false},
 	}
 	for _, tt := range tests {
 		req, err := decodeRequest([]byte(tt.body))

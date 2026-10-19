@@ -320,6 +320,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/execution/publickeys.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/PublicKeysListHandler.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/run.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Eth1Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/run_test.go` | new | | | |
+| `internal/execution/scan.go` | new | | | |
+| `internal/execution/scan_test.go` | new | | | |
 | `internal/hygiene/hygiene.go` | new | | | |
 | `internal/hygiene/hygiene_linux.go` | new | | | |
 | `internal/hygiene/hygiene_other.go` | new | | | |
