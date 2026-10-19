@@ -252,6 +252,16 @@ host; every "Keys loaded" log line reports the decrypts of its load and their ti
 not lost: the keystores it loaded stay loaded and count as unchanged, so the next reload decrypts only the rest.
 Light-KDF keystores take about 20 ms each; 4,096 of them load in seconds.
 
+**Large fleets.** A `file-raw` key runs no Argon2id at all: the signer derives the key pair from the seed in the
+key-config file, under a millisecond of one core per key, and spreads that over the CPUs. On the development machine
+10,000 `file-raw` keys were loaded and `/upcheck` answered `200` within about 1 to 2 s of the start
+([`../benchmarks.md`](../benchmarks.md), B11). For thousands of keys that is the way to start and reload in seconds
+instead of an hour. The price is that the seed is in the clear on disk, protected only by the file's mode (see
+"Secret files" above), the host and its disk encryption, where a keystore also needs its password file. Light-KDF
+keystores (the deposit CLI's `--lightkdf`) sit between the two: the password still guards the seed, but with an
+Argon2id run of 4 MiB and about 20 ms instead of 256 MiB and 1.5 s, which makes each guess at the password that much
+cheaper too.
+
 The 512 MiB kept out of the budget hold the loaded keys too, and each key takes about 60 KiB: on the development
 machine 4,096 keys peaked at about 210 MiB of RSS and 10,000 keys at about 620 MiB
 ([`../benchmarks.md`](../benchmarks.md), B11). The automatic sizing does not count the keys, so above about 8,000
