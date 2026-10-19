@@ -6,17 +6,22 @@
 package runner
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/api/ops"
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystoretest"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets/secretstest"
 )
@@ -143,6 +148,76 @@ func TestRunSecretStoreSources(t *testing.T) {
 		if st := storeStatus(t, cfg.SlashingProtectionDB(), pubkeyHex(t, seed)); !st.Registered || !st.Enabled {
 			t.Errorf("evicted key %d: slashing-protection row %+v, want registered and enabled", seed, st)
 		}
+	}
+}
+
+// Every source kind loads in Web3Signer's order: the key-config files,
+// Azure Key Vault, the keystores, AWS Secrets Manager, then GCP Secret
+// Manager. A key that two kinds provide is loaded from the earlier one, so
+// each health check counts the one key that only its kind wins, and
+// /healthcheck lists the checks in that order.
+func TestRunSecretStoreLoadOrder(t *testing.T) {
+	isolateAWS(t)
+	cfg := baseConfig(t)
+	ks := newKeystoreFixture(t)
+	cfg.Consensus.Keystores.Path, cfg.Consensus.Keystores.PasswordsPath = ks.dir, ks.passwords
+	kHex := func(i int) string { return "0x" + hex.EncodeToString(keystoretest.Seed(t.Name(), i)[:]) }
+	// Keystore key 1 is also in AWS and GCP, and keystore key 2 in Azure;
+	// seed 5 is in a key-config file and in Azure, seed 3 in AWS and GCP,
+	// and seed 4 in GCP only.
+	pk1, _ := ks.add(t, 1)
+	pk2, _ := ks.add(t, 2)
+	writeKeyFile(t, cfg.KeyConfigPath, "raw.yaml", 5)
+	az := secretstest.NewAzure(t)
+	az.Put("k2", kHex(2), nil)
+	az.Put("s5", seedHex(5), nil)
+	aws := secretstest.NewAWS(t)
+	aws.Put("validators/k1", kHex(1), nil)
+	aws.Put("validators/s3", seedHex(3), nil)
+	g := secretstest.NewGCP(t)
+	g.Put("p", "k1", []byte(kHex(1)), nil)
+	g.Put("p", "s3", []byte(seedHex(3)), nil)
+	g.Put("p", "s4", []byte(seedHex(4)), nil)
+	cfg.Consensus.SecretStores = secretStoresConfig(aws.URL)
+	cfg.Consensus.SecretStores.Azure = &secrets.AzureBulk{AzureVault: secrets.AzureVault{
+		AuthMode: secrets.AzureClientSecret, VaultName: "fake", ClientID: az.ClientID, TenantID: secretstest.AzureTenant,
+		ClientSecret: []byte(az.ClientSecret), Timeout: 10 * time.Second, EndpointOverride: az.URL,
+		AuthorityHostOverride: az.URL, TrustCertificateOverride: az.CertFile}}
+	cfg.Consensus.SecretStores.GCP = &secrets.GCPBulk{ProjectID: "p", EndpointOverride: g.Endpoint}
+
+	r := start(t, cfg)
+	r.waitReady(t)
+	r.waitReload(t, "completed")
+	_, body := r.do(t, http.MethodGet, "/api/v1/consensus/publicKeys", r.sign)
+	for _, pk := range []string{pk1, pk2, pubkeyHex(t, 3), pubkeyHex(t, 4), pubkeyHex(t, 5)} {
+		if !strings.Contains(string(body), pk) {
+			t.Errorf("key %s… is not loaded", pk[:10])
+		}
+	}
+	order := []string{ops.CheckConfigFilesLoading, ops.CheckAzureBulkLoading, ops.CheckKeystoresBulkLoading,
+		ops.CheckAWSBulkLoading, ops.CheckGCPBulkLoading}
+	code, checks := r.health(t)
+	for _, id := range order {
+		if got := checks[id]["status"].(string) + " " + fmt.Sprint(checks[id]["data"]); got != "UP map[error-count:0 keys-loaded:1]" {
+			t.Errorf("%s: %s, want UP with the one key only it provides", id, got)
+		}
+	}
+	if code != http.StatusOK {
+		t.Errorf("/healthcheck %d", code)
+	}
+	_, raw := r.do(t, http.MethodGet, "/healthcheck", r.sign)
+	var h struct{ Checks []struct{ ID string } }
+	if err := json.Unmarshal(raw, &h); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, c := range h.Checks {
+		if slices.Contains(order, c.ID) {
+			ids = append(ids, c.ID)
+		}
+	}
+	if !slices.Equal(ids, order) {
+		t.Errorf("keys-check order %v, want %v", ids, order)
 	}
 }
 
