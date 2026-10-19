@@ -123,8 +123,10 @@ RANDAO frontiers, always taken in that order. Disabling a key takes its block an
 import, pruning and the watermark repair take both for each validator they write, validator by validator in the
 order of the SHA-256 of the keys, so no two transactions can wait on each other in a cycle.
 
-A check-and-record is about ten round trips, so every round trip to the database adds to its latency ten times
-over: keep the database close to the replicas.
+A check-and-record is five round trips for an attestation and four for a block (`BEGIN`, the lock and the read of
+the validator's flag and watermarks travel together), so the network's round-trip time adds to its latency four or
+five times over: keep the database close to the replicas. Benchmark B13 measures it
+([`../benchmarks.md`](../benchmarks.md#postgres-slashing-protection-b13-b14-internalslashingpgstore)).
 
 ### Health check
 
@@ -171,7 +173,9 @@ With Postgres the store commands run while the replicas sign, under the same loc
 - **The slow-path scan budget and the negative cache are per replica too**, and so is the response cache.
 - **Pruning.** Each replica prunes every `--slashing-protection-pruning-interval` (12 h), one validator per
   transaction on its one-connection pool, and not at startup: replicas that start together would otherwise all
-  prune at once. Pruning is idempotent, so replicas pruning the same database only repeat each other's work.
+  prune at once. After each transaction the run rests for as long as the transaction took, so a run takes at most
+  half of the database's time from signing (35 s for 4,096 validators in the steady state on the development
+  machine, benchmark B14). Pruning is idempotent, so replicas pruning the same database only repeat each other's work.
 - **Clocks.** The slot window and the bucket read each replica's clock; keep them synchronised (NTP).
 - **Failover** needs nothing from the store: the next request on another replica finds the same rows.
 - **PgBouncer** has not been tested. Advisory transaction locks work in its transaction mode; the store also uses

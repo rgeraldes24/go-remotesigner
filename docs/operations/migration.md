@@ -134,11 +134,12 @@ is a first use of its onion, under the usual new-layer conditions ([`randao.md`]
 ## 6. Pruning
 
 The signer prunes every validator in the store at startup and then every `--slashing-protection-pruning-interval`
-(12 h); with Postgres not at startup, and one validator per transaction. Each validator keeps `--slashing-protection-pruning-epochs-to-keep` (512, about 45.5 days on mainnet-preset
-timing) epochs of attestations below its newest one, and as many epochs of slots, in the network's slots per epoch,
-below its newest block. The low watermark is first raised to the oldest record that is kept, then older records are
-deleted, so pruning never allows anything that was refused before. A large first prune after an import runs
-alongside signing; benchmark B14 measures it ([`../benchmarks.md`](../benchmarks.md)).
+(12 h); with Postgres not at startup, and one validator per transaction, paced. Each validator keeps
+`--slashing-protection-pruning-epochs-to-keep` (512, about 45.5 days on mainnet-preset timing) epochs of attestations
+below its newest one, and as many epochs of slots, in the network's slots per epoch, below its newest block. The low
+watermark is first raised to the oldest record that is kept, then older records are deleted, so pruning never allows
+anything that was refused before. A large first prune after an import runs alongside signing; benchmark B14 measures it
+([`../benchmarks.md`](../benchmarks.md)).
 
 ## 7. Exporting and moving back
 
