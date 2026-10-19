@@ -69,6 +69,10 @@ The rules:
   password is used as raw bytes, as go-qrl does (trailing line breaks of the password file are dropped). After
   decryption the signer derives the address from the key and **compares it with the keystore's `address`**, which
   go-qrl's own decryptor does not: a keystore whose address belongs to another key is refused.
+- gqrl names its keystore files `UTC--<time>--Q<address>`, with no extension. `--keystores-path` loads only
+  `*.json` files, as Web3Signer's keystore directories do, so copy each keystore under a `<name>.json` name (its
+  password file is then `<name>.txt` with `--keystores-passwords-path`), or name it in a `file-keystore` document,
+  which takes any file name.
 - Seed files and password files are secret files under `--strict-file-permissions`, and reloads work as in consensus
   mode ([`reload.md`](reload.md)): `POST /reload` with the admin token, a failed source keeps its previous keys.
 
