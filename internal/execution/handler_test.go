@@ -7,6 +7,7 @@ package execution
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -429,6 +430,32 @@ func TestBatchOversizedAllocation(t *testing.T) {
 	w := f.post("["+strings.Repeat("1,", 2*MaxBatch)+"}", nil)
 	if r := decodeOne(t, w.Body.Bytes()); w.Code != http.StatusBadRequest || r.Error == nil || r.Error.Code != ErrParse.Code {
 		t.Errorf("an invalid oversized array: %d %s, want 400 -32700", w.Code, w.Body)
+	}
+}
+
+// A batch's local work stops when the client goes: no local request runs
+// after its context ends, and no response is written.
+func TestBatchStopsWhenTheClientGoes(t *testing.T) {
+	f := newFixture(t, 0, defaultAllow)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var ran int
+	f.handler.table["test_count"] = func(context.Context, *Request) (any, *Error) {
+		if ran++; ran == 3 {
+			cancel()
+		}
+		return "ok", nil
+	}
+	calls := make([]string, 10)
+	for i := range calls {
+		calls[i] = call(i, "test_count")
+	}
+	r := httptest.NewRequestWithContext(ctx, http.MethodPost, "/", strings.NewReader(batch(calls...)))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	f.handler.ServeHTTP(w, r)
+	if ran != 3 || w.Body.Len() != 0 {
+		t.Fatalf("%d local requests ran, %d bytes written; want 3 and none", ran, w.Body.Len())
 	}
 }
 
