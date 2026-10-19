@@ -10,7 +10,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -20,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets/secretstest"
 )
 
 // EnvLocalStack is the endpoint of a LocalStack with Secrets Manager for
@@ -29,10 +29,7 @@ import (
 const EnvLocalStack = "REMOTESIGNER_TEST_AWS_ENDPOINT"
 
 func TestLocalStack(t *testing.T) {
-	endpoint := os.Getenv(EnvLocalStack)
-	if endpoint == "" {
-		t.Skipf("set %s to run against LocalStack (make test-cloud)", EnvLocalStack)
-	}
+	endpoint := secretstest.CloudEnv(t, "LocalStack: make test-cloud", EnvLocalStack)[0]
 	isolate(t)
 	ctx := context.Background()
 	conn := secrets.AWSConn{AuthMode: secrets.AWSSpecified, Region: "us-east-1", AccessKeyID: "test",

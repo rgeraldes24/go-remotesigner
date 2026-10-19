@@ -52,18 +52,27 @@ test-postgres:
 ## the clients (internal/keys/secrets) and the built binary (test/acceptance). With REMOTESIGNER_TEST_VAULT_ADDR,
 ## REMOTESIGNER_TEST_VAULT_TOKEN and REMOTESIGNER_TEST_AWS_ENDPOINT set (the CI job cloud-secrets), it uses those
 ## servers; otherwise it starts both images in Docker on free loopback ports and removes the containers and their
-## anonymous volumes afterwards.
+## anonymous volumes afterwards. Each of the three server tests must run and pass: none may skip.
 ## GCP Secret Manager and Azure Key Vault are tested against their in-process fakes by `make test`.
 # renovate: datasource=docker
 VAULT_IMAGE ?= hashicorp/vault:2.1.2@sha256:c2f666266f383d2cf424d86b8bb8ce7d065562173ffec2b476d762943608bb55
 # LocalStack 4.14.0 is the last release that serves Secrets Manager without an auth token.
 # renovate: datasource=docker
 LOCALSTACK_IMAGE ?= localstack/localstack:4.14.0@sha256:3ebc37595918b8accb852f8048fef2aff047d465167edd655528065b07bc364a
-CLOUD_TESTS := '^(TestVaultDevServer|TestLocalStack|TestSecretStoresDevServers)$$'
+CLOUD_TESTS := TestVaultDevServer TestLocalStack TestSecretStoresDevServers
+# CLOUD_TEST runs CLOUD_TESTS with REMOTESIGNER_TEST_CLOUD_REQUIRED=1, under which a test whose server variables are
+# missing fails instead of skipping, then requires each of them to have passed: -run matching nothing exits 0.
+CLOUD_TEST = log=$$(mktemp) || exit 1; \
+	{ REMOTESIGNER_TEST_CLOUD_REQUIRED=1 CGO_ENABLED=1 $(GO) test -race -count=1 -v \
+		-run '^($(subst $(space),|,$(CLOUD_TESTS)))$$' ./internal/keys/secrets/... ./test/acceptance/ 2>&1; \
+		echo "go test exit status $$?"; } | tee $$log; \
+	ok=1; grep -qx 'go test exit status 0' $$log || ok=0; \
+	for t in $(CLOUD_TESTS); do grep -q "^--- PASS: $$t " $$log || { echo "test-cloud: $$t did not pass" >&2; ok=0; }; done; \
+	rm -f $$log; [ $$ok = 1 ]
+space := $(subst ,, )
 test-cloud:
 	@if [ -n "$$REMOTESIGNER_TEST_VAULT_ADDR" ] && [ -n "$$REMOTESIGNER_TEST_AWS_ENDPOINT" ]; then \
-		set -x; CGO_ENABLED=1 $(GO) test -race -count=1 -run $(CLOUD_TESTS) -v ./internal/keys/secrets/... ./test/acceptance/; \
-		exit $$?; \
+		$(CLOUD_TEST); exit $$?; \
 	fi; \
 	vault=$$($(DOCKER) run -d --rm -e VAULT_DEV_ROOT_TOKEN_ID=remotesigner-test-root -p 127.0.0.1::8200 $(VAULT_IMAGE)) || exit 1; \
 	localstack=$$($(DOCKER) run -d --rm -e SERVICES=secretsmanager -p 127.0.0.1::4566 $(LOCALSTACK_IMAGE)) || \
@@ -72,9 +81,9 @@ test-cloud:
 	vaddr=http://$$($(DOCKER) port $$vault 8200/tcp | head -1); aws=http://$$($(DOCKER) port $$localstack 4566/tcp | head -1); \
 	for i in $$(seq 60); do curl -sf $$vaddr/v1/sys/health >/dev/null && \
 		curl -sf $$aws/_localstack/health | grep -Eq '"secretsmanager": "(available|running)"' && break; sleep 1; done; \
-	REMOTESIGNER_TEST_VAULT_ADDR=$$vaddr REMOTESIGNER_TEST_VAULT_TOKEN=remotesigner-test-root \
-	REMOTESIGNER_TEST_AWS_ENDPOINT=$$aws CGO_ENABLED=1 $(GO) test -race -count=1 -run $(CLOUD_TESTS) -v \
-		./internal/keys/secrets/... ./test/acceptance/
+	export REMOTESIGNER_TEST_VAULT_ADDR=$$vaddr REMOTESIGNER_TEST_VAULT_TOKEN=remotesigner-test-root \
+		REMOTESIGNER_TEST_AWS_ENDPOINT=$$aws; \
+	$(CLOUD_TEST)
 
 ## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, the strict
 ## request decoders, the JSON-RPC request and batch decoders against encoding/json, the keystore decoder and the
