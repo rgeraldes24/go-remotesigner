@@ -164,14 +164,21 @@ func (h *Handler) serveBatch(w http.ResponseWriter, r *http.Request, body []byte
 			h.forwardBatch(r, slots, forwarded)
 		}
 	}()
+	ctx := r.Context()
 	for i := range slots {
+		if ctx.Err() != nil {
+			break
+		}
 		s := &slots[i]
 		if m := h.methodOf(s.req); m != nil && !s.req.Notification() && s.response == nil {
-			result, e := m(r.Context(), s.req)
+			result, e := m(ctx, s.req)
 			s.response = encodeResult(s.req.ID, result, e)
 		}
 	}
 	<-done
+	if ctx.Err() != nil {
+		return // the client has gone, or the response is past the write timeout: nobody reads it
+	}
 
 	var out bytes.Buffer
 	for _, s := range slots {
