@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -386,6 +387,46 @@ func TestPostgresOperationsProfile(t *testing.T) {
 	var pe *pgconn.PgError
 	if !errors.As(err, &pe) || pe.Code != "55P03" || took < pgstore.LockTimeout || took >= s.Timeout() {
 		t.Fatalf("a block check behind a held lock: %v after %v; want lock_not_available (55P03) after 2 s", err, took)
+	}
+}
+
+// The health check's query is bounded by its context alone: a store whose calls are bounded at 200 ms still waits
+// a whole second for a stalled database when the check gives it one, while its other calls stop at 200 ms.
+func TestPostgresPingBoundedByContext(t *testing.T) {
+	db := migrated(t)
+	u, err := url.Parse(db.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := pgtest.NewStallProxy(t, u.Host)
+	u.Host = proxy.Addr()
+	cfg := pgstore.Config{URL: u.String(), Password: db.Password, Timeout: 200 * time.Millisecond}
+	s := open(t, cfg)
+	if err := s.Ping(bg); err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	proxy.Stall()
+	timed := func(f func(context.Context) error) (time.Duration, error) {
+		ctx, cancel := context.WithTimeout(bg, time.Second)
+		defer cancel()
+		began := time.Now()
+		err := f(ctx)
+		return time.Since(began), err
+	}
+	if took, err := timed(func(ctx context.Context) error { _, err := s.SchemaVersion(ctx); return err }); err == nil ||
+		took >= time.Second {
+		t.Errorf("SchemaVersion on a stalled database: %v after %v, want an error at the 200 ms call bound", err, took)
+	}
+	if took, err := timed(s.Ping); err == nil || took < time.Second {
+		t.Errorf("Ping on a stalled database: %v after %v, want an error once its 1 s context ends", err, took)
+	}
+	proxy.Resume()
+	if err := s.Ping(bg); err != nil {
+		t.Fatalf("Ping after the database answers again: %v", err)
+	}
+	_ = s.Close()
+	if err := s.Ping(bg); !errors.Is(err, pgstore.ErrClosed) {
+		t.Fatalf("Ping after Close: %v", err)
 	}
 }
 

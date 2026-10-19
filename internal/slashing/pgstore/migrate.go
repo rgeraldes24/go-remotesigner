@@ -73,6 +73,16 @@ func (s *Store) SchemaVersion(ctx context.Context) (uint32, error) {
 	return v, err
 }
 
+// Ping reads the schema version for the database health check, bounded by ctx alone: not by the store's call
+// bound, which would cut short a check timeout longer than it. Each statement still runs under statement_timeout.
+func (s *Store) Ping(ctx context.Context) error {
+	if s.closed.Load() {
+		return ErrClosed
+	}
+	_, err := schemaVersion(ctx, s.pool)
+	return wrap("health check", err)
+}
+
 // Migration reports what Migrate did.
 type Migration struct {
 	From, To uint32

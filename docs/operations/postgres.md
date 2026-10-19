@@ -132,7 +132,8 @@ five times over: keep the database close to the replicas. Benchmark B13 measures
 ### Health check
 
 `/healthcheck` reports `slashing-protection-db-health-check`, as Web3Signer does: a query bounded by
-`--slashing-protection-db-health-check-timeout-milliseconds` (3,000), run at startup and every
+`--slashing-protection-db-health-check-timeout-milliseconds` (3,000) alone, not by the 4.5 s call bound (a server
+that answers still ends a query after `statement_timeout`, 5 s), run at startup and every
 `--slashing-protection-db-health-check-interval-milliseconds` (30,000). The check reports the last result, so it
 turns `DOWN` at most one interval after the database stops answering, and `UP` again one interval after it is back;
 the transitions are logged. Signing does not wait for the check: each request finds the database's state itself.

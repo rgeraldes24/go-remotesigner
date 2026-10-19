@@ -199,7 +199,7 @@ func openPostgres(ctx context.Context, cfg *config.Config, gvr *slashing.Root, o
 		_ = store.Close()
 		return nil, fmt.Errorf("refusing to start: %w", err)
 	}
-	h := startDBHealth(store, cfg.Consensus.Postgres.HealthCheckTimeout, cfg.Consensus.Postgres.HealthCheckInterval, log)
+	h := startDBHealth(store.Ping, cfg.Consensus.Postgres.HealthCheckTimeout, cfg.Consensus.Postgres.HealthCheckInterval, log)
 	log.WithFields(logrus.Fields{
 		"database": store.Name(), "max-connections": pgstore.DefaultMaxConns, "call-timeout": pgstore.DefaultTimeout,
 		"health-check-interval": cfg.Consensus.Postgres.HealthCheckInterval,
@@ -215,21 +215,22 @@ func pruningConfig(pc pgstore.Config) pgstore.Config {
 	return pc
 }
 
-// dbHealth is Web3Signer's database health check: a query bounded by the timeout, run at startup and then every
-// interval in the background; the health check reports the last result.
+// dbHealth is Web3Signer's database health check: a query bounded by the timeout alone, run at startup and then
+// every interval in the background; the health check reports the last result.
 type dbHealth struct {
 	ok   atomic.Bool
 	quit chan struct{}
 	done sync.WaitGroup
 }
 
-func startDBHealth(store slashing.Store, timeout, interval time.Duration, log logrus.FieldLogger) *dbHealth {
+// startDBHealth starts the health check, which runs ping bounded by timeout.
+func startDBHealth(ping func(context.Context) error, timeout, interval time.Duration, log logrus.FieldLogger) *dbHealth {
 	h := &dbHealth{quit: make(chan struct{})}
 	h.ok.Store(true)
 	check := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		_, err := store.SchemaVersion(ctx)
+		err := ping(ctx)
 		if up := err == nil; h.ok.Swap(up) != up {
 			if up {
 				log.Info("The slashing-protection database is reachable again")

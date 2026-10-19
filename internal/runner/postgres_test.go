@@ -208,6 +208,30 @@ func TestRunPostgresPasswordSources(t *testing.T) {
 	})
 }
 
+// The database health check bounds its query by --slashing-protection-db-health-check-timeout-milliseconds, also
+// above the store's 4.5 s call bound.
+func TestDBHealthTimeout(t *testing.T) {
+	left := make(chan time.Duration, 1)
+	h := startDBHealth(func(ctx context.Context) error {
+		d, ok := ctx.Deadline()
+		if !ok {
+			d = time.Now()
+		}
+		select {
+		case left <- time.Until(d):
+		default:
+		}
+		return nil
+	}, 6*time.Second, time.Hour, quiet())
+	defer h.close()
+	if d := <-left; d <= pgstore.DefaultTimeout || d > 6*time.Second {
+		t.Fatalf("the health query has %v left, want the 6 s timeout", d)
+	}
+	if !h.up(context.Background()) {
+		t.Fatal("health check down after a query that succeeded")
+	}
+}
+
 // The pruner's store has a pool of one connection (TestPostgresOperationsProfile in pgstore shows such a pool holds
 // one) and pins no root, whatever the signing store's configuration.
 func TestPruningPoolConfig(t *testing.T) {
