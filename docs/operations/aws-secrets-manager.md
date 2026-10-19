@@ -69,7 +69,7 @@ remotesigner consensus --network=… \
 | `--aws-secrets-region` | unset | Required for `SPECIFIED`; with `ENVIRONMENT` the configured region is used when set, else the SDK's (X72). |
 | `--aws-endpoint-override` | unset | The service endpoint URL, as above. |
 | `--aws-secrets-prefixes-filter` | none | Comma-separated name prefixes; a secret matches any. |
-| `--aws-secrets-tag` | none | `TAG_NAME=TAG_VALUE`, repeated or separated by `\|`; a value cannot contain a comma (X75). |
+| `--aws-secrets-tag` | none | `TAG_NAME=TAG_VALUE`, repeated or separated by `\|`; a name given twice keeps its last value, as in Web3Signer; a value cannot contain a comma (X75). |
 
 The filters are Web3Signer's: one `name` filter with every prefix, one `tag-key` filter with every tag name, and one
 `tag-value` filter with every non-empty value. AWS matches any value within a filter and requires every filter, and

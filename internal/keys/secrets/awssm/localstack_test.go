@@ -76,8 +76,10 @@ func TestLocalStack(t *testing.T) {
 	}{
 		{"prefix", nil, []string{prefix + "bulk-a", prefix + "bulk-b", prefix + "one"}},
 		{"tag", []secrets.Tag{{Key: "role", Value: "bulk"}}, []string{prefix + "bulk-a", prefix + "bulk-b"}},
-		{"two tag values", []secrets.Tag{{Key: "team", Value: "blue"}, {Key: "team", Value: "red"}},
-			[]string{prefix + "bulk-a", prefix + "bulk-b"}},
+		// Any of the names with any of the values: one has role=single and
+		// bulk-b team=red; bulk-a has neither value.
+		{"two tags", []secrets.Tag{{Key: "role", Value: "single"}, {Key: "team", Value: "red"}},
+			[]string{prefix + "bulk-b", prefix + "one"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			b, err := NewBulk(ctx, secrets.AWSBulk{AWSConn: conn, PrefixesFilter: []string{prefix}, Tags: tt.tags})
