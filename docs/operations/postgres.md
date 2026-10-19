@@ -168,8 +168,11 @@ With Postgres the store commands run while the replicas sign, under the same loc
 - **RANDAO.** Every reveal is classified against the key's row, not against anything a replica remembers, and
   every frontier move re-reads the row under the key's RANDAO lock and compares it before it writes. A request two
   replicas serve for the same slot is answered by one as a new layer and by the other as a re-reveal of the same
-  layer; a replica that lost the race classifies the request again instead of failing. A replica remembers only
-  the next layer it precomputed, for the index it was computed for, and ignores it once the row has moved.
+  layer; a replica that lost the race classifies the request again instead of failing. The loser checks its own
+  new-layer bucket before its compare-and-set, though: when it read the row before the winner committed and its
+  bucket for the key is empty, it answers 412 `RANDAO_NEW_LAYER_RATE_LIMITED` instead (next point). A replica
+  remembers only the next layer it precomputed, for the index it was computed for, and ignores it once the row has
+  moved.
 - **The new-layer bucket is per replica.** The bucket that bounds frontier moves per key
   (`--randao-new-layer-burst`, `--randao-new-layer-refill-epochs`; [`randao.md`](randao.md#3-sizing-the-bucket))
   lives in each replica's memory, so N replicas allow up to N times the rate when an attacker can reach all of them.

@@ -100,8 +100,9 @@ commitment runs, and the scan's result is classified against the frontier as it 
 - **Postgres**: the frontier is the key's row in `randao_reveal_state`, shared by every replica. Each reveal is
   classified against the row; a frontier move takes the key's RANDAO advisory lock, re-reads the row and writes it
   with a compare-and-set, and commits before the reveal is sent. A replica that loses the race to another one
-  classifies the request again, usually as a re-reveal of the layer the other released
-  ([`postgres.md`](postgres.md#7-running-replicas)).
+  classifies the request again, usually as a re-reveal of the layer the other released; one whose own new-layer
+  bucket for the key is empty refuses the request with 412 `RANDAO_NEW_LAYER_RATE_LIMITED` before it gets that
+  far ([`postgres.md`](postgres.md#7-running-replicas)).
 - **Protection disabled** (`--slashing-protection-enabled=false`, loopback only): the same rule runs against the
   memory store, so a restart makes every key's next reveal a first use; startup logs a WARN.
   `--randao-protection-required` refuses to start in that case.

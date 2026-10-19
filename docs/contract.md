@@ -479,7 +479,10 @@ returns 412 `RANDAO_SLOT_OUT_OF_WINDOW` for anything that would move the frontie
 - State is persisted before release: bbolt by default (one process per file), or the Postgres row under an advisory
   lock with compare-and-set. A lost response turns the retry into an idempotent re-reveal. With Postgres every
   request is classified against the shared row, and a request two signers serve for the same slot is answered by
-  one as a new layer and by the other as a re-reveal of the same layer.
+  one as a new layer and by the other as a re-reveal of the same layer. Each signer checks its own new-layer
+  bucket ([section 14.3](#143-the-frontier-rule)) before its compare-and-set, though: a signer that read the row
+  before the other committed and finds its bucket for the key empty answers 412 `RANDAO_NEW_LAYER_RATE_LIMITED`
+  instead, since buckets are per signer.
 - Never stored: the seed, checkpoints or the precomputed next value, which are future reveals.
 - With slashing protection disabled (loopback only) the same rule runs in memory for the process lifetime, with a
   WARN; `--randao-protection-required` refuses to start instead.
@@ -647,7 +650,9 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
     ([section 15](#15-selection-proofs-and-signing-modes)).
   - The Postgres store added these: `capabilities` reports `slashing_protection: postgres`, a value the schema
     already lists; a RANDAO request two signers sharing the database serve for the same slot is one new layer and one
-    re-reveal of the same layer, both 200 ([section 14.4](#144-persistence-reset-and-cost)); and a database that does
+    re-reveal of the same layer, both 200, unless the signer that loses the race finds its own new-layer bucket for
+    the key empty, when it answers 412 `RANDAO_NEW_LAYER_RATE_LIMITED` (buckets are per signer;
+    [section 14.4](#144-persistence-reset-and-cost)); and a database that does
     not answer fails a request with 500 `STORE_UNAVAILABLE` within the 5 s write deadline.
 
   The keymanager routes added these ([section 17](#17-supporting-endpoints)):
