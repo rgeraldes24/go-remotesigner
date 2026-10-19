@@ -7,6 +7,7 @@ package awssm
 
 import (
 	"context"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +36,7 @@ func isolate(t *testing.T) {
 	for _, v := range []string{"AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID",
 		"AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_SECRETS_MANAGER",
 		"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN",
-		"AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_ROLE_ARN"} {
+		"AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_ROLE_ARN", "AWS_CA_BUNDLE"} {
 		t.Setenv(v, "")
 	}
 }
@@ -208,6 +209,31 @@ func TestBulk(t *testing.T) {
 // fails the fetch and the listing once the call timeout passes, retries
 // included, and a response larger than secrets.MaxResponseSize fails
 // without being read whole.
+// A CA bundle from AWS_CA_BUNDLE or the shared config's ca_bundle cannot
+// be added to the store HTTP client; the error says what to use instead,
+// for each document and for the bulk loader.
+func TestCABundle(t *testing.T) {
+	isolate(t)
+	f := secretstest.NewAWS(t)
+	f.Put("validator-1", seed, nil)
+	ca := httptest.NewTLSServer(http.NotFoundHandler())
+	ca.Close()
+	pemFile := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(pemFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE",
+		Bytes: ca.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AWS_CA_BUNDLE", pemFile)
+	ctx := context.Background()
+	_, err := New(1).Fetch(ctx, &secrets.AWS{AWSConn: specified(f.URL, "AKID"), SecretName: "validator-1"})
+	if !errors.Is(err, secrets.ErrConfig) || !strings.Contains(err.Error(), "SSL_CERT_FILE") {
+		t.Errorf("AWS_CA_BUNDLE: Fetch error = %v, want a configuration error naming SSL_CERT_FILE", err)
+	}
+	if _, err := NewBulk(ctx, secrets.AWSBulk{AWSConn: specified(f.URL, "AKID")}); !errors.Is(err, secrets.ErrConfig) {
+		t.Errorf("AWS_CA_BUNDLE: NewBulk error = %v, want a configuration error", err)
+	}
+}
+
 func TestLimits(t *testing.T) {
 	isolate(t)
 	defer func(d time.Duration) { callTimeout = d }(callTimeout)

@@ -42,6 +42,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -140,6 +141,12 @@ func newClient(ctx context.Context, conn secrets.AWSConn, hc *http.Client) (*sec
 		return nil, fmt.Errorf("%w: unknown authentication mode %q", secrets.ErrConfig, conn.AuthMode)
 	}
 	cfg, err := config.LoadDefaultConfig(ctx, opts...)
+	if err != nil && strings.Contains(err.Error(), "custom RootCAs") {
+		// The SDK adds a CA bundle to its own HTTP client type only, and the
+		// store HTTP client, which bounds every response, is not one.
+		return nil, fmt.Errorf("%w: AWS_CA_BUNDLE and the shared config's ca_bundle are not supported; trust the CA "+
+			"with SSL_CERT_FILE or SSL_CERT_DIR instead", secrets.ErrConfig)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("AWS configuration: %w", err)
 	}
