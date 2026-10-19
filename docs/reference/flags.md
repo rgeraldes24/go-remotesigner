@@ -10,7 +10,10 @@ remotesigner [global flags] consensus [consensus flags] import --from <file> [im
 remotesigner [global flags] consensus [consensus flags] export --to <file> [--keys <id>,...] [export flags]
 remotesigner [global flags] consensus [consensus flags] watermark-repair --epoch <epoch> --slot <slot> [repair flags]
 remotesigner [global flags] consensus [consensus flags] set-high-watermark (--epoch <epoch> --slot <slot> | --remove) [flags]
+remotesigner [global flags] consensus [consensus flags] disable-validator --key <id> [flags]
 remotesigner [global flags] consensus keystore verify --file <keystore> --password-file <file>
+remotesigner [global flags] consensus keystore verify --keystores-path <dir> (--keystores-password-file <file> | --keystores-passwords-path <dir>)
+remotesigner --version
 ```
 
 Every flag can also be set:
@@ -21,8 +24,17 @@ Every flag can also be set:
   `consensus:` section. A list flag takes a YAML list. Unknown keys are rejected.
 
 Precedence: command line, then environment, then config file, then default. Booleans are written `--flag`,
-`--flag=true` or `--flag=false`; `--flag false` does not work. Exit codes: 2 for usage errors (including a
-missing `--network` and an invalid config file), 1 when the signer refuses to start or fails.
+`--flag=true` or `--flag=false`. `--flag false` does not work: the command-line parser (urfave/cli) reads
+`false` as an argument, which every command refuses as a usage error, so write `=` where Web3Signer takes the
+value as the next argument (`--slashing-protection-enabled=false`). In the environment and the config file a
+boolean takes a value, such as `true` or `false`. Exit codes: 2 for usage errors (including a missing `--network` and an
+invalid config file), 1 when the signer refuses to start or fails.
+
+Signals: `SIGHUP` re-reads the token files, the TLS certificate and the client trust files
+([`../operations/tls.md`](../operations/tls.md#5-rotating-tokens-and-certificates-with-sighup)); key files are
+reloaded with `POST /reload` instead ([`../operations/reload.md`](../operations/reload.md#3-reload)).
+`SIGTERM` and `SIGINT` stop the signer: it stops accepting connections, lets in-flight requests finish for
+up to 10 s, closes the store, wipes the keys and exits 0.
 
 ## Global flags
 
@@ -201,8 +213,11 @@ variables, so that a signer's `REMOTESIGNER_CONSENSUS_KEYSTORES_*` settings do n
 
 ## Override flags
 
-These flags are hidden from `--help`. Each one accepts a risk that a startup fail-safe otherwise refuses on a
-non-loopback listener. None of them can re-enable a disabled slashing protection there: that refusal has no override.
+These flags are hidden from `--help`. Each one lifts a startup refusal that protects a listener beyond loopback,
+and accepts the risk that refusal guards against; on a loopback listener none of them is needed. They are set like
+any other flag, on the command line, in the environment or in the config file. None of them can re-enable a
+disabled slashing protection on such a listener: that refusal has no override. The container image, its entrypoint
+and the examples in `deploy/` set none of them.
 
 ### Global
 
@@ -216,3 +231,23 @@ non-loopback listener. None of them can re-enable a disabled slashing protection
 |---|---|---|---|---|
 | `--Xallow-unknown-genesis-time` | `REMOTESIGNER_CONSENSUS_XALLOW_UNKNOWN_GENESIS_TIME` | `Xallow-unknown-genesis-time` or `consensus.Xallow-unknown-genesis-time` | `false` | Allow a non-loopback listener without a genesis time (wall-clock bounds off) |
 | `--Xallow-gvr-tofu` | `REMOTESIGNER_CONSENSUS_XALLOW_GVR_TOFU` | `Xallow-gvr-tofu` or `consensus.Xallow-gvr-tofu` | `false` | Allow a non-loopback listener to pin the genesis validators root on first use |
+
+### What each override accepts
+
+#### `--Xallow-plaintext-token-auth`
+
+- **Refused without it.** A non-loopback API listener with `--http-auth-mode=token` and no TLS (no `--tls-cert-file`, `--tls-keystore-file` or `--tls-generate-self-signed`). The mtls modes always need TLS, and loopback listeners are never refused.
+- **The risk it accepts.** Every request carries the sign or admin token in clear: anyone who can read the traffic (the LAN, the host network, another container on the Docker network) can replay it, sign duties with the sign token (slashing protection still applies) and, with the admin token, reload keys, reset RANDAO frontiers and, with `--key-manager-api-enabled`, import and delete keys. Every response can be read as well, signatures and RANDAO reveals included.
+- **Instead.** Serve TLS: `--tls-generate-self-signed`, which the container image sets, or `--tls-cert-file` and `--tls-key-file`, and give the validator client the certificate (`--validators-external-signer-tls-ca-file`). Use the override only on a throwaway test network whose keys guard nothing.
+
+#### `--Xallow-unknown-genesis-time`
+
+- **Refused without it.** A non-loopback API listener when no source gives the genesis time: neither a built-in network that knows it, `--network-genesis-time` nor `--network-genesis-state`.
+- **The risk it accepts.** Without a genesis time the signer cannot tell the current slot. Its wall-clock bounds are off, so a client with the sign token can have blocks and attestations signed for slots and epochs far in the future: signatures it can broadcast later, and slashing-protection records that refuse the validator's honest attestations until the chain reaches those epochs. New RANDAO layers are refused, so the validators cannot propose, and capabilities reports a null genesis_time, which the qrysm validator client refuses at startup.
+- **Instead.** Pass `--network-genesis-time`, or `--network-genesis-state` with the chain's genesis state.
+
+#### `--Xallow-gvr-tofu`
+
+- **Refused without it.** A non-loopback API listener for a file network when no source gives the genesis validators root: neither `--network-genesis-validators-root` nor `--network-genesis-state`. Built-in public networks never pin on first use.
+- **The risk it accepts.** The first request that carries the network's fork version pins its genesis validators root into the slashing-protection store for good, and every later request must match it. Networks built from one configuration share their fork version, so the first client to reach the signer decides which chain it signs for. When that is another chain that uses the same keys, the signer signs for that chain from then on and refuses every request for the intended one. Undoing a wrong pin needs a new store.
+- **Instead.** Pass `--network-genesis-validators-root`, or `--network-genesis-state` with the chain's genesis state. Trust on first use is meant for a test network on a loopback listener, as the qrysm end-to-end test runs it.

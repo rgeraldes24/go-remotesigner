@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/urfave/cli/v2"
 
+	"github.com/rgeraldes24/go-remotesigner/cmd/remotesigner/flags"
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
@@ -297,6 +299,80 @@ func TestUsageErrors(t *testing.T) {
 				t.Fatalf("exit %d, stderr %q; want exit 2 mentioning %q", code, stderr, tt.want)
 			}
 		})
+	}
+}
+
+// boolFlagCase is one boolean flag of one command: the arguments that lead
+// to the command, and the flag.
+type boolFlagCase struct {
+	path []string
+	flag string
+}
+
+// boolFlagCases walks the command tree and returns every boolean flag of
+// every command, with the arguments that reach it.
+func boolFlagCases(t *testing.T, dataPath string) []boolFlagCase {
+	t.Helper()
+	var out []boolFlagCase
+	var walk func(path []string, fs []cli.Flag, cmds []*cli.Command)
+	walk = func(path []string, fs []cli.Flag, cmds []*cli.Command) {
+		for _, f := range fs {
+			if _, ok := f.(*cli.BoolFlag); ok {
+				out = append(out, boolFlagCase{path: slices.Clone(path), flag: f.Names()[0]})
+			}
+		}
+		for _, c := range cmds {
+			next := append(slices.Clone(path), c.Name)
+			if c.Name == flags.ConsensusCommand {
+				next = append(next, "--network=e2e")
+			}
+			walk(next, c.Flags, c.Subcommands)
+		}
+	}
+	app := newApp(&bytes.Buffer{}, &bytes.Buffer{}, noRun)
+	walk([]string{"--data-path=" + dataPath}, app.Flags, app.Commands)
+	if len(out) < 10 {
+		t.Fatalf("found %d boolean flags; the walk is broken", len(out))
+	}
+	return out
+}
+
+// A boolean takes its value after "=". "--flag false" leaves "false" as an
+// argument, which every command refuses as a usage error, so a command line
+// written for Web3Signer, whose --slashing-protection-enabled and
+// --key-manager-api-enabled take their value as the next argument, can never
+// leave a flag on that it meant to turn off (docs/reference/flags.md,
+// DEVIATIONS.md X75).
+func TestBooleanFlagValues(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range boolFlagCases(t, dir) {
+		name := strings.Join(append(slices.Clone(tc.path[1:]), "--"+tc.flag), " ")
+		t.Run(name, func(t *testing.T) {
+			code, _, stderr := runCLI(t, append(slices.Clone(tc.path), "--"+tc.flag, "false")...)
+			if code != exitUsage || !strings.Contains(stderr, `"false"`) {
+				t.Errorf("--%s false: exit %d, stderr %q; want exit 2 naming the stray argument", tc.flag, code, stderr)
+			}
+		})
+	}
+	// The global flags precede the command, so there "false" is read as the
+	// command's name.
+	if code, _, stderr := runCLI(t, "--strict-file-permissions", "false", "consensus", "--network=e2e"); code != exitUsage ||
+		!strings.Contains(stderr, `unknown command "false"`) {
+		t.Errorf("global --strict-file-permissions false: exit %d, stderr %q", code, stderr)
+	}
+	for _, args := range [][]string{
+		{"consensus", "--network=e2e", "--slashing-protection-enabled=false"},
+		{"--strict-file-permissions=false", "consensus", "--network=e2e"},
+	} {
+		cfg, code, stderr := capture(t, args...)
+		if code != exitOK {
+			t.Fatalf("%q: exit %d: %s", args, code, stderr)
+		}
+		if cfg.Consensus.SlashingProtectionEnabled == slices.Contains(args, "--slashing-protection-enabled=false") ||
+			cfg.StrictFilePermissions == slices.Contains(args, "--strict-file-permissions=false") {
+			t.Errorf("%q: protection %v, strict permissions %v", args, cfg.Consensus.SlashingProtectionEnabled,
+				cfg.StrictFilePermissions)
+		}
 	}
 }
 
