@@ -44,10 +44,13 @@ type node struct {
 
 // recorded is a request the node received.
 type recorded struct {
-	header http.Header
-	host   string
-	path   string
-	body   []byte
+	header           http.Header
+	trailer          http.Header
+	transferEncoding []string
+	contentLength    int64
+	host             string
+	path             string
+	body             []byte
 }
 
 func newNode(t *testing.T) *node {
@@ -56,7 +59,9 @@ func newNode(t *testing.T) *node {
 	n.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		n.mu.Lock()
-		n.requests = append(n.requests, recorded{header: r.Header.Clone(), host: r.Host, path: r.URL.Path, body: body})
+		n.requests = append(n.requests, recorded{header: r.Header.Clone(), trailer: r.Trailer.Clone(),
+			transferEncoding: r.TransferEncoding, contentLength: r.ContentLength, host: r.Host, path: r.URL.Path,
+			body: body})
 		h := n.handler
 		n.mu.Unlock()
 		if h != nil {

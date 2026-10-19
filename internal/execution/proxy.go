@@ -81,13 +81,16 @@ func newProxy(ds *downstream, logger *logrus.Logger) (p *proxy, closeLog func())
 // rewrite points the request at the downstream node, Host included, and
 // replaces its headers with the forwarded ones and the signer's own
 // downstream credentials. The path and query of the client's request are
-// not used.
+// not used, and neither are its trailers: on a chunked body they would
+// reach the node as headers past the allowlist. The node gets the signer's
+// own body with its length.
 func (p *proxy) rewrite(pr *httputil.ProxyRequest) {
 	pr.Out.URL.Scheme = p.ds.target.Scheme
 	pr.Out.URL.Host = p.ds.target.Host
 	pr.Out.URL.Path, pr.Out.URL.RawPath, pr.Out.URL.RawQuery = p.ds.target.Path, "", ""
 	pr.Out.Host = p.ds.target.Host
 	pr.Out.Header = p.outHeader(pr.In.Header)
+	pr.Out.Trailer, pr.Out.TransferEncoding = nil, nil
 }
 
 // outHeader builds the downstream request's headers from the client's.
