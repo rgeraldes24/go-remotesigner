@@ -39,6 +39,7 @@ import (
 	"net/http/httputil"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -52,6 +53,10 @@ var forwardedHeaders = []string{"Content-Type", "Accept", "User-Agent"}
 // errResponseTooLarge stops a downstream response at MaxResponseSize.
 var errResponseTooLarge = errors.New("downstream response over the size limit")
 
+// errResponseStalled stops a downstream response whose next data does not
+// arrive within the downstream timeout.
+var errResponseStalled = errors.New("downstream response stalled")
+
 // proxy forwards single requests with httputil.ReverseProxy and exchanges
 // the forwarded part of a batch.
 type proxy struct {
@@ -60,8 +65,17 @@ type proxy struct {
 	log logrus.FieldLogger
 }
 
-// requestKey carries the JSON-RPC request into the proxy's error handler.
-type requestKey struct{}
+// forwardKey carries a forwarded request's forwarding into ReverseProxy's
+// callbacks.
+type forwardKey struct{}
+
+// forwarding is the JSON-RPC request being forwarded, for the error
+// handler, and the cancellation of its downstream exchange, for the
+// response body's idle bound.
+type forwarding struct {
+	req    *Request
+	cancel context.CancelFunc
+}
 
 // newProxy builds the proxy. Its error log goes to logger at DEBUG; the
 // writer is closed with closeLog.
@@ -71,7 +85,7 @@ func newProxy(ds *downstream, logger *logrus.Logger) (p *proxy, closeLog func())
 	p.rp = &httputil.ReverseProxy{
 		Rewrite:        p.rewrite,
 		Transport:      ds.transport,
-		ModifyResponse: modifyResponse,
+		ModifyResponse: p.modifyResponse,
 		ErrorHandler:   p.errorHandler,
 		ErrorLog:       log.New(w, "", 0),
 	}
@@ -108,10 +122,11 @@ func (p *proxy) outHeader(in http.Header) http.Header {
 }
 
 // modifyResponse drops the downstream's cookies, CORS headers and
-// trailers, and caps the body at MaxResponseSize. Trailers are dropped
-// whole, as Web3Signer drops them: ReverseProxy would copy them after the
-// body, past this header check.
-func modifyResponse(resp *http.Response) error {
+// trailers, caps the body at MaxResponseSize, and bounds each wait for
+// more of it by the downstream timeout. Trailers are dropped whole, as
+// Web3Signer drops them: ReverseProxy would copy them after the body, past
+// this header check.
+func (p *proxy) modifyResponse(resp *http.Response) error {
 	resp.Header.Del("Set-Cookie")
 	for name := range resp.Header {
 		if strings.HasPrefix(http.CanonicalHeaderKey(name), "Access-Control-") {
@@ -121,9 +136,50 @@ func modifyResponse(resp *http.Response) error {
 	if resp.ContentLength > MaxResponseSize {
 		return errResponseTooLarge
 	}
+	fw := resp.Request.Context().Value(forwardKey{}).(*forwarding)
 	resp.Trailer = nil // nothing is announced
-	resp.Body = &trailerlessBody{ReadCloser: &cappedBody{ReadCloser: resp.Body, left: MaxResponseSize}, resp: resp}
+	resp.Body = &trailerlessBody{
+		ReadCloser: &cappedBody{ReadCloser: p.idle(resp.Body, fw.cancel), left: MaxResponseSize},
+		resp:       resp,
+	}
 	return nil
+}
+
+// idle bounds each read of a downstream response body by the downstream
+// timeout, as Web3Signer's idle timeout does; cancel ends the exchange.
+func (p *proxy) idle(body io.ReadCloser, cancel context.CancelFunc) *idleBody {
+	return &idleBody{ReadCloser: body, timeout: p.ds.timeout, cancel: cancel}
+}
+
+// idleBody fails a read that waits longer than its timeout: the timer
+// cancels the downstream exchange, which ends the read, and the read
+// returns errResponseStalled. Between reads, while the signer writes to its
+// client, the timer is stopped.
+type idleBody struct {
+	io.ReadCloser
+	timeout time.Duration
+	cancel  context.CancelFunc
+	timer   *time.Timer
+}
+
+func (b *idleBody) Read(p []byte) (int, error) {
+	if b.timer == nil {
+		b.timer = time.AfterFunc(b.timeout, b.cancel)
+	} else {
+		b.timer.Reset(b.timeout)
+	}
+	n, err := b.ReadCloser.Read(p)
+	if !b.timer.Stop() {
+		return n, errResponseStalled
+	}
+	return n, err
+}
+
+func (b *idleBody) Close() error {
+	if b.timer != nil {
+		b.timer.Stop()
+	}
+	return b.ReadCloser.Close()
 }
 
 // trailerlessBody clears its response's trailers when it is closed. The
@@ -190,7 +246,9 @@ func (p *proxy) forward(w http.ResponseWriter, r *http.Request, req *Request) {
 		writeResponse(w, http.StatusInternalServerError, encodeResult(req.responseID(), nil, ErrInternal))
 		return
 	}
-	r = r.WithContext(context.WithValue(r.Context(), requestKey{}, req))
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	r = r.WithContext(context.WithValue(ctx, forwardKey{}, &forwarding{req: req, cancel: cancel}))
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
 	p.rp.ServeHTTP(finalOnly{w}, r)
@@ -201,7 +259,10 @@ func (p *proxy) forward(w http.ResponseWriter, r *http.Request, req *Request) {
 // or does not answer in time, 502 for a TLS failure or an oversized
 // response, 500 otherwise.
 func (p *proxy) errorHandler(w http.ResponseWriter, r *http.Request, err error) {
-	req, _ := r.Context().Value(requestKey{}).(*Request)
+	var req *Request
+	if fw, ok := r.Context().Value(forwardKey{}).(*forwarding); ok {
+		req = fw.req
+	}
 	status, e := classify(err)
 	p.log.WithFields(logrus.Fields{"method": methodOf(req), "status": status}).WithError(err).
 		Warn("Forwarding to the downstream node failed")
@@ -227,7 +288,8 @@ func classify(err error) (int, *Error) {
 	case errors.As(err, &verify), errors.As(err, &unknown), errors.As(err, &invalid), errors.As(err, &hostname),
 		errors.As(err, &record), errors.As(err, &alert):
 		return http.StatusBadGateway, ErrDownstreamConnect
-	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &netErr) && netErr.Timeout():
+	case errors.Is(err, errResponseStalled), errors.Is(err, context.DeadlineExceeded),
+		errors.As(err, &netErr) && netErr.Timeout():
 		return http.StatusGatewayTimeout, ErrDownstreamTimeout
 	case errors.As(err, &opErr) && opErr.Op == "dial", errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
 		return http.StatusGatewayTimeout, ErrDownstreamConnect
@@ -237,10 +299,12 @@ func classify(err error) (int, *Error) {
 }
 
 // exchange posts a batch of forwarded requests to the downstream node, with
-// the same header rules as forward, and returns the response body. Only a
-// 200 response within MaxResponseSize is a response; redirects are not
-// followed.
+// the same header rules and bounds as forward, and returns the response
+// body. Only a 200 response within MaxResponseSize is a response; redirects
+// are not followed.
 func (p *proxy) exchange(ctx context.Context, in *http.Request, body []byte) ([]byte, *Error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	out, err := http.NewRequestWithContext(ctx, http.MethodPost, p.ds.target.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, ErrInternal
@@ -263,7 +327,7 @@ func (p *proxy) exchange(ctx context.Context, in *http.Request, body []byte) ([]
 	if resp.ContentLength > MaxResponseSize {
 		return nil, ErrDownstreamResponse.with("response over 25 MB")
 	}
-	data, err := io.ReadAll(&cappedBody{ReadCloser: resp.Body, left: MaxResponseSize})
+	data, err := io.ReadAll(&cappedBody{ReadCloser: p.idle(resp.Body, cancel), left: MaxResponseSize})
 	if err != nil {
 		_, e := classify(err)
 		return nil, e

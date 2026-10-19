@@ -58,8 +58,9 @@ const (
 	localWork = 30 * time.Second
 )
 
-// WriteTimeout bounds a response: the downstream node's time and the
-// signer's own.
+// WriteTimeout is the endpoint's write timeout: the downstream node's time
+// and the signer's own. The server writes nothing after it, and the handler
+// ends a request's downstream exchange and local work there too.
 func WriteTimeout(downstream time.Duration) time.Duration { return downstream + localWork }
 
 // Run runs `remotesigner execution` until ctx ends, then shuts down

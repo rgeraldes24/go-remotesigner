@@ -378,6 +378,83 @@ func TestProxyDownstreamErrors(t *testing.T) {
 	}
 }
 
+// within runs f and fails the test if it does not return within d.
+func within(t *testing.T, d time.Duration, what string, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f()
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+		t.Fatalf("%s did not return within %s", what, d)
+	}
+}
+
+// A node that stops sending in the middle of its response is cut off once
+// the downstream timeout passes without data, as Web3Signer's idle timeout
+// does: a batch gets the timeout error in place of the forwarded answers,
+// and its local answers still arrive.
+func TestProxyStalledResponse(t *testing.T) {
+	nd := newNode(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	nd.setHandler(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[{"jsonrpc":"2.0",`)
+		w.(http.Flusher).Flush()
+		<-release
+	})
+	d := downstreamOf(t, nd.Server)
+	d.Timeout = 200 * time.Millisecond
+	f := newFixtureWith(t, 0, defaultAllow, d, nd)
+
+	var w *httptest.ResponseRecorder
+	within(t, 10*time.Second, "a batch", func() {
+		w = f.post(batch(call(1, "qrl_blockNumber"), call(2, MethodHealthStatus)), nil)
+	})
+	rs := decodeBatch(t, w.Body.Bytes())
+	if len(rs) != 2 || rs[0].Error == nil || rs[0].Error.Message != ErrDownstreamTimeout.Message ||
+		string(rs[1].Result) != `"OK"` {
+		t.Fatalf("batch: %s", w.Body)
+	}
+	within(t, 10*time.Second, "a single request", func() { w = f.post(call(1, "qrl_blockNumber"), nil) })
+	if w.Body.String() != `[{"jsonrpc":"2.0",` {
+		t.Fatalf("single request: %q", w.Body)
+	}
+}
+
+// A node that keeps sending, too slowly to ever finish, is cut off at the
+// request's deadline, the endpoint's write timeout.
+func TestProxyRequestDeadline(t *testing.T) {
+	nd := newNode(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	nd.setHandler(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		for {
+			_, _ = io.WriteString(w, " ")
+			w.(http.Flusher).Flush()
+			select {
+			case <-release:
+				return
+			case <-r.Context().Done():
+				return
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+	})
+	f := newFixtureWith(t, 0, defaultAllow, downstreamOf(t, nd.Server), nd)
+	if want := WriteTimeout(2 * time.Second); f.handler.deadline != want {
+		t.Fatalf("deadline %s, want the write timeout %s", f.handler.deadline, want)
+	}
+	f.handler.deadline = 300 * time.Millisecond
+	within(t, 10*time.Second, "a batch", func() { f.post(batch(call(1, "qrl_blockNumber")), nil) })
+	within(t, 10*time.Second, "a single request", func() { f.post(call(1, "qrl_blockNumber"), nil) })
+}
+
 // --downstream-http-tls-enabled connects with https, against the system
 // roots or --downstream-http-tls-ca-file.
 func TestProxyTLS(t *testing.T) {
