@@ -9,6 +9,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -43,6 +45,77 @@ func decodeRequestMap(data []byte) (*Request, *Error) {
 	return req, nil
 }
 
+// splitBatchDecoder is splitBatch as it was, reading the elements with a
+// json.Decoder: the oracle that splitBatch must agree with on a body that
+// isBatch accepts.
+func splitBatchDecoder(body []byte) ([]json.RawMessage, *Error) {
+	if !json.Valid(body) {
+		return nil, ErrParse
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if _, err := dec.Token(); err != nil {
+		return nil, ErrInvalidRequest
+	}
+	var elems []json.RawMessage
+	for dec.More() {
+		if len(elems) == MaxBatch {
+			return nil, ErrInvalidRequest.with("batch of more than " + strconv.Itoa(MaxBatch) + " requests")
+		}
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return nil, ErrInvalidRequest
+		}
+		elems = append(elems, raw)
+	}
+	if len(elems) == 0 {
+		return nil, ErrInvalidRequest.with("empty batch")
+	}
+	return elems, nil
+}
+
+// equalRaw reports whether two lists of raw values hold the same bytes.
+func equalRaw(a, b []json.RawMessage) bool {
+	return slices.EqualFunc(a, b, func(x, y json.RawMessage) bool { return bytes.Equal(x, y) })
+}
+
+// elements finds an array's elements as encoding/json does, stops past its
+// limit, and finds none in anything else.
+func TestElements(t *testing.T) {
+	for _, tt := range []struct {
+		data  string
+		limit int
+		want  []string // nil: refused
+	}{
+		{`[]`, 0, []string{}},
+		{" [ ] ", 0, []string{}},
+		{`[1]`, 0, nil},
+		{`[1]`, 1, []string{`1`}},
+		{" [ 1 , \"]\" ,\n[2,[3]] , {\"a\":\"}\\\"\"} , null ] ", 5,
+			[]string{`1`, `"]"`, `[2,[3]]`, `{"a":"}\""}`, `null`}},
+		{" [ 1 , \"]\" ,\n[2,[3]] , {\"a\":\"}\\\"\"} , null ] ", 4, nil},
+		{`[1,2,3]`, 2, nil},
+		{`{}`, 1, nil},
+		{`{"a":[1]}`, 1, nil},
+		{`null`, 1, nil},
+		{`"[]"`, 1, nil},
+		{`1`, 1, nil},
+	} {
+		got, ok := elements([]byte(tt.data), tt.limit)
+		if ok != (tt.want != nil) || len(got) != len(tt.want) {
+			t.Errorf("%q, limit %d: %q, %v; want %q", tt.data, tt.limit, got, ok, tt.want)
+			continue
+		}
+		for i := range got {
+			if string(got[i]) != tt.want[i] {
+				t.Errorf("%q, limit %d: element %d is %q, want %q", tt.data, tt.limit, i, got[i], tt.want[i])
+			}
+		}
+	}
+	if _, e := splitBatch([]byte(`{"jsonrpc":"2.0","id":1,"method":"m"}`)); e == nil || e.Code != ErrInvalidRequest.Code {
+		t.Errorf("an object as a batch: %v, want -32600", e)
+	}
+}
+
 var scanSeeds = []string{
 	`{"jsonrpc":"2.0","id":1,"method":"m","params":[1]}`,
 	`{"jsonrpc":"2.0","method":"m","extra":1}`,
@@ -58,8 +131,9 @@ var scanSeeds = []string{
 	`[{"jsonrpc":"2.0","id":1,"method":"m"}, 1, "]", [[]], {"a":[]}, null ,true,false,-0.1e-2]`,
 }
 
-// decodeRequest agrees with the map-based decoder on every input, and the
-// scanners stay within their input, valid JSON or not.
+// decodeRequest agrees with the map-based decoder, splitBatch with the
+// json.Decoder one, and elements with encoding/json, on every input, and
+// the scanners stay within their input, valid JSON or not.
 func FuzzDecodeRequest(f *testing.F) {
 	for _, s := range scanSeeds {
 		f.Add([]byte(s))
@@ -78,11 +152,32 @@ func FuzzDecodeRequest(f *testing.F) {
 			t.Fatalf("%q: request %+v, want %+v", data, got, want)
 		}
 
+		if isBatch(data) {
+			got, gotErr := splitBatch(data)
+			want, wantErr := splitBatchDecoder(data)
+			if !reflect.DeepEqual(gotErr, wantErr) || !equalRaw(got, want) {
+				t.Fatalf("%q: batch %q, %v; want %q, %v", data, got, gotErr, want, wantErr)
+			}
+		}
+		if json.Valid(data) {
+			var all []json.RawMessage
+			isArray := json.Unmarshal(data, &all) == nil && all != nil // null is not an array
+			for _, limit := range []int{0, 1, 2, max(len(all)-1, 0), len(all)} {
+				got, ok := elements(data, limit)
+				if ok != (isArray && len(all) <= limit) || ok && !equalRaw(got, all) {
+					t.Fatalf("%q, limit %d: %q, %v; want %q (an array: %v)", data, limit, got, ok, all, isArray)
+				}
+			}
+		}
+
 		// Any input, even invalid JSON: no panic, spans within data.
 		members(data, func(name, value []byte) {
 			var buf [len("jsonrpc")]byte
 			memberName(name, &buf)
 		})
+		if got, _ := elements(data, len(data)); len(got) > len(data) {
+			t.Fatalf("%q: %d elements", data, len(got))
+		}
 		for i := range data {
 			if end := valueEnd(data, i); end < i || end > len(data) {
 				t.Fatalf("%q: value at %d ends at %d", data, i, end)

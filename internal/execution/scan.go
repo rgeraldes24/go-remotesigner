@@ -5,10 +5,13 @@
 
 package execution
 
+import "encoding/json"
+
 // The functions below walk JSON that json.Valid has accepted. They check
-// nothing, and copy and allocate nothing: they only find where each value
-// starts and ends, so that reading a request costs about the same however
-// many members or elements it carries that the signer does not use.
+// nothing and copy nothing: they only find where each value starts and
+// ends, so that reading a request, a batch or a method's params costs
+// about the same however many members or elements it carries that the
+// signer does not use.
 // Decoded whole, a 5 MiB body of tiny members or elements takes tens of
 // times its size: into a map, a request object of 400,000 members costs
 // over 100 MB, and into a slice, an array of 2.6 million numbers over
@@ -101,6 +104,30 @@ func members(data []byte, fn func(name, value []byte)) bool {
 		i = end
 	}
 	return true
+}
+
+// elements returns the raw elements of the array data, in order, as
+// slices of data. It reports false when data is not an array or has more
+// than limit elements, which it counts as it goes: it never collects more
+// than limit, and allocates nothing else.
+func elements(data []byte, limit int) ([]json.RawMessage, bool) {
+	i := skipSpace(data, 0)
+	if i >= len(data) || data[i] != '[' {
+		return nil, false
+	}
+	var elems []json.RawMessage
+	for i = skipSpace(data, i+1); i < len(data) && data[i] != ']'; i = skipSpace(data, i) {
+		if data[i] == ',' {
+			i = skipSpace(data, i+1)
+		}
+		if len(elems) == limit {
+			return nil, false
+		}
+		end := valueEnd(data, i)
+		elems = append(elems, data[i:end])
+		i = end
+	}
+	return elems, true
 }
 
 // memberName decodes the name of a member from its raw JSON string into

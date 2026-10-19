@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -462,36 +463,61 @@ func manyMembers(method string, size int, key func(int) string) string {
 }
 
 // The members of a request that it does not define are stepped over, not
-// collected: a request of the largest size, of tiny members under distinct
-// names, plain or escaped, costs a small part of its own size in
-// allocations, and the node gets the four members alone.
+// collected, and a batch's elements are found in place, not copied: a
+// request of the largest size, of tiny members under distinct names, plain
+// or escaped, costs a small part of its own size in allocations, sent alone
+// or as a batch of one, and the node gets the four members alone.
 func TestManyMembersAllocation(t *testing.T) {
 	f := newFixture(t, 0, defaultAllow)
-	for _, tt := range []struct {
+	const forwarded = `{"jsonrpc":"2.0","id":%d,"method":"qrl_blockNumber"}`
+	for _, key := range []struct {
 		name string
 		key  func(int) string
 	}{
 		{"plain names", func(i int) string { return strconv.FormatInt(int64(i), 16) }},
 		{"escaped names", func(i int) string { return `\u0061` + strconv.FormatInt(int64(i), 16) }},
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			body := []byte(manyMembers("qrl_blockNumber", BodyLimit, tt.key))
-			before := len(f.node.received())
-			w := httptest.NewRecorder()
-			allocated := allocatedBy(func() {
-				f.handler.serveSingle(w, httptest.NewRequest(http.MethodPost, "/", nil), body)
+		for _, form := range []struct {
+			name  string
+			body  func(size int) []byte
+			serve func(w http.ResponseWriter, r *http.Request, body []byte)
+			batch bool
+			sent  string // what the node gets
+		}{
+			{"single",
+				func(size int) []byte { return []byte(manyMembers("qrl_blockNumber", size, key.key)) },
+				f.handler.serveSingle, false, fmt.Sprintf(forwarded, 1)},
+			{"batch of one",
+				func(size int) []byte { return []byte("[" + manyMembers("qrl_blockNumber", size-2, key.key) + "]") },
+				f.handler.serveBatch, true, "[" + fmt.Sprintf(forwarded, 0) + "]"},
+		} {
+			t.Run(key.name+", "+form.name, func(t *testing.T) {
+				body := form.body(BodyLimit)
+				before := len(f.node.received())
+				w := httptest.NewRecorder()
+				allocated := allocatedBy(func() {
+					form.serve(w, httptest.NewRequest(http.MethodPost, "/", nil), body)
+				})
+				if allocated > uint64(len(body))/8 {
+					t.Errorf("%d bytes allocated for a body of %d", allocated, len(body))
+				}
+				var r rpcResponse
+				if form.batch {
+					if rs := decodeBatch(t, w.Body.Bytes()); len(rs) == 1 {
+						r = rs[0]
+					}
+				} else {
+					r = decodeOne(t, w.Body.Bytes())
+				}
+				if w.Code != http.StatusOK || string(r.ID) != "1" || string(r.Result) != `"node:qrl_blockNumber"` {
+					t.Errorf("%d %s", w.Code, w.Body)
+				}
+				got := f.node.received()
+				if len(got) != before+1 || string(got[before].body) != form.sent {
+					t.Errorf("the node received %d requests, the last %.200s", len(got)-before, got[len(got)-1].body)
+				}
 			})
-			if allocated > uint64(len(body))/8 {
-				t.Errorf("%d bytes allocated for a body of %d", allocated, len(body))
-			}
-			if r := decodeOne(t, w.Body.Bytes()); w.Code != http.StatusOK || string(r.Result) != `"node:qrl_blockNumber"` {
-				t.Errorf("%d %s", w.Code, w.Body)
-			}
-			got := f.node.received()
-			if len(got) != before+1 || string(got[before].body) != `{"jsonrpc":"2.0","id":1,"method":"qrl_blockNumber"}` {
-				t.Errorf("the node received %d requests, the last %.200s", len(got)-before, got[len(got)-1].body)
-			}
-		})
+		}
 	}
 }
 

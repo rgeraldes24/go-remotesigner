@@ -49,8 +49,8 @@ test-postgres:
 	$(GO) test -count=1 -run Postgres ./test/acceptance/
 
 ## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, the strict
-## request decoders, the JSON-RPC request decoder against encoding/json, the keystore decoder and the EIP-3076
-## interchange
+## request decoders, the JSON-RPC request and batch decoders against encoding/json, the keystore decoder and the
+## EIP-3076 interchange
 FUZZTIME ?= 10s
 fuzz: fuzz-keystore fuzz-interchange
 	$(GO) test -run '^$$' -fuzz '^FuzzHashTreeRootDifferential$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/

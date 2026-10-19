@@ -201,30 +201,23 @@ func (h *Handler) serveBatch(w http.ResponseWriter, r *http.Request, body []byte
 }
 
 // splitBatch returns the elements of a batch: a JSON array of 1 to MaxBatch
-// elements. A body that is not JSON is a parse error. The elements are
-// counted as they are read, so that an oversized batch is refused before
-// it is materialised: a 5 MiB array of tiny elements, decoded whole, would
-// take some 60 times its size.
+// elements, as slices of body. A body that is not JSON is a parse error.
+// The elements are counted as they are found, so that an oversized batch
+// is refused before it is materialised (a 5 MiB array of tiny elements,
+// decoded whole, would take some 60 times its size), and they are found in
+// place, so that a batch of one large element is not copied either.
 func splitBatch(body []byte) ([]json.RawMessage, *Error) {
 	if !json.Valid(body) {
 		return nil, ErrParse
 	}
-	dec := json.NewDecoder(bytes.NewReader(body))
-	if _, err := dec.Token(); err != nil { // the '['
-		return nil, ErrInvalidRequest
+	if !isBatch(body) {
+		return nil, ErrInvalidRequest.with("a batch must be a JSON array")
 	}
-	var elems []json.RawMessage
-	for dec.More() {
-		if len(elems) == MaxBatch {
-			return nil, ErrInvalidRequest.with("batch of more than " + strconv.Itoa(MaxBatch) + " requests")
-		}
-		var raw json.RawMessage
-		if err := dec.Decode(&raw); err != nil {
-			return nil, ErrInvalidRequest
-		}
-		elems = append(elems, raw)
-	}
-	if len(elems) == 0 {
+	elems, ok := elements(body, MaxBatch)
+	switch {
+	case !ok:
+		return nil, ErrInvalidRequest.with("batch of more than " + strconv.Itoa(MaxBatch) + " requests")
+	case len(elems) == 0:
 		return nil, ErrInvalidRequest.with("empty batch")
 	}
 	return elems, nil
