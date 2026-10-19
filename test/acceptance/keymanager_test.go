@@ -369,6 +369,9 @@ func TestKeymanagerLogsNoSecretsAtTrace(t *testing.T) {
 	if code, r, _ := s.km("DELETE", deleteBody(k.pubkey, other.pubkey)); code != 200 || r.Data[0].Status != "deleted" {
 		t.Fatalf("delete: %d", code)
 	}
+	// The log reaches the test through a pipe, after the responses: it is
+	// complete once the signer has exited.
+	s.stop()
 	logs := s.output.String()
 	for name, secret := range map[string]string{
 		"password": kmPassword, "wrong password": wrong, "ciphertext": ciphertext, "admin token": s.adminToken(),
@@ -442,6 +445,7 @@ func TestKeymanagerFileModes(t *testing.T) {
 	}
 	lax := startKM(t, options{keys: open, global: []string{"--strict-file-permissions=false"}})
 	lax.waitReady()
+	lax.stop()
 	if !strings.Contains(lax.output.String(), "accessible to its group or other users") {
 		t.Fatalf("no warning:\n%s", lax.output.String())
 	}
