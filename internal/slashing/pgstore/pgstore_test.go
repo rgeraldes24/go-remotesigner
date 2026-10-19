@@ -420,3 +420,50 @@ func TestReadPasswordFile(t *testing.T) {
 		}
 	}
 }
+
+// SurroundingAttestation reads the surrounded candidate for the same epochs in the same statement, and the next
+// SurroundedAttestation for those epochs answers from it; a write in between, or other epochs, read the table again.
+func TestPostgresSurroundPair(t *testing.T) {
+	s := open(t, config(migrated(t)))
+	register(t, s, 1)
+	if _, err := s.PinGenesisValidatorsRoot(bg, slashingtest.GVR); err != nil {
+		t.Fatal(err)
+	}
+	must(t, slashingtest.ImportAttestations(bg, s, key(0),
+		slashing.SignedAttestation{SourceEpoch: 2, TargetEpoch: 3, SigningRoot: slashingtest.RootPtr(1)}))
+	want := func(what string, a slashing.SignedAttestation, ok bool, err error, target uint64) {
+		t.Helper()
+		switch {
+		case err != nil:
+			t.Fatalf("%s: %v", what, err)
+		case target == 0 && ok:
+			t.Errorf("%s: found (%d, %d), want none", what, a.SourceEpoch, a.TargetEpoch)
+		case target != 0 && (!ok || a.TargetEpoch != target):
+			t.Errorf("%s: %+v, %v; want the attestation at target %d", what, a, ok, target)
+		}
+	}
+	err := s.UpdateAttestations(bg, key(0), func(tx slashing.AttestationTx) error {
+		a, ok, err := tx.SurroundingAttestation(1, 10)
+		want("surrounding (1, 10)", a, ok, err, 0)
+		must(t, tx.InsertAttestation(slashing.SignedAttestation{SourceEpoch: 4, TargetEpoch: 8,
+			SigningRoot: slashingtest.RootPtr(2)}))
+		a, ok, err = tx.SurroundedAttestation(1, 10)
+		want("surrounded (1, 10) after an insert", a, ok, err, 8)
+		a, ok, err = tx.SurroundingAttestation(1, 10)
+		want("surrounding (1, 10) again", a, ok, err, 0)
+		a, ok, err = tx.SurroundedAttestation(1, 10)
+		want("surrounded (1, 10) right after it", a, ok, err, 8)
+		a, ok, err = tx.SurroundingAttestation(3, 7)
+		want("surrounding (3, 7)", a, ok, err, 0)
+		a, ok, err = tx.SurroundedAttestation(1, 10)
+		want("surrounded (1, 10) after other epochs", a, ok, err, 8)
+		a, ok, err = tx.SurroundingAttestation(5, 6)
+		want("surrounding (5, 6)", a, ok, err, 8)
+		a, ok, err = tx.SurroundedAttestation(5, 6)
+		want("surrounded (5, 6)", a, ok, err, 0)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

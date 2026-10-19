@@ -265,22 +265,14 @@ func (s *Store) SetValidatorEnabled(ctx context.Context, id slashing.KeyID, enab
 
 // UpdateBlocks runs fn in a block transaction for one validator, under its block lock.
 func (s *Store) UpdateBlocks(ctx context.Context, id slashing.KeyID, fn func(slashing.BlockTx) error) error {
-	return s.inTx(ctx, "block transaction", func(ctx context.Context, tx pgx.Tx) error {
-		vid, err := lockValidator(ctx, tx, id, lockBlock)
-		if err != nil {
-			return err
-		}
-		return fn(&blockTx{&validatorTx{ctx: ctx, tx: tx, vid: vid}})
+	return s.inValidatorTx(ctx, "block transaction", id, lockBlock, func(v *validatorTx) error {
+		return fn(&blockTx{v})
 	})
 }
 
 // UpdateAttestations runs fn in an attestation transaction for one validator, under its attestation lock.
 func (s *Store) UpdateAttestations(ctx context.Context, id slashing.KeyID, fn func(slashing.AttestationTx) error) error {
-	return s.inTx(ctx, "attestation transaction", func(ctx context.Context, tx pgx.Tx) error {
-		vid, err := lockValidator(ctx, tx, id, lockAttestation)
-		if err != nil {
-			return err
-		}
-		return fn(&attestationTx{&validatorTx{ctx: ctx, tx: tx, vid: vid}})
+	return s.inValidatorTx(ctx, "attestation transaction", id, lockAttestation, func(v *validatorTx) error {
+		return fn(&attestationTx{validatorTx: v})
 	})
 }

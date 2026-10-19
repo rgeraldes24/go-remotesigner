@@ -300,6 +300,66 @@ func (s *Store) inTx(ctx context.Context, op string, fn func(ctx context.Context
 	})
 }
 
+// inValidatorTx runs fn in a READ COMMITTED transaction that holds one validator's advisory lock of type typ, with
+// the validator's head (its enabled flag and both watermarks) read. BEGIN, the lock and the head read reach the
+// server together, in one round trip: the head is read by a statement that starts once the lock is granted, so it
+// sees every transaction that held the lock before. An unknown key is slashing.ErrValidatorNotRegistered. Like
+// inTx, it is bounded by the store's timeout and runs fn again after a serialisation failure or a deadlock.
+func (s *Store) inValidatorTx(ctx context.Context, op string, id slashing.KeyID, typ int,
+	fn func(*validatorTx) error) error {
+	return s.call(ctx, op, func(ctx context.Context) error {
+		return retry(ctx, func() error {
+			conn, err := s.pool.Acquire(ctx)
+			if err != nil {
+				return err
+			}
+			// A connection left inside a transaction (a failed rollback) is closed by the pool, not reused.
+			defer conn.Release()
+			return runValidatorTx(ctx, conn, id, typ, fn)
+		})
+	})
+}
+
+// runValidatorTx is one run of inValidatorTx's transaction on conn.
+func runValidatorTx(ctx context.Context, conn *pgxpool.Conn, id slashing.KeyID, typ int,
+	fn func(*validatorTx) error) error {
+	b := &pgx.Batch{}
+	b.Queue(`BEGIN ISOLATION LEVEL READ COMMITTED`)
+	b.Queue(fmt.Sprintf(`SELECT pg_advisory_xact_lock(%d, id) FROM validators WHERE pubkey_hash = $1`, typ), id[:])
+	b.Queue(headSQL+`v.pubkey_hash = $1`, id[:])
+	br := conn.SendBatch(ctx, b)
+	_, err := br.Exec()
+	if err == nil {
+		_, err = br.Exec()
+	}
+	var (
+		vid int32
+		h   *head
+	)
+	if err == nil {
+		vid, h, err = scanHead(br.QueryRow())
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = slashing.ErrValidatorNotRegistered
+		}
+	}
+	if cerr := br.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = fn(&validatorTx{ctx: ctx, tx: conn, vid: vid, head: h})
+	}
+	if err != nil {
+		_, _ = conn.Exec(ctx, `ROLLBACK`)
+		return err
+	}
+	tag, err := conn.Exec(ctx, `COMMIT`)
+	if err == nil && tag.String() == "ROLLBACK" {
+		// A statement failed and fn went on: the server rolled the transaction back.
+		err = pgx.ErrTxCommitRollback
+	}
+	return err
+}
+
 // retry runs fn until it succeeds, fails with an error other than 40001 or 40P01, has run maxAttempts times, or ctx
 // ends.
 func retry(ctx context.Context, fn func() error) error {

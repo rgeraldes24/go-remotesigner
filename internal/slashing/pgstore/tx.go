@@ -30,17 +30,25 @@ import (
 	"math"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 )
 
+// querier runs a transaction's statements: a pgx.Tx, or the pooled connection of a transaction the store began
+// itself (Store.inValidatorTx).
+type querier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // validatorTx is one validator's part of a transaction that holds its advisory lock(s). The validator's enabled
-// flag and both watermarks are read together, in one statement, the first time a check asks for one of them, and
-// then remembered: no other transaction can change them meanwhile, and the transaction's own writes update or drop
-// what it remembers.
+// flag and both watermarks are read together, in one statement, and then remembered: no other transaction can
+// change them meanwhile, and the transaction's own writes update or drop what it remembers.
 type validatorTx struct {
 	ctx  context.Context
-	tx   pgx.Tx
+	tx   querier
 	vid  int32
 	head *head
 }
@@ -52,37 +60,51 @@ type head struct {
 	low     slashing.LowWatermark
 }
 
-// read returns the validator's head. It reads the high watermark FOR SHARE: SetHighWatermark then waits for this
-// transaction, so that once it returns no message decided under the old high watermark is still to be recorded.
-func (t *validatorTx) read() (*head, error) {
-	if t.head != nil {
-		return t.head, nil
-	}
+// headSQL reads a validator's id and head; the condition on v completes it. It reads the high watermark FOR SHARE:
+// SetHighWatermark then waits for the transaction, so that once it returns no message decided under the old high
+// watermark is still to be recorded.
+const headSQL = `SELECT v.id, v.enabled, m.high_watermark_epoch, m.high_watermark_slot,
+		l.slot, l.source_epoch, l.target_epoch
+	FROM validators v
+	LEFT JOIN LATERAL (SELECT high_watermark_epoch, high_watermark_slot FROM metadata WHERE id = 1 FOR SHARE) m
+		ON true
+	LEFT JOIN low_watermarks l ON l.validator_id = v.id
+	WHERE `
+
+// scanHead scans a row of headSQL.
+func scanHead(row pgx.Row) (int32, *head, error) {
 	var (
+		vid                        int32
 		h                          head
 		highEpoch, highSlot        *int64
 		lowSlot, lowSource, lowTgt *int64
 	)
-	err := t.tx.QueryRow(t.ctx, `SELECT v.enabled, m.high_watermark_epoch, m.high_watermark_slot,
-			l.slot, l.source_epoch, l.target_epoch
-		FROM validators v
-		LEFT JOIN LATERAL (SELECT high_watermark_epoch, high_watermark_slot FROM metadata WHERE id = 1 FOR SHARE) m
-			ON true
-		LEFT JOIN low_watermarks l ON l.validator_id = v.id
-		WHERE v.id = $1`, t.vid).Scan(&h.enabled, &highEpoch, &highSlot, &lowSlot, &lowSource, &lowTgt)
-	if err != nil {
-		return nil, err
+	if err := row.Scan(&vid, &h.enabled, &highEpoch, &highSlot, &lowSlot, &lowSource, &lowTgt); err != nil {
+		return 0, nil, err
 	}
 	for _, f := range []struct {
 		in  *int64
 		out **uint64
 	}{{highEpoch, &h.high.Epoch}, {highSlot, &h.high.Slot}, {lowSlot, &h.low.Slot}, {lowSource, &h.low.SourceEpoch},
 		{lowTgt, &h.low.TargetEpoch}} {
+		var err error
 		if *f.out, err = u64p(f.in); err != nil {
-			return nil, err
+			return 0, nil, err
 		}
 	}
-	t.head = &h
+	return vid, &h, nil
+}
+
+// read returns the validator's head, reading it again after the transaction's own writes dropped it.
+func (t *validatorTx) read() (*head, error) {
+	if t.head != nil {
+		return t.head, nil
+	}
+	_, h, err := scanHead(t.tx.QueryRow(t.ctx, headSQL+`v.id = $1`, t.vid))
+	if err != nil {
+		return nil, err
+	}
+	t.head = h
 	return t.head, nil
 }
 
@@ -113,6 +135,7 @@ func (t *validatorTx) LowWatermark() (slashing.LowWatermark, error) {
 // lowChanged drops the remembered low watermark after a write to it, so that the next read sees the row.
 func (t *validatorTx) lowChanged() { t.head = nil }
 
+// lowWatermark reads a validator's low watermark outside a check (HistoryView).
 func lowWatermark(ctx context.Context, q queryer, vid int32) (slashing.LowWatermark, error) {
 	var slot, source, target *int64
 	err := q.QueryRow(ctx, `SELECT slot, source_epoch, target_epoch FROM low_watermarks WHERE validator_id = $1`, vid).
@@ -220,11 +243,47 @@ func (t *blockTx) PruneBlocks() (int, error) {
 	return int(tag.RowsAffected()), err
 }
 
-type attestationTx struct{ *validatorTx }
+type attestationTx struct {
+	*validatorTx
+	// pair is the surrounded candidate that SurroundingAttestation read in its own statement, for the
+	// SurroundedAttestation call with the same epochs that a check makes next; any other call drops it.
+	pair *surroundPair
+}
+
+// surroundPair is a remembered SurroundedAttestation result. Under the validator's attestation lock only this
+// transaction writes its attestations, and every write drops the pair.
+type surroundPair struct {
+	source, target uint64
+	att            slashing.SignedAttestation
+	found          bool
+}
 
 var _ slashing.AttestationTx = (*attestationTx)(nil)
 
+// The surround queries. Their bounds are rewritten as inclusive ones that fit a BIGINT: no stored value exceeds
+// 2^63-1.
+const (
+	// surroundingSQL: target_epoch >= $2 (> target) and source_epoch <= $3 (< source).
+	surroundingSQL = `SELECT source_epoch, target_epoch, signing_root FROM signed_attestations
+		WHERE validator_id = $1 AND target_epoch >= $2 AND source_epoch <= $3 ORDER BY target_epoch DESC LIMIT 1`
+	// surroundedSQL: target_epoch <= $2 (< target) and source_epoch >= $3 (> source).
+	surroundedSQL = `SELECT source_epoch, target_epoch, signing_root FROM signed_attestations
+		WHERE validator_id = $1 AND target_epoch <= $2 AND source_epoch >= $3 ORDER BY target_epoch DESC LIMIT 1`
+	// surroundPairSQL reads both candidates in one round trip, with the bounds of surroundingSQL in $2 and $3 and
+	// those of surroundedSQL in $4 and $5.
+	surroundPairSQL = `SELECT a.source_epoch, a.target_epoch, a.signing_root, b.source_epoch, b.target_epoch,
+			b.signing_root
+		FROM (VALUES (1)) one (x)
+		LEFT JOIN LATERAL (SELECT source_epoch, target_epoch, signing_root FROM signed_attestations
+			WHERE validator_id = $1 AND target_epoch >= $2 AND source_epoch <= $3 ORDER BY target_epoch DESC LIMIT 1) a
+			ON true
+		LEFT JOIN LATERAL (SELECT source_epoch, target_epoch, signing_root FROM signed_attestations
+			WHERE validator_id = $1 AND target_epoch <= $4 AND source_epoch >= $5 ORDER BY target_epoch DESC LIMIT 1) b
+			ON true`
+)
+
 func (t *attestationTx) AttestationAt(target uint64) (slashing.SignedAttestation, bool, error) {
+	t.pair = nil
 	if target > math.MaxInt64 {
 		return slashing.SignedAttestation{}, false, nil
 	}
@@ -234,7 +293,7 @@ func (t *attestationTx) AttestationAt(target uint64) (slashing.SignedAttestation
 
 func (t *attestationTx) attestation(sql string, args ...any) (slashing.SignedAttestation, bool, error) {
 	var (
-		source, target int64
+		source, target *int64
 		r              []byte
 	)
 	err := t.tx.QueryRow(t.ctx, sql, append([]any{t.vid}, args...)...).Scan(&source, &target, &r)
@@ -244,11 +303,22 @@ func (t *attestationTx) attestation(sql string, args ...any) (slashing.SignedAtt
 	if err != nil {
 		return slashing.SignedAttestation{}, false, err
 	}
-	a := slashing.SignedAttestation{}
-	if a.SourceEpoch, err = u64(source); err != nil {
+	return attestationOf(source, target, r)
+}
+
+// attestationOf decodes a recorded attestation's columns; a NULL source (no row) is none.
+func attestationOf(source, target *int64, r []byte) (slashing.SignedAttestation, bool, error) {
+	if source == nil || target == nil {
+		return slashing.SignedAttestation{}, false, nil
+	}
+	var (
+		a   slashing.SignedAttestation
+		err error
+	)
+	if a.SourceEpoch, err = u64(*source); err != nil {
 		return a, false, err
 	}
-	if a.TargetEpoch, err = u64(target); err != nil {
+	if a.TargetEpoch, err = u64(*target); err != nil {
 		return a, false, err
 	}
 	a.SigningRoot, err = root(r)
@@ -256,32 +326,56 @@ func (t *attestationTx) attestation(sql string, args ...any) (slashing.SignedAtt
 }
 
 // SurroundingAttestation finds a recorded a with a.SourceEpoch < source and a.TargetEpoch > target, the highest
-// target first. The bounds are rewritten as inclusive ones that fit a BIGINT: no stored value exceeds 2^63-1.
+// target first. It reads the surrounded candidate for the same epochs in the same statement and remembers it.
 func (t *attestationTx) SurroundingAttestation(source, target uint64) (slashing.SignedAttestation, bool, error) {
+	t.pair = nil
 	if source == 0 || target >= math.MaxInt64 {
 		return slashing.SignedAttestation{}, false, nil
 	}
-	maxSource := int64(min(source-1, math.MaxInt64))
-	return t.attestation(`SELECT source_epoch, target_epoch, signing_root FROM signed_attestations
-		WHERE validator_id = $1 AND target_epoch >= $2 AND source_epoch <= $3 ORDER BY target_epoch DESC LIMIT 1`,
-		int64(target+1), maxSource)
+	minTarget, maxSource := int64(target+1), int64(min(source-1, math.MaxInt64))
+	if target == 0 || source >= math.MaxInt64 {
+		// Nothing can be surrounded: read the surrounding candidate alone.
+		return t.attestation(surroundingSQL, minTarget, maxSource)
+	}
+	var (
+		as, at, bs, bt *int64
+		ar, br         []byte
+	)
+	err := t.tx.QueryRow(t.ctx, surroundPairSQL, t.vid, minTarget, maxSource, int64(target-1), int64(source+1)).
+		Scan(&as, &at, &ar, &bs, &bt, &br)
+	if err != nil {
+		return slashing.SignedAttestation{}, false, err
+	}
+	b, bFound, err := attestationOf(bs, bt, br)
+	if err != nil {
+		return slashing.SignedAttestation{}, false, err
+	}
+	a, aFound, err := attestationOf(as, at, ar)
+	if err == nil {
+		t.pair = &surroundPair{source: source, target: target, att: b, found: bFound}
+	}
+	return a, aFound, err
 }
 
 // SurroundedAttestation finds a recorded a with a.SourceEpoch > source and a.TargetEpoch < target, the highest
-// target first, with the bounds rewritten as in SurroundingAttestation.
+// target first: the candidate SurroundingAttestation remembered for the same epochs, else one query with the bounds
+// rewritten as in SurroundingAttestation.
 func (t *attestationTx) SurroundedAttestation(source, target uint64) (slashing.SignedAttestation, bool, error) {
+	if p := t.pair; p != nil && p.source == source && p.target == target {
+		t.pair = nil
+		return p.att, p.found, nil
+	}
+	t.pair = nil
 	if target == 0 || source >= math.MaxInt64 {
 		return slashing.SignedAttestation{}, false, nil
 	}
-	maxTarget := int64(min(target-1, math.MaxInt64))
-	return t.attestation(`SELECT source_epoch, target_epoch, signing_root FROM signed_attestations
-		WHERE validator_id = $1 AND target_epoch <= $2 AND source_epoch >= $3 ORDER BY target_epoch DESC LIMIT 1`,
-		maxTarget, int64(source+1))
+	return t.attestation(surroundedSQL, int64(min(target-1, math.MaxInt64)), int64(source+1))
 }
 
 // InsertAttestation records a; an attestation already recorded at the target is reported as
 // slashing.ErrDuplicateRecord and leaves the transaction usable.
 func (t *attestationTx) InsertAttestation(a slashing.SignedAttestation) error {
+	t.pair = nil
 	source, err := i64(a.SourceEpoch)
 	if err != nil {
 		return err
@@ -303,6 +397,7 @@ func (t *attestationTx) InsertAttestation(a slashing.SignedAttestation) error {
 }
 
 func (t *attestationTx) RaiseEpochLowWatermarks(source, target uint64) error {
+	t.pair = nil
 	s, err := i64(source)
 	if err != nil {
 		return err
@@ -328,11 +423,13 @@ func (t *attestationTx) RaiseEpochLowWatermarks(source, target uint64) error {
 }
 
 func (t *attestationTx) LastAttestation() (slashing.SignedAttestation, bool, error) {
+	t.pair = nil
 	return t.attestation(`SELECT source_epoch, target_epoch, signing_root FROM signed_attestations
 		WHERE validator_id = $1 ORDER BY target_epoch DESC LIMIT 1`)
 }
 
 func (t *attestationTx) NearestAttestation(target uint64) (slashing.SignedAttestation, bool, error) {
+	t.pair = nil
 	if target > math.MaxInt64 {
 		return slashing.SignedAttestation{}, false, nil
 	}
@@ -341,6 +438,7 @@ func (t *attestationTx) NearestAttestation(target uint64) (slashing.SignedAttest
 }
 
 func (t *attestationTx) PruneAttestations() (int, error) {
+	t.pair = nil
 	tag, err := t.tx.Exec(t.ctx, `DELETE FROM signed_attestations WHERE validator_id = $1
 		AND target_epoch < (SELECT target_epoch FROM low_watermarks WHERE validator_id = $1)`, t.vid)
 	return int(tag.RowsAffected()), err
@@ -355,9 +453,9 @@ type historyTx struct {
 
 var _ slashing.HistoryTx = historyTx{}
 
-func newHistoryTx(ctx context.Context, tx pgx.Tx, vid int32) historyTx {
+func newHistoryTx(ctx context.Context, tx querier, vid int32) historyTx {
 	v := &validatorTx{ctx: ctx, tx: tx, vid: vid}
-	return historyTx{&blockTx{v}, &attestationTx{v}}
+	return historyTx{&blockTx{v}, &attestationTx{validatorTx: v}}
 }
 
 func (t historyTx) Enabled() (bool, error) { return t.blockTx.Enabled() }
