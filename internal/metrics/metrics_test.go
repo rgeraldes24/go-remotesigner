@@ -351,3 +351,62 @@ func TestAlertRules(t *testing.T) {
 		t.Errorf("alerts %v, want 4", alerts)
 	}
 }
+
+// The catalogue in docs/operations/metrics.md lists every metric the signer
+// registers (the Go runtime and process collectors aside), and every shipped
+// alert has a runbook there, which its description links to.
+func TestMetricsDocumented(t *testing.T) {
+	data, err := os.ReadFile("../../docs/operations/metrics.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(data)
+	m := newMetrics(t)
+	authn, err := auth.New(auth.Config{Mode: auth.ModeNone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.New(server.Config{Addr: "127.0.0.1:0", Auth: authn, Registerer: m.Registry, Log: quiet()}); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for name := range families(t, m.Registry) {
+		if strings.HasPrefix(name, "go_") || (strings.HasPrefix(name, "process_") && name != "process_release") {
+			continue
+		}
+		n++
+		if !strings.Contains(doc, "| `"+name+"` |") {
+			t.Errorf("%s is registered but not in the catalogue of docs/operations/metrics.md", name)
+		}
+	}
+	if n < 15 {
+		t.Fatalf("found %d metrics; the registry is incomplete", n)
+	}
+
+	alerts, err := os.ReadFile("../../deploy/prometheus/alerts.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rules struct {
+		Groups []struct {
+			Rules []struct {
+				Alert       string            `yaml:"alert"`
+				Annotations map[string]string `yaml:"annotations"`
+			} `yaml:"rules"`
+		} `yaml:"groups"`
+	}
+	if err := yaml.Unmarshal(alerts, &rules); err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range rules.Groups {
+		for _, r := range g.Rules {
+			runbook := strings.TrimPrefix(r.Alert, "RemoteSigner")
+			if !strings.Contains(doc, "\n### "+runbook+"\n") {
+				t.Errorf("alert %s has no runbook (### %s) in docs/operations/metrics.md", r.Alert, runbook)
+			}
+			if link := "docs/operations/metrics.md#" + strings.ToLower(runbook); !strings.Contains(r.Annotations["description"], link) {
+				t.Errorf("alert %s: description does not link %s", r.Alert, link)
+			}
+		}
+	}
+}

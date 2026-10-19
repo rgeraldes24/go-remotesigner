@@ -15,7 +15,7 @@ Pre-release. The HTTP contract with the qrysm validator client is [`docs/contrac
 [`docs/spec/`](docs/spec/README.md). `remotesigner consensus` signs all nine artifact types behind slashing protection
 in a bbolt file or, for replicas serving the same keys, a shared Postgres database, releases RANDAO reveals under the
 frontier rule, and serves `publicKeys`, `capabilities`, `/upcheck`, `/healthcheck`, `/reload` and a Prometheus metrics
-listener, with token authentication, the request guards and limits, and key loading from `file-raw` and `file-keystore`
+listener, with token and client-certificate authentication over TLS, the request guards and limits, and key loading from `file-raw` and `file-keystore`
 key files and from keystore directories, with reloads that never disable a key
 ([`docs/operations/reload.md`](docs/operations/reload.md)), and the keymanager API to list, import and delete keys
 while it runs ([`docs/operations/keymanager.md`](docs/operations/keymanager.md)). `remotesigner consensus keystore
@@ -24,20 +24,35 @@ verify` checks qrysm and deposit CLI keystores and their password files offline
 [`docs/operations/quickstart.md`](docs/operations/quickstart.md); every flag is in
 [`docs/reference/flags.md`](docs/reference/flags.md).
 
-## Deployment
+## Documentation
+
+Operators start with [`requirements.md`](docs/operations/requirements.md), then deploy with the Docker or the systemd
+guide; each brings up a signer on its own. [`deploy/`](deploy) holds the Dockerfile, the compose example, the systemd
+unit, example configuration files, the Grafana dashboard and the Prometheus alert rules.
 
 | Page | Content |
 |---|---|
-| [`docs/operations/deploy-docker.md`](docs/operations/deploy-docker.md) | the container image, its entrypoint, pinning its generated certificate, and the compose example |
+| [`docs/operations/requirements.md`](docs/operations/requirements.md) | rules every deployment follows: Testnet V3 only, one seed per role, `--flag=false`, signers next to their validator clients |
+| [`docs/operations/quickstart.md`](docs/operations/quickstart.md) | a first signer on one host: key files, network, tokens, signing, metrics |
+| [`docs/operations/deploy-docker.md`](docs/operations/deploy-docker.md) | the container image, its entrypoint, keys and volumes, pinning its generated certificate, the compose example, orchestrators |
 | [`docs/operations/deploy-systemd.md`](docs/operations/deploy-systemd.md) | the hardened systemd unit with the example configuration |
-| [`docs/operations/postgres.md`](docs/operations/postgres.md) | the Postgres slashing-protection store: roles, `consensus migrate`, the pool and timeout profile, replicas |
-| [`docs/operations/tls.md`](docs/operations/tls.md) | TLS, client certificates, token and certificate rotation, process hygiene |
-| [`docs/operations/metrics.md`](docs/operations/metrics.md) | the metrics, the alert rules and the Grafana dashboard |
-| [`docs/operations/randao.md`](docs/operations/randao.md) | RANDAO reveals: the frontier rule, its flags and alerts |
+| [`docs/operations/postgres.md`](docs/operations/postgres.md) | the Postgres slashing-protection store for replicas: roles, `consensus migrate`, the pool and timeout profile |
+| [`docs/operations/tls.md`](docs/operations/tls.md) | TLS, client certificates, scopes, token and certificate rotation with SIGHUP, process hygiene |
+| [`docs/operations/keystores.md`](docs/operations/keystores.md) | keystore formats, the keystore policy, password files, `consensus keystore verify` |
+| [`docs/operations/reload.md`](docs/operations/reload.md) | key sources, loading and reloading, disabling and enabling a key, memory for keystore decryption |
+| [`docs/operations/keymanager.md`](docs/operations/keymanager.md) | the keymanager API: listing, importing and deleting keys while the signer runs |
+| [`docs/operations/migration.md`](docs/operations/migration.md) | moving validators to the signer: importing their slashing-protection history, the high watermark, exporting |
+| [`docs/operations/backup.md`](docs/operations/backup.md) | backing up and restoring the bbolt store |
+| [`docs/operations/randao.md`](docs/operations/randao.md) | RANDAO reveals: the frontier rule, gap advances, sizing the bucket, resetting a key, the alerts |
+| [`docs/operations/metrics.md`](docs/operations/metrics.md) | the metrics catalogue, the alert rules and their runbooks, the Grafana dashboard |
+| [`docs/operations/upgrade.md`](docs/operations/upgrade.md) | upgrading and going back: the schema-version rule, one signer, Postgres replicas |
 | [`docs/operations/release.md`](docs/operations/release.md) | what a release contains, how to verify it, and the release dry run |
-
-[`deploy/`](deploy) holds the Dockerfile, the compose example, the systemd unit, example configuration files, the
-Grafana dashboard and the Prometheus alert rules.
+| [`docs/reference/flags.md`](docs/reference/flags.md) | every flag with its environment variable, config-file key and default, and every `--X…` override explained (generated) |
+| [`docs/reference/registration-fee-recipient-file.md`](docs/reference/registration-fee-recipient-file.md) | the per-key fee-recipient file |
+| [`docs/contract.md`](docs/contract.md) | the HTTP contract with the qrysm validator client |
+| [`docs/spec/README.md`](docs/spec/README.md) | the protocol facts the signer relies on: SSZ containers, signing roots, the RANDAO onion, network configuration |
+| [`docs/benchmarks.md`](docs/benchmarks.md) | benchmark results, measured on a development machine |
+| [`DEVIATIONS.md`](DEVIATIONS.md) | every behaviour that differs from Web3Signer |
 
 ## Building
 
