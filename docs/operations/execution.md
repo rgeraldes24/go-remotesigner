@@ -159,7 +159,8 @@ receive the client's credentials:
   `--downstream-http-auth-header-file`: the file's first line is sent as `Authorization` (for example
   `Bearer <token>`). It is a secret file, read at startup.
 - **Responses.** The node's status, headers and body are passed back, except `Set-Cookie` and every
-  `Access-Control-*` header. A response over 25 MB is refused with 502 when its length is announced and cut off
+  `Access-Control-*` header. Its trailers and its 1xx interim responses (such as 103 Early Hints) are not passed
+  back at all, as in Web3Signer. A response over 25 MB is refused with 502 when its length is announced and cut off
   otherwise.
 - **No redirects.** A redirect from the node is passed back as it is; the signer never follows it. In a batch it
   is an "Invalid response from downstream node" error.

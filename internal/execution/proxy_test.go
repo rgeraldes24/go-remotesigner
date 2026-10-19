@@ -7,6 +7,7 @@ package execution
 
 import (
 	"bufio"
+	"context"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -14,10 +15,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -137,6 +141,68 @@ func TestProxyResponseHeaders(t *testing.T) {
 	}
 	if got := w.Header().Values("Random"); len(got) != 2 {
 		t.Errorf("multi-value header: %v", got)
+	}
+}
+
+// Nor do they reach it another way: the node's interim (1xx) responses are
+// not relayed, and its trailers, announced or not, are not passed back.
+func TestProxyDropsInterimResponsesAndTrailers(t *testing.T) {
+	f := newFixture(t, 0, defaultAllow)
+	f.node.setHandler(func(w http.ResponseWriter, _ *http.Request) {
+		h := w.Header()
+		h.Set("Set-Cookie", "early=1")
+		h.Set("Access-Control-Allow-Origin", "*")
+		h.Set("Link", "</a.css>; rel=preload")
+		w.WriteHeader(http.StatusEarlyHints)
+		clear(h)
+		h.Set("Trailer", "Set-Cookie, Access-Control-Allow-Origin")
+		h.Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
+		h.Set("Set-Cookie", "trailer=1")
+		h.Set("Access-Control-Allow-Origin", "*")
+		h.Set(http.TrailerPrefix+"X-Unannounced", "x")
+	})
+	srv := httptest.NewServer(f.handler)
+	defer srv.Close()
+
+	var (
+		mu      sync.Mutex
+		interim []textproto.MIMEHeader
+	)
+	trace := &httptrace.ClientTrace{Got1xxResponse: func(_ int, h textproto.MIMEHeader) error {
+		mu.Lock()
+		defer mu.Unlock()
+		interim = append(interim, h)
+		return nil
+	}}
+	ctx := httptrace.WithClientTrace(context.Background(), trace)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL, strings.NewReader(call(1, "qrl_blockNumber")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil || resp.StatusCode != http.StatusOK || string(body) != `{"jsonrpc":"2.0","id":1,"result":"0x1"}` {
+		t.Fatalf("%d %q %v", resp.StatusCode, body, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(interim) != 0 {
+		t.Errorf("an interim response reached the client: %v", interim)
+	}
+	if len(resp.Trailer) != 0 {
+		t.Errorf("trailers reached the client: %v", resp.Trailer)
+	}
+	for name := range resp.Header {
+		if name == "Set-Cookie" || name == "Trailer" || strings.HasPrefix(name, "Access-Control-") {
+			t.Errorf("header %s reached the client", name)
+		}
 	}
 }
 
