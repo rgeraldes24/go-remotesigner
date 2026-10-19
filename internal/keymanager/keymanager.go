@@ -687,22 +687,41 @@ func (m *Manager) logImport(open []opened, results []Result) {
 //     disabled, so that it cannot sign if it is loaded later;
 //   - error: the key is read-only (loaded from another source) and nothing
 //     changed for it, or a step failed, as Message says.
+//
+// The keys are disabled together, in two store transactions whatever their
+// number, before any is evicted.
 func (m *Manager) Delete(ctx context.Context, pubkeys []mldsa87.PublicKey) ([]Result, []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ctx = context.WithoutCancel(ctx)
 	results := make([]Result, len(pubkeys))
+	var todo []int // the keys to disable, in request order
+	for i := range pubkeys {
+		if r, refused := m.refuseDelete(&pubkeys[i]); refused {
+			results[i] = r
+			continue
+		}
+		todo = append(todo, i)
+	}
+	// Disable first: from here on nothing signs a block or an attestation
+	// with the keys, so the history exported below is complete.
+	if err := m.disable(ctx, pubkeys, todo); err != nil {
+		m.cfg.Log.WithError(err).WithField("keys", len(todo)).Error("Keymanager delete: the keys could not be disabled")
+		for _, i := range todo {
+			results[i] = Result{Status: Error, Message: "the key could not be disabled in slashing protection; nothing " +
+				"was changed"}
+		}
+		todo = nil
+	}
 	exported := []slashing.KeyID{}
 	inactive := map[int]slashing.KeyID{}
-	for i := range pubkeys {
-		r, disabled := m.delete(ctx, &pubkeys[i])
+	for _, i := range todo {
+		r := m.evict(&pubkeys[i])
 		results[i] = r
-		if disabled {
-			id := slashing.KeyID(pubkeys[i].ID())
-			exported = append(exported, id)
-			if r.Status == NotActive {
-				inactive[i] = id
-			}
+		id := slashing.KeyID(pubkeys[i].ID())
+		exported = append(exported, id)
+		if r.Status == NotActive {
+			inactive[i] = id
 		}
 	}
 	if m.cfg.Changed != nil {
@@ -734,48 +753,65 @@ func (m *Manager) Delete(ctx context.Context, pubkeys []mldsa87.PublicKey) ([]Re
 	return results, export
 }
 
-// delete deletes one key. It reports whether the key is now disabled, so
-// that its history is exported. A not-loaded key comes back as NotActive,
-// which the export turns into NotFound when the key has no history.
-func (m *Manager) delete(ctx context.Context, pk *mldsa87.PublicKey) (Result, bool) {
+// refuseDelete returns the error result of a key that a delete must leave
+// alone: a read-only key, or one whose keystore file at the keymanager's
+// name declares another key.
+func (m *Manager) refuseDelete(pk *mldsa87.PublicKey) (Result, bool) {
+	if e, loaded := m.cfg.Keys.Entry(pk.ID()); loaded && !m.removable(e) {
+		return Result{Status: Error, Message: "the key is read-only: it was not imported through the keymanager"}, true
+	}
+	if err := filesOf(m.cfg.Dir, pk).check(pk); err != nil {
+		m.cfg.Log.WithField("key", pk.LogID()).WithError(err).Error("Keymanager delete: the key's files were left in place")
+		return Result{Status: Error, Message: "the keystore file named by this key holds another key; nothing was changed"}, true
+	}
+	return Result{}, false
+}
+
+// disable disables the keys of pubkeys at idxs in slashing protection: it
+// registers the keys the store does not know, disabled, in one transaction,
+// and disables them all in another.
+func (m *Manager) disable(ctx context.Context, pubkeys []mldsa87.PublicKey, idxs []int) error {
+	if len(idxs) == 0 {
+		return nil
+	}
+	raw := make([][]byte, len(idxs))
+	ids := make([]slashing.KeyID, len(idxs))
+	for n, i := range idxs {
+		raw[n] = pubkeys[i][:]
+		ids[n] = slashing.KeyID(pubkeys[i].ID())
+	}
+	if err := m.cfg.Store.RegisterValidatorsDisabled(ctx, raw); err != nil {
+		return err
+	}
+	return m.cfg.Store.UpdateHistory(ctx, ids, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
+		return tx.SetEnabled(false)
+	})
+}
+
+// evict removes a disabled key's files and evicts it. A key that was
+// neither loaded nor had files comes back as NotActive, which the export
+// turns into NotFound when the key has no history.
+func (m *Manager) evict(pk *mldsa87.PublicKey) Result {
 	f := filesOf(m.cfg.Dir, pk)
-	e, loaded := m.cfg.Keys.Entry(pk.ID())
 	log := m.cfg.Log.WithField("key", pk.LogID())
-	if loaded && !m.removable(e) {
-		return Result{Status: Error, Message: "the key is read-only: it was not imported through the keymanager"}, false
-	}
-	if err := f.check(pk); err != nil {
-		log.WithError(err).Error("Keymanager delete: the key's files were left in place")
-		return Result{Status: Error, Message: "the keystore file named by this key holds another key; nothing was changed"}, false
-	}
-	// Disable first: from here on nothing signs a block or an attestation
-	// with the key, so the history exported below is complete.
-	id := slashing.KeyID(pk.ID())
-	err := m.cfg.Store.RegisterValidatorsDisabled(ctx, [][]byte{pk[:]})
-	if err == nil {
-		err = m.cfg.Store.SetValidatorEnabled(ctx, id, false)
-	}
-	if err != nil {
-		log.WithError(err).Error("Keymanager delete: the key could not be disabled")
-		return Result{Status: Error, Message: "the key could not be disabled in slashing protection; nothing was changed"}, false
-	}
 	// The files go before the key is evicted: a load that reads the
 	// directory after the eviction marks the source no longer finds them,
 	// and one that read it before is ignored for the source.
 	removed, ferr := f.remove()
-	if _, err := m.cfg.Keys.Remove(f.source()); err != nil {
+	evicted, err := m.cfg.Keys.Remove(f.source())
+	if err != nil {
 		log.WithError(err).Error("Keymanager delete: the key could not be evicted")
-		return Result{Status: Error, Message: "the key is disabled, but it could not be evicted"}, true
+		return Result{Status: Error, Message: "the key is disabled, but it could not be evicted"}
 	}
 	if ferr != nil {
 		log.WithError(ferr).Error("Keymanager delete: the key's files could not be removed")
 		return Result{Status: Error, Message: "the key is disabled and evicted, but its files could not be removed; " +
-			"remove them by hand before a reload loads the key again (it stays disabled)"}, true
+			"remove them by hand before a reload loads the key again (it stays disabled)"}
 	}
-	if loaded || removed {
-		return Result{Status: Deleted}, true
+	if evicted > 0 || removed {
+		return Result{Status: Deleted}
 	}
-	return Result{Status: NotActive}, true
+	return Result{Status: NotActive}
 }
 
 // export writes the interchange of ids, and reports the keys that have no

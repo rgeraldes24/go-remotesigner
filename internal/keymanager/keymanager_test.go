@@ -460,6 +460,80 @@ func TestDeleteStatuses(t *testing.T) {
 	}
 }
 
+// countingStore counts the store writes of a delete, and fails the
+// registration with failRegister.
+type countingStore struct {
+	slashing.Store
+	register, update, setEnabled int
+	failRegister                 bool
+}
+
+func (s *countingStore) RegisterValidatorsDisabled(ctx context.Context, pks [][]byte) error {
+	s.register++
+	if s.failRegister {
+		return errors.New("store down")
+	}
+	return s.Store.RegisterValidatorsDisabled(ctx, pks)
+}
+
+func (s *countingStore) UpdateHistory(ctx context.Context, ids []slashing.KeyID,
+	fn func(slashing.KeyID, slashing.HistoryTx) error) error {
+	s.update++
+	return s.Store.UpdateHistory(ctx, ids, fn)
+}
+
+func (s *countingStore) SetValidatorEnabled(ctx context.Context, id slashing.KeyID, enabled bool) error {
+	s.setEnabled++
+	return s.Store.SetValidatorEnabled(ctx, id, enabled)
+}
+
+// A delete disables its keys in two store transactions, however many it
+// names: one registers the unknown keys disabled, one disables them all.
+// A key named twice is deleted once and then not active. When the
+// transactions fail, nothing changes for any key.
+func TestDeleteDisablesInOneTransaction(t *testing.T) {
+	var cs *countingStore
+	f := newFixture(t, fixtureOptions{store: func(s slashing.Store) slashing.Store {
+		cs = &countingStore{Store: s}
+		return cs
+	}})
+	a := newKey(t, "batch", 0)
+	if _, err := f.m.Import(bg, importReq(doc(gvr, entry(a.hex, []uint64{3})), a.qrlV1(t), []byte(password))); err != nil {
+		t.Fatal(err)
+	}
+	pubkeys := []mldsa87.PublicKey{a.pk, a.pk}
+	for i := range 30 {
+		pubkeys = append(pubkeys, newKey(t, "batch-unknown", i).pk)
+	}
+
+	*cs = countingStore{Store: cs.Store, failRegister: true}
+	rs, _ := f.m.Delete(bg, pubkeys)
+	for i, r := range rs {
+		if r.Status != Error || !strings.Contains(r.Message, "nothing was changed") {
+			t.Fatalf("key %d: %+v", i, r)
+		}
+	}
+	if !f.loaded(a) || !f.status(t, a).Enabled || len(f.files(t)) != 3 {
+		t.Fatalf("a failed delete changed a: loaded %v, %+v, files %v", f.loaded(a), f.status(t, a), f.files(t))
+	}
+
+	*cs = countingStore{Store: cs.Store}
+	rs, export := f.m.Delete(bg, pubkeys)
+	want := append([]Status{Deleted, NotActive}, slices.Repeat([]Status{NotFound}, 30)...)
+	wantStatuses(t, rs, want...)
+	if cs.register != 1 || cs.update != 1 || cs.setEnabled != 0 {
+		t.Fatalf("store writes: %d registrations, %d updates, %d SetValidatorEnabled", cs.register, cs.update, cs.setEnabled)
+	}
+	for _, pk := range pubkeys {
+		if st, err := f.store.ValidatorStatus(bg, slashing.KeyID(pk.ID())); err != nil || !st.Registered || st.Enabled {
+			t.Fatalf("%s: %+v %v", pk.LogID(), st, err)
+		}
+	}
+	if f.loaded(a) || len(f.files(t)) != 0 || !strings.Contains(string(export), a.hex[2:]) {
+		t.Fatalf("a: loaded %v, files %v", f.loaded(a), f.files(t))
+	}
+}
+
 // A signer not bound to a network has no history: a delete still deletes,
 // and its export is empty.
 func TestDeleteUnbound(t *testing.T) {

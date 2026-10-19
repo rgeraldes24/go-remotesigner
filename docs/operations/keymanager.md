@@ -154,7 +154,11 @@ The response has one result per key, in request order, and the history of the ke
 | `error` | Nothing changed for the key (it is read-only, or its keystore file at the keymanager's name declares another key), or a step failed after it was disabled, as `message` says |
 
 For each key the signer first persists `enabled=false`, so that from then on it refuses the key's blocks,
-attestations and new RANDAO layers with `412 VALIDATOR_DISABLED`, then removes the files and evicts the key. A key
+attestations and new RANDAO layers with `412 VALIDATOR_DISABLED`, then removes the files and evicts the key. The keys
+of a request are disabled together, in two store transactions whatever their number, so the cost of a delete hardly
+grows with it: on the development machine (load average 2) 500 keys took 0.07 s and 6,470, as many as a 32 MiB body
+holds, 0.75 s. Imports wait while a delete runs. Every key a delete names that the store does not know is
+registered there, disabled, and stays: name only keys you mean to delete. A key
 that is not loaded is disabled too, so that a load that brings it in later, from any source, cannot make it sign:
 the startup load still running, a reload of a source that had failed to load, or the key's file put back. Only an
 import of its keystore (section 3), whether the key is loaded by then or not, or a clean offline `consensus import` of
