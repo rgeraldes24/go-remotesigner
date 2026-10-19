@@ -52,18 +52,39 @@ func TestRandaoAndStoreFlags(t *testing.T) {
 	}
 
 	for args, want := range map[string]string{
-		"--randao-max-layers=0":                      "at least 1",
-		"--randao-new-layer-burst=0":                 "turns it off",
-		"--randao-new-layer-refill-epochs=99999999":  "at most",
-		"--randao-full-scan-min-interval=-1s":        "negative",
-		"--slashing-protection-db-url=postgres://db": "Postgres",
-		"--slashing-protection-db-url=bolt://host/x": "no host",
-		"--slashing-protection-db-url=bolt:///":      "absolute file path",
-		"--slashing-protection-db-url=file:///x.db":  "unsupported scheme",
+		"--randao-max-layers=0":                                           "at least 1",
+		"--randao-new-layer-burst=0":                                      "turns it off",
+		"--randao-new-layer-refill-epochs=99999999":                       "at most",
+		"--randao-full-scan-min-interval=-1s":                             "negative",
+		"--slashing-protection-db-url=postgres://u:pw@db/x":               "password",
+		"--slashing-protection-db-username=u":                             "need a postgres://",
+		"--slashing-protection-db-password-file=/pw":                      "need a postgres://",
+		"--slashing-protection-db-health-check-timeout-milliseconds=0":    "1 to",
+		"--slashing-protection-db-health-check-interval-milliseconds=0":   "1 to",
+		"--slashing-protection-db-health-check-interval-milliseconds=9e9": "invalid value",
+		"--slashing-protection-db-url=bolt://host/x":                      "no host",
+		"--slashing-protection-db-url=bolt:///":                           "absolute file path",
+		"--slashing-protection-db-url=file:///x.db":                       "unsupported scheme",
 	} {
 		if _, code, stderr := capture(t, "consensus", "--network=e2e", args); code != exitUsage || !strings.Contains(stderr, want) {
 			t.Errorf("%s: exit %d %q, want a usage error mentioning %q", args, code, stderr, want)
 		}
+	}
+	// A Postgres store: a JDBC URL is rewritten, and the user name, password file and health-check timing come
+	// with it.
+	cfg, code, stderr = capture(t, "consensus", "--network=e2e",
+		"--slashing-protection-db-url=jdbc:postgresql://db.internal/signer?sslmode=verify-full",
+		"--slashing-protection-db-username=signer", "--slashing-protection-db-password-file=/run/secrets/db",
+		"--slashing-protection-db-health-check-timeout-milliseconds=1500",
+		"--slashing-protection-db-health-check-interval-milliseconds=10000")
+	if code != exitOK {
+		t.Fatalf("Postgres store: exit %d: %s", code, stderr)
+	}
+	wantPG := config.Postgres{URL: "postgresql://db.internal/signer?sslmode=verify-full", Username: "signer",
+		PasswordFile: "/run/secrets/db", HealthCheckTimeout: 1500 * time.Millisecond, HealthCheckInterval: 10 * time.Second}
+	if cfg.Consensus.Postgres != wantPG || cfg.Consensus.SlashingProtectionDBPath != "" {
+		t.Fatalf("Postgres store %+v, bbolt path %q; want %+v", cfg.Consensus.Postgres, cfg.Consensus.SlashingProtectionDBPath,
+			wantPG)
 	}
 	// A bucket that is off needs no burst.
 	if _, code, stderr := capture(t, "consensus", "--network=e2e", "--randao-new-layer-burst=0",
@@ -200,7 +221,8 @@ func TestMigrateCommand(t *testing.T) {
 		{[]string{"--data-path=" + t.TempDir(), "consensus", "migrate"}, "no slashing-protection store"},
 		{[]string{"consensus", "migrate"}, "--data-path"},
 		{[]string{"--data-path=" + data, "consensus", "migrate", "extra"}, "unexpected argument"},
-		{[]string{"consensus", "migrate", "--slashing-protection-db-url=postgres://x"}, "Postgres"},
+		{[]string{"consensus", "migrate", "--slashing-protection-db-url=postgres://u:pw@x/db"}, "password"},
+		{[]string{"consensus", "migrate", "--slashing-protection-db-url=mysql://x/db"}, "unsupported scheme"},
 	} {
 		if code, _, stderr := runCLI(t, tc.args...); code != exitUsage || !strings.Contains(stderr, tc.want) {
 			t.Errorf("%v: exit %d %q, want a usage error mentioning %q", tc.args, code, stderr, tc.want)

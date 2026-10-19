@@ -208,7 +208,8 @@ plaintext one in the same runs, within the noise, so TLS adds no measurable cost
 
 ## Slashing-protection pruning (B14, bbolt variant, `internal/slashing`)
 
-**B14 (bbolt): met on the development machine**, pending the reference VMs. The Postgres variant comes with the Postgres store.
+**B14 (bbolt): met on the development machine**, pending the reference VMs. The Postgres variant is in
+[the next section](#postgres-slashing-protection-b13-b14-internalslashingpgstore).
 
 ```
 make bench-b14     # REMOTESIGNER_BENCH=1 go test -run '^TestB14' ./internal/slashing/boltstore/
@@ -233,6 +234,52 @@ the write lock, and the baseline p99 is the last of those commits. A prune trans
 as one more signer would, so signing during the run stays near its baseline (in all six measurements the baseline
 p99 was the higher one, within the noise of a loaded machine). Batching signing commits (`db.Batch`) was left out:
 the threshold is met without it.
+
+## Postgres slashing protection (B13, B14, `internal/slashing/pgstore`)
+
+**B13 and B14 (Postgres): met on the development machine in 5 of 6 and 3 of 3 runs of the final code**, pending the
+reference VMs with the database on its own host on the same LAN.
+
+```
+make bench-postgres   # REMOTESIGNER_BENCH=1 go test -run '^TestB1[34]' ./internal/slashing/pgstore/, against
+                      # the server REMOTESIGNER_TEST_POSTGRES names
+```
+
+`TestB13Postgres` runs check-and-records through `slashing.Engine` on a store with the signing profile (a pool of 16,
+2 kept open, 4.5 s per call), reached through a TCP proxy: 1,000 single attestations and 1,000 single blocks one
+after another over 64 keys, then 200 bursts of 33 concurrent attestations from 33 keys, 100 ms apart. It then stops
+the proxy forwarding while the connections stay open, as a database stopped with `SIGSTOP` looks to its clients, and
+times one more attestation. `TestB14PruningPostgres` is the bbolt variant's B14 on Postgres: the same histories,
+written in SQL (358 MB for the steady state, 696 MB for the first run on twice the window), and the same signing load,
+pruned as the signer prunes a Postgres store: a pool of one connection, one validator per transaction, and a rest
+after each transaction as long as it took (`PruneConfig.Pace` 1).
+
+| ID | Test | Threshold | Development-machine results | Verdict |
+|---|---|---|---|---|
+| B13 | `TestB13Postgres`, single attestation | p50 ≤ 5 ms, p99 ≤ 20 ms | p50 1.37-3.82 ms, p99 2.94-14.6 ms in 5 runs; 3.64 and 49.6 ms in the sixth | met on dev machine (5 of 6) |
+| B13 | `TestB13Postgres`, single block | as above | p50 1.11-3.56 ms, p99 1.47-9.28 ms in 5 runs; 64.6 ms in the sixth | met on dev machine (5 of 6) |
+| B13 | `TestB13Postgres`, burst of 33 | burst ≤ 100 ms (p99 of the bursts' wall times) | wall p50 19.5-26.4 ms, p99 35.4-91.6 ms in 5 runs; 178 ms in the sixth | met on dev machine (5 of 6) |
+| B13 | `TestB13Postgres`, stalled database | fails in ≤ 5 s | 4.50 s in every run, with the call's deadline; through the built signer 500 `STORE_UNAVAILABLE` after 4.51 s (`TestRunPostgres`) | met |
+| B14 | `TestB14PruningPostgres/steady_state` | run ≤ 5 min; signing p99 during the run ≤ 2 × baseline | run 34.9-35.4 s (4,096 validators, about 28,000 attestations and 4,096 blocks deleted); signing p99 baseline 55-81 ms, during 24-37 ms (0.44-0.50 ×) | met on dev machine |
+| B14 | `TestB14PruningPostgres/first_run_on_twice_the_window` | as above | run 44.8 s-1 min 58 s (2.1 million attestations and 65,536 blocks deleted); signing p99 baseline 228-302 ms, during 97-136 ms (0.32-0.59 ×) | met on dev machine |
+
+Runs Q (unpaced pruning, three check-and-record round trips more) and R (the final code), 2026-10-19, Go 1.26.9,
+Apple M2 (8 cores, darwin/arm64), PostgreSQL 17.11 (`postgres:17-alpine`, default settings) in Docker Desktop on the
+same machine, reached through its port forwarding; load average 2-44 from other work, which moved by a factor of ten
+within single runs. The numbers are dominated by the round trip through Docker's port forwarding, which was 0.18 ms at
+the median on a quiet machine and 0.5 ms, with a p99 of 4.5 ms, at a load average of 23:
+
+- **B13.** In run Q an attestation took eight round trips and a block six; at the median both cost 5 ms
+  (attestation p50 4.96-5.09 ms, p99 14.4-28.3 ms over 3 runs), missing the threshold. The final code sends `BEGIN`,
+  the validator's lock and the read of its flag and watermarks in one pipeline, and reads both surround candidates in
+  one statement, so an attestation is five round trips and a block four. The run that missed (p99 49.6 ms) ran while
+  the load average rose from 7 to 14. The stalled-database bound is the store's 4.5 s per call, which leaves the
+  response time inside the API's 5 s write deadline.
+- **B14.** Unpaced, the prune ran in 12.7-72 s, and in one of three runs signing p99 during the steady-state prune was
+  2.46 × its baseline: the pruner's one connection kept the database busy between the signers' transactions. Paced,
+  the run takes about twice as long and signing during it stays below its baseline. As with bbolt, the baseline p99
+  was the higher one in every paced run: the baseline's 40 bursts are the first after the history was written, while
+  the bursts during the run are steadier load that the machine schedules on its faster cores.
 
 ## Key loading and reload (B11, B12, the built binary)
 

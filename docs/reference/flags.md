@@ -70,16 +70,20 @@ missing `--network` and an invalid config file), 1 when the signer refuses to st
 | `--network-genesis-validators-root` | `REMOTESIGNER_CONSENSUS_NETWORK_GENESIS_VALIDATORS_ROOT` | `network-genesis-validators-root` or `consensus.network-genesis-validators-root` | unset | Genesis validators root, 0x + 64 hex characters; must agree with every other source |
 | `--network-genesis-time` | `REMOTESIGNER_CONSENSUS_NETWORK_GENESIS_TIME` | `network-genesis-time` or `consensus.network-genesis-time` | unset | Genesis time in Unix seconds; must agree with every other source |
 | `--network-genesis-state` | `REMOTESIGNER_CONSENSUS_NETWORK_GENESIS_STATE` | `network-genesis-state` or `consensus.network-genesis-state` | unset | SSZ genesis state; its first 64 bytes give the genesis time, the genesis validators root and the fork |
-| `--slashing-protection-enabled` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_ENABLED` | `slashing-protection-enabled` or `consensus.slashing-protection-enabled` | `true` | Slashing protection (bbolt store at \<data-path>/slashing-protection.db). false is allowed only when every listener is loopback. |
+| `--slashing-protection-enabled` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_ENABLED` | `slashing-protection-enabled` or `consensus.slashing-protection-enabled` | `true` | Slashing protection, in the store --slashing-protection-db-url names (default the bbolt file \<data-path>/slashing-protection.db). false is allowed only when every listener is loopback. |
 | `--key-manager-api-enabled` | `REMOTESIGNER_CONSENSUS_KEY_MANAGER_API_ENABLED` | `key-manager-api-enabled` or `consensus.key-manager-api-enabled` | `false` | Serve the keymanager API (GET, POST and DELETE /qrl/v1/keystores) with the admin token; imported keys are written to --key-config-path, which it requires (docs/operations/keymanager.md). |
 | `--voluntary-exit-signing-enabled` | `REMOTESIGNER_CONSENSUS_VOLUNTARY_EXIT_SIGNING_ENABLED` | `voluntary-exit-signing-enabled` or `consensus.voluntary-exit-signing-enabled` | `false` | Sign VOLUNTARY_EXIT requests; refused with 403 ARTIFACT_TYPE_DISABLED otherwise |
 | `--registration-fee-recipient-file` | `REMOTESIGNER_CONSENSUS_REGISTRATION_FEE_RECIPIENT_FILE` | `registration-fee-recipient-file` or `consensus.registration-fee-recipient-file` | unset | YAML list of {key, fee_recipient} pins: a VALIDATOR_REGISTRATION for a pinned key must carry its pinned fee recipient |
 | `--signing-clock-skew-slots` | `REMOTESIGNER_CONSENSUS_SIGNING_CLOCK_SKEW_SLOTS` | `signing-clock-skew-slots` or `consensus.signing-clock-skew-slots` | `1` | Slots a slot-scoped request may lie ahead of the wall clock (when genesis time is known) |
 | `--selection-proof-signing` | `REMOTESIGNER_CONSENSUS_SELECTION_PROOF_SIGNING` | `selection-proof-signing` or `consensus.selection-proof-signing` | `deterministic` | Signing mode of AGGREGATION_SLOT and SYNC_COMMITTEE_SELECTION_PROOF: deterministic or hedged; other types are always hedged |
-| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | `slashing-protection-db-url` or `consensus.slashing-protection-db-url` | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
-| `--slashing-protection-db-migrate` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_MIGRATE` | `slashing-protection-db-migrate` or `consensus.slashing-protection-db-migrate` | `false` | Upgrade an older slashing-protection store to this release's schema before starting (a backup \<file>.v\<old>.bak is written first) |
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | `slashing-protection-db-url` or `consensus.slashing-protection-db-url` | unset | Slashing-protection store: bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db), or a Postgres database as postgres://user@host:port/database?sslmode=verify-full (jdbc:postgresql:// is accepted) without a password, migrated with consensus migrate |
+| `--slashing-protection-db-username` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_USERNAME` | `slashing-protection-db-username` or `consensus.slashing-protection-db-username` | unset | User name for the Postgres store, instead of the URL's |
+| `--slashing-protection-db-password-file` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_PASSWORD_FILE` | `slashing-protection-db-password-file` or `consensus.slashing-protection-db-password-file` | unset | File whose first line is the Postgres store's password (owner-readable only, like other secret files); without it the password comes from PGPASSFILE (default ~/.pgpass), under the same rule. PGPASSWORD, a password in the URL and one in a pg_service.conf service are refused. |
+| `--slashing-protection-db-health-check-timeout-milliseconds` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_HEALTH_CHECK_TIMEOUT_MILLISECONDS` | `slashing-protection-db-health-check-timeout-milliseconds` or `consensus.slashing-protection-db-health-check-timeout-milliseconds` | `3000` | Milliseconds after which the Postgres store's health check fails (slashing-protection-db-health-check) |
+| `--slashing-protection-db-health-check-interval-milliseconds` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_HEALTH_CHECK_INTERVAL_MILLISECONDS` | `slashing-protection-db-health-check-interval-milliseconds` or `consensus.slashing-protection-db-health-check-interval-milliseconds` | `30000` | Milliseconds between two health checks of the Postgres store; /healthcheck reports the last one |
+| `--slashing-protection-db-migrate` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_MIGRATE` | `slashing-protection-db-migrate` or `consensus.slashing-protection-db-migrate` | `false` | Upgrade an older slashing-protection store to this release's schema before starting: a bbolt file is backed up to \<file>.v\<old>.bak first; a Postgres database without the schema gets it, which needs a role that may create tables |
 | `--slashing-protection-pruning-epochs-to-keep` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_PRUNING_EPOCHS_TO_KEEP` | `slashing-protection-pruning-epochs-to-keep` or `consensus.slashing-protection-pruning-epochs-to-keep` | `512` | Epochs of block and attestation history each validator keeps below its newest record (slots per epoch come from the network); older records are pruned |
-| `--slashing-protection-pruning-interval` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_PRUNING_INTERVAL` | `slashing-protection-pruning-interval` or `consensus.slashing-protection-pruning-interval` | `12h0m0s` | Time between two slashing-protection pruning runs, as a duration such as 12h or 90m (Web3Signer's bare number of hours is refused); the first runs at startup |
+| `--slashing-protection-pruning-interval` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_PRUNING_INTERVAL` | `slashing-protection-pruning-interval` or `consensus.slashing-protection-pruning-interval` | `12h0m0s` | Time between two slashing-protection pruning runs, as a duration such as 12h or 90m (Web3Signer's bare number of hours is refused); with bbolt the first runs at startup, with Postgres one interval after it |
 | `--randao-max-layers` | `REMOTESIGNER_CONSENSUS_RANDAO_MAX_LAYERS` | `randao-max-layers` or `consensus.randao-max-layers` | `1048576` | Onion layers searched from x_0 when locating a RANDAO commitment; a commitment deeper in a longer onion is unknown |
 | `--randao-reorg-window` | `REMOTESIGNER_CONSENSUS_RANDAO_REORG_WINDOW` | `randao-reorg-window` or `consensus.randao-reorg-window` | `1024` | Layers above a key's released frontier searched for a re-reveal before the slow-path scan |
 | `--randao-full-scan-min-interval` | `REMOTESIGNER_CONSENSUS_RANDAO_FULL_SCAN_MIN_INTERVAL` | `randao-full-scan-min-interval` or `consensus.randao-full-scan-min-interval` | `SECONDS_PER_SLOT` | Minimum time between two slow-path RANDAO scans of one key (first use, gap advance, deep reorg); sooner gets 429 RANDAO_SCAN_RATE_LIMITED |
@@ -90,11 +94,14 @@ missing `--network` and an invalid config file), 1 when the signer refuses to st
 | `--keystores-password-file` | `REMOTESIGNER_CONSENSUS_KEYSTORES_PASSWORD_FILE` | `keystores-password-file` or `consensus.keystores-password-file` | unset | File holding the password of every keystore in --keystores-path; not with --keystores-passwords-path |
 | `--keystores-passwords-path` | `REMOTESIGNER_CONSENSUS_KEYSTORES_PASSWORDS_PATH` | `keystores-passwords-path` or `consensus.keystores-passwords-path` | unset | Directory of password files, \<name>.txt for keystore \<name>.json; not with --keystores-password-file |
 
-## Offline store commands
+## Store commands
 
-These subcommands work on the bbolt slashing-protection store while the signer is stopped (bbolt allows one process
-per file; they refuse a store that a running signer holds). They read `--data-path` for the default store
-location. Their flags are not read from the config file; `--slashing-protection-db-url` may also be given to
+These subcommands work on the slashing-protection store. A bbolt store they open while the signer is stopped (bbolt
+allows one process per file; they refuse a store that a running signer holds). A Postgres database they use online,
+under the advisory locks the signers take, so the signers keep running
+([`../operations/postgres.md`](../operations/postgres.md)). They read `--data-path` for the default bbolt store
+location. Their flags are not read from the config file; `--slashing-protection-db-url`,
+`--slashing-protection-db-username` and `--slashing-protection-db-password-file` may also be given to
 `consensus` itself, on the command line, in the environment or in the config file. `import`, `export`
 and `set-high-watermark` also read `--network` and its genesis flags from `consensus`, for the
 genesis validators root: `import` and `set-high-watermark` bind a store that has none to it, and `export`
@@ -105,27 +112,35 @@ names it in the file of such a store. The history commands are described in
 
 | Flag | Environment | Config file | Default | Description |
 |---|---|---|---|---|
-| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store: bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db), or a Postgres database as postgres://user@host:port/database?sslmode=verify-full (jdbc:postgresql:// is accepted) without a password, migrated with consensus migrate |
+| `--slashing-protection-db-username` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_USERNAME` | none | unset | User name for the Postgres store, instead of the URL's |
+| `--slashing-protection-db-password-file` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_PASSWORD_FILE` | none | unset | File whose first line is the Postgres store's password (owner-readable only, like other secret files); without it the password comes from PGPASSFILE (default ~/.pgpass), under the same rule. PGPASSWORD, a password in the URL and one in a pg_service.conf service are refused. |
 
 ### consensus randao-state reset
 
 | Flag | Environment | Config file | Default | Description |
 |---|---|---|---|---|
-| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store: bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db), or a Postgres database as postgres://user@host:port/database?sslmode=verify-full (jdbc:postgresql:// is accepted) without a password, migrated with consensus migrate |
+| `--slashing-protection-db-username` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_USERNAME` | none | unset | User name for the Postgres store, instead of the URL's |
+| `--slashing-protection-db-password-file` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_PASSWORD_FILE` | none | unset | File whose first line is the Postgres store's password (owner-readable only, like other secret files); without it the password comes from PGPASSFILE (default ~/.pgpass), under the same rule. PGPASSWORD, a password in the URL and one in a pg_service.conf service are refused. |
 | `--key` | none | none | unset | Required. The key whose RANDAO frontier is cleared: its 0x public key or 0x sha256 of it |
 
 ### consensus import
 
 | Flag | Environment | Config file | Default | Description |
 |---|---|---|---|---|
-| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store: bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db), or a Postgres database as postgres://user@host:port/database?sslmode=verify-full (jdbc:postgresql:// is accepted) without a password, migrated with consensus migrate |
+| `--slashing-protection-db-username` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_USERNAME` | none | unset | User name for the Postgres store, instead of the URL's |
+| `--slashing-protection-db-password-file` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_PASSWORD_FILE` | none | unset | File whose first line is the Postgres store's password (owner-readable only, like other secret files); without it the password comes from PGPASSFILE (default ~/.pgpass), under the same rule. PGPASSWORD, a password in the URL and one in a pg_service.conf service are refused. |
 | `--from` | none | none | unset | Required. The EIP-3076 interchange file (format version 5) to import |
 
 ### consensus export
 
 | Flag | Environment | Config file | Default | Description |
 |---|---|---|---|---|
-| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store: bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db), or a Postgres database as postgres://user@host:port/database?sslmode=verify-full (jdbc:postgresql:// is accepted) without a password, migrated with consensus migrate |
+| `--slashing-protection-db-username` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_USERNAME` | none | unset | User name for the Postgres store, instead of the URL's |
+| `--slashing-protection-db-password-file` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_PASSWORD_FILE` | none | unset | File whose first line is the Postgres store's password (owner-readable only, like other secret files); without it the password comes from PGPASSFILE (default ~/.pgpass), under the same rule. PGPASSWORD, a password in the URL and one in a pg_service.conf service are refused. |
 | `--to` | none | none | unset | Required. The EIP-3076 interchange file to write; an existing file is replaced |
 | `--keys` | none | none | unset | Export only these validators: 0x public keys or 0x sha256 identifiers, comma-separated or repeated |
 
@@ -133,7 +148,9 @@ names it in the file of such a store. The history commands are described in
 
 | Flag | Environment | Config file | Default | Description |
 |---|---|---|---|---|
-| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store: bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db), or a Postgres database as postgres://user@host:port/database?sslmode=verify-full (jdbc:postgresql:// is accepted) without a password, migrated with consensus migrate |
+| `--slashing-protection-db-username` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_USERNAME` | none | unset | User name for the Postgres store, instead of the URL's |
+| `--slashing-protection-db-password-file` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_PASSWORD_FILE` | none | unset | File whose first line is the Postgres store's password (owner-readable only, like other secret files); without it the password comes from PGPASSFILE (default ~/.pgpass), under the same rule. PGPASSWORD, a password in the URL and one in a pg_service.conf service are refused. |
 | `--epoch` | none | none | unset | Required. Raise every validator's attestation source and target low watermarks to this epoch |
 | `--slot` | none | none | unset | Required. Raise every validator's block low watermark to this slot |
 
@@ -141,7 +158,9 @@ names it in the file of such a store. The history commands are described in
 
 | Flag | Environment | Config file | Default | Description |
 |---|---|---|---|---|
-| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store: bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db), or a Postgres database as postgres://user@host:port/database?sslmode=verify-full (jdbc:postgresql:// is accepted) without a password, migrated with consensus migrate |
+| `--slashing-protection-db-username` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_USERNAME` | none | unset | User name for the Postgres store, instead of the URL's |
+| `--slashing-protection-db-password-file` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_PASSWORD_FILE` | none | unset | File whose first line is the Postgres store's password (owner-readable only, like other secret files); without it the password comes from PGPASSFILE (default ~/.pgpass), under the same rule. PGPASSWORD, a password in the URL and one in a pg_service.conf service are refused. |
 | `--epoch` | none | none | unset | Required unless --remove. The high watermark's epoch: attestations with a source or target epoch at or above it are refused |
 | `--slot` | none | none | unset | Required unless --remove. The high watermark's slot: blocks at or above it are refused |
 | `--remove` | none | none | `false` | Remove the high watermark instead of setting one |
@@ -150,7 +169,9 @@ names it in the file of such a store. The history commands are described in
 
 | Flag | Environment | Config file | Default | Description |
 |---|---|---|---|---|
-| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store as bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db) |
+| `--slashing-protection-db-url` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_URL` | none | unset | Slashing-protection store: bolt:///absolute/path/file.db (default \<data-path>/slashing-protection.db), or a Postgres database as postgres://user@host:port/database?sslmode=verify-full (jdbc:postgresql:// is accepted) without a password, migrated with consensus migrate |
+| `--slashing-protection-db-username` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_USERNAME` | none | unset | User name for the Postgres store, instead of the URL's |
+| `--slashing-protection-db-password-file` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_PASSWORD_FILE` | none | unset | File whose first line is the Postgres store's password (owner-readable only, like other secret files); without it the password comes from PGPASSFILE (default ~/.pgpass), under the same rule. PGPASSWORD, a password in the URL and one in a pg_service.conf service are refused. |
 | `--key` | none | none | unset | Required. The key to disable: its 0x public key or 0x sha256 of it |
 
 `consensus disable-validator` persists `enabled=false` for a key, which then gets 412

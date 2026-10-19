@@ -97,6 +97,12 @@ commitment runs, and the scan's result is classified against the frontier as it 
 
 - **bbolt** (default): the frontier `(m, R, last)` sits in the key's record in `slashing-protection.db`, under the
   store's pinned GVR. Only one process opens the file, and every frontier move is fsynced before the reveal is sent.
+- **Postgres**: the frontier is the key's row in `randao_reveal_state`, shared by every replica. Each reveal is
+  classified against the row; a frontier move takes the key's RANDAO advisory lock, re-reads the row and writes it
+  with a compare-and-set, and commits before the reveal is sent. A replica that loses the race to another one
+  classifies the request again, usually as a re-reveal of the layer the other released; one whose own new-layer
+  bucket for the key is empty refuses the request with 412 `RANDAO_NEW_LAYER_RATE_LIMITED` before it gets that
+  far ([`postgres.md`](postgres.md#7-running-replicas)).
 - **Protection disabled** (`--slashing-protection-enabled=false`, loopback only): the same rule runs against the
   memory store, so a restart makes every key's next reveal a first use; startup logs a WARN.
   `--randao-protection-required` refuses to start in that case.
@@ -125,7 +131,8 @@ Offline, with the signer stopped:
 bin/remotesigner-consensus --data-path=/var/lib/remotesigner consensus randao-state reset --key=$ALIAS
 ```
 
-While a signer holds the store the command fails and points to the admin endpoint.
+While a signer holds the bbolt store the command fails and points to the admin endpoint. With Postgres the command
+runs online, against the database the replicas share (`--slashing-protection-db-url` and its password file).
 
 ## 7. Health and alerts
 

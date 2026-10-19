@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 )
 
 // DefaultPruneBatch is how many validators one pruning transaction covers.
@@ -40,6 +41,9 @@ type PruneConfig struct {
 	SlotsPerEpoch uint64
 	// Batch is how many validators share one transaction; zero means DefaultPruneBatch.
 	Batch int
+	// Pace, when positive, makes the run rest after each transaction for Pace times as long as the transaction
+	// took, so that a database the signers share spends at most 1/(1+Pace) of its time on pruning.
+	Pace float64
 }
 
 // PruneResult counts what a pruning run did.
@@ -74,12 +78,21 @@ func Prune(ctx context.Context, s Store, cfg PruneConfig) (PruneResult, error) {
 	if err != nil {
 		return PruneResult{}, err
 	}
-	var res PruneResult
+	var (
+		res  PruneResult
+		took time.Duration // the last transaction's
+	)
 	for start := 0; start < len(ids); start += batch {
 		if err := ctx.Err(); err != nil {
 			return res, err
 		}
+		if start > 0 && cfg.Pace > 0 {
+			if err := rest(ctx, time.Duration(cfg.Pace*float64(took))); err != nil {
+				return res, err
+			}
+		}
 		chunk := ids[start:min(start+batch, len(ids))]
+		began := time.Now()
 		// The counts are kept per validator and set, not added, so a retried transaction does not count twice.
 		deleted := make(map[KeyID][2]int, len(chunk))
 		err := s.UpdateHistory(ctx, chunk, func(id KeyID, tx HistoryTx) error {
@@ -94,6 +107,7 @@ func Prune(ctx context.Context, s Store, cfg PruneConfig) (PruneResult, error) {
 		if err != nil {
 			return res, fmt.Errorf("prune slashing-protection history: %w", err)
 		}
+		took = time.Since(began)
 		res.Validators += len(chunk)
 		for _, d := range deleted {
 			res.Blocks += d[0]
@@ -101,6 +115,18 @@ func Prune(ctx context.Context, s Store, cfg PruneConfig) (PruneResult, error) {
 		}
 	}
 	return res, nil
+}
+
+// rest waits for d, or until ctx ends.
+func rest(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 // pruneBlocks moves the slot watermark up to the oldest kept block and deletes the blocks below it.

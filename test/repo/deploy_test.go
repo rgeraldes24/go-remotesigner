@@ -343,9 +343,10 @@ func renovateConfig(t *testing.T) (ignore []string, managers []renovateManager) 
 
 // unmanagedPins returns the digest pins in the file at path that no
 // Renovate manager updates: a Dockerfile's FROM, COPY --from and RUN
-// --mount lines are Renovate's dockerfile manager's; any other pin needs a
-// regex custom manager whose file pattern matches path and whose match
-// string captures the digest as currentDigest.
+// --mount lines are Renovate's dockerfile manager's, and a workflow's image
+// lines (a job's container and services) its github-actions manager's; any
+// other pin needs a regex custom manager whose file pattern matches path and
+// whose match string captures the digest as currentDigest.
 func unmanagedPins(path, text string, managers []renovateManager) []string {
 	managed := map[string]bool{}
 	for _, m := range managers {
@@ -362,11 +363,12 @@ func unmanagedPins(path, text string, managers []renovateManager) []string {
 		}
 	}
 	dockerfile := strings.HasPrefix(filepath.Base(path), "Dockerfile")
+	workflow := strings.HasPrefix(path, ".github/workflows/")
 	var out []string
 	for i, line := range strings.Split(text, "\n") {
 		for _, sm := range digestPin.FindAllStringSubmatch(line, -1) {
 			if dockerfile && slices.Contains([]string{"FROM", "COPY", "RUN"}, strings.ToUpper(firstField(line))) ||
-				managed[sm[1]] {
+				workflow && firstField(line) == "image:" || managed[sm[1]] {
 				continue
 			}
 			out = append(out, fmt.Sprintf("%s:%d: %s", path, i+1, sm[0]))
@@ -421,6 +423,8 @@ func TestUnmanagedPins(t *testing.T) {
 		{"Go constant with the marker", "test/release/x_test.go", "// renovate: datasource=docker\nconst base = \"" + ref + "\"\n", 0},
 		{"Go constant without it", "test/release/x_test.go", "const base = \"" + ref + "\"\n", 1},
 		{"marker outside test/", "internal/x/x.go", "// renovate: datasource=docker\nconst base = \"" + ref + "\"\n", 1},
+		{"workflow service image", ".github/workflows/ci.yml", "    services:\n      db:\n        image: " + ref + "\n", 0},
+		{"workflow env pin", ".github/workflows/ci.yml", "env:\n  BASE: " + ref + "\n", 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

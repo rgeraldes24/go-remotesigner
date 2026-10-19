@@ -6,10 +6,9 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
@@ -70,12 +69,6 @@ func TestSingleHostExampleConfig(t *testing.T) {
 	}
 }
 
-// postgresPending are the keys of postgres-ha.yaml whose flags this release
-// does not have yet: the Postgres store's. When a flag lands, its key must
-// leave this list, and once the list is empty the example must load with
-// its postgres:// URL like single-host.yaml does.
-var postgresPending = []string{"slashing-protection-db-password-file"}
-
 // flagNames returns every name and alias of fs.
 func flagNames(fs []cli.Flag) []string {
 	var out []string
@@ -109,11 +102,9 @@ func exampleKeys(t *testing.T, data []byte) (global, consensus []string) {
 	return global, consensus
 }
 
-// The Postgres HA example names only flags this binary has, apart from the
-// Postgres store's, which it does not have yet; with those keys left out and
-// a bolt URL in place of its postgres:// URL, the rest of it loads and passes
-// the startup fail-safes: one shared name, a configured certificate, and
-// token files given explicitly so that every replica uses the same ones.
+// The Postgres HA example names only flags this binary has, and loads with its postgres:// URL and password file
+// as every replica runs it: one shared name, a configured certificate, token files given explicitly so that every
+// replica uses the same ones, and the shared database, which no start migrates.
 func TestPostgresHAExampleConfig(t *testing.T) {
 	file := filepath.Join(deployConfig, "postgres-ha.yaml")
 	data, err := os.ReadFile(file)
@@ -123,33 +114,21 @@ func TestPostgresHAExampleConfig(t *testing.T) {
 	global, consensus := exampleKeys(t, data)
 	known := slices.Concat(flagNames(flags.Global()), flagNames(flags.Consensus()))
 	for _, k := range slices.Concat(global, consensus) {
-		if !slices.Contains(known, k) && !slices.Contains(postgresPending, k) {
+		if !slices.Contains(known, k) {
 			t.Errorf("%s: %s names no flag", file, k)
 		}
 	}
-	for _, p := range postgresPending {
-		if slices.Contains(known, p) {
-			t.Errorf("--%s exists now: remove it from postgresPending, so that %s is loaded with its postgres:// URL",
-				p, file)
-		}
-		if !slices.Contains(consensus, p) {
-			t.Errorf("%s: no consensus key %s", file, p)
-		}
-	}
-
-	if len(postgresPending) == 0 {
-		cfg := loadExample(t, file)
-		checkHAConfig(t, cfg)
-		return
-	}
-	// Without the pending keys, and with the store on bbolt.
-	pending := regexp.MustCompile(`(?m)^\s*(?:` + strings.Join(postgresPending, "|") + `):.*\n`)
-	trimmed := filepath.Join(t.TempDir(), "postgres-ha.yaml")
-	if err := os.WriteFile(trimmed, pending.ReplaceAll(data, nil), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := loadExample(t, trimmed, "--slashing-protection-db-url=bolt:///var/lib/remotesigner/slashing-protection.db")
+	cfg := loadExample(t, file)
 	checkHAConfig(t, cfg)
+	want := config.Postgres{
+		URL:                 "postgres://remotesigner@db.internal:5432/remotesigner?sslmode=verify-full",
+		PasswordFile:        "/etc/remotesigner/db-password",
+		HealthCheckTimeout:  3 * time.Second,
+		HealthCheckInterval: 30 * time.Second,
+	}
+	if cfg.Consensus.Postgres != want {
+		t.Errorf("Postgres store %+v, want %+v", cfg.Consensus.Postgres, want)
+	}
 }
 
 func checkHAConfig(t *testing.T, cfg *config.Config) {

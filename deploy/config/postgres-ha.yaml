@@ -7,13 +7,11 @@
 # advisory locks serialise the replicas' checks per validator, so no two
 # replicas can sign conflicting messages for one validator.
 #
-# This release does not have the Postgres store yet: until it does, the
-# signer refuses a postgres:// URL and the slashing-protection-db-password-file
-# key, and only single-host.yaml applies. The keys follow the names of the
-# store's flags, so the file works unchanged once it lands.
-#
 # Every replica runs with this same file, the same key-config files, the same
-# token files and the same certificate.
+# token files and the same certificate. Create the database's schema once,
+# before the first start, with `remotesigner consensus migrate` as the role
+# that owns it; the signers connect as a role without DDL rights
+# (docs/operations/postgres.md).
 
 data-path: /var/lib/remotesigner
 key-config-path: /var/lib/remotesigner/keys
@@ -48,5 +46,6 @@ consensus:
   slashing-protection-db-url: postgres://remotesigner@db.internal:5432/remotesigner?sslmode=verify-full
   slashing-protection-db-password-file: /etc/remotesigner/db-password
   # Schema upgrades run under an advisory lock, so replicas started together
-  # cannot both migrate. Set this for the start that upgrades, then unset it.
+  # cannot both migrate; they also need a role that may create tables. Leave
+  # this off and run consensus migrate instead.
   slashing-protection-db-migrate: false

@@ -7,8 +7,10 @@ at the signer) is in qrysm's documentation; the commands it needs are quoted whe
 
 The examples use `bin/remotesigner-consensus` with `--data-path=/var/lib/remotesigner`, so the store is
 `/var/lib/remotesigner/slashing-protection.db`. `--slashing-protection-db-url=bolt:///path/to/file.db` names
-another file. Every command on this page except the signer itself runs **offline**: bbolt allows one process per
-file, so they fail while a signer holds the store, and say so.
+another file. With bbolt, every command on this page except the signer itself runs **offline**: bbolt allows one
+process per file, so they fail while a signer holds the store, and say so. With a Postgres store
+(`--slashing-protection-db-url=postgres://…`) they run online, under the advisory locks the signers take, and the
+import writes one validator per transaction ([`postgres.md`](postgres.md#6-store-commands-online)).
 
 | Exit code | Meaning |
 |---|---|
@@ -132,11 +134,12 @@ is a first use of its onion, under the usual new-layer conditions ([`randao.md`]
 ## 6. Pruning
 
 The signer prunes every validator in the store at startup and then every `--slashing-protection-pruning-interval`
-(12 h). Each validator keeps `--slashing-protection-pruning-epochs-to-keep` (512, about 45.5 days on mainnet-preset
-timing) epochs of attestations below its newest one, and as many epochs of slots, in the network's slots per epoch,
-below its newest block. The low watermark is first raised to the oldest record that is kept, then older records are
-deleted, so pruning never allows anything that was refused before. A large first prune after an import runs
-alongside signing; benchmark B14 measures it ([`../benchmarks.md`](../benchmarks.md)).
+(12 h); with Postgres not at startup, and one validator per transaction, paced. Each validator keeps
+`--slashing-protection-pruning-epochs-to-keep` (512, about 45.5 days on mainnet-preset timing) epochs of attestations
+below its newest one, and as many epochs of slots, in the network's slots per epoch, below its newest block. The low
+watermark is first raised to the oldest record that is kept, then older records are deleted, so pruning never allows
+anything that was refused before. A large first prune after an import runs alongside signing; benchmark B14 measures it
+([`../benchmarks.md`](../benchmarks.md)).
 
 ## 7. Exporting and moving back
 

@@ -196,6 +196,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/main_test.go` | new | | | |
 | `cmd/remotesigner/offline.go` | new | | | |
 | `cmd/remotesigner/offline_test.go` | new | | | |
+| `cmd/remotesigner/store.go` | new | | | |
+| `cmd/remotesigner/store_test.go` | new | | | |
 | `deploy/config/postgres-ha.yaml` | new | | | |
 | `deploy/config/single-host.yaml` | new | | | |
 | `deploy/docker/Dockerfile` | new | | | |
@@ -326,6 +328,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/randao/service_test.go` | new | | | |
 | `internal/runner/keymanager_test.go` | new | | | |
 | `internal/runner/keys.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/runner/postgres_test.go` | new | | | |
 | `internal/runner/prune.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbPrunerRunner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/runner/prune_test.go` | new | | | |
 | `internal/runner/randao_test.go` | new | | | |
@@ -333,6 +336,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/runner/runner.go` | new | | | |
 | `internal/runner/runner_test.go` | new | | | |
 | `internal/runner/sign_test.go` | new | | | |
+| `internal/runner/store.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbHealthCheck.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/runner/tls_test.go` | new | | | |
 | `internal/server/auth/auth.go` | new | | | |
 | `internal/server/auth/auth_test.go` | new | | | |
@@ -390,6 +394,19 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/slashing/interchange/safety_test.go` | new | | | |
 | `internal/slashing/memstore/memstore.go` | new |  |  |  |
 | `internal/slashing/memstore/memstore_test.go` | new |  |  |  |
+| `internal/slashing/pgstore/bench_test.go` | new | | | |
+| `internal/slashing/pgstore/concurrency_test.go` | new | | | |
+| `internal/slashing/pgstore/export_test.go` | new | | | |
+| `internal/slashing/pgstore/history.go` | new | | | |
+| `internal/slashing/pgstore/migrate.go` | new | | | |
+| `internal/slashing/pgstore/pgstore.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbLocker.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbConnection.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/pgstore/pgstore_test.go` | new | | | |
+| `internal/slashing/pgstore/pgtest/pgtest.go` | new | | | |
+| `internal/slashing/pgstore/randao.go` | new | | | |
+| `internal/slashing/pgstore/roles_test.go` | new | | | |
+| `internal/slashing/pgstore/sql/0001.sql` | w3s-derived | Web3Signer | `slashing-protection/src/main/resources/migrations/postgresql/V00001__initial.sql`<br>`slashing-protection/src/main/resources/migrations/postgresql/V00002__removeUniqueConstraints.sql`<br>`slashing-protection/src/main/resources/migrations/postgresql/V00003__addLowWatermark.sql`<br>`slashing-protection/src/main/resources/migrations/postgresql/V00004__addGenesisValidatorsRoot.sql`<br>`slashing-protection/src/main/resources/migrations/postgresql/V00005__xnor_source_target_low_watermark.sql`<br>`slashing-protection/src/main/resources/migrations/postgresql/V00006__signed_data_indexes.sql`<br>`slashing-protection/src/main/resources/migrations/postgresql/V00007__add_db_version.sql`<br>`slashing-protection/src/main/resources/migrations/postgresql/V00008__signed_data_unique_constraints.sql`<br>`slashing-protection/src/main/resources/migrations/postgresql/V00009__upsert_validators.sql`<br>`slashing-protection/src/main/resources/migrations/postgresql/V00010__validator_enabled_status.sql`<br>`slashing-protection/src/main/resources/migrations/postgresql/V00011__bigint_indexes.sql`<br>`slashing-protection/src/main/resources/migrations/postgresql/V00012__add_highwatermark_metadata.sql` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/pgstore/store.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/MetadataDao.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/ValidatorsDao.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbSlashingProtection.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbValidatorManager.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/pgstore/tx.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/SignedBlocksDao.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/SignedAttestationsDao.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/LowWatermarkDao.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/ValidatorsDao.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/slashing/prune.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbPruner.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DBSlashingProtectionPruner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/slashing/prune_test.go` | new | | | |
 | `internal/slashing/prune_w3s_test.go` | w3s-derived | Web3Signer | `slashing-protection/src/integration-test/java/tech/pegasys/web3signer/slashingprotection/PruningIntegrationTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
@@ -429,6 +446,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/loading_bench_test.go` | new | | | |
 | `test/acceptance/metrics_test.go` | new | | | |
 | `test/acceptance/migrate_test.go` | new | | | |
+| `test/acceptance/postgres_test.go` | new | | | |
 | `test/acceptance/qrlpackage_test.go` | new | | | |
 | `test/acceptance/reload_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/reload/ReloadAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `test/acceptance/server_test.go` | new | | | |

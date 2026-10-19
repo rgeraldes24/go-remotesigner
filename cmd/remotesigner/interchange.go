@@ -18,18 +18,18 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/api/consensus"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
-	"github.com/rgeraldes24/go-remotesigner/internal/slashing/boltstore"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/interchange"
 )
 
 // The slashing-protection history commands: EIP-3076 import and export, the low-watermark repair and the high
-// watermark. With bbolt they run offline, like migrate.
+// watermark. With bbolt they run offline, like migrate; with Postgres online, under the signers' advisory locks.
 
 func importCommand(stdout, stderr io.Writer) *cli.Command {
 	return &cli.Command{
 		Name: flags.ImportCommand,
 		Usage: "import an EIP-3076 slashing-protection interchange file (format version 5) into the store, creating " +
-			"the store when it does not exist (offline; the signer must be stopped)",
+			"a bbolt store when it does not exist (offline with bbolt: the signer must be stopped; online with Postgres, " +
+			"one validator per transaction)",
 		Flags:        flags.Import(),
 		OnUsageError: onUsageError,
 		Action: func(c *cli.Context) error {
@@ -40,7 +40,7 @@ func importCommand(stdout, stderr io.Writer) *cli.Command {
 			if from == "" {
 				return usageError(fmt.Errorf("--%s is required", flags.From))
 			}
-			path, err := storePath(c)
+			target, err := targetOf(c, false)
 			if err != nil {
 				return usageError(err)
 			}
@@ -48,8 +48,8 @@ func importCommand(stdout, stderr io.Writer) *cli.Command {
 			if err != nil {
 				return usageError(err)
 			}
-			res, err := importFile(c.Context, path, from, root)
-			return finishImport(stdout, stderr, path, res, err)
+			res, err := importFile(c.Context, target, from, root)
+			return finishImport(stdout, stderr, target.String(), res, err)
 		},
 	}
 }
@@ -81,8 +81,11 @@ func finishImport(stdout, stderr io.Writer, path string, res interchange.ImportR
 	return nil
 }
 
-// importFile checks the whole file, then imports it into the store at path.
-func importFile(ctx context.Context, path, from string, root *slashing.Root) (interchange.ImportResult, error) {
+// importFile checks the whole file, then imports it into the store. Into Postgres, each validator is its own
+// transaction, so that an import holds a validator's locks only while it writes that validator, and signing
+// replicas wait for it no longer; a long history is written in one call, under the store command's long bound
+// (commandConfig), and a signing request for that key that waits longer than lock_timeout meanwhile fails.
+func importFile(ctx context.Context, target storeTarget, from string, root *slashing.Root) (interchange.ImportResult, error) {
 	f, err := os.Open(from)
 	if err != nil {
 		return interchange.ImportResult{}, err
@@ -96,14 +99,18 @@ func importFile(ctx context.Context, path, from string, root *slashing.Root) (in
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return interchange.ImportResult{}, err
 	}
-	s, err := openStore(path, root)
+	s, err := target.open(ctx, root, "")
 	if err != nil {
 		return interchange.ImportResult{}, err
 	}
 	defer func() { _ = s.Close() }()
-	res, err := interchange.Import(ctx, s, f, interchange.ImportOptions{})
+	var opts interchange.ImportOptions
+	if target.postgres() {
+		opts.Batch = 1
+	}
+	res, err := interchange.Import(ctx, s, f, opts)
 	if err != nil {
-		return res, fmt.Errorf("import %s into %s: %w", from, path, err)
+		return res, fmt.Errorf("import %s into %s: %w", from, target, err)
 	}
 	return res, nil
 }
@@ -155,7 +162,7 @@ func exportCommand(stdout, stderr io.Writer) *cli.Command {
 	return &cli.Command{
 		Name: flags.ExportCommand,
 		Usage: "export the store's slashing-protection history as an EIP-3076 interchange file (format version 5) " +
-			"(offline; the signer must be stopped)",
+			"(offline with bbolt: the signer must be stopped; online with Postgres, from one consistent snapshot)",
 		Flags:        flags.Export(),
 		OnUsageError: onUsageError,
 		Action: func(c *cli.Context) error {
@@ -177,7 +184,7 @@ func exportCommand(stdout, stderr io.Writer) *cli.Command {
 					keys = append(keys, slashing.KeyID(id))
 				}
 			}
-			path, err := storeFile(c)
+			target, err := targetOf(c, true)
 			if err != nil {
 				return usageError(err)
 			}
@@ -185,7 +192,7 @@ func exportCommand(stdout, stderr io.Writer) *cli.Command {
 			if err != nil {
 				return usageError(err)
 			}
-			res, err := exportFile(c.Context, path, to, interchange.ExportOptions{Keys: keys, GenesisValidatorsRoot: root})
+			res, err := exportFile(c.Context, target, to, interchange.ExportOptions{Keys: keys, GenesisValidatorsRoot: root})
 			if errors.Is(err, slashing.ErrNoGenesisValidatorsRoot) {
 				return cli.Exit(fmt.Sprintf("%v (--%s, with --%s for a file network)", err, flags.Network,
 					flags.NetworkGenesisGVR), exitStartup)
@@ -201,15 +208,15 @@ func exportCommand(stdout, stderr io.Writer) *cli.Command {
 					"and have no signing root, so that the importing side refuses everything at and below it\n", res.Watermarks)
 			}
 			_, _ = fmt.Fprintf(stdout, "exported %d validator(s), %d block(s) and %d attestation(s) from %s to %s\n",
-				res.Validators, res.Blocks, res.Attestations, path, to)
+				res.Validators, res.Blocks, res.Attestations, target, to)
 			return nil
 		},
 	}
 }
 
 // exportFile writes the export to a temporary file next to to, and renames it over to once it is complete.
-func exportFile(ctx context.Context, path, to string, opts interchange.ExportOptions) (interchange.ExportResult, error) {
-	s, err := openStore(path, nil)
+func exportFile(ctx context.Context, target storeTarget, to string, opts interchange.ExportOptions) (interchange.ExportResult, error) {
+	s, err := target.open(ctx, nil, "")
 	if err != nil {
 		return interchange.ExportResult{}, err
 	}
@@ -227,7 +234,7 @@ func exportFile(ctx context.Context, path, to string, opts interchange.ExportOpt
 		err = cerr
 	}
 	if err != nil {
-		return interchange.ExportResult{}, fmt.Errorf("export %s: %w", path, err)
+		return interchange.ExportResult{}, fmt.Errorf("export %s: %w", target, err)
 	}
 	if err := os.Rename(tmp.Name(), to); err != nil {
 		return interchange.ExportResult{}, err
@@ -240,7 +247,7 @@ func watermarkRepairCommand(stdout io.Writer) *cli.Command {
 		Name: flags.WatermarkRepairCommand,
 		Usage: "raise every validator's low watermarks, so that no block at or below the slot and no attestation with a " +
 			"source below the epoch or a target at or below it is signed: the fallback when no history can be imported; " +
-			"it never lowers a watermark (offline; the signer must be stopped)",
+			"it never lowers a watermark (offline with bbolt: the signer must be stopped; online with Postgres)",
 		Flags:        flags.WatermarkRepair(),
 		OnUsageError: onUsageError,
 		Action: func(c *cli.Context) error {
@@ -251,11 +258,11 @@ func watermarkRepairCommand(stdout io.Writer) *cli.Command {
 				return usageError(fmt.Errorf("--%s and --%s are both required", flags.Epoch, flags.Slot))
 			}
 			epoch, slot := c.Uint64(flags.Epoch), c.Uint64(flags.Slot)
-			path, err := storeFile(c)
+			target, err := targetOf(c, true)
 			if err != nil {
 				return usageError(err)
 			}
-			s, err := openStore(path, nil)
+			s, err := target.open(c.Context, nil, "")
 			if err != nil {
 				return cli.Exit(err.Error(), exitStartup)
 			}
@@ -265,7 +272,7 @@ func watermarkRepairCommand(stdout io.Writer) *cli.Command {
 				return cli.Exit(fmt.Sprintf("watermark-repair refused: %v", err), exitStartup)
 			}
 			_, _ = fmt.Fprintf(stdout, "raised the low watermarks of %d validator(s) in %s to slot %d and epoch %d\n",
-				n, path, slot, epoch)
+				n, target, slot, epoch)
 			return nil
 		},
 	}
@@ -275,7 +282,8 @@ func setHighWatermarkCommand(stdout io.Writer) *cli.Command {
 	return &cli.Command{
 		Name: flags.SetHighWatermarkCommand,
 		Usage: "set the global high watermark, a fence at or beyond which nothing is signed, or remove it with " +
-			"--remove (offline; the signer must be stopped)",
+			"--remove (offline with bbolt: the signer must be stopped; online with Postgres, where it waits for every " +
+			"check-and-record that read the old one)",
 		Flags:        flags.SetHighWatermark(),
 		OnUsageError: onUsageError,
 		Action: func(c *cli.Context) error {
@@ -292,7 +300,7 @@ func setHighWatermarkCommand(stdout io.Writer) *cli.Command {
 				e, s := c.Uint64(flags.Epoch), c.Uint64(flags.Slot)
 				h = slashing.HighWatermark{Epoch: &e, Slot: &s}
 			}
-			path, err := storeFile(c)
+			target, err := targetOf(c, true)
 			if err != nil {
 				return usageError(err)
 			}
@@ -301,7 +309,7 @@ func setHighWatermarkCommand(stdout io.Writer) *cli.Command {
 			if err != nil {
 				return usageError(err)
 			}
-			s, err := openStore(path, root)
+			s, err := target.open(c.Context, root, "")
 			if err != nil {
 				return cli.Exit(err.Error(), exitStartup)
 			}
@@ -318,22 +326,13 @@ func setHighWatermarkCommand(stdout io.Writer) *cli.Command {
 				return cli.Exit(err.Error(), exitStartup)
 			}
 			if h.IsSet() {
-				_, _ = fmt.Fprintf(stdout, "high watermark of %s set to epoch %d and slot %d\n", path, *h.Epoch, *h.Slot)
+				_, _ = fmt.Fprintf(stdout, "high watermark of %s set to epoch %d and slot %d\n", target, *h.Epoch, *h.Slot)
 			} else {
-				_, _ = fmt.Fprintf(stdout, "high watermark of %s removed\n", path)
+				_, _ = fmt.Fprintf(stdout, "high watermark of %s removed\n", target)
 			}
 			return nil
 		},
 	}
-}
-
-// openStore opens the bbolt store offline, pinning or checking root when it is given.
-func openStore(path string, root *slashing.Root) (*boltstore.Store, error) {
-	s, err := boltstore.Open(path, boltstore.Options{GenesisValidatorsRoot: root})
-	if errors.Is(err, boltstore.ErrLocked) {
-		return nil, fmt.Errorf(errStoreInUse, path)
-	}
-	return s, err
 }
 
 // networkRoot returns the genesis validators root that --network and its sources give, or nil when no network is

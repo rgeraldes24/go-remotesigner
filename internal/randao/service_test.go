@@ -282,6 +282,31 @@ func TestPrecompute(t *testing.T) {
 	}
 }
 
+// A signer that shares the store keeps only the layer it precomputed, keyed by its index. Once another signer has
+// moved the stored frontier, that layer is for another index than the next new layer needs: it is not served, and
+// the layer is computed from x_0 instead.
+func TestPrecomputeForAnotherIndexIgnored(t *testing.T) {
+	store := memstore.New()
+	f := newFixture(t, store)
+	f.ok(f.reveal(1000, testLayers), testLayers, metrics.RandaoFirstUse)
+	f.precomputed(testLayers - 2)
+	// Another signer releases x_{L-2} at slot 1001.
+	cur, _, err := store.RandaoState(context.Background(), f.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := slashing.RandaoState{Index: testLayers - 2, Reveal: f.x[testLayers-2], LastSlot: 1001}
+	if ok, err := store.CompareAndSwapRandaoState(context.Background(), f.id, &cur, next); err != nil || !ok {
+		t.Fatalf("the other signer's move: %v, %v", ok, err)
+	}
+	f.clock.atSlot(1002)
+	f.ok(f.reveal(1002, testLayers-2), testLayers-2, metrics.RandaoNewLayer)
+	if hot, scan := f.durations(metrics.RandaoPathHot), f.durations(metrics.RandaoPathScan); hot != 0 || scan != 2 {
+		t.Fatalf("%d hot and %d scan reveals, want 0 and 2", hot, scan)
+	}
+	f.frontier(testLayers-3, 1002)
+}
+
 // precomputed waits for the background computation of x_m.
 func (f *fixture) precomputed(m uint64) {
 	f.t.Helper()
@@ -718,4 +743,78 @@ func TestScanDoesNotBlockKey(t *testing.T) {
 	close(g.release)
 	f.ok(<-scanned, testLayers-5, metrics.RandaoGapAdvanced)
 	f.frontier(testLayers-6, 1002)
+}
+
+// racingStore is a store shared with another signer: its first compare-and-set lets the other signer win, by
+// storing what the other signer would store for the same request (the same next frontier), and reports the lost
+// race; with always set, every compare-and-set reports a lost race.
+type racingStore struct {
+	slashing.Store
+	always atomic.Bool
+	races  atomic.Int32
+}
+
+func (s *racingStore) CompareAndSwapRandaoState(ctx context.Context, id slashing.KeyID, old *slashing.RandaoState,
+	next slashing.RandaoState) (bool, error) {
+	if s.always.Load() {
+		s.races.Add(1)
+		return false, nil
+	}
+	if s.races.Add(1) == 1 {
+		ok, err := s.Store.CompareAndSwapRandaoState(ctx, id, old, next)
+		if err != nil || !ok {
+			return ok, err
+		}
+		return false, nil
+	}
+	return s.Store.CompareAndSwapRandaoState(ctx, id, old, next)
+}
+
+// Two signers sharing a store serve the same request for the same slot: the one whose compare-and-set loses
+// classifies the request again and answers it as a re-reveal of the layer the other released, for a first use and
+// for a new layer alike. A frontier that keeps moving fails with 500 STORE_UNAVAILABLE.
+func TestLostRaceReReveals(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		prime bool // release one layer first, so the race is over a new layer
+	}{{"first use", false}, {"new layer", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &racingStore{Store: memstore.New()}
+			f := newFixture(t, store)
+			j := testLayers
+			if tc.prime {
+				store.races.Store(1)
+				f.ok(f.reveal(1000, j), j, metrics.RandaoFirstUse)
+				f.clock.atSlot(1001)
+				store.races.Store(0)
+				j--
+			}
+			f.ok(f.reveal(f.slot(), j), j, metrics.RandaoReReveal)
+			if n := store.races.Load(); n != 1 {
+				t.Fatalf("%d compare-and-sets, want 1", n)
+			}
+			f.frontier(uint64(j-1), f.slot())
+		})
+	}
+	t.Run("frontier keeps moving", func(t *testing.T) {
+		store := &racingStore{Store: memstore.New()}
+		f := newFixture(t, store)
+		store.races.Store(1)
+		f.ok(f.reveal(1000, testLayers), testLayers, metrics.RandaoFirstUse)
+		f.clock.atSlot(1001)
+		store.races.Store(0)
+		store.always.Store(true)
+		out := f.reveal(1001, testLayers-1)
+		if out.Err == nil || out.Err.Reason != apierr.StoreUnavailable || out.Result != metrics.RandaoError {
+			t.Fatalf("outcome %+v, want 500 STORE_UNAVAILABLE", out)
+		}
+		if n := store.races.Load(); n != MaxRaces {
+			t.Fatalf("%d compare-and-sets, want %d", n, MaxRaces)
+		}
+	})
+}
+
+// slot is the clock's current slot.
+func (f *fixture) slot() uint64 {
+	return uint64(f.clock.Now().Unix()-testGenesis) / testSPS
 }

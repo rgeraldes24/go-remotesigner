@@ -12,13 +12,14 @@ Consensys.
 
 Pre-release. The HTTP contract with the qrysm validator client is [`docs/contract.md`](docs/contract.md) and
 [`api/openapi/consensus.yaml`](api/openapi/consensus.yaml), with the protocol facts it relies on in
-[`docs/spec/`](docs/spec/README.md). `remotesigner consensus` signs all nine artifact types behind bbolt slashing
-protection, releases RANDAO reveals under the frontier rule, and serves `publicKeys`, `capabilities`, `/upcheck`,
-`/healthcheck`, `/reload` and a Prometheus metrics listener, with token authentication, the request guards and
-limits, and key loading from `file-raw` and `file-keystore` key files and from keystore directories, with reloads
-that never disable a key ([`docs/operations/reload.md`](docs/operations/reload.md)), and the keymanager API to
-list, import and delete keys while it runs ([`docs/operations/keymanager.md`](docs/operations/keymanager.md)).
-`remotesigner consensus keystore verify` checks qrysm and deposit CLI keystores and their password files offline
+[`docs/spec/`](docs/spec/README.md). `remotesigner consensus` signs all nine artifact types behind slashing protection
+in a bbolt file or, for replicas serving the same keys, a shared Postgres database, releases RANDAO reveals under the
+frontier rule, and serves `publicKeys`, `capabilities`, `/upcheck`, `/healthcheck`, `/reload` and a Prometheus metrics
+listener, with token authentication, the request guards and limits, and key loading from `file-raw` and `file-keystore`
+key files and from keystore directories, with reloads that never disable a key
+([`docs/operations/reload.md`](docs/operations/reload.md)), and the keymanager API to list, import and delete keys
+while it runs ([`docs/operations/keymanager.md`](docs/operations/keymanager.md)). `remotesigner consensus keystore
+verify` checks qrysm and deposit CLI keystores and their password files offline
 ([`docs/operations/keystores.md`](docs/operations/keystores.md)). To try the signer, see
 [`docs/operations/quickstart.md`](docs/operations/quickstart.md); every flag is in
 [`docs/reference/flags.md`](docs/reference/flags.md).
@@ -29,6 +30,7 @@ list, import and delete keys while it runs ([`docs/operations/keymanager.md`](do
 |---|---|
 | [`docs/operations/deploy-docker.md`](docs/operations/deploy-docker.md) | the container image, its entrypoint, pinning its generated certificate, and the compose example |
 | [`docs/operations/deploy-systemd.md`](docs/operations/deploy-systemd.md) | the hardened systemd unit with the example configuration |
+| [`docs/operations/postgres.md`](docs/operations/postgres.md) | the Postgres slashing-protection store: roles, `consensus migrate`, the pool and timeout profile, replicas |
 | [`docs/operations/tls.md`](docs/operations/tls.md) | TLS, client certificates, token and certificate rotation, process hygiene |
 | [`docs/operations/metrics.md`](docs/operations/metrics.md) | the metrics, the alert rules and the Grafana dashboard |
 | [`docs/operations/randao.md`](docs/operations/randao.md) | RANDAO reveals: the frontier rule, its flags and alerts |

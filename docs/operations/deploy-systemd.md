@@ -144,6 +144,6 @@ code 0. CI runs it on every pull request.
 
 [`deploy/config/postgres-ha.yaml`](../../deploy/config/postgres-ha.yaml) is the configuration for two or more signers
 that serve the same keys behind one name and share a Postgres slashing-protection database, each replica with the same
-file, keys, token files and certificate. It is written for the Postgres store, which this release does not have yet:
-until it does, the signer refuses its `postgres://` URL and its `slashing-protection-db-password-file` key. Until
-then, run exactly one signer per set of keys.
+file, keys, token files and certificate. [`postgres.md`](postgres.md) sets up the database and its roles, creates the
+schema with `consensus migrate`, and describes the connection profile and what replicas share. Without Postgres, run
+exactly one signer per set of keys.
