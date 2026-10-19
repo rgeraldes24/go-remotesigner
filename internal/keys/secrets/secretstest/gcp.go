@@ -34,8 +34,11 @@ type GCP struct {
 	secrets []gcpSecret
 	// Filters records the filter of each ListSecrets call.
 	Filters []string
-	// hang: every call waits, unanswered, until its client gives up.
-	hang bool
+	// hang is non-nil while every call waits, unanswered, until its client
+	// gives up or the fake answers again, which closes it.
+	hang chan struct{}
+	// held counts the calls waiting on hang.
+	held int
 	// reads counts the AccessSecretVersion calls by secret resource name.
 	reads map[string]int
 }
@@ -70,11 +73,24 @@ func (g *GCP) Put(project, name string, payload []byte, labels map[string]string
 }
 
 // SetHang makes every call wait, unanswered, until its client gives up
-// (on) or answers them again (off).
+// (on), or answers the calls that wait and every later one (off).
 func (g *GCP) SetHang(on bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.hang = on
+	switch {
+	case on && g.hang == nil:
+		g.hang = make(chan struct{})
+	case !on && g.hang != nil:
+		close(g.hang)
+		g.hang = nil
+	}
+}
+
+// Held returns the number of calls waiting while the fake hangs.
+func (g *GCP) Held() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.held
 }
 
 // Reads returns the number of AccessSecretVersion calls for the secret
@@ -85,16 +101,29 @@ func (g *GCP) Reads(project, name string) int {
 	return g.reads["projects/"+project+"/secrets/"+name]
 }
 
-// wait holds a call until its client gives up, while the fake hangs.
+// wait holds a call while the fake hangs, until its client gives up or
+// the fake answers again.
 func (g *GCP) wait(ctx context.Context) error {
 	g.mu.Lock()
 	hang := g.hang
+	if hang != nil {
+		g.held++
+	}
 	g.mu.Unlock()
-	if !hang {
+	if hang == nil {
 		return nil
 	}
-	<-ctx.Done()
-	return status.FromContextError(ctx.Err()).Err()
+	defer func() {
+		g.mu.Lock()
+		g.held--
+		g.mu.Unlock()
+	}()
+	select {
+	case <-hang:
+		return nil
+	case <-ctx.Done():
+		return status.FromContextError(ctx.Err()).Err()
+	}
 }
 
 // ListSecrets implements the service.

@@ -136,6 +136,46 @@ func TestCachedClientOutlivesItsFetch(t *testing.T) {
 	}
 }
 
+// A fetch in flight on a client that the cache evicts (more endpoints than
+// maxClients, fetched at once) completes: the client is closed when the
+// fetch is done with it, not under it.
+func TestEvictedClientInUse(t *testing.T) {
+	fakes := make([]*secretstest.GCP, maxClients+1)
+	for i := range fakes {
+		fakes[i] = secretstest.NewGCP(t)
+		fakes[i].Put("p", "validator-1", []byte(seed), nil)
+	}
+	c := New()
+	defer c.Close()
+	spec := func(i int) *secrets.GCP {
+		return &secrets.GCP{ProjectID: "p", SecretName: "validator-1", EndpointOverride: fakes[i].Endpoint}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	fakes[0].SetHang(true)
+	done := make(chan error, 1)
+	go func() { _, err := c.Fetch(ctx, spec(0)); done <- err }()
+	for fakes[0].Held() == 0 {
+		select {
+		case err := <-done:
+			t.Fatalf("the fetch did not wait for the hung store: %v", err)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	for i := 1; i < len(fakes); i++ { // evicts the client of fakes[0]
+		if _, err := c.Fetch(ctx, spec(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.clients.Len() != maxClients {
+		t.Fatalf("%d clients cached, want %d", c.clients.Len(), maxClients)
+	}
+	fakes[0].SetHang(false)
+	if err := <-done; err != nil {
+		t.Fatalf("the fetch on the evicted client: %v", err)
+	}
+}
+
 // TestLimits checks the bounds of every call: a store that does not answer
 // fails the access and the listing once the call timeout passes, retries
 // included, also under a context that already has a later deadline, as a
