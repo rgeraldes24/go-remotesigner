@@ -8,6 +8,7 @@ package azurekv
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -99,25 +100,41 @@ func TestTrustCertificateOverride(t *testing.T) {
 	}
 }
 
+// managedIdentityRuns counts the runs of TestManagedIdentity in this
+// process (go test -count).
+var managedIdentityRuns int
+
 func TestManagedIdentity(t *testing.T) {
 	f := secretstest.NewAzure(t)
 	f.Put("validator-1", seed, nil)
 	t.Setenv("IDENTITY_ENDPOINT", f.IdentityEndpoint())
 	t.Setenv("IDENTITY_HEADER", f.IdentityHeader)
+	// MSAL caches managed-identity tokens for the whole process, so a later
+	// run of this test may get the system-assigned token from the cache;
+	// the user-assigned identity has a new client id in each run, so that
+	// its token is always requested.
+	managedIdentityRuns++
 	for _, tt := range []struct {
 		mode, clientID string
 	}{
 		{secrets.AzureSystemAssignedIdentity, ""},
-		{secrets.AzureUserAssignedIdentity, "user-assigned-id"},
+		{secrets.AzureUserAssignedIdentity, fmt.Sprintf("user-assigned-id-%d", managedIdentityRuns)},
 	} {
 		v := vaultOf(f)
 		v.AuthMode, v.ClientID, v.ClientSecret, v.TenantID, v.AuthorityHostOverride = tt.mode, tt.clientID, nil, "", ""
+		before := len(f.ManagedIdentityClientIDs)
 		got, err := New().Fetch(context.Background(), &secrets.Azure{AzureVault: v, SecretName: "validator-1"})
 		if err != nil || string(got) != seed {
 			t.Fatalf("%s: Fetch = %q, %v", tt.mode, got, err)
 		}
-		if ids := f.ManagedIdentityClientIDs; ids[len(ids)-1] != tt.clientID {
-			t.Errorf("%s: asked for client id %q", tt.mode, ids[len(ids)-1])
+		ids := f.ManagedIdentityClientIDs
+		switch {
+		case len(ids) > before:
+			if ids[len(ids)-1] != tt.clientID {
+				t.Errorf("%s: asked for client id %q, want %q", tt.mode, ids[len(ids)-1], tt.clientID)
+			}
+		case tt.clientID != "" || managedIdentityRuns == 1:
+			t.Errorf("%s: no managed-identity token request", tt.mode)
 		}
 	}
 	v := vaultOf(f)
