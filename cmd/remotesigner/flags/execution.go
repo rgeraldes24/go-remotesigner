@@ -35,6 +35,10 @@ const (
 	DownstreamHTTPProxyHost      = "downstream-http-proxy-host"
 	DownstreamHTTPProxyPort      = "downstream-http-proxy-port"
 	ExecutionProxyAllowedMethods = "execution-proxy-allowed-methods"
+	ChainID                      = "chain-id"
+	ExecutionPolicyFile          = "execution-policy-file"
+	ExecutionAuditLogFile        = "execution-audit-log-file"
+	ExecutionNonceCrosscheck     = "execution-nonce-crosscheck"
 )
 
 // Execution defaults, Web3Signer's for the downstream node.
@@ -61,6 +65,10 @@ func Execution() []cli.Flag {
 		&cli.StringFlag{Name: DownstreamHTTPTLSCAFile, Usage: "PEM CAs that replace the system roots for the node's certificate; needs --downstream-http-tls-enabled", TakesFile: true},
 		&cli.StringFlag{Name: DownstreamHTTPProxyHost, Usage: "HTTP proxy host to reach the node through; unset connects directly (proxy environment variables are never read)"},
 		&cli.UintFlag{Name: DownstreamHTTPProxyPort, Value: DefaultDownstreamProxyPort, Usage: "Port of --downstream-http-proxy-host"},
+		&cli.Uint64Flag{Name: ChainID, DefaultText: "none (required)", Usage: "Chain ID that transactions are signed for (required); a transaction for another chain is refused, and so is every transaction while the node's qrl_chainId differs from it (checked at startup and every 10 minutes)"},
+		&cli.StringFlag{Name: ExecutionPolicyFile, Usage: "YAML file of per-account transaction policies (allowed recipients, max value, fee cap, contract creation, data size, transactions per hour); required on a non-loopback listener. Without it every account may sign any transaction whose fee (gas × maxFeePerGas) is at most 1 quanta", TakesFile: true},
+		&cli.StringFlag{Name: ExecutionAuditLogFile, Usage: "Append-only JSON Lines file (mode 0600) that records every signed transaction, the node's answer to every sent one and every refusal; reopened on SIGHUP", TakesFile: true},
+		&cli.BoolFlag{Name: ExecutionNonceCrosscheck, Value: true, Usage: "Refuse a nonce the node fills in for qrl_sendTransaction when it is more than 64 above the node's qrl_getTransactionCount(from, \"pending\")"},
 		&cli.StringSliceFlag{Name: ExecutionProxyAllowedMethods, Value: cli.NewStringSlice(DefaultAllowedMethods...), Usage: "JSON-RPC methods forwarded to the node: names, prefixes ending in * (qrl_*), or * for all; the others get -32601. Applies to every element of a batch; the signer's own methods are never forwarded."},
 		&cli.StringFlag{Name: KeystoresPath, Usage: "Directory of go-qrl account keystores to load: every non-hidden *.json file in it", TakesFile: true},
 		&cli.StringFlag{Name: KeystoresPasswordFile, Usage: "File holding the password of every keystore in --keystores-path; not with --keystores-passwords-path", TakesFile: true},

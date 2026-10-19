@@ -298,39 +298,41 @@ func classify(err error) (int, *Error) {
 	}
 }
 
-// exchange posts a batch of forwarded requests to the downstream node, with
-// the same header rules and bounds as forward, and returns the response
-// body. Only a 200 response within MaxResponseSize is a response; redirects
-// are not followed.
-func (p *proxy) exchange(ctx context.Context, in *http.Request, body []byte) ([]byte, *Error) {
+// exchange posts a body to the downstream node, with the same header rules
+// and bounds as forward, and returns the response body: the forwarded part
+// of a batch, with the client's headers in, or one of the signer's own
+// calls, with none. Only a 200 response within MaxResponseSize is a
+// response; redirects are not followed. Its errors carry the HTTP status a
+// single response would have.
+func (p *proxy) exchange(ctx context.Context, in http.Header, body []byte) ([]byte, *Error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	out, err := http.NewRequestWithContext(ctx, http.MethodPost, p.ds.target.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, ErrInternal
 	}
-	out.Header = p.outHeader(in.Header)
+	out.Header = p.outHeader(in)
 	out.Header.Set("Content-Type", "application/json")
 	if _, ok := out.Header["User-Agent"]; !ok {
 		out.Header.Set("User-Agent", "") // not Go's default
 	}
 	resp, err := p.ds.transport.RoundTrip(out) // one round trip: no redirect is followed
 	if err != nil {
-		_, e := classify(err)
-		p.log.WithError(err).Warn("Forwarding a batch to the downstream node failed")
-		return nil, e
+		status, e := classify(err)
+		p.log.WithError(err).Warn("A request to the downstream node failed")
+		return nil, e.withStatus(status)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, ErrDownstreamResponse.with("status " + strconv.Itoa(resp.StatusCode))
+		return nil, ErrDownstreamResponse.with("status " + strconv.Itoa(resp.StatusCode)).withStatus(http.StatusBadGateway)
 	}
 	if resp.ContentLength > MaxResponseSize {
-		return nil, ErrDownstreamResponse.with("response over 25 MB")
+		return nil, ErrDownstreamResponse.with("response over 25 MB").withStatus(http.StatusBadGateway)
 	}
 	data, err := io.ReadAll(&cappedBody{ReadCloser: p.idle(resp.Body, cancel), left: MaxResponseSize})
 	if err != nil {
-		_, e := classify(err)
-		return nil, e
+		status, e := classify(err)
+		return nil, e.withStatus(status)
 	}
 	return data, nil
 }

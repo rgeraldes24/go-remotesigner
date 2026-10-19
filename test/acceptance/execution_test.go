@@ -8,12 +8,14 @@ package acceptance
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -28,7 +30,8 @@ import (
 )
 
 // gqrlNode is a fake gqrl node for the built binary: it records each
-// request and answers every call with its method name, or with handler.
+// request, except the signer's own chain-ID checks, and answers every call
+// with its method name, or with handler.
 type gqrlNode struct {
 	*httptest.Server
 	mu       sync.Mutex
@@ -43,7 +46,9 @@ func newGQRLNode(t *testing.T) *gqrlNode {
 	n.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		n.mu.Lock()
-		n.requests, n.bodies = append(n.requests, r.Clone(r.Context())), append(n.bodies, string(body))
+		if !chainCheck(body) {
+			n.requests, n.bodies = append(n.requests, r.Clone(r.Context())), append(n.bodies, string(body))
+		}
 		h := n.handler
 		n.mu.Unlock()
 		if h != nil {
@@ -74,6 +79,17 @@ func newGQRLNode(t *testing.T) *gqrlNode {
 	return n
 }
 
+// chainCheck reports whether a body is the signer's own qrl_chainId call,
+// which it makes at startup and every 10 minutes: unlike a forwarded call,
+// it always carries params.
+func chainCheck(body []byte) bool {
+	var c struct {
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	return json.Unmarshal(body, &c) == nil && c.Method == "qrl_chainId" && string(c.Params) == "[]"
+}
+
 func (n *gqrlNode) received() ([]*http.Request, []string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -93,7 +109,7 @@ func downstreamFlags(t *testing.T, srv *httptest.Server) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return []string{"--downstream-http-host=" + u.Hostname(), "--downstream-http-port=" + u.Port()}
+	return []string{"--downstream-http-host=" + u.Hostname(), "--downstream-http-port=" + u.Port(), "--chain-id=1337"}
 }
 
 // writeAccountKey writes a file-raw key config of a 51-byte extended seed
@@ -320,4 +336,86 @@ func TestConsensusRefusesExtendedSeed(t *testing.T) {
 	if !strings.Contains(s.output.String(), "a 51-byte extended seed belongs to execution mode") {
 		t.Fatal("the refusal is not logged")
 	}
+}
+
+// Transaction signing on the built binary, with a policy file and an
+// audit log: qrl_signTransaction returns gqrl's {raw, tx} for a type-0x2
+// transaction and never asks the node; a recipient the policy does not
+// allow, a chain ID other than --chain-id and a fee over the cap are each
+// refused with -32003; and the audit log holds a line for each. Without a
+// policy file, a non-loopback listener refuses to start.
+func TestExecutionTransactions(t *testing.T) {
+	node := newGQRLNode(t)
+	keys := t.TempDir()
+	addr := writeAccountKey(t, keys, "account.yaml", keystoretest.ExtendedSeed("acceptance-tx", 0))
+	dir := t.TempDir()
+	allowed := "Q" + strings.Repeat("11", 64)
+	policy := filepath.Join(dir, "policy.yaml")
+	if err := os.WriteFile(policy, []byte("accounts:\n  "+addr+":\n    allowed-recipients: ["+allowed+"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	audit := filepath.Join(dir, "audit.jsonl")
+	flags := append(downstreamFlags(t, node.Server), "--execution-policy-file="+policy, "--execution-audit-log-file="+audit)
+	s := start(t, options{command: "execution", keys: keys, consensus: flags})
+	s.waitReady()
+	before, _ := node.received()
+
+	tx := func(members ...string) string {
+		m := map[string]string{"from": addr, "to": allowed, "gas": "0x5208", "maxFeePerGas": "0x2e90edd001",
+			"maxPriorityFeePerGas": "0x3b9aca00", "nonce": "0x0", "value": "0x1"}
+		for i := 0; i+1 < len(members); i += 2 {
+			m[members[i]] = members[i+1]
+		}
+		data, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "qrl_signTransaction", "params": []any{m}})
+		return string(data)
+	}
+	_, body := s.rpc(tx(), nil)
+	var res struct {
+		Raw string                     `json:"raw"`
+		Tx  map[string]json.RawMessage `json:"tx"`
+	}
+	if r := reply(t, body); r.Error != nil || json.Unmarshal(r.Result, &res) != nil || !strings.HasPrefix(res.Raw, "0x02") ||
+		string(res.Tx["type"]) != `"0x2"` || string(res.Tx["chainId"]) != `"0x539"` ||
+		string(res.Tx["descriptor"]) != `"0x010000"` || string(res.Tx["extraParams"]) != `"0x"` {
+		t.Fatalf("qrl_signTransaction: %.400s", body)
+	}
+	for _, refused := range []string{
+		tx("to", "Q"+strings.Repeat("22", 64)),
+		tx("chainId", "0x1"),
+		tx("gas", "0x1000000", "maxFeePerGas", "0xe8d4a51000"),
+	} {
+		if r := reply(t, mustRPC(t, s, refused)); r.Error == nil || r.Error.Code != -32003 {
+			t.Errorf("refused: %+v", r.Error)
+		}
+	}
+	if after, _ := node.received(); len(after) != len(before) {
+		t.Fatalf("qrl_signTransaction asked the node %d times", len(after)-len(before))
+	}
+	data, err := os.ReadFile(audit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 4 || !strings.Contains(lines[0], `"outcome":"signed"`) ||
+		!strings.Contains(lines[1], `"outcome":"refused"`) || !strings.Contains(lines[3], "above the cap") {
+		t.Fatalf("audit log:\n%s", data)
+	}
+	if fi, err := os.Stat(audit); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("audit log mode %v (%v)", fi.Mode(), err)
+	}
+
+	// A non-loopback listener needs a policy file.
+	cmd := exec.Command(binary, "--data-path="+t.TempDir(), "--http-listen-host=0.0.0.0",
+		"--http-host-allowlist=signer.example", "--Xallow-plaintext-token-auth", "execution", "--chain-id=1337")
+	out, err := cmd.CombinedOutput()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 || !strings.Contains(string(out), "--execution-policy-file") {
+		t.Fatalf("non-loopback without a policy file: %v\n%s", err, out)
+	}
+}
+
+func mustRPC(t *testing.T, s *signer, body string) string {
+	t.Helper()
+	_, out := s.rpc(body, nil)
+	return out
 }
