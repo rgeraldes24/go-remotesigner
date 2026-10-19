@@ -666,6 +666,9 @@ paths:
       tags: [Keymanager]
       operationId: listKeystores
       summary: List loaded consensus keys
+      description: |
+        Every loaded key, sorted. During the startup load, the keys loaded so far. `readonly` is false only for a
+        key loaded from the key-config file the keymanager wrote for it (docs/operations/keymanager.md).
       security:
         - adminToken: []
       responses:
@@ -689,10 +692,13 @@ paths:
       operationId: importKeystores
       summary: Import QRL keystores (v1 or deposit-cli flavour), optionally with slashing-protection history
       description: |
-        At most 64 keystores per request. KDF parameters are bounded before decryption. The derived public key
-        must equal the keystore `pubkey`. Per-key interchange failures leave the key inactive (`error`).
-        Request bodies are never logged. Body limit 32 MiB. The keystore string in the example is abbreviated;
-        the keystore formats will be specified together with the keymanager implementation.
+        At most 64 keystores per request: QRL keystore v1 (version 1) or deposit-cli (version 0), each declaring
+        its `pubkey` (docs/operations/keystores.md). KDF parameters are bounded before decryption. The derived
+        public key must equal the keystore `pubkey`. A `slashing_protection` that is not an EIP-3076 v5
+        interchange to its end, or names another genesis validators root, is 400 `BAD_FIELD` before any keystore
+        is decrypted; only the history of the imported keys is written, and per-key interchange failures leave
+        the key inactive (`error`). An imported key is enabled, also when a delete had disabled it. Request bodies
+        are never logged. Body limit 32 MiB. The keystore string in the example is abbreviated.
       security:
         - adminToken: []
       requestBody:
@@ -730,6 +736,11 @@ paths:
       tags: [Keymanager]
       operationId: deleteKeystores
       summary: Delete keys, disable them in slashing protection and export their history
+      description: |
+        Every key the request names is disabled in slashing protection (`enabled=false`), loaded or not, unless
+        it is refused (`error`: a read-only key). A key loaded from its keymanager files is `deleted`: its files are
+        removed and it is evicted. `slashing_protection` exports the disabled keys' history; it is the empty string
+        when the signer is bound to no genesis validators root yet.
       security:
         - adminToken: []
       requestBody:
@@ -1473,7 +1484,10 @@ components:
                 type: string
               readonly:
                 type: boolean
-                description: true for keys not managed by the keymanager (file-raw, bulk sources)
+                description: |
+                  true for keys the keymanager cannot delete: every key not loaded from the
+                  `<sha256(pubkey)>.yaml` key-config file the keymanager writes (file-raw seeds, other key-config
+                  files, the keystore directory)
     ImportKeystoresRequest:
       type: object
       additionalProperties: false
@@ -1535,7 +1549,9 @@ components:
                 type: string
         slashing_protection:
           type: string
-          description: JSON-encoded EIP-3076 v5 interchange for the requested keys (always includes the GVR)
+          description: |
+            JSON-encoded EIP-3076 v5 interchange of the keys the request disabled (always includes the GVR), or the
+            empty string when the signer is bound to no GVR yet and so holds no history
 
     ErrorReason:
       type: string
@@ -1680,7 +1696,7 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
           example: {code: 413, message: request body too large, reason: BODY_TOO_LARGE}
     UnsupportedMediaType:
-      description: POST without Content-Type application/json
+      description: POST, or DELETE /qrl/v1/keystores, without Content-Type application/json
       content:
         application/json:
           schema:

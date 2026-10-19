@@ -281,3 +281,33 @@ day, is the `file-raw` row of an attempt at load average 50-60 whose keystore ro
   key ([`operations/reload.md`](operations/reload.md#6-memory-for-keystore-decryption)).
 - **Reload isolation.** A reload loads at most `GOMAXPROCS − 1` sources at once, so one CPU stays free for signing;
   B12's p99 rose by a quarter during a reload that kept seven Argon2id runs busy.
+
+## Keymanager import (B18, the built binary)
+
+**B18: met on the development machine**, pending the reference VMs.
+
+```
+make bench-keymanager     # REMOTESIGNER_BENCH=1 go test -run '^TestB18' ./test/acceptance/
+```
+
+B18 starts the built binary with `--key-manager-api-enabled` and imports 100 standard-KDF deposit CLI keystores
+(Argon2id `t=8`, `m=262144` KiB, each declaring its pubkey) through `POST /qrl/v1/keystores`. An import takes at most
+64 keystores, so the threshold's single request of 100 is sent as two, 64 and then 36, and the time runs from the
+first request to the second response. The bound is the threshold's 100 × t_B10 / P + 10 s, with P and t_B10 measured
+as for B11 (above): P from the signer's startup log, t_B10 in the test process before the signer starts and after it
+stops, the larger of the two. Both responses must be 200 with every keystore imported, which a write-deadline error
+(10 minutes) would cut short. Peak RSS is sampled with `ps` every 100 ms.
+
+| ID | Test | Threshold | Development-machine results | Verdict |
+|---|---|---|---|---|
+| B18 | `TestB18KeymanagerImport` | ≤ 100 × t_B10 / P + 10 s; no write-deadline error | run O: P = 8, t_B10 = 2.59 s (2.59 s before, 2.54 s after): imported in 35.9 s (23.3 s for the 64, 12.6 s for the 36), bound 42 s; peak RSS 4,448 MiB. Run M: t_B10 = 5.05 s: 60.7 s against 73 s; peak RSS 4,392 MiB. Run N: t_B10 = 2.86 s: 47.6 s against 45.7 s, missed. Run P (2026-10-19, the final code): t_B10 = 2.66 s (2.59 s before, 2.66 s after): 43.0 s (29.4 s and 13.6 s) against 43.2 s; peak RSS 4,379 MiB | met on dev machine in runs M, O and P |
+
+Runs M, N and O on 2026-10-18 and run P on 2026-10-19, Go 1.26.9, Apple M2 (4 performance and 4 efficiency cores,
+16 GiB, darwin/arm64), on a machine shared with other work: load average 9.4 at the start of run M and 18 at its end,
+10.6 to 14.6 during run N, 4.9 to 7.2 during run O, and 6.8 at the start of run P and 14.7 at its end. Runs M and N
+committed each imported key on its own (two synced store transactions and a directory sync per key, about 30 ms per
+key here); run N missed by 1.9 s. Runs O and P are the code as it stands: the keys' files are written in parallel and
+the keys registered and enabled in one transaction each, which commits 64 keys in about 0.7 s instead of 2 s. Run P
+met the bound by only 0.2 s, at a higher load than run O. The 64 keystores of the first request take eight rounds of
+P = 8 decrypts and the 36 of the second five, thirteen rounds in all, as one request of 100 would; the bound allows
+12.5, so the 10 s also covers that last partial round.

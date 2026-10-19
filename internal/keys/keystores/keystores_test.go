@@ -202,6 +202,13 @@ func TestDepositCLILayout(t *testing.T) {
 	res := mustLoad(t, Config{Dir: ksDir, PasswordFile: pw})
 	assertErrors(t, res, 0)
 	assertKeys(t, res, want...)
+	// Every key records that it came from a keystore and the keystore's
+	// derivation path.
+	for _, b := range res {
+		if len(b.Meta) != 1 || !b.Meta[0].Keystore || !strings.HasPrefix(b.Meta[0].DerivationPath, "m/12381/") {
+			t.Fatalf("%s: meta %+v", b.Source, b.Meta)
+		}
+	}
 }
 
 // A keystore whose password file and keystore are unchanged is kept

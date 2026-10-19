@@ -224,6 +224,7 @@ var (
 	ErrLoopbackAllowlist             = fmt.Errorf("%w: a non-loopback listener with a host allowlist of loopback names only refuses every remote client; add the names clients use to --http-host-allowlist", ErrRefused)
 	ErrMetricsLoopbackAllowlist      = fmt.Errorf("%w: a non-loopback metrics listener with a host allowlist of loopback names only refuses every remote scraper; add the names scrapers use to --metrics-host-allowlist", ErrRefused)
 	ErrKeyManagerNoAdmin             = fmt.Errorf("%w: --key-manager-api-enabled needs an admin token (--http-admin-token-file or --data-path)", ErrRefused)
+	ErrKeyManagerNoKeyConfig         = fmt.Errorf("%w: --key-manager-api-enabled needs --key-config-path, the directory it writes imported keys to", ErrRefused)
 	ErrProtectionDisabledNonLoopback = fmt.Errorf("%w: --slashing-protection-enabled=false is allowed only when every listener is loopback", ErrRefused)
 	ErrGVRTOFUNonLoopback            = fmt.Errorf("%w: the genesis validators root is unknown and would be pinned on first use, which a non-loopback listener allows only with --Xallow-gvr-tofu; set --network-genesis-validators-root or --network-genesis-state", ErrRefused)
 	ErrUnknownGenesisNonLoopback     = fmt.Errorf("%w: genesis time is unknown, so the wall-clock bounds are off, which a non-loopback listener allows only with --Xallow-unknown-genesis-time; set --network-genesis-time or --network-genesis-state", ErrRefused)
@@ -252,6 +253,7 @@ func CheckFailSafes(c *Config, n *network.Network) error {
 	}
 	refuse(c.TLS.GenerateSelfSigned && !c.TLS.HasCertificate() && c.DataPath == "", ErrSelfSignedNoDataPath)
 	refuse(c.Consensus.KeyManagerAPIEnabled && c.AdminTokenFile() == "", ErrKeyManagerNoAdmin)
+	refuse(c.Consensus.KeyManagerAPIEnabled && c.KeyConfigPath == "", ErrKeyManagerNoKeyConfig)
 	if c.Metrics.Enabled && !IsLoopbackHost(c.Metrics.Host) {
 		refuse(!c.Consensus.SlashingProtectionEnabled && IsLoopbackHost(c.HTTP.ListenHost), ErrProtectionDisabledNonLoopback)
 		refuse(loopbackOnly(c.Metrics.HostAllowlist), ErrMetricsLoopbackAllowlist)

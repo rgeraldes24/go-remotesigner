@@ -339,7 +339,7 @@ responses carry `Retry-After` where a retry makes sense.
 | `RANDAO_SLOT_OUT_OF_WINDOW` | 412 | A frontier-moving reveal outside `[now_slot - 1, now_slot + skew]`, or genesis time unknown | slashing-protection error, logged at WARN |
 | `RANDAO_NEW_LAYER_RATE_LIMITED` | 412 | The key's new-layer token bucket is empty | logged at WARN |
 | `BODY_TOO_LARGE` | 413 | The body exceeds the route's limit ([section 13](#13-size-limits-and-timeouts)) | error |
-| `UNSUPPORTED_MEDIA_TYPE` | 415 | A POST without `Content-Type: application/json` | error |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | A POST, or a `DELETE /qrl/v1/keystores`, without `Content-Type: application/json` | error |
 | `RANDAO_UNKNOWN_COMMITMENT` | 422 | The commitment is not in this key's onion (within `--randao-max-layers`) | descriptive error |
 | `RANDAO_ONION_EXHAUSTED` | 422 | The commitment is `x_0`; no deeper layer exists | descriptive error |
 | `RANDAO_UNSUPPORTED_FOR_KEY` | 422 | The key holds no 48-byte seed (a future KMS key) | `keymanager.ErrRandaoRevealUnsupported` |
@@ -561,9 +561,20 @@ golden fixture for each check.
 - **`/reload`**: `POST` (admin) starts an asynchronous reload and returns 202, or 409 while one runs; `GET` (sign)
   reports its status. Keys absent from the new load are evicted from memory only; their slashing-protection `enabled`
   flag is never changed by a reload. A source that fails to load keeps its previous signers.
-- **`/qrl/v1/keystores`** (admin, only with `--key-manager-api-enabled`): list, import (at most 64 keystores, KDF
-  parameters bounded before decryption, derived public key compared with the keystore's) and delete (persists
-  `enabled=false` and returns an EIP-3076 v5 export that always carries the GVR). Bodies are never logged.
+- **`/qrl/v1/keystores`** (admin, only with `--key-manager-api-enabled`;
+  [`operations/keymanager.md`](operations/keymanager.md)): list, import and delete. Bodies are never logged. The
+  routes answer during the startup load too; a load that is running does not undo an import or a delete.
+  - `GET` lists the loaded keys, sorted; `readonly` is `false` only for a key loaded from the key-config file the
+    keymanager wrote for it.
+  - `POST` takes at most 64 keystores, each of which must declare its `pubkey`; the KDF parameters are bounded before
+    decryption, and the derived public key must equal the declared one. A `slashing_protection` that is not an
+    EIP-3076 v5 interchange to its end, or names another GVR, is `400 BAD_FIELD` before any keystore is decrypted.
+    Only the history of the imported keys is written; a key whose history fails is `error` and stays disabled. An
+    imported key is enabled, also when a delete or `consensus disable-validator` had disabled it, and a key that is
+    loaded but disabled is enabled and reported `imported` (a loaded, enabled key is `duplicate`).
+  - `DELETE` persists `enabled=false` for every key it does not refuse, loaded or not (`deleted`, `not_active`,
+    `not_found`); a read-only key is `error`. `slashing_protection` is an EIP-3076 v5 export of the disabled keys
+    that always carries the GVR, or the empty string when the signer is bound to no GVR yet (and so holds no history).
 
 ## 18. Metric label values
 
@@ -632,9 +643,23 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
   - The response cache answers a repeated request after every check of the request and before slashing
     protection, and only with a signature that passed verify-before-release
     ([section 15](#15-selection-proofs-and-signing-modes)).
+
+  The keymanager routes added these ([section 17](#17-supporting-endpoints)):
+  - A `POST /qrl/v1/keystores` keystore must declare its `pubkey`; a `slashing_protection` that cannot be read, or
+    names another GVR, is `400 BAD_FIELD`.
+  - `DELETE /qrl/v1/keystores` disables keys that are not loaded too; its `slashing_protection` is the empty string
+    when the signer is bound to no GVR yet.
+  - The keymanager routes answer during the startup load, and a running load does not undo their changes.
+  - A `POST /qrl/v1/keystores` of a key that is loaded but disabled imports its history, enables it and reports
+    `imported`; `duplicate` is a key that is loaded and enabled.
+  - A `DELETE /qrl/v1/keystores` body needs `Content-Type: application/json`, as a POST's does: 415
+    `UNSUPPORTED_MEDIA_TYPE` otherwise, which the operation already lists.
 - Known gaps, to be closed by the next version (the signer already behaves this way at `1.0.0`):
   - `GET …/highWatermark` answers 500 `STORE_UNAVAILABLE` when the slashing-protection store cannot be read, a
     status its operation does not list. The next version adds it.
+  - `POST /qrl/v1/keystores` answers 500 `STORE_UNAVAILABLE` when the slashing-protection store cannot be read to
+    check the request's `slashing_protection`, a status its operation does not list either. The next version adds
+    it.
   - A store that holds only one part of a high watermark is served with that field alone, which the `HighWatermark`
     schema (both fields or none) does not allow. No command writes such a watermark: `set-high-watermark` takes both
     `--epoch` and `--slot`. The next version makes the store refuse one.
@@ -666,6 +691,7 @@ show on this contract:
 | X48 (client certificates grant the sign scope only), X50 (metrics token) | [section 6](#6-authentication-and-scopes) |
 | X49 (TLS 1.3 only) | [section 2](#2-transport) |
 | X52 (response cache) | [section 15](#15-selection-proofs-and-signing-modes) |
+| X68 (keymanager availability), X69 (keymanager import), X70 (keymanager delete) | [section 17](#17-supporting-endpoints) |
 <!-- contract:deviations:end -->
 
 ## 22. Worked examples

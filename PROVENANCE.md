@@ -219,6 +219,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/api/jsonutil/object.go` | new | | | |
 | `internal/api/jsonutil/scan.go` | new | | | |
 | `internal/api/jsonutil/values.go` | new | | | |
+| `internal/api/keymanager/keymanager.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/list/ListKeystoresHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/list/KeystoreInfo.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/imports/ImportKeystoresHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/imports/ImportKeystoresRequestBody.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/imports/ImportKeystoreResult.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/delete/DeleteKeystoresHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/delete/DeleteKeystoresRequestBody.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/delete/DeleteKeystoresResponse.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/api/keymanager/keymanager_test.go` | new | | | |
 | `internal/api/ops/healthcheck.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Runner.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/config/HealthCheckNames.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/api/ops/ops_test.go` | new | | | |
 | `internal/api/ops/reload.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/ReloadHandler.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
@@ -264,6 +266,10 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/hygiene/hygiene_linux.go` | new | | | |
 | `internal/hygiene/hygiene_other.go` | new | | | |
 | `internal/hygiene/hygiene_test.go` | new | | | |
+| `internal/keymanager/files.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/KeystoreFileManager.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/KeystoreFileRecord.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/keymanager/helpers_test.go` | new | | | |
+| `internal/keymanager/keymanager.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/imports/ImportKeystoresHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/delete/DeleteKeystoresProcessor.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/http/handlers/keymanager/list/ListKeystoresHandler.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/DefaultValidatorManager.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbValidatorManager.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/keymanager/keymanager_test.go` | new | | | |
 | `internal/keys/argon/argon.go` | new | | | |
 | `internal/keys/argon/argon_test.go` | new | | | |
 | `internal/keys/argon/cgroup.go` | new | | | |
@@ -318,6 +324,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/randao/onion/onion_test.go` | new | | | |
 | `internal/randao/service.go` | new | | | |
 | `internal/randao/service_test.go` | new | | | |
+| `internal/runner/keymanager_test.go` | new | | | |
 | `internal/runner/keys.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/runner/prune.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/DbPrunerRunner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/runner/prune_test.go` | new | | | |
@@ -349,6 +356,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/server/tlsconf/tlsconf_test.go` | new | | | |
 | `internal/signer/cache.go` | new | | | |
 | `internal/signer/cache_test.go` | new | | | |
+| `internal/signer/provider/change_test.go` | new | | | |
 | `internal/signer/provider/provider.go` | w3s-derived | Web3Signer | `signing/src/main/java/tech/pegasys/web3signer/signing/config/DefaultArtifactSignerProvider.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/signer/provider/provider_test.go` | new | | | |
 | `internal/signer/signer.go` | new | | | |
@@ -372,6 +380,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/slashing/interchange/export.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/InterchangeV5Exporter.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/EmptyDataIncrementalInterchangeV5Exporter.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/slashing/interchange/export_test.go` | new | | | |
 | `internal/slashing/interchange/export_w3s_test.go` | w3s-derived | Web3Signer | `slashing-protection/src/integration-test/java/tech/pegasys/web3signer/slashingprotection/InterchangeExportIntegrationTestBase.java`<br>`slashing-protection/src/test/java/tech/pegasys/web3signer/slashingprotection/interchange/InterchangeV5ExporterTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/slashing/interchange/filter_test.go` | new | | | |
 | `internal/slashing/interchange/fuzz_test.go` | new | | | |
 | `internal/slashing/interchange/helpers_test.go` | new | | | |
 | `internal/slashing/interchange/import.go` | w3s-derived | Web3Signer | `slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/InterchangeV5Importer.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/BlockImporter.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/AttestationImporter.java`<br>`slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/interchange/OptionalMinValueTracker.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
@@ -404,6 +413,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/ssz/types.go` | new | | | |
 | `internal/ssz/types_test.go` | new | | | |
 | `internal/vectors/vectors.go` | new | | | |
+| `test/acceptance/b18_test.go` | new | | | |
 | `test/acceptance/b19_test.go` | new | | | |
 | `test/acceptance/b20_test.go` | new | | | |
 | `test/acceptance/bursts_test.go` | new | | | |
@@ -412,6 +422,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/harness_test.go` | new | | | |
 | `test/acceptance/hygiene_linux_test.go` | new | | | |
 | `test/acceptance/interchange_test.go` | new | | | |
+| `test/acceptance/keymanager_test.go` | new | | | |
+| `test/acceptance/keymanager_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/keymanager/ListKeysAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/keymanager/ImportKeystoresAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/keymanager/DeleteKeystoresAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/keymanager/KeyManagerTestBase.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/keymanager/SlashingProtectionDataChoice.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `test/acceptance/keystores_test.go` | new | | | |
 | `test/acceptance/keystores_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/bulkloading/KeystoreAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `test/acceptance/loading_bench_test.go` | new | | | |

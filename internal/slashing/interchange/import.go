@@ -45,6 +45,15 @@ const (
 type ImportOptions struct {
 	// Batch is how many validators share one transaction; zero means DefaultBatch.
 	Batch int
+	// Keys, when not nil, limits the import to the elements of these validators: the others are skipped, with no
+	// result, and nothing is written or disabled for them. An element whose public key is not valid is skipped too,
+	// since it cannot belong to one of them.
+	Keys []slashing.KeyID
+	// LeaveEnabled leaves the enabled flag of the keys whose element imports as it was, instead of enabling them,
+	// so that the caller enables a key once everything else it needs is in place (the keymanager, after the key's
+	// files are written). A key new to the store then stays registered disabled until the caller enables it. A key
+	// whose element fails is still disabled.
+	LeaveEnabled bool
 }
 
 // Counts are one validator's records of one kind.
@@ -105,15 +114,21 @@ func (r ImportResult) Failed() []ValidatorResult {
 // is written again validator by validator, so that only the failing ones are lost.
 //
 // A validator whose element imports is enabled, by the transaction that writes its history (a key new to the store
-// is registered disabled before it); one whose element fails is disabled, so that its key cannot sign without the
+// is registered disabled before it), unless opts.LeaveEnabled; one whose element fails is disabled, so that its key cannot sign without the
 // history the file meant to give it, and it is reported in the result. Import returns an error when the
 // file stops being readable, when the roots differ, or when ctx ends. The elements read before such an error are
 // still written, as far as the store allows: each is whole, and history only adds protection. An element that could
 // not be written is reported as failed, like any other.
 func Import(ctx context.Context, s slashing.Store, r io.Reader, opts ImportOptions) (ImportResult, error) {
-	im := &importer{ctx: ctx, s: s, batch: opts.Batch}
+	im := &importer{ctx: ctx, s: s, batch: opts.Batch, leaveEnabled: opts.LeaveEnabled}
 	if im.batch <= 0 {
 		im.batch = DefaultBatch
+	}
+	if opts.Keys != nil {
+		im.want = make(map[slashing.KeyID]bool, len(opts.Keys))
+		for _, k := range opts.Keys {
+			im.want[k] = true
+		}
 	}
 	err := Decode(r, im.metadata, im.entry)
 	if ferr := im.flush(); err == nil {
@@ -124,13 +139,15 @@ func Import(ctx context.Context, s slashing.Store, r io.Reader, opts ImportOptio
 }
 
 type importer struct {
-	ctx     context.Context
-	s       slashing.Store
-	batch   int
-	results []ValidatorResult
-	pending []pendingEntry
-	items   int
-	failed  []int // results whose key is disabled at the end
+	ctx          context.Context
+	s            slashing.Store
+	batch        int
+	want         map[slashing.KeyID]bool // nil: every element
+	leaveEnabled bool
+	results      []ValidatorResult
+	pending      []pendingEntry
+	items        int
+	failed       []int // results whose key is disabled at the end
 }
 
 type pendingEntry struct {
@@ -154,6 +171,15 @@ func (im *importer) metadata(m Metadata) error {
 func (im *importer) entry(index int, e Entry, eerr *EntryError) error {
 	if err := im.ctx.Err(); err != nil {
 		return err
+	}
+	if im.want != nil {
+		pk := e.PublicKey
+		if eerr != nil {
+			pk = eerr.PublicKey
+		}
+		if pk == nil || !im.want[slashing.KeyIDOf(pk)] {
+			return nil
+		}
 	}
 	if eerr != nil {
 		im.results = append(im.results, ValidatorResult{Index: index, PublicKey: eerr.PublicKey, Err: eerr.Err})
@@ -245,6 +271,9 @@ func (im *importer) write(entries []pendingEntry) error {
 		}
 		if res.Attestations, err = importAttestations(tx, p.entry.Attestations); err != nil {
 			return err
+		}
+		if im.leaveEnabled {
+			return nil
 		}
 		return tx.SetEnabled(true)
 	})

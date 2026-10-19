@@ -27,12 +27,14 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/api/consensus"
+	kmapi "github.com/rgeraldes24/go-remotesigner/internal/api/keymanager"
 	"github.com/rgeraldes24/go-remotesigner/internal/api/ops"
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/policy"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/hygiene"
+	"github.com/rgeraldes24/go-remotesigner/internal/keymanager"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/argon"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keyconfig"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystores"
@@ -115,9 +117,6 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		closeStore()
 		return err
 	}
-	if cfg.Consensus.KeyManagerAPIEnabled {
-		log.Warn("--key-manager-api-enabled: this release has no keymanager API; the flag only requires an admin token")
-	}
 
 	keys := provider.New(log)
 	m, err := metrics.New(metrics.Config{Version: cfg.Version, SignersLoaded: keys.Len})
@@ -144,6 +143,14 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	logKeySources(log, cfg, sizing)
 	loads := &loadState{}
 	loader := newKeyLoader(cfg, sem, keys, engine, sig, reveals, loads, log)
+	var manager *keymanager.Manager
+	if cfg.Consensus.KeyManagerAPIEnabled {
+		if manager, err = newKeyManager(cfg, keys, engine, store, pol, sem, loader, log); err != nil {
+			reveals.Close()
+			closeStore()
+			return err
+		}
+	}
 	reloader := ops.NewReloader(loader.Load, log)
 	var ready atomic.Bool
 
@@ -161,7 +168,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		TLS:            serverTLS,
 		HostAllowlist:  cfg.HTTP.HostAllowlist,
 		Auth:           authn,
-		Routes:         routes(cfg, n, pol, authn, keys, store, sign, reveal, loader, reloader, ready.Load, log),
+		Routes:         routes(cfg, n, pol, authn, keys, store, sign, reveal, loader, reloader, manager, ready.Load, log),
 		Ready:          ready.Load,
 		MaxConnections: cfg.HTTP.MaxConnections,
 		ReadTimeout:    server.ReadTimeout(n.Config.SecondsPerSlot),
@@ -503,7 +510,8 @@ func newReveals(cfg *config.Config, n *network.Network, store slashing.Store, m 
 
 func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *auth.Authenticator,
 	keys *provider.Provider, store slashing.Store, sign *consensus.Sign, reveal *consensus.RandaoReveal,
-	loader *keyLoader, reloader *ops.Reloader, ready func() bool, log *logrus.Logger) []server.Route {
+	loader *keyLoader, reloader *ops.Reloader, manager *keymanager.Manager, ready func() bool,
+	log *logrus.Logger) []server.Route {
 	protection := consensus.ProtectionBolt
 	if !cfg.Consensus.SlashingProtectionEnabled {
 		protection = consensus.ProtectionDisabled
@@ -563,7 +571,62 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 			server.Route{Method: http.MethodDelete, Pattern: "/api/v1/consensus/randao_state/{identifier}",
 				Scope: auth.ScopeAdmin, Handler: reset})
 	}
+	if manager != nil {
+		rs = append(rs, keymanagerRoutes(manager, log)...)
+	}
 	return rs
+}
+
+// keystoresPath is the keymanager API's path, the one the qrysm validator
+// client's own keymanager API serves.
+const keystoresPath = "/qrl/v1/keystores"
+
+// keymanagerRoutes are the keymanager API's routes (--key-manager-api-enabled),
+// all with the admin token. They serve during the startup load too: an
+// import or a delete then changes its key at once, and the load cannot undo
+// it (provider.ApplySince); the list shows the keys loaded so far.
+func keymanagerRoutes(manager *keymanager.Manager, log *logrus.Logger) []server.Route {
+	h := &kmapi.Handlers{Manager: manager, Log: log}
+	return []server.Route{
+		{Method: http.MethodGet, Pattern: keystoresPath, Scope: auth.ScopeAdmin, WriteTimeout: kmapi.WriteTimeout,
+			Handler: h.List()},
+		{Method: http.MethodPost, Pattern: keystoresPath, Scope: auth.ScopeAdmin, BodyLimit: kmapi.BodyLimit,
+			ReadsBody: true, WriteTimeout: kmapi.WriteTimeout, Handler: h.Import()},
+		{Method: http.MethodDelete, Pattern: keystoresPath, Scope: auth.ScopeAdmin, BodyLimit: kmapi.BodyLimit,
+			ReadsBody: true, WriteTimeout: kmapi.WriteTimeout, Handler: h.Delete()},
+	}
+}
+
+// newKeyManager readies the key-config directory and returns the keymanager
+// over the signer's key set, store and Argon2id semaphore. A directory its
+// group or other users can access is a startup refusal under
+// --strict-file-permissions.
+func newKeyManager(cfg *config.Config, keys *provider.Provider, engine *slashing.Engine, store slashing.Store,
+	pol *policy.Policy, sem *argon.Semaphore, loader *keyLoader, log *logrus.Logger) (*keymanager.Manager, error) {
+	dir := cfg.KeyConfigPath
+	err := keymanager.PrepareDir(dir, cfg.StrictFilePermissions, func(mode os.FileMode) {
+		log.WithFields(logrus.Fields{"directory": dir, "mode": fmt.Sprintf("%04o", mode)}).Warn("The key-config " +
+			"directory, where the keymanager writes keystores and password files, is accessible to its group or " +
+			"other users; restrict it to its owner (chmod 0700)")
+	})
+	if err != nil {
+		return nil, fmt.Errorf("refusing to start: --key-manager-api-enabled: %w", err)
+	}
+	return keymanager.New(keymanager.Config{
+		Dir:     dir,
+		Keys:    keys,
+		Engine:  engine,
+		Store:   store,
+		History: cfg.Consensus.SlashingProtectionEnabled,
+		GenesisValidatorsRoot: func() (slashing.Root, bool) {
+			gvr, ok := pol.GenesisValidatorsRoot()
+			return slashing.Root(gvr), ok
+		},
+		Decrypt: sem.Decrypt,
+		Workers: sem.Procs(),
+		Changed: func() { loader.refresh(context.Background()) },
+		Log:     log,
+	}), nil
 }
 
 // highWatermark serves the store's high watermark, or 404 PROTECTION_DISABLED when protection is off: the memory

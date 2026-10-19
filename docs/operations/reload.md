@@ -45,7 +45,10 @@ it is readable by its owner only (see "Secret files" below).
 
 `--keystores-path` needs exactly one of the two password flags, and they need it; any other combination is a usage
 error (exit 2). The key-config files are loaded first, then the keystores. A key that two sources provide is loaded
-once, from the first, with a WARN.
+once, from the first, with a WARN. With `--key-manager-api-enabled`, keys imported through the keymanager are
+written to the key-config directory as `<sha256 of the public key>.yaml` with its keystore and password file
+([`keymanager.md`](keymanager.md#3-importing-keys)), so every later load reads them like any other key-config file; a
+load that is running when the keymanager imports or deletes a key does not undo that change.
 
 ### Secret files
 
@@ -164,7 +167,16 @@ attestation again, for example one that has moved to another signer.
 - The key must be registered in the store (loaded at least once); `--slashing-protection-db-url=bolt:///path` names
   another store than `<data-path>/slashing-protection.db`.
 - It exits 0 and says so when the key is already disabled.
-- This release has no command that enables a key again.
+
+A keymanager `DELETE` disables a key the same way, with the signer running
+([`keymanager.md`](keymanager.md#4-deleting-keys)). These two write `enabled=false` on purpose. The only other write
+of it protects a key whose history fails to import: the keymanager `POST` and the offline `consensus import` disable
+a key whose element in the file fails, so that it cannot sign without the history the file meant to give it. A
+reload never writes it. Two things enable a key again: importing its keystore through the keymanager, whether the
+key is loaded or not ([`keymanager.md`](keymanager.md#3-importing-keys)), and an offline `consensus import` of a file
+whose element for the key imports cleanly ([`migration.md`](migration.md#2-import-the-history)), even when every
+record in it is already covered. So do not import the history of a key that has moved to another signer into this
+one.
 
 Removing a key's files only evicts it (section 3.1); it does not disable it.
 

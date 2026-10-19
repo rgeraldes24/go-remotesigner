@@ -192,6 +192,51 @@ func TestMiddlewareOrder(t *testing.T) {
 	}
 }
 
+// A DELETE whose handler reads a JSON body (the keymanager's) needs
+// Content-Type application/json, as a POST does; a DELETE without a body
+// does not.
+func TestBodyRoutesNeedJSON(t *testing.T) {
+	read := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, e := ReadBody(r); e != nil {
+			WriteError(w, nil, r, e)
+			return
+		}
+		ok(w, r)
+	})
+	s := newTestServer(t, func(c *Config) {
+		c.Routes = []Route{
+			{Method: http.MethodDelete, Pattern: "/with-body", Scope: auth.ScopeAdmin, ReadsBody: true, Handler: read},
+			{Method: http.MethodDelete, Pattern: "/without-body", Scope: auth.ScopeAdmin, Handler: http.HandlerFunc(ok)},
+		}
+	})
+	for _, tt := range []struct {
+		path, ctype string
+		status      int
+	}{
+		{"/with-body", "", 415},
+		{"/with-body", "text/plain", 415},
+		{"/with-body", "application/json", 200},
+		{"/with-body", "application/json; charset=utf-8", 200},
+		{"/without-body", "", 200},
+	} {
+		r := httptest.NewRequest(http.MethodDelete, "http://localhost:9000"+tt.path, strings.NewReader(`{"pubkeys":[]}`))
+		r.Header.Set("Authorization", "Bearer "+adminTok)
+		if tt.ctype != "" {
+			r.Header.Set("Content-Type", tt.ctype)
+		}
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, r)
+		if rec.Code != tt.status {
+			t.Fatalf("%s with %q: %d, want %d (%s)", tt.path, tt.ctype, rec.Code, tt.status, rec.Body)
+		}
+		if tt.status == 415 {
+			if e := decodeErr(t, rec); e.Reason != apierr.UnsupportedMediaType {
+				t.Fatalf("%s with %q: %+v", tt.path, tt.ctype, e)
+			}
+		}
+	}
+}
+
 func TestSuccessAndRouting(t *testing.T) {
 	s := newTestServer(t, nil)
 	do := func(method, path, tok, ctype, body string) *httptest.ResponseRecorder {
@@ -368,6 +413,48 @@ func TestTimeouts(t *testing.T) {
 	s := newTestServer(t, nil)
 	if s.http.MaxHeaderBytes != 64<<10 || s.http.ReadHeaderTimeout != 5*time.Second || s.http.IdleTimeout != 120*time.Second {
 		t.Errorf("http.Server limits: %+v", s.http)
+	}
+}
+
+// A route's WriteTimeout replaces the server's write deadline (the
+// keymanager's 10 minutes): a handler that answers after the server's
+// deadline gets its response through on such a route only.
+func TestRouteWriteTimeout(t *testing.T) {
+	slow := func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(600 * time.Millisecond)
+		_, _ = io.WriteString(w, "late")
+	}
+	s := newTestServer(t, func(c *Config) {
+		c.WriteTimeout = 200 * time.Millisecond
+		c.Routes = []Route{
+			{Method: http.MethodGet, Pattern: "/server-deadline", Scope: auth.ScopeSign, Handler: http.HandlerFunc(slow)},
+			{Method: http.MethodGet, Pattern: "/route-deadline", Scope: auth.ScopeSign, WriteTimeout: time.Minute,
+				Handler: http.HandlerFunc(slow)},
+		}
+	})
+	base := serve(t, s)
+	get := func(path string) (string, error) {
+		req, err := http.NewRequest(http.MethodGet, base+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = "localhost"
+		req.Header.Set("Authorization", "Bearer "+signTok)
+		// A fresh connection per request: the server closes the one whose
+		// deadline passed.
+		resp, err := (&http.Client{Transport: &http.Transport{DisableKeepAlives: true}}).Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		return string(body), err
+	}
+	if body, err := get("/route-deadline"); err != nil || body != "late" {
+		t.Fatalf("route deadline: %q %v", body, err)
+	}
+	if body, err := get("/server-deadline"); err == nil && body == "late" {
+		t.Fatal("the server's write deadline did not apply")
 	}
 }
 
@@ -867,5 +954,76 @@ func waitFor(t *testing.T, cond func() bool) {
 			t.Fatal("condition not reached")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// recordingReader serves data in reads of at most step bytes, then err (or
+// io.EOF), and keeps every buffer it was handed, so that a test can see
+// what is left in them.
+type recordingReader struct {
+	data []byte
+	step int
+	err  error
+	bufs [][]byte
+}
+
+func (r *recordingReader) Read(p []byte) (int, error) {
+	r.bufs = append(r.bufs, p)
+	if len(r.data) == 0 {
+		if r.err != nil {
+			return 0, r.err
+		}
+		return 0, io.EOF
+	}
+	n := copy(p[:min(len(p), r.step)], r.data)
+	r.data = r.data[n:]
+	return n, nil
+}
+
+// A secret body is read into one buffer: once the caller wipes the one it
+// gets, nothing of the body is left in any buffer it was read into, whether
+// the Content-Length sized the buffer or it grew; after a failed read
+// nothing is left at all.
+func TestReadSecretBodyLeavesNoCopy(t *testing.T) {
+	body := bytes.Repeat([]byte("secret-password-"), 10_000)
+	for _, c := range []struct {
+		name string
+		hint int
+		err  error
+	}{
+		{"sized", len(body), nil},
+		{"grown", 0, nil},
+		{"failed", 0, errors.New("connection reset")},
+	} {
+		r := &recordingReader{data: bytes.Clone(body), step: 1000, err: c.err}
+		got, err := readAllWiped(r, c.hint)
+		switch {
+		case c.err != nil:
+			if !errors.Is(err, c.err) || got != nil {
+				t.Fatalf("%s: %v, %d bytes", c.name, err, len(got))
+			}
+		case err != nil || !bytes.Equal(got, body):
+			t.Fatalf("%s: %v, %d bytes", c.name, err, len(got))
+		case c.hint > 0 && cap(got) != c.hint+1:
+			t.Fatalf("%s: the buffer grew to %d bytes", c.name, cap(got))
+		default:
+			clear(got[:cap(got)])
+		}
+		for i, b := range r.bufs {
+			if bytes.Count(b, []byte{0}) != len(b) {
+				t.Fatalf("%s: read %d left body bytes in its buffer", c.name, i)
+			}
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	if got, e := ReadSecretBody(req); e != nil || !bytes.Equal(got, body) {
+		t.Fatalf("read: %v, %d bytes", e, len(got))
+	}
+	req = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Body = http.MaxBytesReader(rec, req.Body, 1000)
+	if _, e := ReadSecretBody(req); e == nil || e.Reason != apierr.BodyTooLarge {
+		t.Fatalf("over the limit: %v", e)
 	}
 }

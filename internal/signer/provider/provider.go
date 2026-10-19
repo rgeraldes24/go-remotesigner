@@ -34,12 +34,20 @@
 // derived from (their sizes and modification times). A loader that finds a
 // source at the same version keeps its keys with a Keep batch instead of
 // decrypting the source again (see Unchanged).
+//
+// Besides loads, single sources are added and removed at run time (Add and
+// Remove, for the keymanager API). Each such change marks its source with a
+// new generation. A load reads Generation before it lists its sources and
+// applies its batches with ApplySince: a source changed after that point
+// keeps what the change made of it, so a load that was already running can
+// neither bring back a key that was deleted nor drop one that was imported.
 package provider
 
 import (
 	"bytes"
 	"errors"
 	"iter"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -53,11 +61,23 @@ import (
 // ID is a key id: SHA-256 of the public key.
 type ID = [mldsa87.IDSize]byte
 
-// Entry is a loaded key and the source it came from.
+// Meta describes where a loaded key's secret came from.
+type Meta struct {
+	// DerivationPath is the derivation path its keystore records; empty
+	// for a raw seed or a keystore that records none.
+	DerivationPath string
+	// Keystore: the key was decrypted from a keystore, not read as a raw
+	// seed.
+	Keystore bool
+}
+
+// Entry is a loaded key, the source it came from and its metadata. Entries
+// are immutable: readers must not change them.
 type Entry struct {
 	Key    *mldsa87.Key
 	PK     mldsa87.PublicKey
 	Source string
+	Meta   Meta
 }
 
 // Batch is the outcome of loading one source: its keys, or the error that
@@ -68,10 +88,21 @@ type Batch struct {
 	// means the keys are derived again on every load.
 	Version string
 	Keys    []*mldsa87.Key
-	Err     error
+	// Meta holds the metadata of Keys, index by index; nil, or a shorter
+	// slice, gives the remaining keys none.
+	Meta []Meta
+	Err  error
 	// Keep: the source is at the version its loaded keys came from
 	// (Unchanged reported true), so they stay as they are.
 	Keep bool
+}
+
+// meta returns the metadata of key i.
+func (b *Batch) meta(i int) Meta {
+	if i < len(b.Meta) {
+		return b.Meta[i]
+	}
+	return Meta{}
 }
 
 // Delta summarises an Apply.
@@ -84,10 +115,19 @@ type Delta struct {
 	Unchanged int
 	// Errors counts the batches that failed.
 	Errors int
+	// Superseded counts the batches ApplySince ignored because Add or
+	// Remove changed their source during the load (see ChangedSince).
+	Superseded int
 }
 
-// ErrClosed is returned by Apply after Close.
-var ErrClosed = errors.New("provider: closed")
+// Errors.
+var (
+	// ErrClosed is returned by Apply, Add and Remove after Close.
+	ErrClosed = errors.New("provider: closed")
+	// ErrDuplicate is returned by Add when a key of its batch is loaded
+	// already, or its source is.
+	ErrDuplicate = errors.New("provider: key already loaded")
+)
 
 // snapshot is an immutable key set.
 type snapshot struct {
@@ -103,19 +143,21 @@ func newSnapshot() *snapshot {
 
 var empty = newSnapshot()
 
-// Provider is the loaded key set. Reads are safe for concurrent use; Apply
-// and Close are serialised.
+// Provider is the loaded key set. Reads are safe for concurrent use;
+// writers (Apply, ApplySince, Add, Remove and Close) are serialised.
 type Provider struct {
 	log   logrus.FieldLogger
 	state atomic.Pointer[snapshot]
 
-	mu     sync.Mutex // serialises writers
-	closed bool
+	mu      sync.Mutex // serialises writers
+	closed  bool
+	gen     uint64            // generation of the last Add or Remove
+	changed map[string]uint64 // source -> generation of its last Add or Remove
 }
 
 // New returns an empty provider.
 func New(log logrus.FieldLogger) *Provider {
-	p := &Provider{log: log}
+	p := &Provider{log: log, changed: map[string]uint64{}}
 	p.state.Store(empty)
 	return p
 }
@@ -129,8 +171,46 @@ func (p *Provider) Get(id ID) (*mldsa87.Key, bool) {
 	return e.Key, true
 }
 
+// Entry returns the loaded entry of the key with id.
+func (p *Provider) Entry(id ID) (*Entry, bool) {
+	e, ok := p.state.Load().byID[id]
+	return e, ok
+}
+
+// Entries yields the entries of one snapshot, sorted by public key.
+func (p *Provider) Entries() iter.Seq[*Entry] {
+	s := p.state.Load()
+	return func(yield func(*Entry) bool) {
+		for _, e := range s.sorted {
+			if !yield(e) {
+				return
+			}
+		}
+	}
+}
+
+// SourceLen returns the number of keys loaded from source.
+func (p *Provider) SourceLen(source string) int { return len(p.state.Load().bySource[source]) }
+
 // Len returns the number of loaded keys.
 func (p *Provider) Len() int { return len(p.state.Load().byID) }
+
+// ChangedSince reports whether Add or Remove changed source after
+// generation since. After an ApplySince at since, it names the sources
+// whose batches that load had to ignore.
+func (p *Provider) ChangedSince(since uint64, source string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.changed[source] > since
+}
+
+// Generation returns the generation of the last Add or Remove. A load reads
+// it before it lists its sources and passes it to ApplySince.
+func (p *Provider) Generation() uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.gen
+}
 
 // PublicKeys yields the public keys of one snapshot, sorted by their bytes
 // (the order of their canonical identifiers).
@@ -189,8 +269,17 @@ func (p *Provider) Count(prefix string) int {
 	return n
 }
 
-// Apply builds the next key set from batches and swaps it in:
+// Apply is ApplySince at the current generation: no batch is ignored.
+func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error, renew func(ID) bool) (Delta, error) {
+	return p.ApplySince(p.Generation(), batches, register, renew)
+}
+
+// ApplySince builds the next key set from batches and swaps it in:
 //
+//   - a source that Add or Remove changed after generation since keeps
+//     what it has in the current set (nothing, after a Remove), and its
+//     batch, if any, is ignored: the load read that source before the
+//     change;
 //   - a Keep batch keeps the keys its source has in the current set;
 //   - a failed batch keeps the keys its source had in the current set;
 //   - a key already loaded keeps its current object, and the duplicate just
@@ -203,9 +292,10 @@ func (p *Provider) Count(prefix string) int {
 // Before the swap, register is called with the public keys that are new to
 // the set (it registers them in slashing protection); if it fails, nothing
 // changes, the new keys are zeroized and its error is returned. After the
-// swap, keys no longer in the set are zeroized. Apply takes ownership of
-// every key in batches. A nil renew renews nothing.
-func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error, renew func(ID) bool) (Delta, error) {
+// swap, keys no longer in the set are zeroized. ApplySince takes ownership
+// of every key in batches. A nil renew renews nothing.
+func (p *Provider) ApplySince(since uint64, batches []Batch, register func(pubkeys [][]byte) error,
+	renew func(ID) bool) (Delta, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
@@ -248,7 +338,23 @@ func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error,
 			next.versions[source] = v
 		}
 	}
+	// Sources changed since the load began keep their current entries;
+	// they go first, so that they win over a duplicate in a batch.
+	later := map[string]bool{}
+	for src, g := range p.changed {
+		if g > since {
+			later[src] = true
+		}
+	}
+	for _, src := range slices.Sorted(maps.Keys(later)) {
+		keep(src, &d.Kept)
+	}
 	for _, b := range batches {
+		if later[b.Source] {
+			discard = append(discard, b.Keys...)
+			d.Superseded++
+			continue
+		}
 		if b.Err != nil || b.Keep {
 			discard = append(discard, b.Keys...)
 			if b.Err != nil {
@@ -260,14 +366,15 @@ func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error,
 			continue
 		}
 		all := true
-		for _, k := range b.Keys {
+		for i, k := range b.Keys {
+			meta := b.meta(i)
 			if old, ok := cur.byID[k.ID()]; ok {
 				if renew == nil || !renew(k.ID()) {
 					discard = append(discard, k)
-					all = put(&Entry{Key: old.Key, PK: old.PK, Source: b.Source}) && all
+					all = put(&Entry{Key: old.Key, PK: old.PK, Source: b.Source, Meta: meta}) && all
 					continue
 				}
-				if put(&Entry{Key: k, PK: k.PublicKey(), Source: b.Source}) {
+				if put(&Entry{Key: k, PK: k.PublicKey(), Source: b.Source, Meta: meta}) {
 					fresh = append(fresh, k)
 					renewed = append(renewed, old.Key)
 				} else {
@@ -276,7 +383,7 @@ func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error,
 				}
 				continue
 			}
-			if !put(&Entry{Key: k, PK: k.PublicKey(), Source: b.Source}) {
+			if !put(&Entry{Key: k, PK: k.PublicKey(), Source: b.Source, Meta: meta}) {
 				discard = append(discard, k)
 				all = false
 				continue
@@ -298,12 +405,15 @@ func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error,
 	}
 	d.Added = len(added)
 
-	next.sorted = make([]*Entry, 0, len(next.byID))
-	for _, e := range next.byID {
-		next.sorted = append(next.sorted, e)
-	}
-	slices.SortFunc(next.sorted, func(a, b *Entry) int { return bytes.Compare(a.PK[:], b.PK[:]) })
+	sortEntries(next)
 	p.state.Store(next)
+	// A later load starts at a generation at or above since, so these
+	// marks can no longer make it ignore a batch.
+	for src, g := range p.changed {
+		if g <= since {
+			delete(p.changed, src)
+		}
+	}
 
 	zeroize(discard)
 	zeroize(renewed)
@@ -315,6 +425,112 @@ func (p *Provider) Apply(batches []Batch, register func(pubkeys [][]byte) error,
 		}
 	}
 	return d, nil
+}
+
+// Add adds the keys of one source and marks the source changed, so that a
+// load that started before does not undo the addition. It fails with
+// ErrDuplicate, and changes nothing, when the source is loaded already or a
+// key of b is. Before the swap, register is called with the public keys of
+// b; if it fails, nothing changes and its error is returned. Add takes
+// ownership of b's keys: it zeroizes them when it fails. b must not be Keep
+// or carry an error.
+func (p *Provider) Add(b Batch, register func(pubkeys [][]byte) error) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		zeroize(b.Keys)
+		return ErrClosed
+	}
+	cur := p.state.Load()
+	if _, ok := cur.bySource[b.Source]; ok || len(b.Keys) == 0 {
+		zeroize(b.Keys)
+		return ErrDuplicate
+	}
+	pubkeys := make([][]byte, 0, len(b.Keys))
+	seen := map[ID]bool{}
+	for _, k := range b.Keys {
+		id := k.ID()
+		if _, ok := cur.byID[id]; ok || seen[id] {
+			zeroize(b.Keys)
+			return ErrDuplicate
+		}
+		seen[id] = true
+		pk := k.PublicKey()
+		pubkeys = append(pubkeys, pk[:])
+	}
+	if register != nil {
+		if err := register(pubkeys); err != nil {
+			zeroize(b.Keys)
+			return err
+		}
+	}
+	next := cur.clone()
+	for i, k := range b.Keys {
+		e := &Entry{Key: k, PK: k.PublicKey(), Source: b.Source, Meta: b.meta(i)}
+		next.byID[k.ID()] = e
+		next.bySource[b.Source] = append(next.bySource[b.Source], e)
+	}
+	if b.Version != "" {
+		next.versions[b.Source] = b.Version
+	}
+	sortEntries(next)
+	p.state.Store(next)
+	p.gen++
+	p.changed[b.Source] = p.gen
+	return nil
+}
+
+// Remove evicts the keys of source and zeroizes them after the swap, and
+// marks the source changed, so that a load that started before does not
+// bring them back. It marks the source even when nothing is loaded from it.
+// It returns the number of keys it evicted.
+func (p *Provider) Remove(source string) (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return 0, ErrClosed
+	}
+	p.gen++
+	p.changed[source] = p.gen
+	cur := p.state.Load()
+	gone := cur.bySource[source]
+	if len(gone) == 0 {
+		return 0, nil
+	}
+	next := cur.clone()
+	for _, e := range gone {
+		delete(next.byID, e.Key.ID())
+	}
+	delete(next.bySource, source)
+	delete(next.versions, source)
+	sortEntries(next)
+	p.state.Store(next)
+	for _, e := range gone {
+		e.Key.Zeroize()
+	}
+	return len(gone), nil
+}
+
+// clone returns a copy of s whose maps can be changed.
+func (s *snapshot) clone() *snapshot {
+	next := &snapshot{
+		byID:     maps.Clone(s.byID),
+		bySource: make(map[string][]*Entry, len(s.bySource)+1),
+		versions: maps.Clone(s.versions),
+	}
+	for src, es := range s.bySource {
+		next.bySource[src] = slices.Clone(es)
+	}
+	return next
+}
+
+// sortEntries fills s.sorted from s.byID, by public key bytes.
+func sortEntries(s *snapshot) {
+	s.sorted = make([]*Entry, 0, len(s.byID))
+	for _, e := range s.byID {
+		s.sorted = append(s.sorted, e)
+	}
+	slices.SortFunc(s.sorted, func(a, b *Entry) int { return bytes.Compare(a.PK[:], b.PK[:]) })
 }
 
 // Close empties the set and zeroizes every key. Later Apply calls fail.
