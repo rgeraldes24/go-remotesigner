@@ -160,9 +160,21 @@ bin/remotesigner-consensus --data-path=/var/lib/remotesigner consensus --network
   them; both are noted on stderr, and the importing side then refuses everything at and below them. When a signed
   attestation is above the repaired target epoch, that attestation gives the importing side its epoch watermarks
   instead: a record for the repaired epochs could be surrounded by it, which would make the file slashable (qrysm
-  would mark the key slashable). The importing side still refuses every attestation the history makes slashable,
-  but may allow a source epoch below the repaired one. The high watermark and the RANDAO frontier are not exported
-  (EIP-3076 has no field for them).
+  would mark the key slashable). The importing side then refuses every attestation with a target at or below that
+  attestation's or a source below its source, but may allow a source epoch below the repaired one, which this
+  signer refuses. The high watermark and the RANDAO frontier are not exported (EIP-3076 has no field for them).
+
+  **Why a source below the repaired epoch is safe there.** Every attestation this signer recorded and left out of the
+  file (older, pruned, or signed before the repair) has a target below the oldest exported attestation's. A history
+  without surround votes, which is all this signer ever records, never lowers its source as its target grows, so
+  each of them also has a source at or below the exported attestation's. An attestation the importing side allows
+  has a target above that attestation's and a source at or above its source: it cannot repeat any of their targets,
+  and it neither surrounds one (its source is not lower) nor is surrounded by one (its target is higher). History
+  the validator signed elsewhere, which the repair fenced, is covered the same way when the repair was made at or
+  above the chain head, as section 8 asks: its targets are then at or below the repaired epoch, so below the exported
+  attestation's, and its sources at or below that attestation's source, unless the exported attestation is itself
+  slashable against it, which no export can change. What the importing side gives up is the margin the repair added
+  below the newest attestation, not protection.
 - The file is written next to `--to` and renamed into place when complete, so a failed export leaves no partial
   file.
 
