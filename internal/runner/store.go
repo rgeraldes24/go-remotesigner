@@ -154,16 +154,16 @@ func migrateBolt(path string, log *logrus.Logger) error {
 	return nil
 }
 
-// postgresConfig resolves the Postgres store's connection settings, reading the password file under the secret-file
-// policy.
+// postgresConfig resolves the Postgres store's connection settings, reading the password file, or libpq's password
+// file without one, under the secret-file policy.
 func postgresConfig(cfg *config.Config, log logrus.FieldLogger) (pgstore.Config, error) {
 	pg := cfg.Consensus.Postgres
-	c := pgstore.Config{URL: pg.URL, User: pg.Username}
+	policy := secretfile.Policy{Strict: cfg.StrictFilePermissions, Warn: func(path string, mode fs.FileMode) {
+		log.WithFields(logrus.Fields{"file": path, "mode": fmt.Sprintf("%04o", mode)}).
+			Warn("The Postgres password file is readable by group or other users")
+	}}
+	c := pgstore.Config{URL: pg.URL, User: pg.Username, PasswordFilePolicy: policy}
 	if pg.PasswordFile != "" {
-		policy := secretfile.Policy{Strict: cfg.StrictFilePermissions, Warn: func(path string, mode fs.FileMode) {
-			log.WithFields(logrus.Fields{"file": path, "mode": fmt.Sprintf("%04o", mode)}).
-				Warn("The Postgres password file is readable by group or other users")
-		}}
 		pw, err := pgstore.ReadPasswordFile(pg.PasswordFile, policy)
 		if err != nil {
 			return c, fmt.Errorf("refusing to start: --slashing-protection-db-password-file: %w", err)

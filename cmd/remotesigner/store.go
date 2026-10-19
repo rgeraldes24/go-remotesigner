@@ -27,7 +27,8 @@ import (
 type storeTarget struct {
 	// path is the bbolt file; empty for Postgres.
 	path string
-	// pg is the Postgres store's configuration, without its password, which open reads; nil for bbolt.
+	// pg is the Postgres store's configuration, without the password of --slashing-protection-db-password-file,
+	// which open reads; nil for bbolt.
 	pg           *pgstore.Config
 	passwordFile string
 	policy       secretfile.Policy
@@ -56,11 +57,9 @@ func targetOf(c *cli.Context, mustExist bool) (storeTarget, error) {
 		policy := secretfile.Policy{Strict: c.Bool(flags.StrictFilePermissions), Warn: func(path string, mode fs.FileMode) {
 			_, _ = fmt.Fprintf(c.App.ErrWriter, "warning: %s: mode %04o: readable by group or other users\n", path, mode)
 		}}
-		return storeTarget{
-			pg:           commandConfig(u.Postgres, lineageString(c, flags.SlashingProtectionDBUser)),
-			passwordFile: lineageString(c, flags.SlashingProtectionDBPass),
-			policy:       policy,
-		}, nil
+		pg := commandConfig(u.Postgres, lineageString(c, flags.SlashingProtectionDBUser))
+		pg.PasswordFilePolicy = policy
+		return storeTarget{pg: pg, passwordFile: lineageString(c, flags.SlashingProtectionDBPass), policy: policy}, nil
 	}
 	path := u.Path
 	if path == "" {

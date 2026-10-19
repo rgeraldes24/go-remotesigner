@@ -212,6 +212,108 @@ func TestOpenRefusesPGPASSWORD(t *testing.T) {
 	}
 }
 
+// Without a password, the password comes from libpq's password file, for the connection's final user, under the
+// secret-file policy: a password found in a file that others can read is refused under the strict policy and used
+// with a warning otherwise. A connection service whose entry carries a password is refused.
+func TestPasswordFileSources(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string, mode os.FileMode) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, mode); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	for _, env := range []string{"PGSERVICE", "PGSERVICEFILE"} {
+		t.Setenv(env, "")
+	}
+	t.Setenv("HOME", dir)
+	const url = "postgres://alice@db.internal:5432/signer"
+	passfile := write("pgpass", "db.internal:5432:signer:alice:pw-alice\n*:*:*:bob:pw-bob\n", 0o600)
+	t.Setenv("PGPASSFILE", passfile)
+	strict := secretfile.Policy{Strict: true}
+	password := func(cfg pgstore.Config) string {
+		t.Helper()
+		pw, err := pgstore.Password(cfg)
+		if err != nil {
+			t.Fatalf("%+v: %v", cfg, err)
+		}
+		return pw
+	}
+	for _, c := range []struct {
+		name string
+		cfg  pgstore.Config
+		want string
+	}{
+		{"the URL's user", pgstore.Config{URL: url, PasswordFilePolicy: strict}, "pw-alice"},
+		{"the user that replaces it", pgstore.Config{URL: url, User: "bob", PasswordFilePolicy: strict}, "pw-bob"},
+		{"no entry", pgstore.Config{URL: url, User: "carol", PasswordFilePolicy: strict}, ""},
+		{"a given password", pgstore.Config{URL: url, Password: "given", PasswordFilePolicy: strict}, "given"},
+		{"the URL's passfile", pgstore.Config{URL: url + "?passfile=" + write("other", "*:*:*:*:pw-other\n", 0o600),
+			PasswordFilePolicy: strict}, "pw-other"},
+		{"no password file", pgstore.Config{URL: url + "?passfile=" + filepath.Join(dir, "missing"),
+			PasswordFilePolicy: strict}, ""},
+	} {
+		if got := password(c.cfg); got != c.want {
+			t.Errorf("%s: password %q, want %q", c.name, got, c.want)
+		}
+	}
+	t.Setenv("PGPASSFILE", "")
+	if got := password(pgstore.Config{URL: url}); got != "" {
+		t.Errorf("no PGPASSFILE and no ~/.pgpass: password %q", got)
+	}
+	write(".pgpass", "*:*:*:alice:pw-home\n", 0o600)
+	if got := password(pgstore.Config{URL: url, PasswordFilePolicy: strict}); got != "pw-home" {
+		t.Errorf("~/.pgpass: password %q, want pw-home", got)
+	}
+
+	if runtime.GOOS != "windows" {
+		open := write("open", "*:*:*:alice:pw-open\n", 0o644)
+		t.Setenv("PGPASSFILE", open)
+		if _, err := pgstore.Password(pgstore.Config{URL: url, PasswordFilePolicy: strict}); !errors.Is(err,
+			secretfile.ErrInsecure) {
+			t.Errorf("a password in a world-readable password file under the strict policy: %v", err)
+		}
+		if _, err := pgstore.Open(bg, pgstore.Config{URL: "postgres://alice@127.0.0.1:1/x", PasswordFilePolicy: strict}); !errors.Is(err, secretfile.ErrInsecure) {
+			t.Errorf("Open with a world-readable password file: %v", err)
+		}
+		if _, err := pgstore.Migrate(bg, pgstore.Config{URL: "postgres://alice@127.0.0.1:1/x", PasswordFilePolicy: strict}); !errors.Is(err, secretfile.ErrInsecure) {
+			t.Errorf("Migrate with a world-readable password file: %v", err)
+		}
+		var warned string
+		lax := secretfile.Policy{Warn: func(path string, _ os.FileMode) { warned = path }}
+		if got := password(pgstore.Config{URL: url, PasswordFilePolicy: lax}); got != "pw-open" || warned != open {
+			t.Errorf("a world-readable password file under the lax policy: password %q, warned about %q", got, warned)
+		}
+		// A file that holds no password for the connection is not refused: nothing is taken from it.
+		if got := password(pgstore.Config{URL: url, User: "carol", PasswordFilePolicy: strict}); got != "" {
+			t.Errorf("no entry in a world-readable password file: password %q", got)
+		}
+	}
+
+	t.Setenv("PGPASSFILE", passfile)
+	services := write("services", "[plain]\nhost=db.internal\n\n[secret]\nhost=db.internal\npassword=pw-service\n", 0o600)
+	t.Setenv("PGSERVICEFILE", services)
+	if got := password(pgstore.Config{URL: "postgres://alice@/signer?service=plain", PasswordFilePolicy: strict}); got != "pw-alice" {
+		t.Errorf("a service without a password: password %q, want pw-alice from the password file", got)
+	}
+	for _, cfg := range []pgstore.Config{
+		{URL: "postgres://alice@/signer?service=secret"},
+		{URL: "postgres://alice@/signer?service=secret", Password: "given"},
+	} {
+		if _, err := pgstore.Password(cfg); !errors.Is(err, pgstore.ErrPasswordInService) {
+			t.Errorf("a service with a password (%+v): %v", cfg, err)
+		}
+	}
+	t.Setenv("PGSERVICE", "secret")
+	if _, err := pgstore.Open(bg, pgstore.Config{URL: "postgres://alice@/signer"}); !errors.Is(err, pgstore.ErrPasswordInService) {
+		t.Errorf("Open with PGSERVICE naming a service with a password: %v", err)
+	}
+}
+
 // A database without the schema, and one with an older schema, refuse to open with a message naming consensus
 // migrate; a newer schema and a schema the store did not create are always refused. Migrate creates the schema
 // once and is idempotent.

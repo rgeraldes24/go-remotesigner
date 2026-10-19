@@ -9,12 +9,15 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/pgstore"
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing/pgstore/pgtest"
@@ -175,7 +178,7 @@ func TestRunPostgresSchemaRefusals(t *testing.T) {
 }
 
 // The password comes from its file or PGPASSFILE only: PGPASSWORD refuses to start, and so does an unreadable
-// password file.
+// password file, or a PGPASSFILE that other users can read under --strict-file-permissions.
 func TestRunPostgresPasswordSources(t *testing.T) {
 	db := migratedDB(t)
 	cfg := baseConfig(t)
@@ -204,6 +207,17 @@ func TestRunPostgresPasswordSources(t *testing.T) {
 		r.waitReady(t)
 		if err := r.stop(); err != nil {
 			t.Fatal(err)
+		}
+		// A PGPASSFILE that other users can read is refused under --strict-file-permissions.
+		if runtime.GOOS == "windows" {
+			return
+		}
+		if err := os.Chmod(pass, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		c.StrictFilePermissions = true
+		if err := Run(context.Background(), &c, quiet(), nil); !errors.Is(err, secretfile.ErrInsecure) {
+			t.Fatalf("Run with a world-readable PGPASSFILE: %v", err)
 		}
 	})
 }

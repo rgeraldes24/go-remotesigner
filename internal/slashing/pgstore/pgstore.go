@@ -42,16 +42,23 @@ package pgstore
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgpassfile"
+	"github.com/jackc/pgservicefile"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -115,6 +122,10 @@ var (
 	// ErrPasswordInEnv: PGPASSWORD is set, which puts the password in the environment of the process.
 	ErrPasswordInEnv = errors.New("PGPASSWORD is set: give the password in --slashing-protection-db-password-file " +
 		"or a PGPASSFILE file instead, and unset it")
+	// ErrPasswordInService: the connection service (service= or PGSERVICE) carries a password, which its service
+	// file holds without the password file's checks.
+	ErrPasswordInService = errors.New("the connection service's entry in the service file carries a password: give " +
+		"it in --slashing-protection-db-password-file or a PGPASSFILE file instead")
 )
 
 // Config configures Open and Migrate.
@@ -125,8 +136,12 @@ type Config struct {
 	// User, when set, replaces the URL's user name.
 	User string
 	// Password, when set, is the user's password. Otherwise the password, if one is needed, comes from libpq's
-	// password file (PGPASSFILE, by default ~/.pgpass).
+	// password file (PGPASSFILE, by default ~/.pgpass), read under PasswordFilePolicy.
 	Password string
+	// PasswordFilePolicy is the secret-file policy of libpq's password file: a password found there for this
+	// connection, in a file that its group or other users can read, is refused under the strict policy and used
+	// with a warning otherwise.
+	PasswordFilePolicy secretfile.Policy
 	// GenesisValidatorsRoot, when set, is the network's configured root. A store that has no root yet is pinned to
 	// it; a store pinned to a different root is refused with slashing.ErrGenesisValidatorsRootMismatch.
 	GenesisValidatorsRoot *slashing.Root
@@ -149,16 +164,28 @@ func (c Config) String() string {
 }
 
 // configure applies the user, the password and the session settings to a parsed connection configuration. A
-// password in PGPASSWORD is refused: it belongs in a password file.
+// password in PGPASSWORD or in the connection service's entry is refused: it belongs in a password file. The
+// password is c.Password or the one libpq's password file holds for the connection's user, read here under the
+// policy; whatever pgx found while it parsed the URL is replaced.
 func (c Config) configure(cc *pgx.ConnConfig) error {
 	if os.Getenv("PGPASSWORD") != "" {
 		return ErrPasswordInEnv
 	}
+	service, err := serviceSettings(c.URL)
+	if err != nil {
+		return err
+	}
+	if _, ok := service["password"]; ok {
+		return ErrPasswordInService
+	}
 	if c.User != "" {
 		cc.User = c.User
 	}
-	if c.Password != "" {
-		cc.Password = c.Password
+	cc.Password = c.Password
+	if cc.Password == "" {
+		if cc.Password, err = c.passfilePassword(&cc.Config, service); err != nil {
+			return err
+		}
 	}
 	if cc.ConnectTimeout == 0 || cc.ConnectTimeout > ConnectTimeout {
 		cc.ConnectTimeout = ConnectTimeout
@@ -176,6 +203,96 @@ func (c Config) configure(cc *pgx.ConnConfig) error {
 }
 
 func millis(d time.Duration) string { return fmt.Sprint(d.Milliseconds()) }
+
+// serviceSettings returns the settings of the connection service that the URL's service parameter or PGSERVICE
+// names, from the file pgconn reads them from: the URL's servicefile parameter, PGSERVICEFILE or
+// ~/.pg_service.conf. It returns nil when no service is named.
+func serviceSettings(raw string) (map[string]string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	name := cmp.Or(q.Get("service"), os.Getenv("PGSERVICE"))
+	if name == "" {
+		return nil, nil
+	}
+	path := cmp.Or(q.Get("servicefile"), os.Getenv("PGSERVICEFILE"))
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("pgstore: service %q: %w", name, err)
+		}
+		path = filepath.Join(home, ".pg_service.conf")
+	}
+	sf, err := pgservicefile.ReadServicefile(path)
+	if err != nil {
+		return nil, fmt.Errorf("pgstore: service file: %w", err)
+	}
+	svc, err := sf.GetService(name)
+	if err != nil {
+		return nil, fmt.Errorf("pgstore: service %q in %s: %w", name, path, err)
+	}
+	return svc.Settings, nil
+}
+
+// maxPassfile bounds libpq's password file.
+const maxPassfile = 1 << 20
+
+// passfilePassword looks the password of cc's host, port, database and user up in libpq's password file, as libpq
+// does: the file that the URL's passfile parameter, the service or PGPASSFILE names, by default ~/.pgpass
+// (%APPDATA%\postgresql\pgpass.conf on Windows). A file that does not exist holds none. A password found in a file
+// that its group or other users can read is refused under the strict policy and used with a warning otherwise,
+// where libpq would ignore the file.
+func (c Config) passfilePassword(cc *pgconn.Config, service map[string]string) (string, error) {
+	u, err := url.Parse(c.URL)
+	if err != nil {
+		return "", err
+	}
+	path := cmp.Or(u.Query().Get("passfile"), service["passfile"], os.Getenv("PGPASSFILE"), defaultPassfile())
+	if path == "" {
+		return "", nil
+	}
+	data, fi, err := secretfile.ReadInfo(path, maxPassfile)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("pgstore: password file: %w", err)
+	}
+	defer mldsa87.Wipe(data)
+	pf, err := pgpassfile.ParsePassfile(bytes.NewReader(data))
+	if err != nil {
+		return "", fmt.Errorf("pgstore: password file %s: %w", path, err)
+	}
+	host := cc.Host
+	if network, _ := pgconn.NetworkAddress(cc.Host, cc.Port); network == "unix" {
+		host = "localhost"
+	}
+	pw := pf.FindPassword(host, strconv.Itoa(int(cc.Port)), cc.Database, cc.User)
+	if pw == "" {
+		return "", nil
+	}
+	if err := c.PasswordFilePolicy.Check(path, fi); err != nil {
+		return "", fmt.Errorf("pgstore: password file: %w", err)
+	}
+	return pw, nil
+}
+
+// defaultPassfile is libpq's default password file; empty when there is no home directory.
+func defaultPassfile() string {
+	if runtime.GOOS == "windows" {
+		if dir := os.Getenv("APPDATA"); dir != "" {
+			return filepath.Join(dir, "postgresql", "pgpass.conf")
+		}
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".pgpass")
+}
 
 // CheckURL refuses a connection URL that is not postgres:// or postgresql://, that carries a password, or that sets
 // the pool, whose profile is fixed.

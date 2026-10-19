@@ -253,7 +253,7 @@ func slashingProtectionDBUser() cli.Flag {
 }
 
 func slashingProtectionDBPassword() cli.Flag {
-	return &cli.StringFlag{Name: SlashingProtectionDBPass, Usage: "File whose first line is the Postgres store's password (owner-readable only, like other secret files); without it the password comes from PGPASSFILE (default ~/.pgpass). PGPASSWORD and a password in the URL are refused.", TakesFile: true}
+	return &cli.StringFlag{Name: SlashingProtectionDBPass, Usage: "File whose first line is the Postgres store's password (owner-readable only, like other secret files); without it the password comes from PGPASSFILE (default ~/.pgpass), under the same rule. PGPASSWORD, a password in the URL and one in a pg_service.conf service are refused.", TakesFile: true}
 }
 
 // storeFlags are the flags that name a store, which every store subcommand
