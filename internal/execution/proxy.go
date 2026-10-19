@@ -104,8 +104,10 @@ func (p *proxy) outHeader(in http.Header) http.Header {
 	return h
 }
 
-// modifyResponse drops the downstream's cookies and CORS headers, and caps
-// the body at MaxResponseSize.
+// modifyResponse drops the downstream's cookies, CORS headers and
+// trailers, and caps the body at MaxResponseSize. Trailers are dropped
+// whole, as Web3Signer drops them: ReverseProxy would copy them after the
+// body, past this header check.
 func modifyResponse(resp *http.Response) error {
 	resp.Header.Del("Set-Cookie")
 	for name := range resp.Header {
@@ -116,9 +118,40 @@ func modifyResponse(resp *http.Response) error {
 	if resp.ContentLength > MaxResponseSize {
 		return errResponseTooLarge
 	}
-	resp.Body = &cappedBody{ReadCloser: resp.Body, left: MaxResponseSize}
+	resp.Trailer = nil // nothing is announced
+	resp.Body = &trailerlessBody{ReadCloser: &cappedBody{ReadCloser: resp.Body, left: MaxResponseSize}, resp: resp}
 	return nil
 }
+
+// trailerlessBody clears its response's trailers when it is closed. The
+// transport fills them in when it reaches the end of the body, whether or
+// not they were announced, and ReverseProxy reads them after closing it.
+type trailerlessBody struct {
+	io.ReadCloser
+	resp *http.Response
+}
+
+func (b *trailerlessBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.resp.Trailer = nil
+	return err
+}
+
+// finalOnly passes on the final response only. ReverseProxy relays the
+// node's 1xx interim responses, such as 103 Early Hints, with their headers
+// as it receives them, before ModifyResponse sees anything; a node could
+// set cookies or CORS headers that way. Web3Signer relays none either.
+type finalOnly struct{ http.ResponseWriter }
+
+func (w finalOnly) WriteHeader(code int) {
+	if code >= 100 && code <= 199 {
+		return
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+// Unwrap gives http.ResponseController the writer underneath.
+func (w finalOnly) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // cappedBody fails a read once more than its limit has been read. A
 // response cut off there never reaches the client whole: ReverseProxy
@@ -157,7 +190,7 @@ func (p *proxy) forward(w http.ResponseWriter, r *http.Request, req *Request) {
 	r = r.WithContext(context.WithValue(r.Context(), requestKey{}, req))
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
-	p.rp.ServeHTTP(w, r)
+	p.rp.ServeHTTP(finalOnly{w}, r)
 }
 
 // errorHandler answers a request the proxy could not forward with a
