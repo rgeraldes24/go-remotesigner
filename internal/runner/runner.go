@@ -209,7 +209,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	}
 	var prune *pruner
 	if cfg.Consensus.SlashingProtectionEnabled {
-		prune = startPruner(set.pruner, cfg.Consensus.Pruning, n.Config.SlotsPerEpoch, set.pruneAtStartup, log)
+		prune = startPruner(set.pruner, cfg.Consensus.Pruning, n.Config.SlotsPerEpoch, set.shared, log)
 	}
 	served, serving := make(chan error, 2), 1
 	go func() { served <- srv.Serve() }()

@@ -51,8 +51,9 @@ type storeSet struct {
 	kind string
 	// pruner is the store the pruner uses: the store itself, or for Postgres a one-connection pool of its own.
 	pruner slashing.Store
-	// pruneAtStartup runs the first pruning at startup (bbolt), not one interval later (Postgres).
-	pruneAtStartup bool
+	// shared is set for a database that replicas share (Postgres): pruning waits one interval before its first
+	// run and paces itself (startPruner).
+	shared bool
 	// health is the slashing-protection-db-health-check; nil without a store.
 	health func(context.Context) bool
 	stop   func()
@@ -127,7 +128,7 @@ func openBolt(cfg *config.Config, gvr *slashing.Root, onPin func(slashing.Root),
 		return nil, err
 	}
 	return &storeSet{
-		store: store, kind: consensus.ProtectionBolt, pruner: store, pruneAtStartup: true,
+		store: store, kind: consensus.ProtectionBolt, pruner: store,
 		// The bbolt store is local: it is read on each request.
 		health: func(ctx context.Context) bool {
 			_, err := store.SchemaVersion(ctx)
@@ -206,7 +207,8 @@ func openPostgres(ctx context.Context, cfg *config.Config, gvr *slashing.Root, o
 		"database": store.Name(), "max-connections": pgstore.DefaultMaxConns, "call-timeout": pgstore.DefaultTimeout,
 		"health-check-interval": cfg.Consensus.Postgres.HealthCheckInterval,
 	}).Info("Slashing protection uses the Postgres store")
-	return &storeSet{store: store, kind: consensus.ProtectionPostgres, pruner: pruner, health: h.up, stop: h.close}, nil
+	return &storeSet{store: store, kind: consensus.ProtectionPostgres, pruner: pruner, shared: true, health: h.up,
+		stop: h.close}, nil
 }
 
 // dbHealth is Web3Signer's database health check: a query bounded by the timeout, run at startup and then every

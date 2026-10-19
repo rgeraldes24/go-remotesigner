@@ -34,28 +34,29 @@ import (
 // logged and the next one runs on schedule, as in Web3Signer's DbPrunerRunner; unlike it, the bbolt store's startup
 // run is not optional (DEVIATIONS.md X56), and the window is in the network's slots per epoch. A Postgres store is
 // shared by every replica, which would all prune it at once when they start together: its first run waits one
-// interval, as Web3Signer's does by default, and each transaction covers one validator.
+// interval, as Web3Signer's does by default, each transaction covers one validator, and the run rests after each
+// transaction for as long as it took, so that pruning takes at most half of the database's time from signing.
 type pruner struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 }
 
 // startPruner starts pruning store with the configured window, in epochs of slotsPerEpoch slots: now and then at
-// every interval when atStartup is set, else at every interval.
-func startPruner(store slashing.Store, cfg config.Pruning, slotsPerEpoch uint64, atStartup bool,
+// every interval, or, for a database the replicas share, at every interval, one paced validator per transaction.
+func startPruner(store slashing.Store, cfg config.Pruning, slotsPerEpoch uint64, shared bool,
 	log logrus.FieldLogger) *pruner {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &pruner{cancel: cancel, done: make(chan struct{})}
 	pc := slashing.PruneConfig{EpochsToKeep: cfg.EpochsToKeep, SlotsPerEpoch: slotsPerEpoch}
-	if !atStartup {
-		pc.Batch = 1
+	if shared {
+		pc.Batch, pc.Pace = 1, 1
 	}
 	log = log.WithFields(logrus.Fields{"epochs-to-keep": cfg.EpochsToKeep, "slots-per-epoch": slotsPerEpoch})
 	go func() {
 		defer close(p.done)
 		ticker := time.NewTicker(cfg.Interval)
 		defer ticker.Stop()
-		for first := atStartup; ; first = true {
+		for first := !shared; ; first = true {
 			if first {
 				pruneOnce(ctx, store, pc, log)
 			}
@@ -67,7 +68,7 @@ func startPruner(store slashing.Store, cfg config.Pruning, slotsPerEpoch uint64,
 		}
 	}()
 	when := "now, then at every interval"
-	if !atStartup {
+	if shared {
 		when = "at every interval"
 	}
 	log.WithField("interval", cfg.Interval).Info("Slashing-protection pruning scheduled: " + when)
