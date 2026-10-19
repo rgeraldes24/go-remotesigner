@@ -22,7 +22,7 @@ the behaviour; rows without a link are not yet specified on a separate page.
 | X4 | Missing `fork_info` | NPE, then 500 | 400 `MISSING_FORK_INFO` ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)) | Fix |
 | X5 | `fork_info` validation | Trusted; GVR pinned for blocks and attestations only | Must match the configured network for every type; domain from config ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)) | Fix |
 | X6 | Authentication | None | Bearer token by default, `admin` scope, optional mTLS ([contract §6](docs/contract.md#6-authentication-and-scopes)) | Fix (user request) |
-| X7 | Content type and `Origin` | Not enforced | 415 for non-JSON POST ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)); 403 for any `Origin` ([contract §6](docs/contract.md#6-authentication-and-scopes)) | Fix |
+| X7 | Content type and `Origin` | Not enforced | 415 for a non-JSON POST or keymanager `DELETE` body ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)); 403 for any `Origin` ([contract §6](docs/contract.md#6-authentication-and-scopes)) | Fix |
 | X8 | Low-watermark conditions | `<` plus a double-vote check | Literal EIP-3076 (`≤`) ([contract §11](docs/contract.md#11-errors)) | Stricter |
 | X9 | Body limits | 10 MiB everywhere | Per route ([contract §13](docs/contract.md#13-size-limits-and-timeouts)) | QRL-sized |
 | X10 | Idle timeout | 30 s | 120 s ([contract §13](docs/contract.md#13-size-limits-and-timeouts)) | Go client |

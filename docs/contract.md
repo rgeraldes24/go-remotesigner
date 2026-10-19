@@ -339,7 +339,7 @@ responses carry `Retry-After` where a retry makes sense.
 | `RANDAO_SLOT_OUT_OF_WINDOW` | 412 | A frontier-moving reveal outside `[now_slot - 1, now_slot + skew]`, or genesis time unknown | slashing-protection error, logged at WARN |
 | `RANDAO_NEW_LAYER_RATE_LIMITED` | 412 | The key's new-layer token bucket is empty | logged at WARN |
 | `BODY_TOO_LARGE` | 413 | The body exceeds the route's limit ([section 13](#13-size-limits-and-timeouts)) | error |
-| `UNSUPPORTED_MEDIA_TYPE` | 415 | A POST without `Content-Type: application/json` | error |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | A POST, or a `DELETE /qrl/v1/keystores`, without `Content-Type: application/json` | error |
 | `RANDAO_UNKNOWN_COMMITMENT` | 422 | The commitment is not in this key's onion (within `--randao-max-layers`) | descriptive error |
 | `RANDAO_ONION_EXHAUSTED` | 422 | The commitment is `x_0`; no deeper layer exists | descriptive error |
 | `RANDAO_UNSUPPORTED_FOR_KEY` | 422 | The key holds no 48-byte seed (a future KMS key) | `keymanager.ErrRandaoRevealUnsupported` |
@@ -649,6 +649,8 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
   - `DELETE /qrl/v1/keystores` disables keys that are not loaded too; its `slashing_protection` is the empty string
     when the signer is bound to no GVR yet.
   - The keymanager routes answer during the startup load, and a running load does not undo their changes.
+  - A `DELETE /qrl/v1/keystores` body needs `Content-Type: application/json`, as a POST's does: 415
+    `UNSUPPORTED_MEDIA_TYPE` otherwise, which the operation already lists.
 - Known gaps, to be closed by the next version (the signer already behaves this way at `1.0.0`):
   - `GET …/highWatermark` answers 500 `STORE_UNAVAILABLE` when the slashing-protection store cannot be read, a
     status its operation does not list. The next version adds it.

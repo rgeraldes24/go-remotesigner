@@ -192,6 +192,51 @@ func TestMiddlewareOrder(t *testing.T) {
 	}
 }
 
+// A DELETE whose handler reads a JSON body (the keymanager's) needs
+// Content-Type application/json, as a POST does; a DELETE without a body
+// does not.
+func TestBodyRoutesNeedJSON(t *testing.T) {
+	read := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, e := ReadBody(r); e != nil {
+			WriteError(w, nil, r, e)
+			return
+		}
+		ok(w, r)
+	})
+	s := newTestServer(t, func(c *Config) {
+		c.Routes = []Route{
+			{Method: http.MethodDelete, Pattern: "/with-body", Scope: auth.ScopeAdmin, ReadsBody: true, Handler: read},
+			{Method: http.MethodDelete, Pattern: "/without-body", Scope: auth.ScopeAdmin, Handler: http.HandlerFunc(ok)},
+		}
+	})
+	for _, tt := range []struct {
+		path, ctype string
+		status      int
+	}{
+		{"/with-body", "", 415},
+		{"/with-body", "text/plain", 415},
+		{"/with-body", "application/json", 200},
+		{"/with-body", "application/json; charset=utf-8", 200},
+		{"/without-body", "", 200},
+	} {
+		r := httptest.NewRequest(http.MethodDelete, "http://localhost:9000"+tt.path, strings.NewReader(`{"pubkeys":[]}`))
+		r.Header.Set("Authorization", "Bearer "+adminTok)
+		if tt.ctype != "" {
+			r.Header.Set("Content-Type", tt.ctype)
+		}
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, r)
+		if rec.Code != tt.status {
+			t.Fatalf("%s with %q: %d, want %d (%s)", tt.path, tt.ctype, rec.Code, tt.status, rec.Body)
+		}
+		if tt.status == 415 {
+			if e := decodeErr(t, rec); e.Reason != apierr.UnsupportedMediaType {
+				t.Fatalf("%s with %q: %+v", tt.path, tt.ctype, e)
+			}
+		}
+	}
+}
+
 func TestSuccessAndRouting(t *testing.T) {
 	s := newTestServer(t, nil)
 	do := func(method, path, tok, ctype, body string) *httptest.ResponseRecorder {

@@ -1696,7 +1696,7 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
           example: {code: 413, message: request body too large, reason: BODY_TOO_LARGE}
     UnsupportedMediaType:
-      description: POST without Content-Type application/json
+      description: POST, or DELETE /qrl/v1/keystores, without Content-Type application/json
       content:
         application/json:
           schema:

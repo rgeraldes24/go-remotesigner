@@ -35,7 +35,8 @@ had already read its files, nor drops a key imported meanwhile. A list during th
 so far: the startup load applies its keys when it ends, so that is the keys imported since the signer started.
 
 Limits: at most 64 keystores per import, a body of at most 32 MiB (`413 BODY_TOO_LARGE` above it), and a write
-deadline of 10 minutes for the response, enough for 64 standard-KDF keystores on a small machine (section 3).
+deadline of 10 minutes for the response, enough for 64 standard-KDF keystores on a small machine (section 3). The
+`POST` and `DELETE` bodies need `Content-Type: application/json` (`415 UNSUPPORTED_MEDIA_TYPE` otherwise).
 Imports and deletes run one at a time; the keystores of an import are decrypted before it waits for the one before
 it.
 

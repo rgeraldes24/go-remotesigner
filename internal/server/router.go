@@ -25,8 +25,9 @@ type Route struct {
 	// BodyLimit is the largest body accepted; 0 means DefaultBodyLimit.
 	BodyLimit int64
 	// ReadsBody is set when the handler reads the body itself, with
-	// ReadBody. Otherwise the body is read and discarded before the handler
-	// runs.
+	// ReadBody; the body must then be Content-Type application/json, as a
+	// POST's must (415 otherwise). Otherwise the body is read and discarded
+	// before the handler runs.
 	ReadsBody bool
 	// NeedsReady makes the route answer 503 NOT_READY until the server is
 	// ready.

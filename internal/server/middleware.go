@@ -71,7 +71,7 @@ func (s *Server) routeChain(rt *Route) http.Handler {
 		h = writeTimeout(rt.WriteTimeout, h)
 	}
 	h = s.limitBody(rt, h)
-	if rt.Method == http.MethodPost {
+	if rt.Method == http.MethodPost || rt.ReadsBody {
 		h = s.contentType(h)
 	}
 	return s.authenticate(rt, h)
@@ -87,14 +87,16 @@ func (s *Server) authenticate(rt *Route, next http.Handler) http.Handler {
 	})
 }
 
-// contentType refuses a POST whose Content-Type is not application/json
-// with 415 UNSUPPORTED_MEDIA_TYPE, even when the body is empty: a browser
-// cannot send that type cross-site without a CORS preflight.
+// contentType refuses a POST, or a request to a route whose handler reads
+// a JSON body (DELETE /qrl/v1/keystores), whose Content-Type is not
+// application/json with 415 UNSUPPORTED_MEDIA_TYPE, even when the body is
+// empty: a browser cannot send that type cross-site without a CORS
+// preflight.
 func (s *Server) contentType(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || mt != "application/json" {
-			WriteError(w, s.log, r, apierr.New(apierr.UnsupportedMediaType, "POST needs Content-Type application/json"))
+			WriteError(w, s.log, r, apierr.New(apierr.UnsupportedMediaType, "the body needs Content-Type application/json"))
 			return
 		}
 		next.ServeHTTP(w, r)

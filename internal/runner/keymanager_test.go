@@ -114,8 +114,9 @@ func TestKeymanagerRouteLimits(t *testing.T) {
 
 // Against a running signer: an import loads and enables a key that then
 // signs; the list shows it; a delete evicts it; the routes need the admin
-// token; a body over 32 MiB is 413; 64 keystores are imported in one
-// request and 65 are refused.
+// token; a body over 32 MiB is 413, and a DELETE body that is not
+// application/json 415; 64 keystores are imported in one request and 65
+// are refused.
 func TestRunKeymanager(t *testing.T) {
 	cfg := baseConfig(t)
 	cfg.Consensus.KeyManagerAPIEnabled = true
@@ -174,6 +175,27 @@ func TestRunKeymanager(t *testing.T) {
 		code, body := r.send(t, m, path, r.admin, io.LimitReader(zeros{}, kmapi.BodyLimit+1), kmapi.BodyLimit+1)
 		if code != 413 || !strings.Contains(string(body), "BODY_TOO_LARGE") {
 			t.Fatalf("%s 32 MiB + 1: %d %s", m, code, body)
+		}
+	}
+
+	// A DELETE body, like a POST's, must be application/json.
+	for _, ctype := range []string{"", "text/plain"} {
+		req, err := http.NewRequest(http.MethodDelete, r.base+path, strings.NewReader(`{"pubkeys":[]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+r.admin)
+		if ctype != "" {
+			req.Header.Set("Content-Type", ctype)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != 415 || !strings.Contains(string(out), "UNSUPPORTED_MEDIA_TYPE") {
+			t.Fatalf("DELETE with Content-Type %q: %d %s", ctype, resp.StatusCode, out)
 		}
 	}
 
