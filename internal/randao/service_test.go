@@ -282,6 +282,31 @@ func TestPrecompute(t *testing.T) {
 	}
 }
 
+// A signer that shares the store keeps only the layer it precomputed, keyed by its index. Once another signer has
+// moved the stored frontier, that layer is for another index than the next new layer needs: it is not served, and
+// the layer is computed from x_0 instead.
+func TestPrecomputeForAnotherIndexIgnored(t *testing.T) {
+	store := memstore.New()
+	f := newFixture(t, store)
+	f.ok(f.reveal(1000, testLayers), testLayers, metrics.RandaoFirstUse)
+	f.precomputed(testLayers - 2)
+	// Another signer releases x_{L-2} at slot 1001.
+	cur, _, err := store.RandaoState(context.Background(), f.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := slashing.RandaoState{Index: testLayers - 2, Reveal: f.x[testLayers-2], LastSlot: 1001}
+	if ok, err := store.CompareAndSwapRandaoState(context.Background(), f.id, &cur, next); err != nil || !ok {
+		t.Fatalf("the other signer's move: %v, %v", ok, err)
+	}
+	f.clock.atSlot(1002)
+	f.ok(f.reveal(1002, testLayers-2), testLayers-2, metrics.RandaoNewLayer)
+	if hot, scan := f.durations(metrics.RandaoPathHot), f.durations(metrics.RandaoPathScan); hot != 0 || scan != 2 {
+		t.Fatalf("%d hot and %d scan reveals, want 0 and 2", hot, scan)
+	}
+	f.frontier(testLayers-3, 1002)
+}
+
 // precomputed waits for the background computation of x_m.
 func (f *fixture) precomputed(m uint64) {
 	f.t.Helper()
