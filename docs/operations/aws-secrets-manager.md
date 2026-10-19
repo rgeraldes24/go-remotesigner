@@ -78,8 +78,9 @@ named `role` or `team` and a tag value starting with `validator` or `blue`. A mi
 that names it.
 
 Every listed secret is one source, `aws-bulk:<name>`. The credentials should not be on the command line, where other
-users can read them in the process list: set `REMOTESIGNER_CONSENSUS_AWS_SECRETS_SECRET_ACCESS_KEY`, put
-`aws-secrets-secret-access-key` in the `--config-file`, or use `ENVIRONMENT` authentication.
+users can read them in the process list: set `REMOTESIGNER_CONSENSUS_AWS_SECRETS_SECRET_ACCESS_KEY`, or use
+`ENVIRONMENT` authentication. The `--config-file` is not a secret file: its permissions are not checked, even under
+`--strict-file-permissions`, so a key put there is only as private as the mode you give the file.
 
 ## 4. Credentials
 

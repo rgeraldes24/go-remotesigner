@@ -87,7 +87,9 @@ remotesigner consensus --network=… \
 | `--azure-tags` | none | `TAG_NAME=TAG_VALUE`, repeated or separated by `\|`: a secret must carry every one with that exact value (an empty value matches an empty tag value). A name given twice keeps its last value, as in Web3Signer; a value cannot contain a comma (X75). |
 
 Every selected secret is one source, `azure-bulk:<name>`. Keep the client secret off the command line: set
-`REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET` or put `azure-client-secret` in the `--config-file`.
+`REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET`. The `--config-file` is not a secret file: its permissions are not
+checked, even under `--strict-file-permissions`, so a secret put there is only as private as the mode you give the
+file.
 
 ## 5. Overrides
 
