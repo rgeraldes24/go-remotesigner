@@ -119,6 +119,31 @@ func TestReleaseFromBuildInfo(t *testing.T) {
 	}
 }
 
+// --version carries the go-qrl notice in the default flavour, which links
+// go-qrl, and no LGPL notice in the consensus flavour.
+func TestVersionNotice(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runWith([]string{binaryName, "--version"}, &stdout, &stderr, noRun); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	out := strings.Join(strings.Fields(stdout.String()), " ")
+	lgpl := strings.Contains(out, "Lesser General Public License") || strings.Contains(out, "LGPL")
+	switch binaryName {
+	case "remotesigner":
+		for _, want := range []string{"links the go-qrl library (https://github.com/theQRL/go-qrl)",
+			"Copyright 2014-2025 The go-ethereum Authors", "GNU Lesser General Public License v3.0 or later",
+			"LICENSES/LGPL-3.0-or-later.txt and LICENSES/GPL-3.0-or-later.txt"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("--version %q lacks %q", out, want)
+			}
+		}
+	default:
+		if lgpl || strings.Contains(out, "go-qrl ") {
+			t.Errorf("the consensus flavour's --version names go-qrl: %q", out)
+		}
+	}
+}
+
 func TestVersionStringUsesLinkerValues(t *testing.T) {
 	oldVersion, oldCommit := version, commit
 	t.Cleanup(func() { version, commit = oldVersion, oldCommit })
