@@ -153,6 +153,7 @@ func TestBulk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer b.Close()
 	batches, err := secrets.Bulk{Kind: secrets.KindAzure, Store: b}.Load(context.Background(), 2, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -39,6 +39,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -67,7 +68,18 @@ type clientKey struct {
 func New(cacheSize int) *Client {
 	c := &Client{}
 	c.clients.Max = cacheSize
+	c.clients.Close = closeIdle
 	return c
+}
+
+// Close closes the idle connections of every cached SDK client.
+func (c *Client) Close() { c.clients.Purge() }
+
+// closeIdle closes the idle connections of an SDK client's HTTP client.
+func closeIdle(sm *secretsmanager.Client) {
+	if hc, ok := sm.Options().HTTPClient.(interface{ CloseIdleConnections() }); ok {
+		hc.CloseIdleConnections()
+	}
 }
 
 // Fetch implements secrets.Fetcher for *secrets.AWS specs.
@@ -81,7 +93,7 @@ func (c *Client) Fetch(ctx context.Context, s secrets.Spec) ([]byte, error) {
 	// The client outlives this fetch, so it must not inherit the fetch's
 	// cancellation.
 	sm, err := c.clients.Get(k, func() (*secretsmanager.Client, error) {
-		return newClient(context.WithoutCancel(ctx), a.AWSConn)
+		return newClient(context.WithoutCancel(ctx), a.AWSConn, storeHTTPClient())
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", a.Describe(), err)
@@ -93,11 +105,14 @@ func (c *Client) Fetch(ctx context.Context, s secrets.Spec) ([]byte, error) {
 	return v, nil
 }
 
-// newClient builds an SDK client for conn.
-func newClient(ctx context.Context, conn secrets.AWSConn) (*secretsmanager.Client, error) {
-	opts := []func(*config.LoadOptions) error{
-		config.WithHTTPClient(secrets.HTTPClient(secrets.HTTPOptions{Timeout: secrets.DefaultTimeout})),
-	}
+// storeHTTPClient is the HTTP client of one SDK client.
+func storeHTTPClient() *http.Client {
+	return secrets.HTTPClient(secrets.HTTPOptions{Timeout: secrets.DefaultTimeout})
+}
+
+// newClient builds an SDK client for conn that sends its requests with hc.
+func newClient(ctx context.Context, conn secrets.AWSConn, hc *http.Client) (*secretsmanager.Client, error) {
+	opts := []func(*config.LoadOptions) error{config.WithHTTPClient(hc)}
 	if conn.Region != "" {
 		opts = append(opts, config.WithRegion(conn.Region))
 	}
@@ -148,20 +163,26 @@ func get(ctx context.Context, sm *secretsmanager.Client, name string) ([]byte, e
 	return []byte(*out.SecretString), nil
 }
 
-// Bulk is the AWS Secrets Manager bulk loader's store.
+// Bulk is the AWS Secrets Manager bulk loader's store, built for one load.
 type Bulk struct {
 	sm      *secretsmanager.Client
+	hc      *http.Client
 	filters []types.Filter
 }
 
-// NewBulk returns the store of the bulk loader b.
+// NewBulk returns the store of the bulk loader b. Close it when the load is
+// done.
 func NewBulk(ctx context.Context, b secrets.AWSBulk) (*Bulk, error) {
-	sm, err := newClient(ctx, b.AWSConn)
+	hc := storeHTTPClient()
+	sm, err := newClient(ctx, b.AWSConn, hc)
 	if err != nil {
 		return nil, err
 	}
-	return &Bulk{sm: sm, filters: Filters(b.PrefixesFilter, b.Tags)}, nil
+	return &Bulk{sm: sm, hc: hc, filters: Filters(b.PrefixesFilter, b.Tags)}, nil
 }
+
+// Close closes the store's idle connections.
+func (b *Bulk) Close() { b.hc.CloseIdleConnections() }
 
 // Filters are the ListSecrets filters of name prefixes and tags, as
 // Web3Signer builds them: one name filter with every prefix, one tag-key

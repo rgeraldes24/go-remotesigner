@@ -19,28 +19,34 @@ import (
 // newStores returns the clients of every secret store: the default flavour
 // links the AWS, Azure and GCP SDKs.
 func newStores(cfg *config.Config) *stores {
-	hc, gcp := hashicorp.New(vaultClients), gcpsm.New()
 	ss := cfg.Consensus.SecretStores
+	hc, aws, az, gcp := hashicorp.New(vaultClients), awssm.New(max(1, ss.AWSClientCacheSize)), azurekv.New(), gcpsm.New()
 	st := &stores{
 		fetch: secrets.Stores{
 			secrets.KindHashicorp: hc,
-			secrets.KindAWS:       awssm.New(max(1, ss.AWSClientCacheSize)),
-			secrets.KindAzure:     azurekv.New(),
+			secrets.KindAWS:       aws,
+			secrets.KindAzure:     az,
 			secrets.KindGCP:       gcp,
 		},
 		bulk:  map[string]func(context.Context) (secrets.Lister, func(), error){},
-		close: func() { hc.Close(); gcp.Close() },
+		close: func() { hc.Close(); aws.Close(); az.Close(); gcp.Close() },
 	}
 	if b := ss.Azure; b != nil {
 		st.bulk[secrets.KindAzure] = func(context.Context) (secrets.Lister, func(), error) {
 			store, err := azurekv.NewBulk(*b)
-			return store, func() {}, err
+			if err != nil {
+				return nil, nil, err
+			}
+			return store, store.Close, nil
 		}
 	}
 	if b := ss.AWS; b != nil {
 		st.bulk[secrets.KindAWS] = func(ctx context.Context) (secrets.Lister, func(), error) {
 			store, err := awssm.NewBulk(ctx, *b)
-			return store, func() {}, err
+			if err != nil {
+				return nil, nil, err
+			}
+			return store, store.Close, nil
 		}
 	}
 	if b := ss.GCP; b != nil {
