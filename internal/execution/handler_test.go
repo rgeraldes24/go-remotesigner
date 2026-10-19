@@ -10,6 +10,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -396,6 +398,37 @@ func TestBatchLimits(t *testing.T) {
 				t.Fatalf("%d %s, want 400 -32600", w.Code, w.Body)
 			}
 		})
+	}
+}
+
+// An oversized batch is refused before its elements are decoded: a body
+// of the largest size, of tiny elements, costs a small part of its own size
+// in allocations, not tens of times it. An array that is not valid JSON is
+// a parse error at any size.
+func TestBatchOversizedAllocation(t *testing.T) {
+	f := newFixture(t, 0, defaultAllow)
+	for _, elem := range []string{"1", "{}", `"a"`} {
+		n := (BodyLimit - 2) / (len(elem) + 1)
+		body := []byte("[" + strings.Repeat(elem+",", n-1) + elem + "]")
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/", nil)
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		f.handler.serveBatch(w, r, body)
+		runtime.ReadMemStats(&after)
+		allocated := after.TotalAlloc - before.TotalAlloc
+		if allocated > uint64(len(body))/8 {
+			t.Errorf("%s: %d bytes allocated for a body of %d", elem, allocated, len(body))
+		}
+		resp := decodeOne(t, w.Body.Bytes())
+		if w.Code != http.StatusBadRequest || resp.Error == nil || resp.Error.Code != ErrInvalidRequest.Code {
+			t.Errorf("%s: %d %s, want 400 -32600", elem, w.Code, w.Body)
+		}
+	}
+	w := f.post("["+strings.Repeat("1,", 2*MaxBatch)+"}", nil)
+	if r := decodeOne(t, w.Body.Bytes()); w.Code != http.StatusBadRequest || r.Error == nil || r.Error.Code != ErrParse.Code {
+		t.Errorf("an invalid oversized array: %d %s, want 400 -32700", w.Code, w.Body)
 	}
 }
 

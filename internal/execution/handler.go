@@ -128,23 +128,9 @@ type slot struct {
 // MaxBatch elements; each element is then answered on its own, and an
 // element the allowlist refuses never reaches the node.
 func (h *Handler) serveBatch(w http.ResponseWriter, r *http.Request, body []byte) {
-	var elems []json.RawMessage
-	if err := json.Unmarshal(body, &elems); err != nil {
-		e := ErrParse
-		if json.Valid(body) {
-			e = ErrInvalidRequest
-		}
+	elems, e := splitBatch(body)
+	if e != nil {
 		writeResponse(w, statusOf(e), encodeResult(nullID, nil, e))
-		return
-	}
-	switch {
-	case len(elems) == 0:
-		writeResponse(w, http.StatusBadRequest, encodeResult(nullID, nil, ErrInvalidRequest.with("empty batch")))
-		return
-	case len(elems) > MaxBatch:
-		e := ErrInvalidRequest.with("batch of " + strconv.Itoa(len(elems)) + " requests, more than " +
-			strconv.Itoa(MaxBatch))
-		writeResponse(w, http.StatusBadRequest, encodeResult(nullID, nil, e))
 		return
 	}
 
@@ -197,6 +183,36 @@ func (h *Handler) serveBatch(w http.ResponseWriter, r *http.Request, body []byte
 	}
 	out.WriteByte(']')
 	writeResponse(w, http.StatusOK, out.Bytes())
+}
+
+// splitBatch returns the elements of a batch: a JSON array of 1 to MaxBatch
+// elements. A body that is not JSON is a parse error. The elements are
+// counted as they are read, so that an oversized batch is refused before
+// it is materialised: a 5 MiB array of tiny elements, decoded whole, would
+// take some 60 times its size.
+func splitBatch(body []byte) ([]json.RawMessage, *Error) {
+	if !json.Valid(body) {
+		return nil, ErrParse
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if _, err := dec.Token(); err != nil { // the '['
+		return nil, ErrInvalidRequest
+	}
+	var elems []json.RawMessage
+	for dec.More() {
+		if len(elems) == MaxBatch {
+			return nil, ErrInvalidRequest.with("batch of more than " + strconv.Itoa(MaxBatch) + " requests")
+		}
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return nil, ErrInvalidRequest
+		}
+		elems = append(elems, raw)
+	}
+	if len(elems) == 0 {
+		return nil, ErrInvalidRequest.with("empty batch")
+	}
+	return elems, nil
 }
 
 // methodOf returns the local method of a decoded request, or nil.
