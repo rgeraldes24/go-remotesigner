@@ -24,8 +24,21 @@ source instead: `make build-consensus` and install `bin/remotesigner-consensus`.
 
 ## 2. User, directories and keys
 
-The service runs as its own system user, which owns the state directory and nothing else:
+The service runs as its own system user, which owns the state directory and nothing else. A key is the validator's
+48-byte ML-DSA-87 wallet seed, the one qrysm derives its key pair from; give the signer each key as a key-config file
+in `/var/lib/remotesigner/keys/` (every non-hidden `*.yaml` or `*.yml` file there is loaded, and a file may hold
+several documents separated by `---`):
 
+```yaml
+# key-0.yaml: one validator's seed, in the clear; readable by the service user only
+type: file-raw
+keyType: ML_DSA_87
+privateKey: "0x<96 hex characters>"
+```
+
+Create the user and the directories, and install the key files:
+
+<!-- systemd-smoke -->
 ```
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin remotesigner
 sudo install -d -m 0700 -o remotesigner -g remotesigner /var/lib/remotesigner /var/lib/remotesigner/keys
@@ -37,13 +50,33 @@ sudo install -m 0600 -o remotesigner -g remotesigner key-0.yaml /var/lib/remotes
 | `/etc/remotesigner/remotesigner.yaml` | root, `0644` | the configuration (section 3) |
 | `/etc/remotesigner/network.yaml` | root, `0644` | the chain's qrysm-format config |
 | `/var/lib/remotesigner/` | remotesigner, `0700` | written by the signer: `auth-token`, `admin-token`, `tls/`, `slashing-protection.db`, `remotesigner.ports` |
-| `/var/lib/remotesigner/keys/` | remotesigner, `0700`, files `0600` | one `file-raw` key-config file per key ([`quickstart.md`](quickstart.md#2-key-files)) |
+| `/var/lib/remotesigner/keys/` | remotesigner, `0700`, files `0600` | one key-config file per key |
 
-The key files hold the seeds: keep them readable by the service user only. Back up `/var/lib/remotesigner`;
-losing `slashing-protection.db` loses the slashing-protection history.
+A key-config file with a seed, and a password file, that its group or other users can read is refused
+(`--strict-file-permissions`, [`reload.md`](reload.md#secret-files)). Back up `/var/lib/remotesigner`; losing
+`slashing-protection.db` loses the slashing-protection history.
+
+**Keystores instead of seeds.** For keystores from the deposit CLI or qrysm's `validator accounts backup`, put the
+`keystore-*.json` files (and only them) in a directory such as `/var/lib/remotesigner/keystores/`, the password they
+were created with in a file such as `/var/lib/remotesigner/keystores-password.txt` (owner `remotesigner`, mode
+`0600`), and add to the `consensus:` section of the configuration:
+
+```yaml
+  keystores-path: /var/lib/remotesigner/keystores
+  keystores-password-file: /var/lib/remotesigner/keystores-password.txt
+```
+
+Check them first with `sudo -u remotesigner remotesigner consensus keystore verify --keystores-path
+/var/lib/remotesigner/keystores --keystores-password-file /var/lib/remotesigner/keystores-password.txt`
+([`keystores.md`](keystores.md#4-checking-keystores)). A key-config file can also name one keystore and its password
+file (`type: file-keystore`, [`reload.md`](reload.md#1-key-sources)). Decrypting a standard-KDF keystore takes about
+1.5 s of one core and up to 512 MiB; the signer runs as many at once as the memory limit allows, which is half of the
+RAM unless the unit sets one (`MemoryMax=` in a drop-in, section 6;
+[`reload.md`](reload.md#6-memory-for-keystore-decryption)).
 
 ## 3. Configuration
 
+<!-- systemd-smoke -->
 ```
 sudo install -d -m 0755 /etc/remotesigner
 sudo install -m 0644 deploy/config/single-host.yaml /etc/remotesigner/remotesigner.yaml
@@ -66,28 +99,35 @@ them.
 
 ## 4. Start
 
+<!-- systemd-smoke -->
 ```
 sudo install -m 0644 deploy/systemd/remotesigner.service /etc/systemd/system/
 sudo systemd-analyze verify /etc/systemd/system/remotesigner.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now remotesigner
-journalctl -u remotesigner -f
 ```
 
-The first start generates the tokens and the certificate and logs the certificate's fingerprint:
+Follow the log with `journalctl -u remotesigner -f`. The first start generates the tokens and the certificate and logs
+the certificate's fingerprint:
 
 ```
 journalctl -u remotesigner | grep -o 'sha256-fingerprint="[^"]*"'
 ```
 
-Check it from the host, by one of the allowlist names (the files are readable by root and the service user only):
+The signer listens at once and loads the keys in the background: `/upcheck` answers `503` until they are loaded and
+the store is open, then `200 OK`. Check it from the host, by one of the allowlist names (the files are readable by
+root and the service user only):
 
+<!-- systemd-smoke:check -->
 ```
 sudo curl --cacert /var/lib/remotesigner/tls/cert.pem https://signer.internal:9000/upcheck
 sudo sh -c 'curl -s --cacert /var/lib/remotesigner/tls/cert.pem \
   -H "Authorization: Bearer $(cat /var/lib/remotesigner/auth-token)" \
   https://signer.internal:9000/api/v1/consensus/publicKeys'
 ```
+
+The first prints `OK`, the second the loaded public keys. `make systemd-smoke` runs the commands of sections 2 to 4
+as they are written here (section 7).
 
 ## 5. Connect the validator client
 
@@ -104,7 +144,8 @@ validator … \
 ```
 
 `remote-keys.txt` lists the validator public keys this client validates with, one `0x` key per line. Never give a
-validator client the admin token. Deploy the signer on the same local network as its validator clients.
+validator client the admin token. Deploy the signer on the same local network as its validator clients
+([`requirements.md`](requirements.md#4-deploy-signers-next-to-their-validator-clients)).
 
 ## 6. Operations
 
@@ -115,8 +156,8 @@ validator client the admin token. Deploy the signer on the same local network as
 | Rotate a token | write the new token into its file (or delete it to have one generated), then reload ([`tls.md`](tls.md#5-rotating-tokens-and-certificates-with-sighup)) |
 | Stop | `sudo systemctl stop remotesigner`: SIGTERM; in-flight requests finish within 10 s, the store is closed and the keys wiped; the unit allows 30 s |
 | Back up the store | stop the service, then copy `/var/lib/remotesigner` |
-| Upgrade | install the new binary, then `sudo systemctl restart remotesigner` |
-| Change a setting without editing the unit | `sudo systemctl edit remotesigner` (a drop-in); for example `LimitMEMLOCK=infinity` for `--mlock-all` |
+| Upgrade | install the new binary, stop the service, run the new binary's `consensus migrate` as the service user, start the service ([`upgrade.md`](upgrade.md#3-one-signer)) |
+| Change a setting without editing the unit | `sudo systemctl edit remotesigner` (a drop-in); for example `LimitMEMLOCK=infinity` for `--mlock-all`, or `MemoryMax=4G` to size keystore decryption |
 
 The unit restarts the signer after a failure, except after exit code 2 (a usage error: a bad flag or config file),
 which a restart does not fix. Exit code 1 is a startup refusal or a failure; its log line names the cause.
@@ -136,9 +177,10 @@ The unit takes everything else away; `systemd-analyze security remotesigner` rat
 | `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `RestrictNamespaces`, `RestrictRealtime`, `RestrictSUIDSGID`, `LockPersonality`, `MemoryDenyWriteExecute`, `RemoveIPC` | IP and Unix sockets only; no namespaces, real-time scheduling, set-id files or writable executable memory |
 | `SystemCallArchitectures=native`, `SystemCallFilter=@system-service` and `~@privileged` | only the system calls of an ordinary service |
 
-`make systemd-smoke` runs this page's installation in a container that runs systemd, and checks that the unit serves
-TLS, `/upcheck` and `publicKeys`, writes its files `0600`/`0700` as the service user, reloads, and stops with exit
-code 0. CI runs it on every pull request.
+`make systemd-smoke` runs this page's installation in a container that runs systemd: the binary, a key file and a
+network file are put in place, and then the commands of sections 2, 3 and 4 run exactly as written (the blocks marked
+for it in this page's source). It checks that the unit serves TLS, `/upcheck` and `publicKeys`, writes its files
+`0600`/`0700` as the service user, reloads, and stops with exit code 0. CI runs it on every pull request.
 
 ## 8. More than one signer: Postgres
 

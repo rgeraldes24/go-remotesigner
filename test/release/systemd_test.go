@@ -23,22 +23,72 @@ import (
 // renovate: datasource=docker
 const systemdBase = "ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac"
 
-// systemdInstall is the installation of docs/operations/deploy-systemd.md,
-// with the binary, unit, config and network file already in place: the
-// service user, the key directory and one key, and the service started.
-const systemdInstall = `set -e
-useradd --system --no-create-home --shell /usr/sbin/nologin remotesigner
-install -d -m 0700 -o remotesigner -g remotesigner /var/lib/remotesigner /var/lib/remotesigner/keys
-install -m 0600 -o remotesigner -g remotesigner /root/key-0.yaml /var/lib/remotesigner/keys/key-0.yaml
-systemd-analyze verify /etc/systemd/system/remotesigner.service
-systemctl daemon-reload
-systemctl enable --now remotesigner
-`
+// systemdGuide is the systemd deployment guide, whose blocks marked
+// systemdBlock the smoke test runs as written, and whose block marked
+// systemdCheckBlock it runs once the signer is up.
+const (
+	systemdGuide      = "docs/operations/deploy-systemd.md"
+	systemdBlock      = "<!-- systemd-smoke -->"
+	systemdCheckBlock = "<!-- systemd-smoke:check -->"
+)
+
+// markedBlocks returns the code blocks of a Markdown text that directly
+// follow the line marker, in order.
+func markedBlocks(text, marker string) []string {
+	var blocks []string
+	for _, part := range strings.Split(text, marker+"\n```\n")[1:] {
+		block, _, _ := strings.Cut(part, "\n```")
+		blocks = append(blocks, block)
+	}
+	return blocks
+}
+
+// guideScript returns the guide's installation, the blocks marked
+// systemdBlock joined into one shell script that stops at the first failing
+// command.
+func guideScript(t *testing.T) string {
+	t.Helper()
+	blocks := markedBlocks(string(readRepo(t, systemdGuide)), systemdBlock)
+	if len(blocks) == 0 {
+		t.Fatalf("%s has no blocks marked %s", systemdGuide, systemdBlock)
+	}
+	return "set -e\n" + strings.Join(blocks, "\n") + "\n"
+}
+
+// The guide's marked blocks are its installation, from the service user to
+// the started unit, and nothing that waits forever, such as journalctl -f:
+// the smoke test runs them as written. The check block reads /upcheck and
+// publicKeys. This runs without Docker, so a guide edit that breaks the
+// smoke test fails every test run.
+func TestSystemdGuideBlocks(t *testing.T) {
+	script := guideScript(t)
+	for _, want := range []string{"useradd --system", "install -d -m 0700 -o remotesigner -g remotesigner",
+		"/etc/remotesigner/remotesigner.yaml", "/etc/remotesigner/network.yaml", "/etc/systemd/system/",
+		"systemctl daemon-reload", "systemctl enable --now remotesigner"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the guide's installation lacks %q:\n%s", want, script)
+		}
+	}
+	if strings.Contains(script, " -f") && strings.Contains(script, "journalctl") {
+		t.Errorf("the guide's installation follows a log, which never returns:\n%s", script)
+	}
+	checks := markedBlocks(string(readRepo(t, systemdGuide)), systemdCheckBlock)
+	if len(checks) != 1 || !strings.Contains(checks[0], "/upcheck") || !strings.Contains(checks[0], "publicKeys") {
+		t.Errorf("%s: want one check block that reads /upcheck and publicKeys, got %q", systemdGuide, checks)
+	}
+	// The files the installation reads, relative to its working directory.
+	for _, f := range []string{"deploy/config/single-host.yaml", "deploy/systemd/remotesigner.service"} {
+		if !strings.Contains(script, f) {
+			t.Errorf("the guide's installation does not install %s", f)
+		}
+		readRepo(t, f)
+	}
+}
 
 // TestSystemdSmoke installs deploy/systemd/remotesigner.service with
-// deploy/config/single-host.yaml in a container that runs systemd, as the
-// systemd deployment guide does, and checks that the hardened unit runs the
-// signer: TLS with the generated certificate for the allowlist names,
+// deploy/config/single-host.yaml in a container that runs systemd, by
+// running the systemd deployment guide's own commands, and checks that the
+// hardened unit runs the signer: TLS with the generated certificate for the allowlist names,
 // /upcheck and publicKeys, its files owned by the service user and closed
 // to others, `systemctl reload` re-reading the tokens and certificate, and a
 // clean stop. It runs when REMOTESIGNER_SYSTEMD_SMOKE=1 (make systemd-smoke)
@@ -62,21 +112,28 @@ func TestSystemdSmoke(t *testing.T) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build remotesigner: %v: %s", err, out)
 	}
+	// The guide's working directory: the repository's unit and example
+	// configuration at their paths, the chain's config and one key file,
+	// which its commands install. The binary is already installed (the
+	// guide's section 1), and sudo runs its command as root does.
 	for name, content := range map[string][]byte{
-		"remotesigner.service": readRepo(t, "deploy/systemd/remotesigner.service"),
-		"remotesigner.yaml":    readRepo(t, "deploy/config/single-host.yaml"),
-		"network.yaml":         readRepo(t, smokeNetwork),
-		"key-0.yaml":           fmt.Appendf(nil, "type: file-raw\nkeyType: ML_DSA_87\nprivateKey: %q\n", keys.Keys[0].Seed),
+		"guide/deploy/systemd/remotesigner.service": readRepo(t, "deploy/systemd/remotesigner.service"),
+		"guide/deploy/config/single-host.yaml":      readRepo(t, "deploy/config/single-host.yaml"),
+		"guide/config.yaml":                         readRepo(t, smokeNetwork),
+		"guide/key-0.yaml":                          fmt.Appendf(nil, "type: file-raw\nkeyType: ML_DSA_87\nprivateKey: %q\n", keys.Keys[0].Seed),
+		"guide/install.sh":                          []byte(guideScript(t)),
+		"sudo":                                      []byte("#!/bin/sh\nexec \"$@\"\n"),
 		"Dockerfile": []byte("FROM " + systemdBase + "\n" +
 			"RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends " +
 			"systemd systemd-sysv curl ca-certificates && rm -rf /var/lib/apt/lists/*\n" +
 			"COPY remotesigner /usr/local/bin/remotesigner\n" +
-			"COPY remotesigner.service /etc/systemd/system/remotesigner.service\n" +
-			"COPY remotesigner.yaml /etc/remotesigner/remotesigner.yaml\n" +
-			"COPY network.yaml /etc/remotesigner/network.yaml\n" +
-			"COPY key-0.yaml /root/key-0.yaml\n" +
+			"COPY --chmod=0755 sudo /usr/local/bin/sudo\n" +
+			"COPY guide /root/guide\n" +
 			"CMD [\"/lib/systemd/systemd\"]\n"),
 	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(ctx, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(ctx, name), content, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -121,8 +178,8 @@ func TestSystemdSmoke(t *testing.T) {
 	}
 
 	waitFor("systemd did not start", `state=$(systemctl is-system-running); [ "$state" = running ] || [ "$state" = degraded ]`)
-	if out, code := sh(systemdInstall); code != 0 {
-		t.Fatalf("install: exit %d: %s", code, out)
+	if out, code := sh("cd /root/guide && sh -x install.sh"); code != 0 {
+		t.Fatalf("the guide's installation: exit %d: %s", code, out)
 	}
 
 	const curl = "curl --silent --show-error --fail --cacert /var/lib/remotesigner/tls/cert.pem "
@@ -143,6 +200,11 @@ func TestSystemdSmoke(t *testing.T) {
 		if len(f) != 3 || f[2] != "remotesigner" || (f[1] != "700" && f[1] != "600") {
 			t.Errorf("%q: want mode 0700 or 0600, owned by remotesigner", line)
 		}
+	}
+	// The guide's own check prints OK and the key.
+	if out, code := sh(markedBlocks(string(readRepo(t, systemdGuide)), systemdCheckBlock)[0]); code != 0 ||
+		!strings.Contains(out, "OK") || !strings.Contains(out, keys.Keys[0].Pubkey) {
+		t.Errorf("the guide's check: exit %d: %.200s", code, out)
 	}
 	if out := waitFor("metrics", "curl --silent --fail http://127.0.0.1:9001/metrics"); !strings.Contains(out, "process_resident_memory_bytes") {
 		t.Error("the process collector reports nothing under the unit's /proc restrictions")

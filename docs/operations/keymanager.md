@@ -25,8 +25,9 @@ remotesigner --key-config-path=/var/lib/remotesigner/keys --data-path=/var/lib/r
   example, as `mkdir` makes it under the usual umask) is refused at startup under `--strict-file-permissions` (the
   default): `chmod 0700` it. With `--strict-file-permissions=false` the signer starts and logs a WARN naming the
   directory and its mode. On Windows the directory's ACL governs access and no mode is checked. The signer must be
-  able to write there: the container examples of [`deploy-docker.md`](deploy-docker.md#3-volumes-and-keys) mount
-  `/keys` read-only, which makes every import an `error`; mount it read-write for the keymanager.
+  able to write there, so a read-only mount makes every import an `error`: in the container image use
+  `--key-config-path=/data/keys`, which the signer creates in its data volume
+  ([`deploy-docker.md`](deploy-docker.md#3-volumes-and-keys)).
 - **Without the flag** the routes do not exist: they answer `404` once the caller has presented a token.
 
 The routes answer during the startup load as well, while `/upcheck` is still `503`. An import or a delete then changes
