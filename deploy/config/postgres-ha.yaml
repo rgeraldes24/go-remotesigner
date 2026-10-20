@@ -12,6 +12,12 @@
 # before the first start, with `remotesigner consensus migrate` as the role
 # that owns it; the signers connect as a role without DDL rights
 # (docs/operations/postgres.md).
+#
+# Under the systemd unit (deploy/systemd/remotesigner.service), every file
+# below in /etc/remotesigner must exist before the first start, since the
+# unit makes /etc read-only, and be readable by the service user: the token
+# files, db-password and tls/signer.key owned by remotesigner with mode 0600;
+# tls/signer.crt and db-ca.pem owned by root with mode 0644.
 
 data-path: /var/lib/remotesigner
 key-config-path: /var/lib/remotesigner/keys
@@ -41,9 +47,11 @@ consensus:
   network: /etc/remotesigner/network.yaml
   network-genesis-time: 1760000000
   network-genesis-validators-root: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"
-  # The shared database, with TLS to the server verified. The password comes
-  # from its own file (or PGPASSFILE), never from the URL.
-  slashing-protection-db-url: postgres://remotesigner@db.internal:5432/remotesigner?sslmode=verify-full
+  # The shared database, with TLS to the server verified against its CA,
+  # named with sslrootcert: libpq's ~/.postgresql/root.crt does not exist
+  # for the unit's user, which has no home directory. The password comes from
+  # its own file (or PGPASSFILE), never from the URL.
+  slashing-protection-db-url: postgres://remotesigner@db.internal:5432/remotesigner?sslmode=verify-full&sslrootcert=/etc/remotesigner/db-ca.pem
   slashing-protection-db-password-file: /etc/remotesigner/db-password
   # Schema upgrades run under an advisory lock, so replicas started together
   # cannot both migrate; they also need a role that may create tables. Leave

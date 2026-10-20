@@ -103,7 +103,7 @@ signers, whose role cannot change the schema ([`postgres.md`](postgres.md#2-sett
 
   ```
   remotesigner consensus migrate \
-      --slashing-protection-db-url=postgres://remotesigner_owner@db.internal:5432/remotesigner?sslmode=verify-full \
+      --slashing-protection-db-url='postgres://remotesigner_owner@db.internal:5432/remotesigner?sslmode=verify-full&sslrootcert=/etc/remotesigner/db-ca.pem' \
       --slashing-protection-db-password-file=/etc/remotesigner/db-owner-password
   ```
 

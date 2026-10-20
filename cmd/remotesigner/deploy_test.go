@@ -121,7 +121,7 @@ func TestPostgresHAExampleConfig(t *testing.T) {
 	cfg := loadExample(t, file)
 	checkHAConfig(t, cfg)
 	want := config.Postgres{
-		URL:                 "postgres://remotesigner@db.internal:5432/remotesigner?sslmode=verify-full",
+		URL:                 "postgres://remotesigner@db.internal:5432/remotesigner?sslmode=verify-full&sslrootcert=/etc/remotesigner/db-ca.pem",
 		PasswordFile:        "/etc/remotesigner/db-password",
 		HealthCheckTimeout:  3 * time.Second,
 		HealthCheckInterval: 30 * time.Second,

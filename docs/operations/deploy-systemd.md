@@ -241,5 +241,8 @@ runs it on every pull request.
 [`deploy/config/postgres-ha.yaml`](../../deploy/config/postgres-ha.yaml) is the configuration for two or more signers
 that serve the same keys behind one name and share a Postgres slashing-protection database, each replica with the same
 file, keys, token files and certificate. [`postgres.md`](postgres.md) sets up the database and its roles, creates the
-schema with `consensus migrate`, and describes the connection profile and what replicas share. Without Postgres, run
-exactly one signer per set of keys.
+schema with `consensus migrate`, and describes the connection profile and what replicas share. The files the
+configuration names in `/etc/remotesigner` (the tokens, the certificate and its key, the database password and the
+database's CA) must exist before the first start, with the owners and modes
+[`postgres.md`](postgres.md) lists. Without Postgres, run exactly one signer per set of
+keys.
