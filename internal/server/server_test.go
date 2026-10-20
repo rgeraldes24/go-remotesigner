@@ -270,10 +270,15 @@ func TestSuccessAndRouting(t *testing.T) {
 		t.Errorf("2 MiB + 1 body: %d", rec.Code)
 	}
 
+	// An unrouted request gets Web3Signer's {code, message}, the one 4xx body
+	// without a reason (docs/contract.md section 11).
 	for _, tok := range []string{signTok, adminTok} {
 		rec := do("GET", "/nope", tok, "", "")
 		if rec.Code != 404 {
 			t.Fatalf("unknown path: %d", rec.Code)
+		}
+		if body := rec.Body.String(); body != `{"code":404,"message":"Not Found"}` {
+			t.Errorf("unknown path body %s", body)
 		}
 		if e := decodeErr(t, rec); e.Message != "Not Found" || e.Reason != "" {
 			t.Errorf("unknown path body %+v", e)
@@ -282,7 +287,10 @@ func TestSuccessAndRouting(t *testing.T) {
 		if rec.Code != 405 || rec.Header().Get("Allow") != "GET, HEAD" {
 			t.Fatalf("wrong method: %d, Allow %q", rec.Code, rec.Header().Get("Allow"))
 		}
-		if e := decodeErr(t, rec); e.Message != "Method Not Allowed" {
+		if body := rec.Body.String(); body != `{"code":405,"message":"Method Not Allowed"}` {
+			t.Errorf("wrong method body %s", body)
+		}
+		if e := decodeErr(t, rec); e.Message != "Method Not Allowed" || e.Reason != "" {
 			t.Errorf("wrong method body %+v", e)
 		}
 	}

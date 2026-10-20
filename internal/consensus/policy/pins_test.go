@@ -112,4 +112,19 @@ func TestFeeRecipientPin(t *testing.T) {
 	if err := checkErr(newPolicy(t, Config{FeeRecipients: other}), registration(2, genesis)); err != nil {
 		t.Errorf("key without a pin: %v", err)
 	}
+
+	// The pin is checked at step 3, before step 4 compares pubkey with the
+	// identified key (docs/contract.md section 8): a registration naming
+	// another key and another fee recipient is the pin's 403, and with the
+	// pinned fee recipient it is the 400 PUBKEY_MISMATCH.
+	for _, tt := range []struct {
+		fee  byte
+		want apierr.Reason
+	}{{2, apierr.ArtifactTypeDisabled}, {1, apierr.PubkeyMismatch}} {
+		req := registration(tt.fee, genesis)
+		req.Payload.(*types.ValidatorRegistrationV1).Pubkey[0] ^= 0xff
+		if err := checkErr(p, req); reason(t, err) != tt.want {
+			t.Errorf("another key, fee recipient %d: %v, want %s", tt.fee, err, tt.want)
+		}
+	}
 }
