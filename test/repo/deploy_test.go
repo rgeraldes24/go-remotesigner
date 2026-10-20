@@ -626,6 +626,48 @@ func TestMakeBuildVersion(t *testing.T) {
 	}
 }
 
+// make release-version builds for the tag of the newest version that
+// CHANGELOG.md has an entry for, unless RELEASE_TAG names another tag
+// (docs/operations/release.md section 4), so that its default follows the
+// release being prepared.
+func TestReleaseTagDefault(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make is not installed")
+	}
+	data, err := os.ReadFile(filepath.Join(root, "CHANGELOG.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newest := regexp.MustCompile(`(?m)^## \[(\d+\.\d+\.\d+)\] - `).FindSubmatch(data)
+	if newest == nil {
+		t.Fatal("CHANGELOG.md has no version entry")
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "RELEASE_TAG=") {
+			env = append(env, kv)
+		}
+	}
+	for _, tt := range []struct {
+		args []string
+		want string
+	}{
+		{nil, "v" + string(newest[1])},
+		{[]string{"RELEASE_TAG=v9.8.7-rc.1"}, "v9.8.7-rc.1"},
+	} {
+		args := append([]string{"-n", "-C", root, "release-version", "GO_LICENSES=go-licenses"}, tt.args...)
+		cmd := exec.Command("make", args...)
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("make %q: %v: %s", args, err, out)
+		}
+		if want := "GORELEASER_CURRENT_TAG=" + tt.want + " "; !strings.Contains(string(out), want) {
+			t.Errorf("make %q: no %q in\n%s", args, want, out)
+		}
+	}
+}
+
 var (
 	// dockerRunNetwork finds the network a documented `docker run` joins,
 	// written `--network <name>`; the signer's own --network flag is

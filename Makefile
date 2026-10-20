@@ -273,8 +273,9 @@ release-check:
 
 ## release-version: build every binary as goreleaser builds them for the release of RELEASE_TAG, through a
 ## GORELEASER_CURRENT_TAG that needs no git tag (nothing is tagged, archived or published), into RELEASE_DIST, and
-## check that each binary of this machine reports the tag's version: 1.0.0 for v1.0.0
-RELEASE_TAG ?= v1.0.0
+## check that each binary of this machine reports the tag's version (1.1.0 for v1.1.0), and the default flavour's
+## binaries go-qrl's notice. RELEASE_TAG defaults to the tag of the newest version that CHANGELOG.md has an entry for.
+RELEASE_TAG ?= v$(shell sed -n 's/^.. \[\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)\] - .*/\1/p' CHANGELOG.md | head -n 1)
 release-version:
 	GORELEASER_CURRENT_TAG=$(RELEASE_TAG) GO_LICENSES="$(GO_LICENSES)" $(GORELEASER) build --clean --skip=validate
 	REMOTESIGNER_RELEASE_DIST=$(abspath $(RELEASE_DIST)) $(GO) test -count=1 -run '^TestReleaseVersion$$' -v ./test/release/
