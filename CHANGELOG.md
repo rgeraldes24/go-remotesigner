@@ -15,7 +15,8 @@ release workflow refuses to publish a version whose entry is missing or undated
 ## [1.0.0] - Unreleased
 
 The first release: a remote signer for the ML-DSA-87 validator keys of qrysm validator clients on Testnet V3, ported
-from Consensys Web3Signer. Every behaviour that differs from Web3Signer is listed in [`DEVIATIONS.md`](DEVIATIONS.md)
+from Consensys Web3Signer and, like it, licensed under the Apache License 2.0 ([`LICENSE`](LICENSE),
+[`NOTICE`](NOTICE)). Every behaviour that differs from Web3Signer is listed in [`DEVIATIONS.md`](DEVIATIONS.md)
 (rows X1-X75); the ones about execution mode (X25, X26, X28) describe a later release.
 
 ### Added
@@ -40,7 +41,8 @@ from Consensys Web3Signer. Every behaviour that differs from Web3Signer is liste
   the same keys, a shared PostgreSQL database (`postgres://` URLs) with a squashed schema that the signer creates and
   upgrades itself (`consensus migrate`, `--slashing-protection-db-migrate`), advisory locks, a fixed pool and timeout
   profile, and credentials only from a password file or `PGPASSFILE`. Disabling protection is allowed only when every
-  listener is on loopback.
+  listener is on loopback. Both stores pass the store tests ported from Web3Signer's slashing-protection suite and
+  scenarios written from the conditions of EIP-3076.
 - **Slashing-protection history commands.** `consensus import` and `consensus export` stream EIP-3076 v5 interchange
   files with 2,592-byte keys, `consensus watermark-repair` raises low watermarks, `consensus set-high-watermark` sets
   or removes the high-watermark fence (served at `GET /api/v1/consensus/highWatermark`), and

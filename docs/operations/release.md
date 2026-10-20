@@ -100,8 +100,8 @@ make release-check
   and for the dry run that version followed by `-SNAPSHOT-<short commit>`;
 - every archive has an SPDX SBOM (unless the dry run skipped them);
 - every image (both flavours, amd64 and arm64) runs as `65532:65532` with the documented entrypoint and no
-  plaintext-token override, carries its flavour's labels and the same licence and documentation files, holds a binary that passes the same build
-  checks, and has `/data` owned by the nonroot user with mode `0700`;
+  plaintext-token override, carries its flavour's labels and the same licence and documentation files, holds a
+  binary that passes the same build checks, and has `/data` owned by the nonroot user with mode `0700`;
 - the images of this machine's architecture, one per flavour, pass the Docker smoke test
   ([`deploy-docker.md`](deploy-docker.md#8-building-the-image)): run hardened, with a read-only root file system and
   no capabilities, as the Docker guide runs them, they check and load a keystore, serve TLS as the nonroot user to a
@@ -120,7 +120,8 @@ make release-version RELEASE_TAG=v1.0.0 GO_LICENSES="$(go env GOPATH)/bin/go-lic
 
 It builds every binary as the release would (`goreleaser build` with `GORELEASER_CURRENT_TAG`, into `dist/`; nothing
 is tagged, archived or published) and checks that each one of this machine prints
-`remotesigner version 1.0.0 (commit …)`. `make build` on a checkout of the tag reports the same version.
+`remotesigner version 1.0.0 (commit …)`. `make build` on a checkout of the tag reports the same version: the
+Makefile drops the `v` of `git describe` too (`TestMakeBuildVersion` in `test/repo`).
 
 ## 5. Publishing
 
@@ -164,7 +165,7 @@ repository does not have; each is recorded where the table says once it is met.
 | `PROVENANCE.md` records every file, and every header matches its class | `make headercheck`; `TestProvenanceCoversEveryFile` (`test/repo`) |
 | `DEVIATIONS.md` is reviewed against the code, and its rows that show on the API are mapped in the contract | the review for 1.0.0; `make contract` |
 | Every archive and image carries `LICENSE`, its flavour's `NOTICE`, `LICENSES/` and `third_party_licenses/` | `make release-check` (section 4) |
-| The binaries of the tag `v1.0.0` report `1.0.0` | `make release-version` (section 4) by hand; in CI, `TestReleaseVersion` checks the dry run's `<version>-SNAPSHOT-<short commit>` |
+| The binaries of the tag `v1.0.0` report `1.0.0` | `make release-version` (section 4) by hand; in CI, `TestReleaseVersion` checks the dry run's `<version>-SNAPSHOT-<short commit>`, and `TestMakeBuildVersion` (`test/repo`) what `make build` passes for a tag |
 | Every operator page exists and is linked from the README; the flag reference is current | `TestOperatorDocs` (`test/repo`); `go run ./tools/flagdoc -check` |
 | The benchmarks that run on a development machine are re-run for the release | [`docs/benchmarks.md`](../benchmarks.md#v10-release-run-dev-machine), "v1.0 release run" |
 
@@ -176,7 +177,7 @@ repository does not have; each is recorded where the table says once it is met.
 | Benchmark B16 | A 24 h soak with 4,096 keys on a reference VM, within its threshold | [`docs/benchmarks.md`](../benchmarks.md) |
 | Reference-VM runs of B1-B15 and B18-B20 | Each benchmark on the 4-vCPU amd64 and arm64 reference VMs, with `benchstat` over at least 10 runs where it is a Go benchmark, within its threshold; the rows recorded so far are development-machine numbers. B10's memory bound needs a maintainers' decision first (its section in `docs/benchmarks.md`), and B12, which now measures signing, missed its bound on the development machine | [`docs/benchmarks.md`](../benchmarks.md) |
 | The first tag run of the Release workflow, with public ghcr.io packages | The workflow's first run for `v1.0.0` publishes the archives, `checksums.txt` with its signature and the provenance attestation, and both images; the `remotesigner` and `remotesigner-consensus` packages on ghcr.io are made public once the repository is public, so that `docker pull` works without a login; section 3 verifies the release | the GitHub release |
-| Making the repository public | The maintainers' decision to make `rgeraldes24/go-remotesigner` public; once the repository is public, qrysm CI fetches the signer without credentials ([`docs/contract.md`](../contract.md#23-access-from-qrysm-ci) section 23) | the repository settings |
+| Making the repository public | The maintainers' decision to make `rgeraldes24/go-remotesigner` public, taken after a secret scan of its full history finds nothing to remove; once the repository is public, qrysm CI fetches the signer without credentials ([`docs/contract.md`](../contract.md#23-access-from-qrysm-ci) section 23) | the repository settings |
 
 Cutting the release, once section 6.2 is met: a pull request to `main` dates the 1.0.0 entry of `CHANGELOG.md` (and
 moves anything listed under `Unreleased` into it); after it is merged, the tag is pushed as section 5 shows.
