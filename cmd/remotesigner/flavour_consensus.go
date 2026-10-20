@@ -29,5 +29,5 @@ func flavourSections() map[string][]cli.Flag { return nil }
 // cloudSecretStores reports whether this flavour links the cloud SDKs of
 // the AWS, Azure and GCP secret stores. Like execution mode, they are in
 // the default flavour only, which keeps this one small; HashiCorp Vault,
-// read over plain HTTP, is in both.
+// read through Vault's HTTP API without a Vault SDK, is in both.
 const cloudSecretStores = false
