@@ -20,6 +20,12 @@ import (
 // node's qrl_chainId after the check at startup.
 const ChainCheckInterval = 10 * time.Minute
 
+// ChainRetryInterval is how often the signer asks again while the node has
+// not answered qrl_chainId once: until then the check has no verdict, and
+// a node that was down at startup is compared as soon as it answers, not
+// ChainCheckInterval later.
+const ChainRetryInterval = 15 * time.Second
+
 // Chain-check verdicts.
 const (
 	chainUnchecked int32 = iota // no answer from the node yet
@@ -45,10 +51,10 @@ func newChainMonitor(want *big.Int, p *proxy, log logrus.FieldLogger) *chainMoni
 	return &chainMonitor{want: want, proxy: p, log: log}
 }
 
-// run checks now and then every interval until ctx ends.
-func (m *chainMonitor) run(ctx context.Context, interval time.Duration) {
-	m.check(ctx)
-	t := time.NewTicker(interval)
+// run checks now, then every retry until the node first answers, then
+// every interval, until ctx ends.
+func (m *chainMonitor) run(ctx context.Context, interval, retry time.Duration) {
+	t := time.NewTimer(0)
 	defer t.Stop()
 	for {
 		select {
@@ -56,6 +62,11 @@ func (m *chainMonitor) run(ctx context.Context, interval time.Duration) {
 			return
 		case <-t.C:
 			m.check(ctx)
+			if m.verdict.Load() == chainUnchecked {
+				t.Reset(retry)
+			} else {
+				t.Reset(interval)
+			}
 		}
 	}
 }
