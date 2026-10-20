@@ -175,11 +175,11 @@ release-snapshot:
 	GO_LICENSES="$(GO_LICENSES)" $(GORELEASER) release --snapshot --clean --skip=$(RELEASE_SKIP)
 
 ## release-check: check the dry run's output (test/release): both flavours for every target, each archive and image
-## with LICENSE, its flavour's NOTICE, LICENSES/, third_party_licenses/, the README without dead links, and the
-## repository's deploy/config/ and deploy/systemd/; static binaries, the consensus ones built
-## with noexecution and linking no go-qrl module; the version this machine's binaries and images report; checksums and
-## SBOMs; the images' nonroot user, entrypoint, labels and /data; and the docker-smoke checks on the images of this
-## machine's architecture, one per flavour
+## with LICENSE, its flavour's NOTICE, LICENSES/, third_party_licenses/ with the licence (and any NOTICE) of every
+## module its binary links, the README without dead links, and the repository's deploy/config/ and deploy/systemd/;
+## static binaries, the consensus ones built with noexecution and linking no go-qrl module; the version this
+## machine's binaries and images report; checksums and SBOMs; the images' nonroot user, entrypoint, labels and /data;
+## and the docker-smoke checks on the images of this machine's architecture, one per flavour
 RELEASE_DIST ?= dist
 release-check:
 	REMOTESIGNER_RELEASE_DIST=$(abspath $(RELEASE_DIST)) $(if $(findstring sbom,$(RELEASE_SKIP)),,REMOTESIGNER_RELEASE_SBOM=1) \

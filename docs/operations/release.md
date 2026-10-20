@@ -91,8 +91,9 @@ make release-check
 
 - archives exist for both flavours and every target, and `checksums.txt` matches them;
 - every archive holds its binary, `LICENSE`, the flavour's `NOTICE`, exactly the flavour's `LICENSES/` texts,
-  `third_party_licenses/`, the repository's `deploy/config/` and `deploy/systemd/` files, and a `README.md` whose
-  relative links all name files the archive holds;
+  `third_party_licenses/` with a licence file of every module that `go version -m` lists for the binary (and the
+  module's `NOTICE` where its source has one), the repository's `deploy/config/` and `deploy/systemd/` files, and a
+  `README.md` whose relative links all name files the archive holds;
 - every binary is static and trimmed; the consensus binaries are built with `noexecution` and `go version -m` lists
   no go-qrl module;
 - every binary built for this machine, and every image of its architecture, reports the version goreleaser derived
@@ -164,7 +165,7 @@ repository does not have; each is recorded where the table says once it is met.
 | `CHANGELOG.md` has the 1.0.0 entry, in Keep a Changelog form | `TestChangelog` (`tools/releasedocs`) |
 | `PROVENANCE.md` records every file, and every header matches its class | `make headercheck`; `TestProvenanceCoversEveryFile` (`test/repo`); by hand, the ConsenSys lines against a Web3Signer checkout (`PROVENANCE.md`, "Header classes") |
 | `DEVIATIONS.md` is reviewed against the code, and its rows that show on the API are mapped in the contract | the review for 1.0.0; `make contract` |
-| Every archive and image carries `LICENSE`, its flavour's `NOTICE`, `LICENSES/` and `third_party_licenses/` | `make release-check` (section 4) |
+| Every archive and image carries `LICENSE`, its flavour's `NOTICE`, `LICENSES/` and `third_party_licenses/` with the licence (and any `NOTICE`) of every module its binary links | `make release-check` (section 4) |
 | The binaries of the tag `v1.0.0` report `1.0.0` | `make release-version` (section 4) by hand; in CI, `TestReleaseVersion` checks the dry run's `<version>-SNAPSHOT-<short commit>`, and `TestMakeBuildVersion` (`test/repo`) what `make build` passes for a tag |
 | Every operator page exists and is linked from the README; the flag reference is current | `TestOperatorDocs` (`test/repo`); `go run ./tools/flagdoc -check` |
 | The benchmarks that run on a development machine are re-run for the release | [`docs/benchmarks.md`](../benchmarks.md#v10-release-run-dev-machine), "v1.0 release run" |

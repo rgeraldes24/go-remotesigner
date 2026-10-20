@@ -12,6 +12,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -273,10 +274,26 @@ func shippedDocsProblems(want map[string][]byte, files map[string]tarFile) []str
 	return p
 }
 
+// module is a dependency `go version -m` lists: its path and version, and
+// the module@version its source comes from, which a replace changes.
+type module struct {
+	path, version string
+	source        string
+}
+
 // buildInfo is what `go version -m` reports about a binary.
 type buildInfo struct {
-	deps     []string          // module paths
+	deps     []module          // the dependency modules, without the main module
 	settings map[string]string // build settings
+}
+
+// paths returns the paths of the dependency modules.
+func (bi buildInfo) paths() []string {
+	out := make([]string, len(bi.deps))
+	for i, m := range bi.deps {
+		out[i] = m.path
+	}
+	return out
 }
 
 // parseGoVersionM parses the output of `go version -m`.
@@ -285,8 +302,10 @@ func parseGoVersionM(out string) buildInfo {
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Split(strings.TrimSpace(line), "\t")
 		switch {
-		case len(f) >= 2 && f[0] == "dep":
-			bi.deps = append(bi.deps, f[1])
+		case len(f) >= 3 && f[0] == "dep":
+			bi.deps = append(bi.deps, module{path: f[1], version: f[2], source: f[1] + "@" + f[2]})
+		case len(f) >= 3 && f[0] == "=>" && len(bi.deps) > 0:
+			bi.deps[len(bi.deps)-1].source = f[1] + "@" + f[2]
 		case len(f) >= 2 && f[0] == "build":
 			k, v, _ := strings.Cut(f[1], "=")
 			bi.settings[k] = v
@@ -315,22 +334,130 @@ func buildProblems(flavour string, bi buildInfo) []string {
 	case flavour == fullFlavour && noexecution:
 		p = append(p, "the default flavour is built with noexecution")
 	}
-	if flavour == consensusFlavour && slices.Contains(bi.deps, goQRL) {
+	if flavour == consensusFlavour && slices.Contains(bi.paths(), goQRL) {
 		p = append(p, "go version -m lists "+goQRL)
 	}
 	return p
 }
 
-// checkBinary runs `go version -m` on the flavour's binary at p and reports
-// buildProblems as test errors.
-func checkBinary(t *testing.T, flavour, p string) {
+// checkBinary runs `go version -m` on the flavour's binary at p, reports
+// buildProblems as test errors and returns what it read.
+func checkBinary(t *testing.T, flavour, p string) buildInfo {
 	t.Helper()
 	out, err := exec.Command("go", "version", "-m", p).CombinedOutput()
 	if err != nil {
 		t.Fatalf("go version -m %s: %v: %s", p, err, out)
 	}
-	for _, msg := range buildProblems(flavour, parseGoVersionM(string(out))) {
+	bi := parseGoVersionM(string(out))
+	for _, msg := range buildProblems(flavour, bi) {
 		t.Errorf("%s: %s", p, msg)
+	}
+	return bi
+}
+
+// thirdPartyLicenses is the directory of a release's tree that `go-licenses
+// save` fills, one subdirectory per module (or per package of it that has a
+// licence of its own).
+const thirdPartyLicenses = "third_party_licenses/"
+
+// licenceName and noticeName match the base names of licence and notice
+// files, as go-licenses finds them.
+var (
+	licenceName = regexp.MustCompile(`(?i)^(?:LICEN[CS]E|COPYING)`)
+	noticeName  = regexp.MustCompile(`(?i)^NOTICE`)
+)
+
+// thirdPartyProblems returns what files, a release's tree, lacks of the
+// licence files of the modules its binary links (deps): each needs a licence
+// file under third_party_licenses/<module path>/, and each module whose
+// source has a NOTICE file (notices, by path) that file too (Apache-2.0
+// §4(d)).
+func thirdPartyProblems(deps []module, notices map[string]bool, files map[string]tarFile) []string {
+	var p []string
+	for _, m := range deps {
+		dir := thirdPartyLicenses + m.path + "/"
+		var licence, notice bool
+		for name, f := range files {
+			if f.hdr.Typeflag != tar.TypeReg || !strings.HasPrefix(name, dir) {
+				continue
+			}
+			base := path.Base(name)
+			licence = licence || licenceName.MatchString(base)
+			notice = notice || noticeName.MatchString(base)
+		}
+		if !licence {
+			p = append(p, dir+" holds no licence file of "+m.path+", which the binary links")
+		}
+		if notices[m.path] && !notice {
+			p = append(p, dir+" lacks the NOTICE file of "+m.path)
+		}
+	}
+	slices.Sort(p)
+	return p
+}
+
+// sourceNotices caches, by module@version, whether a module's source has a
+// NOTICE file at its root.
+var sourceNotices = map[string]bool{}
+
+// moduleNotices returns the paths of the modules in deps whose source has a
+// NOTICE file at its root, from the module cache (`go mod download`, which
+// the release build has filled).
+func moduleNotices(t *testing.T, deps []module) map[string]bool {
+	t.Helper()
+	var missing []string
+	for _, m := range deps {
+		if _, ok := sourceNotices[m.source]; !ok {
+			missing = append(missing, m.source)
+		}
+	}
+	if len(missing) > 0 {
+		cmd := exec.Command("go", append([]string{"mod", "download", "-json"}, missing...)...)
+		cmd.Dir = root
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("go mod download %s: %v", strings.Join(missing, " "), err)
+		}
+		dec := json.NewDecoder(bytes.NewReader(out))
+		for dec.More() {
+			var mod struct{ Path, Version, Dir, Error string }
+			if err := dec.Decode(&mod); err != nil {
+				t.Fatalf("go mod download: %v", err)
+			}
+			if mod.Error != "" || mod.Dir == "" {
+				t.Fatalf("go mod download %s@%s: no source directory: %s", mod.Path, mod.Version, mod.Error)
+			}
+			entries, err := os.ReadDir(mod.Dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sourceNotices[mod.Path+"@"+mod.Version] = slices.ContainsFunc(entries, func(e os.DirEntry) bool {
+				return e.Type().IsRegular() && noticeName.MatchString(e.Name())
+			})
+		}
+	}
+	out := map[string]bool{}
+	for _, m := range deps {
+		has, ok := sourceNotices[m.source]
+		if !ok {
+			t.Fatalf("go mod download did not report %s", m.source)
+		}
+		if has {
+			out[m.path] = true
+		}
+	}
+	return out
+}
+
+// checkThirdParty reports thirdPartyProblems for the binary bi of a
+// release's tree as test errors.
+func checkThirdParty(t *testing.T, bi buildInfo, files map[string]tarFile) {
+	t.Helper()
+	if len(bi.deps) == 0 {
+		t.Fatal("go version -m lists no dependency module")
+	}
+	for _, msg := range thirdPartyProblems(bi.deps, moduleNotices(t, bi.deps), files) {
+		t.Error(msg)
 	}
 }
 
