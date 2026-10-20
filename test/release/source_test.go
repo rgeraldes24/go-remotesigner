@@ -4,12 +4,17 @@
 package release
 
 import (
+	"archive/tar"
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,9 +27,10 @@ const srcVendored = "remotesigner-*-src-vendored.tar.gz"
 // (make release-src, in RELEASE_DIR): the committed tree with LICENSE, both
 // NOTICE files and the GNU texts, and every linked module in vendor/, go-qrl
 // at the version go.mod requires with its COPYING.LESSER, and no qrysm;
-// checksums.txt covers it; and it builds the default flavour offline, from
-// vendor/ alone, into a binary that links that go-qrl and says so in
-// --version. That is the corresponding source the LGPL asks for.
+// no entry the packing tar added (sourceEntryProblems); checksums.txt
+// covers it; and it builds the default flavour offline, from vendor/ alone,
+// into a binary that links that go-qrl and says so in --version. That is
+// the corresponding source the LGPL asks for.
 func TestReleaseSource(t *testing.T) {
 	dir := os.Getenv("REMOTESIGNER_RELEASE_DOCS")
 	if dir == "" {
@@ -43,6 +49,13 @@ func TestReleaseSource(t *testing.T) {
 		if got := readChecksums(t, filepath.Join(dist, "checksums.txt"))[filepath.Base(matches[0])]; got != hex.EncodeToString(sum[:]) {
 			t.Errorf("checksums.txt has %q for %s, want %x", got, filepath.Base(matches[0]), sum)
 		}
+	}
+	hdrs, err := tarHeaders(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range sourceEntryProblems(hdrs) {
+		t.Error(p)
 	}
 	zr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
@@ -97,6 +110,80 @@ func TestReleaseSource(t *testing.T) {
 	out, err = exec.Command(bin, "--version").Output()
 	if err != nil || !strings.Contains(string(out), "GNU Lesser") {
 		t.Fatalf("the rebuilt binary's --version: %v %s", err, out)
+	}
+}
+
+// tarHeaders returns the header of every entry of a gzipped tar archive.
+func tarHeaders(data []byte) ([]*tar.Header, error) {
+	zr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	var hdrs []*tar.Header
+	tr := tar.NewReader(zr)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return hdrs, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		hdrs = append(hdrs, hdr)
+	}
+}
+
+// sourceEntryProblems returns the entries of the source archive that are
+// not the tree's: the AppleDouble ._ files macOS's tar (bsdtar) adds for a
+// file's extended attributes, and extended attributes in PAX records
+// (LIBARCHIVE.xattr.* from bsdtar, SCHILY.xattr.* from GNU tar), which GNU
+// tar warns about when it extracts the archive. make release-src packs
+// without them on either tar (Makefile).
+func sourceEntryProblems(hdrs []*tar.Header) []string {
+	var p []string
+	for _, h := range hdrs {
+		if strings.HasPrefix(path.Base(h.Name), "._") {
+			p = append(p, "the source archive holds the AppleDouble file "+h.Name)
+			continue
+		}
+		for k := range h.PAXRecords {
+			if strings.HasPrefix(k, "LIBARCHIVE.xattr.") || strings.HasPrefix(k, "SCHILY.xattr.") {
+				p = append(p, fmt.Sprintf("the source archive's %s carries the extended attribute %s", h.Name, k))
+			}
+		}
+	}
+	return p
+}
+
+func TestSourceEntryProblems(t *testing.T) {
+	const dir = "remotesigner-1.1.0-src-vendored/"
+	tests := []struct {
+		name string
+		hdr  tar.Header
+		want string // a substring of the one problem; "" for none
+	}{
+		{"a file", tar.Header{Name: dir + "go.mod"}, ""},
+		{"a directory", tar.Header{Name: dir + "cmd/", Typeflag: tar.TypeDir}, ""},
+		{"a dotfile", tar.Header{Name: dir + ".goreleaser.yaml"}, ""},
+		{"a PAX path record", tar.Header{Name: dir + "go.sum", PAXRecords: map[string]string{"path": dir + "go.sum"}}, ""},
+		{"AppleDouble of the top directory", tar.Header{Name: "._remotesigner-1.1.0-src-vendored"}, "AppleDouble"},
+		{"AppleDouble of a file", tar.Header{Name: dir + "._CHANGELOG.md"}, "AppleDouble"},
+		{"AppleDouble of a dotfile", tar.Header{Name: dir + "._.goreleaser.yaml"}, "AppleDouble"},
+		{"bsdtar xattr", tar.Header{Name: dir + "go.mod",
+			PAXRecords: map[string]string{"LIBARCHIVE.xattr.com.apple.provenance": "AQ"}}, "LIBARCHIVE.xattr"},
+		{"GNU tar xattr", tar.Header{Name: dir + "go.mod",
+			PAXRecords: map[string]string{"SCHILY.xattr.user.x": "1"}}, "SCHILY.xattr"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sourceEntryProblems([]*tar.Header{&tt.hdr})
+			switch {
+			case tt.want == "" && len(got) != 0:
+				t.Errorf("problems %q, want none", got)
+			case tt.want != "" && (len(got) != 1 || !strings.Contains(got[0], tt.want)):
+				t.Errorf("problems %q, want one mentioning %q", got, tt.want)
+			}
+		})
 	}
 }
 

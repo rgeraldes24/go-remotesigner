@@ -141,8 +141,9 @@ make release-check
   module's `NOTICE` where its source has one) and the go-qrl rules of section 2, the repository's `deploy/config/` and
   `deploy/systemd/` files, and a `README.md` whose relative links all name files the archive holds;
 - the source archive (`REMOTESIGNER_RELEASE_DOCS`, the `build/release` directory) holds both NOTICE files, the GNU
-  texts and every module in `vendor/`, go-qrl at the version `go.mod` requires and no qrysm, is in `checksums.txt`,
-  and builds the default flavour offline from `vendor/` into a binary that links that go-qrl;
+  texts and every module in `vendor/`, go-qrl at the version `go.mod` requires and no qrysm, holds no AppleDouble
+  `._` file and no extended attribute (macOS's tar adds both unless `make release-src` turns them off), is in
+  `checksums.txt`, and builds the default flavour offline from `vendor/` into a binary that links that go-qrl;
 - every binary is static and trimmed; the consensus binaries are built with `noexecution` and `go version -m` lists
   no go-qrl module;
 - every binary built for this machine, and every image of its architecture, reports the version goreleaser derived
