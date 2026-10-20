@@ -10,8 +10,8 @@ Consensys.
 
 ## Status
 
-Pre-release: 1.0.0 is prepared, and [`CHANGELOG.md`](CHANGELOG.md) lists what it contains. The gates it still waits
-for, which need infrastructure this repository does not have, are in the
+[`CHANGELOG.md`](CHANGELOG.md) lists what each version contains. A version whose heading there still says
+`Unreleased` has not been tagged: it is tagged once it meets the
 [release checklist](docs/operations/release.md#6-the-v10-release-checklist). The HTTP contract with the qrysm
 validator client is [`docs/contract.md`](docs/contract.md) and
 [`api/openapi/consensus.yaml`](api/openapi/consensus.yaml), with the protocol facts it relies on in

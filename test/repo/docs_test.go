@@ -115,6 +115,28 @@ func TestOperatorDocs(t *testing.T) {
 	}
 }
 
+// The README ships in every release archive and image, so its Status
+// section states nothing that tagging a release makes stale: no version and
+// no pre-release state. CHANGELOG.md, which the shipped README links at the
+// release's tag, says what each version holds and whether it is released.
+func TestReadmeStatusIsReleaseNeutral(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, status, ok := strings.Cut(string(data), "\n## Status\n")
+	if !ok {
+		t.Fatal("README.md has no Status section")
+	}
+	if i := strings.Index(status, "\n## "); i >= 0 {
+		status = status[:i]
+	}
+	stale := regexp.MustCompile(`(?i)pre-?release|\bprepared\b|\b\d+\.\d+\.\d+\b`)
+	for _, m := range stale.FindAllString(status, -1) {
+		t.Errorf("README.md Status says %q, which a release would make stale", m)
+	}
+}
+
 // Every Markdown page of the repository can be reached from the README by
 // following relative links, directly (the operator pages, CHANGELOG.md, the
 // contract) or through an index such as docs/spec/README.md, so that no
