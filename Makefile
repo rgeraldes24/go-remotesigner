@@ -198,17 +198,19 @@ b19:
 ## gqrl-e2e: execution mode against gqrl --dev (TestGQRLDev in internal/execution): a mined transfer, the nonce
 ## retry, the chain-ID, payload, nonce cross-check and fee-cap refusals. gqrl is built from go-qrl at the commit
 ## go.mod requires, in GQRL_SRC (cloned when missing), unless GQRL names a gqrl binary built from that commit.
+## GQRL_SRC defaults to a clone per commit in the user's cache directory, outside the source tree: go-qrl's own
+## files are not gofmt-clean, and `gofmt -l .` would list them from a clone under the repository.
 GQRL_COMMIT = $(lastword $(subst -, ,$(shell $(GO) list -m -f '{{.Version}}' github.com/theQRL/go-qrl)))
-GQRL_SRC   ?= build/go-qrl
+GQRL_SRC   ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-remotesigner/go-qrl-$(GQRL_COMMIT)
 GQRL       ?=
 gqrl-e2e:
 	@if [ -z "$(GQRL)" ]; then \
 		set -e; \
-		test -d $(GQRL_SRC)/.git || git clone --filter=blob:none --no-checkout https://github.com/theQRL/go-qrl $(GQRL_SRC); \
-		git -C $(GQRL_SRC) -c advice.detachedHead=false checkout -q $(GQRL_COMMIT) 2>/dev/null || \
-			{ git -C $(GQRL_SRC) fetch -q --filter=blob:none origin && git -C $(GQRL_SRC) checkout -q $(GQRL_COMMIT); }; \
+		test -d "$(GQRL_SRC)/.git" || git clone --filter=blob:none --no-checkout https://github.com/theQRL/go-qrl "$(GQRL_SRC)"; \
+		git -C "$(GQRL_SRC)" -c advice.detachedHead=false checkout -q $(GQRL_COMMIT) 2>/dev/null || \
+			{ git -C "$(GQRL_SRC)" fetch -q --filter=blob:none origin && git -C "$(GQRL_SRC)" checkout -q $(GQRL_COMMIT); }; \
 		echo "building gqrl at go-qrl $(GQRL_COMMIT)"; \
-		cd $(GQRL_SRC) && CGO_ENABLED=0 $(GO) build -trimpath -o $(abspath $(BIN_DIR))/gqrl ./cmd/gqrl; \
+		cd "$(GQRL_SRC)" && CGO_ENABLED=0 $(GO) build -trimpath -o $(abspath $(BIN_DIR))/gqrl ./cmd/gqrl; \
 	fi
 	REMOTESIGNER_GQRL=$(if $(GQRL),$(abspath $(GQRL)),$(abspath $(BIN_DIR))/gqrl) \
 		$(GO) test -count=1 -timeout 10m -run '^TestGQRLDev$$' -v ./internal/execution/
