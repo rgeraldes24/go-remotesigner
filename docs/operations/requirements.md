@@ -65,3 +65,15 @@ answered within about 0.3 s, and 16 contributions at once within 35 ms each ([`.
 B7 and B8). Over a WAN the network, not the signer, decides whether duties are on time. Keep the signer's port off
 the internet too: it is meant for the validator clients of one operator, behind TLS and its tokens
 ([`tls.md`](tls.md)).
+
+## 5. A qrysm validator client with the remote-signer keymanager
+
+The validator client signs through the signer with qrysm's `remote-web3signer` keymanager and its
+`--validators-external-signer-*` flags (`-url`, `-key-file`, `-auth-token-file`, `-tls-ca-file`, and the client
+certificate flags for mTLS). No qrysm release ships them yet: they are in review as pull requests #60 to #62 of
+[`rgeraldes24/qrysm`](https://github.com/rgeraldes24/qrysm/pulls), for qrysm's `main`. Until a release has them,
+build the validator client from the branch that holds all three,
+[`remote-signer/q3-vc-wiring`](https://github.com/rgeraldes24/qrysm/tree/remote-signer/q3-vc-wiring). A validator
+client without them stops at once with `flag provided but not defined: -validators-external-signer-url`. The
+validator client also checks the signer's contract version when it starts
+([`upgrade.md`](upgrade.md#1-before-every-upgrade)).

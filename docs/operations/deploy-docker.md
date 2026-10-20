@@ -244,7 +244,10 @@ deploy/docker/
 The validator client runs with `--validators-external-signer-url=https://signer:9000`,
 `--validators-external-signer-tls-ca-file`, `--validators-external-signer-auth-token-file` and
 `--validators-external-signer-key-file` pointing at the files of step 2. A validator key must be listed for exactly one
-validator client: two clients signing for the same validator can be slashed.
+validator client: two clients signing for the same validator can be slashed. `QRYSM_VALIDATOR_IMAGE` must be a
+validator client with these flags, which no qrysm release has yet: build it from the branch
+[`requirements.md`](requirements.md#5-a-qrysm-validator-client-with-the-remote-signer-keymanager) names. An image
+without them stops with `flag provided but not defined: -validators-external-signer-url`.
 
 ## 6. Running it
 

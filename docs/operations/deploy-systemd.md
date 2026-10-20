@@ -179,8 +179,10 @@ validator … \
   --validators-external-signer-key-file=/etc/qrysm/remote-keys.txt
 ```
 
-`remote-keys.txt` lists the validator public keys this client validates with, one `0x` key per line. Never give a
-validator client the admin token. Deploy the signer on the same local network as its validator clients
+`remote-keys.txt` lists the validator public keys this client validates with, one `0x` key per line. These flags
+need a qrysm validator client with the remote-signer keymanager, which no qrysm release has yet: build it from the
+branch [`requirements.md`](requirements.md#5-a-qrysm-validator-client-with-the-remote-signer-keymanager) names. Never
+give a validator client the admin token. Deploy the signer on the same local network as its validator clients
 ([`requirements.md`](requirements.md#4-deploy-signers-next-to-their-validator-clients)).
 
 ## 6. Operations

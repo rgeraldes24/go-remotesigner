@@ -16,6 +16,10 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
 )
 
+// qrysmClientLink is the link the deployment guides give, where they
+// configure the validator client, to the qrysm build it must be.
+const qrysmClientLink = "(requirements.md#5-a-qrysm-validator-client-with-the-remote-signer-keymanager)"
+
 // operatorPages are the pages of the operator documentation, each with the
 // headings or phrases that show it covers its topic.
 var operatorPages = []struct {
@@ -25,13 +29,14 @@ var operatorPages = []struct {
 	{"docs/operations/requirements.md", []string{"## 1. Testnet V3 only; Testnet V2 is unsupported",
 		"## 2. One seed is a validator key or an account key, never both",
 		"## 3. Booleans take `=`: `--flag=false`, never `--flag false`",
-		"## 4. Deploy signers next to their validator clients"}},
+		"## 4. Deploy signers next to their validator clients",
+		"## 5. A qrysm validator client with the remote-signer keymanager", "remote-signer/q3-vc-wiring"}},
 	{"docs/operations/quickstart.md", []string{"## 2. Key files", "## 3. Network"}},
 	{"docs/operations/deploy-docker.md", []string{"## 2. The entrypoint", "## 3. Volumes and keys",
 		"## 4. First start: pin the certificate", "## 5. The compose example", "## 9. Orchestrators", "Kurtosis",
-		"Kubernetes"}},
+		"Kubernetes", qrysmClientLink}},
 	{"docs/operations/deploy-systemd.md", []string{"## 2. User, directories and keys", "## 4. Start",
-		"## 7. What the unit restricts"}},
+		"## 7. What the unit restricts", qrysmClientLink}},
 	{"docs/operations/postgres.md", []string{"## 2. Setting up the database and its roles",
 		"## 3. Creating and upgrading the schema: `consensus migrate`", "## 5. Pool and timeout profile"}},
 	{"docs/operations/tls.md", []string{"## 3. Client certificates (mTLS)", "## 4. Scopes in the mTLS modes",

@@ -32,7 +32,7 @@ unit, example configuration files, the Grafana dashboard and the Prometheus aler
 
 | Page | Content |
 |---|---|
-| [`docs/operations/requirements.md`](docs/operations/requirements.md) | rules every deployment follows: Testnet V3 only, one seed per role, `--flag=false`, signers next to their validator clients |
+| [`docs/operations/requirements.md`](docs/operations/requirements.md) | rules every deployment follows: Testnet V3 only, one seed per role, `--flag=false`, signers next to their validator clients, the qrysm validator client to use |
 | [`docs/operations/quickstart.md`](docs/operations/quickstart.md) | a first signer on one host: key files, network, tokens, signing, metrics |
 | [`docs/operations/deploy-docker.md`](docs/operations/deploy-docker.md) | the container image, its entrypoint, keys and volumes, pinning its generated certificate, the compose example, orchestrators |
 | [`docs/operations/deploy-systemd.md`](docs/operations/deploy-systemd.md) | the hardened systemd unit with the example configuration |
