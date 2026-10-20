@@ -77,7 +77,7 @@ func TestW3SSigningSendTransaction(t *testing.T) {
 	})
 	// Web3Signer answers a malformed from with "no unlocked account"; the
 	// signer refuses it as invalid params, as it does for qrl_sign
-	// (DEVIATIONS.md X71).
+	// (DEVIATIONS.md X79).
 	for _, from := range []string{
 		"invalidParamsResponseWhenFromAddressIsTooShort:Q" + strings.Repeat("ab", 63),
 		"invalidParamsResponseWhenFromAddressIsTooLong:Q" + strings.Repeat("ab", 65),
