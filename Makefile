@@ -209,10 +209,11 @@ image: release-docs
 docker-smoke: image
 	REMOTESIGNER_SMOKE_IMAGE=$(IMAGE) $(GO) test -count=1 -run '^TestDockerSmoke$$' -timeout 15m -v ./test/release/
 
-## systemd-smoke: install deploy/systemd/remotesigner.service with deploy/config/single-host.yaml in a privileged
-## container that runs systemd (test/release), as docs/operations/deploy-systemd.md describes, and check that the
-## hardened unit serves TLS, /upcheck and publicKeys for a key file and a keystore, reloads, upgrades as
-## docs/operations/upgrade.md says, and stops cleanly
+## systemd-smoke: in a privileged container that runs systemd (test/release), run docs/operations/deploy-systemd.md's
+## commands as written, as an unprivileged user with sudo: extract a release archive laid out as the release's,
+## install the binary, deploy/config/single-host.yaml and deploy/systemd/remotesigner.service, and check that the
+## hardened unit serves TLS, /upcheck and publicKeys for a key file and a keystore, logs its fingerprint, reloads its
+## TLS files and its keys, upgrades as docs/operations/upgrade.md says, and stops cleanly
 systemd-smoke:
 	REMOTESIGNER_SYSTEMD_SMOKE=1 $(GO) test -count=1 -run '^TestSystemdSmoke$$' -timeout 15m -v ./test/release/
 

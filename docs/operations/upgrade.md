@@ -72,7 +72,7 @@ Then stop the service, migrate the store as the service user with the service's 
 sudo systemctl stop remotesigner
 sudo -u remotesigner remotesigner --config-file=/etc/remotesigner/remotesigner.yaml consensus migrate
 sudo systemctl start remotesigner
-journalctl -u remotesigner -n 20
+sudo journalctl -u remotesigner -n 20
 ```
 
 **Docker** ([`deploy-docker.md`](deploy-docker.md)): stop and remove the old container, run the new image's

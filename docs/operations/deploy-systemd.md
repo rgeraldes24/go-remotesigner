@@ -9,18 +9,30 @@ slashing-protection store, serving validator clients on the local network over T
 
 ## 1. Install the binary
 
-Download the archive for your platform from the release page, check it ([`release.md`](release.md#3-verifying-a-release)),
-and install its binary. `remotesigner-consensus` is the consensus-only flavour; `remotesigner` behaves the same for
-everything on this page. The unit runs `/usr/local/bin/remotesigner`, so install the flavour you chose under that name:
+Download the archive for your platform from the release page and check it
+([`release.md`](release.md#3-verifying-a-release)). `remotesigner-consensus` is the consensus-only flavour;
+`remotesigner` behaves the same for everything on this page. Besides the binary, the archive holds this release's
+unit and example configuration, `deploy/systemd/remotesigner.service` and `deploy/config/single-host.yaml`, which
+sections 3 and 4 install, and `README.md`, `LICENSE`, the flavour's `NOTICE`, `LICENSES/` and
+`third_party_licenses/`. Extract it and work in its directory. The unit runs `/usr/local/bin/remotesigner`, so install
+the flavour you chose under that name:
 
+<!-- systemd-smoke:archive -->
 ```
 tar -xzf remotesigner-consensus_<version>_linux_amd64.tar.gz
-sudo install -m 0755 remotesigner-consensus_<version>_linux_amd64/remotesigner-consensus /usr/local/bin/remotesigner
+cd remotesigner-consensus_<version>_linux_amd64
+sudo install -m 0755 remotesigner-consensus /usr/local/bin/remotesigner
 remotesigner --version
 ```
 
-The archive also holds `LICENSE`, the flavour's `NOTICE`, `LICENSES/` and `third_party_licenses/`. To build from
-source instead: `make build-consensus` and install `bin/remotesigner-consensus`.
+The commands of sections 2 to 4 run in this directory. Put the files they install there, next to `deploy/`: the key
+files of section 2 (`key-0.yaml`, or the deposit CLI's `validator_keys/` and `keystores-password.txt`) and the
+chain's `config.yaml` (section 3). Install the unit and the configuration of the release whose binary you install:
+the binary refuses a configuration key it does not know, and a newer release's example may have one.
+
+To build from source instead, check out the release's tag (`git clone --branch v<version>
+https://github.com/rgeraldes24/go-remotesigner`), run `make build-consensus`, install `bin/remotesigner-consensus` as
+`/usr/local/bin/remotesigner`, and run sections 2 to 4 in the checkout, which has the same `deploy/` files.
 
 ## 2. User, directories and keys
 
@@ -127,27 +139,31 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now remotesigner
 ```
 
-Follow the log with `journalctl -u remotesigner -f`. The first start generates the tokens and the certificate and logs
+Follow the log with `sudo journalctl -u remotesigner -f` (without `sudo`, only members of the `adm` or
+`systemd-journal` group see the service's log). The first start generates the tokens and the certificate and logs
 the certificate's fingerprint:
 
+<!-- systemd-smoke:fingerprint -->
 ```
-journalctl -u remotesigner | grep -o 'sha256-fingerprint="[^"]*"'
+sudo journalctl -u remotesigner | grep -o 'sha256-fingerprint="[^"]*"'
 ```
 
 The signer listens at once and loads the keys in the background: `/upcheck` answers `503` until they are loaded and
-the store is open, then `200 OK`. Check it from the host, by one of the allowlist names (the files are readable by
-root and the service user only):
+the store is open, then `200 OK`. Check it from the host. The certificate is valid for the allowlist names only, so
+connect by one of them; `--resolve` points the name at this host, whether or not it resolves here. The files are
+readable by root and the service user only:
 
 <!-- systemd-smoke:check -->
 ```
-sudo curl --cacert /var/lib/remotesigner/tls/cert.pem https://signer.internal:9000/upcheck
-sudo sh -c 'curl -s --cacert /var/lib/remotesigner/tls/cert.pem \
+sudo curl --resolve signer.internal:9000:127.0.0.1 --cacert /var/lib/remotesigner/tls/cert.pem \
+  https://signer.internal:9000/upcheck
+sudo sh -c 'curl -s --resolve signer.internal:9000:127.0.0.1 --cacert /var/lib/remotesigner/tls/cert.pem \
   -H "Authorization: Bearer $(cat /var/lib/remotesigner/auth-token)" \
   https://signer.internal:9000/api/v1/consensus/publicKeys'
 ```
 
-The first prints `OK`, the second the loaded public keys. `make systemd-smoke` runs the commands of sections 2 to 4
-as they are written here (section 7).
+The first prints `OK`, the second the loaded public keys. `make systemd-smoke` runs the commands of sections 1 to 4
+and 6 as they are written here (section 7).
 
 ## 5. Connect the validator client
 
@@ -172,12 +188,23 @@ validator client the admin token. Deploy the signer on the same local network as
 | Task | Command |
 |---|---|
 | Reload the tokens, the TLS certificate and the client trust files (SIGHUP) | `sudo systemctl reload remotesigner` |
-| Reload the key-config files | `POST /reload` with the admin token ([`quickstart.md`](quickstart.md#5-check-it)) |
+| Reload the key-config files and keystores | `POST /reload` with the admin token (below; [`reload.md`](reload.md#3-reload)) |
 | Rotate a token | write the new token into its file (or delete it to have one generated), then reload ([`tls.md`](tls.md#5-rotating-tokens-and-certificates-with-sighup)) |
 | Stop | `sudo systemctl stop remotesigner`: SIGTERM; in-flight requests finish within 10 s, the store is closed and the keys wiped; the unit allows 30 s |
 | Back up the store | stop the service, then copy `/var/lib/remotesigner` |
 | Upgrade | install the new binary, stop the service, run the new binary's `consensus migrate` as the service user, start the service ([`upgrade.md`](upgrade.md#3-one-signer)) |
 | Change a setting without editing the unit | `sudo systemctl edit remotesigner` (a drop-in); for example `LimitMEMLOCK=infinity` for `--mlock-all`, or `MemoryMax=4G` to size keystore decryption |
+
+After adding or removing key files or keystores, reload them, by an allowlist name as in section 4 and with the
+admin token. It answers `202 {"code":202,"message":"reload started"}`; `GET /reload` with the sign token reports
+its progress:
+
+<!-- systemd-smoke:reload -->
+```
+sudo sh -c 'curl -s --resolve signer.internal:9000:127.0.0.1 --cacert /var/lib/remotesigner/tls/cert.pem -X POST \
+  -H "Authorization: Bearer $(cat /var/lib/remotesigner/admin-token)" -H "Content-Type: application/json" \
+  https://signer.internal:9000/reload'
+```
 
 The unit restarts the signer after a failure, except after exit code 2 (a usage error: a bad flag or config file),
 which a restart does not fix. Exit code 1 is a startup refusal or a failure; its log line names the cause.
@@ -197,12 +224,15 @@ The unit takes everything else away; `systemd-analyze security remotesigner` rat
 | `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `RestrictNamespaces`, `RestrictRealtime`, `RestrictSUIDSGID`, `LockPersonality`, `MemoryDenyWriteExecute`, `RemoveIPC` | IP and Unix sockets only; no namespaces, real-time scheduling, set-id files or writable executable memory |
 | `SystemCallArchitectures=native`, `SystemCallFilter=@system-service` and `~@privileged` | only the system calls of an ordinary service |
 
-`make systemd-smoke` runs this page's installation in a container that runs systemd: the binary, a key file, a
-deposit CLI keystore with its password file and a network file are put in place, and then the commands of sections
-2, 3 and 4 run exactly as written (the blocks marked for it in this page's source). It checks that the unit serves
-TLS, `/upcheck` and `publicKeys` with both keys, writes its files `0600`/`0700` as the service user, reloads, runs
-the upgrade steps of [`upgrade.md`](upgrade.md#3-one-signer) as written there, and stops with exit code 0. CI runs it
-on every pull request.
+`make systemd-smoke` runs this page's installation in a container that runs systemd, as an unprivileged user with
+`sudo` rights and no access to the journal of its own: a release archive laid out as the release's (the binary and
+the repository's `deploy/` files), a key file, a deposit CLI keystore with its password file and a network file are
+put in place, and then the commands of sections 1 to 4 run exactly as written (the blocks marked for it in this
+page's source), from extracting the archive on. The host name `signer.internal` resolves nowhere in the container.
+It checks that the unit serves TLS, `/upcheck` and `publicKeys` with both keys, writes its files `0600`/`0700` as the
+service user, logs the fingerprint section 4 reads, reloads its TLS files and, with section 6's command, its keys,
+runs the upgrade steps of [`upgrade.md`](upgrade.md#3-one-signer) as written there, and stops with exit code 0. CI
+runs it on every pull request.
 
 ## 8. More than one signer: Postgres
 
