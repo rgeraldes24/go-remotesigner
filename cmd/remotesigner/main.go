@@ -16,6 +16,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"strings"
 
 	"github.com/urfave/cli/v2"
 
@@ -109,10 +110,19 @@ func versionString() string {
 // release returns the version and commit: the link-time values, else those
 // the Go toolchain recorded, else "dev" and "unknown".
 func release() (v, c string) {
-	v, c = version, commit
-	if info, ok := debug.ReadBuildInfo(); ok {
+	info, _ := debug.ReadBuildInfo()
+	return releaseFrom(version, commit, info)
+}
+
+// releaseFrom returns the version and commit from the link-time values v
+// and c, else from info (nil when the binary has none). The module version
+// the toolchain records for `go install …@v1.0.0` is the tag, v1.0.0; it is
+// reported without its v, as the release binaries and `make build` report
+// it.
+func releaseFrom(v, c string, info *debug.BuildInfo) (string, string) {
+	if info != nil {
 		if v == "" && info.Main.Version != "" && info.Main.Version != "(devel)" {
-			v = info.Main.Version
+			v = strings.TrimPrefix(info.Main.Version, "v")
 		}
 		for _, s := range info.Settings {
 			if c == "" && s.Key == "vcs.revision" {

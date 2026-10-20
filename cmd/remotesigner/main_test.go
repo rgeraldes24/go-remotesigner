@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -83,6 +84,36 @@ func TestRun(t *testing.T) {
 				if !strings.Contains(stderr.String(), want) {
 					t.Errorf("stderr %q does not contain %q", stderr.String(), want)
 				}
+			}
+		})
+	}
+}
+
+// Without link-time values the version comes from the build info: the
+// module version `go install …@v1.0.0` records, without its v, as the
+// release binaries and make build report it.
+func TestReleaseFromBuildInfo(t *testing.T) {
+	withRev := func(v string) *debug.BuildInfo {
+		return &debug.BuildInfo{Main: debug.Module{Version: v},
+			Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "abc123"}}}
+	}
+	for _, tt := range []struct {
+		name         string
+		v, c         string
+		info         *debug.BuildInfo
+		wantV, wantC string
+	}{
+		{"go install of a tag", "", "", withRev("v1.0.0"), "1.0.0", "abc123"},
+		{"go install of a pre-release", "", "", withRev("v1.0.0-rc.1"), "1.0.0-rc.1", "abc123"},
+		{"go install of a commit", "", "", withRev("v0.0.0-20261020120000-abcdef123456"),
+			"0.0.0-20261020120000-abcdef123456", "abc123"},
+		{"go build in the checkout", "", "", withRev("(devel)"), "dev", "abc123"},
+		{"link-time values win", "1.0.0", "def456", withRev("v9.9.9"), "1.0.0", "def456"},
+		{"no build info", "", "", nil, "dev", "unknown"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if v, c := releaseFrom(tt.v, tt.c, tt.info); v != tt.wantV || c != tt.wantC {
+				t.Errorf("releaseFrom = %q, %q; want %q, %q", v, c, tt.wantV, tt.wantC)
 			}
 		})
 	}

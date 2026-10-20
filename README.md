@@ -81,7 +81,8 @@ $ bin/remotesigner --version
 remotesigner version 1.0.0 (commit ..., go1.26.9, linux/amd64)
 ```
 
-The version is the tag's without its `v` (`1.0.0` for `v1.0.0`), as in the release binaries; between tags it is
+The version is the tag's without its `v` (`1.0.0` for `v1.0.0`), as in the release binaries and in a binary that
+`go install github.com/rgeraldes24/go-remotesigner/cmd/remotesigner@v1.0.0` builds; between tags it is
 `git describe`'s.
 
 ## Contributing
