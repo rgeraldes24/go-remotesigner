@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -590,6 +591,36 @@ func TestReleaseWorkflowProblems(t *testing.T) {
 				t.Errorf("problems %q, want one mentioning each of %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// make build reports the version a release of the same tag reports
+// (docs/operations/release.md section 4): git describe's output without
+// the tag's "v", as goreleaser's {{ .Version }} drops it, so that a build of
+// a checkout of v1.0.0 prints 1.0.0. make -n prints the build commands
+// without running them.
+func TestMakeBuildVersion(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make is not installed")
+	}
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	for _, tt := range []struct{ describe, want string }{
+		{"v1.0.0", "1.0.0"},
+		{"v1.1.0-rc.1", "1.1.0-rc.1"},
+		{"v1.0.0-3-g0123456-dirty", "1.0.0-3-g0123456-dirty"},
+		{"0123456", "0123456"}, // no tag yet: the short commit
+	} {
+		for _, target := range []string{"build", "build-consensus"} {
+			cmd := exec.Command("make", "-n", "-C", root, target, "GIT_DESCRIBE="+tt.describe, "COMMIT="+commit)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("make -n %s: %v: %s", target, err, out)
+			}
+			want := fmt.Sprintf("-X main.version=%s -X main.commit=%s", tt.want, commit)
+			if !strings.Contains(string(out), want) {
+				t.Errorf("make %s for git describe %s: no %q in\n%s", target, tt.describe, want, out)
+			}
+		}
 	}
 }
 

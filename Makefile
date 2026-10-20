@@ -10,7 +10,8 @@ DOCKER        ?= docker
 BIN_DIR       ?= bin
 
 # The version without the tag's "v", as goreleaser's {{ .Version }} has it: a build of the tag v1.0.0 reports 1.0.0.
-VERSION ?= $(patsubst v%,%,$(shell git describe --tags --always --dirty 2>/dev/null || echo dev))
+GIT_DESCRIBE ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION      ?= $(patsubst v%,%,$(GIT_DESCRIBE))
 COMMIT  ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
