@@ -99,7 +99,7 @@ applies the same way.
 
 - Every request has the document's `timeout`; a reload as a whole is bounded by `--reload-timeout`.
 - A response is read up to 4 MiB and a value up to 64 KiB; anything larger fails the document.
-- **No redirect is followed** ([`DEVIATIONS.md`](../../DEVIATIONS.md), X70): a Vault standby node answers with a
+- **No redirect is followed** ([`DEVIATIONS.md`](../../DEVIATIONS.md), X90): a Vault standby node answers with a
   redirect to the active node, and following it would send the token to another address. Point `serverHost` at the
   active node or at a load balancer that forwards to it.
 - HTTP 404 means the secret or its `keyName` does not exist; 403 a token without access. Vault's error messages are

@@ -2,11 +2,11 @@
 
 The signer reads validator seeds from GCP Secret Manager in two ways: the bulk loader (`--gcp-secrets-enabled`),
 Web3Signer's, loads the latest version of every secret of a project that a list filter selects, and a `gcp-secret`
-key-config document, which Web3Signer lacks, names one secret ([`DEVIATIONS.md`](../../DEVIATIONS.md), X73). Secret
+key-config document, which Web3Signer lacks, names one secret ([`DEVIATIONS.md`](../../DEVIATIONS.md), X93). Secret
 Manager holds the seeds only; every signature is made in the signer's own memory. The client is
 `cloud.google.com/go/secretmanager` over gRPC, the SDK's default transport, linked by the default flavour,
 `remotesigner`, only: `remotesigner-consensus` refuses the bulk flags (exit 2) and fails `gcp-secret` documents with a
-hint (X76).
+hint (X96).
 
 How sources are loaded and reloaded is in [`reload.md`](reload.md); the other stores are
 [HashiCorp Vault](hashicorp-vault.md), [AWS Secrets Manager](aws-secrets-manager.md) and
@@ -23,7 +23,7 @@ gcloud secrets create validators-batch-0 --labels=role=validator --data-file=see
 ```
 
 A 51-byte extended seed, a 32-byte value and a 4,896-byte expanded secret key are refused with a hint; no error or
-log line contains a value. A bulk secret loads as a whole or fails (X68). A secret with no enabled version fails as
+log line contains a value. A bulk secret loads as a whole or fails (X88). A secret with no enabled version fails as
 not found.
 
 ## 2. The bulk loader
@@ -69,13 +69,13 @@ The service account needs `roles/secretmanager.secretAccessor` on the secrets, a
 
 The SDK's logger is replaced by one that discards everything, so `GOOGLE_SDK_GO_LOGGING_LEVEL=debug`, which would
 otherwise log request and response payloads, has no effect, and so is gRPC's, which `GRPC_GO_LOG_SEVERITY_LEVEL`
-would otherwise turn on (X81).
+would otherwise turn on (X101).
 
 ## 5. Requests and limits
 
 Each call (one page of the listing, one access of a version) may take 30 seconds, the SDK's retries included, and
 each gRPC message is read up to 4 MiB: a larger one fails at once, without the retries the SDK makes when the service
-answers that it is out of quota. A payload larger than 64 KiB fails its secret (X78).
+answers that it is out of quota. A payload larger than 64 KiB fails its secret (X98).
 
 The hidden `--Xgcp-endpoint-override` (and a document's `endpointOverride`) replaces Google's endpoint, which
 Web3Signer cannot do: `host:port` (or `https://host:port`) keeps TLS and Application Default Credentials, for a
