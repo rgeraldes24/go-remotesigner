@@ -414,11 +414,30 @@ P = 8 decrypts and the 36 of the second five, thirteen rounds in all, as one req
 ## Binary size with the secret stores (no benchmark ID)
 
 No benchmark is assigned to the secret stores. Their SDKs are linked by the default flavour only, and the release
-binaries were measured before and after they landed, built as the release builds them (`CGO_ENABLED=0 -trimpath
+binaries were measured without them and with them, built as the release builds them (`CGO_ENABLED=0 -trimpath
 -ldflags '-s -w'`), on the development machine (Apple M2, Go 1.26.9). These are dev-machine numbers (MB is 10^6
-bytes). The "after" sizes were measured on 2026-10-19 at load average 13-25, from other work, which does not change a
-size, with every secret store in: smithy-go a direct requirement, and the later fixes (each GCP page under its own
-timeout, the reference-counted client cache, unsized response bodies read into a growing buffer).
+bytes); load does not change a size.
+
+Run U, on 2026-10-20 at load average 2.2-5.8: "before" is the code without the secret stores but with the keymanager,
+the Postgres store and execution mode, and "after" adds the secret stores to it.
+
+| Target | `remotesigner` before | `remotesigner` after | `remotesigner-consensus` before | `remotesigner-consensus` after |
+|---|---|---|---|---|
+| linux/amd64 | 19.16 MB | 31.21 MB | 18.52 MB | 19.14 MB |
+| linux/arm64 | 17.89 MB | 29.03 MB | 17.30 MB | 17.89 MB |
+| darwin/arm64 | 18.43 MB | 30.10 MB | 17.81 MB | 18.41 MB |
+
+- **Default flavour: +12.05 MB** (linux/amd64), from aws-sdk-go-v2, cloud.google.com/go/secretmanager with gRPC,
+  OpenTelemetry and the Google auth libraries, and azure-sdk-for-go with MSAL. Execution mode's downstream client
+  already links Go's HTTP client in this flavour.
+- **Consensus flavour: +0.62 MB**, which links no cloud SDK (`TestCloudSDKsInDefaultFlavourOnly`). The upgrades of
+  `google.golang.org/protobuf` and `golang.org/x/*` that the SDKs required account for 0.02 MB of it (the "before"
+  code rebuilt with only those upgrades: 18.54 MB). The rest is the HashiCorp Vault client, which works in both
+  flavours, and the part of `net/http` it is the first to use in this flavour: the HTTP client, its transport and its
+  HTTP/2 client.
+
+Run T, on 2026-10-19 at load average 13-25, measured the secret stores on the code before the keymanager, the Postgres
+store and execution mode:
 
 | Target | `remotesigner` before | `remotesigner` after | `remotesigner-consensus` before | `remotesigner-consensus` after |
 |---|---|---|---|---|
@@ -426,9 +445,5 @@ timeout, the reference-counted client cache, unsized response bodies read into a
 | linux/arm64 | 12.98 MB | 24.71 MB | 12.98 MB | 13.57 MB |
 | darwin/arm64 | 13.32 MB | 25.63 MB | 13.32 MB | 13.92 MB |
 
-- **Default flavour: +12.7 MB** (linux/amd64), from aws-sdk-go-v2, cloud.google.com/go/secretmanager with gRPC,
-  OpenTelemetry and the Google auth libraries, and azure-sdk-for-go with MSAL.
-- **Consensus flavour: +0.61 MB**, which links no cloud SDK (`TestCloudSDKsInDefaultFlavourOnly`). The upgrades of
-  `google.golang.org/protobuf` and `golang.org/x/*` that the SDKs required account for 0.02 MB of it (the base rebuilt
-  with only those upgrades: 14.01 MB). The rest is the HashiCorp Vault client, which works in both flavours, and the
-  part of `net/http` it is the first to use: the HTTP client, its transport and its HTTP/2 client.
+Its growth is close to run U's: +12.7 MB for the default flavour and +0.61 MB for the consensus flavour
+(linux/amd64), of which the same dependency upgrades were 0.02 MB.
