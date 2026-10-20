@@ -285,7 +285,8 @@ be reached is 504, a malformed or non-200 answer is -32000 "Invalid response fro
 refused (-32003). At startup and every 10 minutes the signer also asks the node for `qrl_chainId`: while the node's
 answer differs from `--chain-id`, both transaction methods refuse every transaction, with "the downstream node's chain
 ID is …, not --chain-id …", and an ERROR line is logged at each check. A check the node does not answer keeps the
-last verdict; until the first answer, transactions are signed. `qrl_sign` signs no transaction and is not affected.
+last verdict. Until the node has answered once, the signer asks again every 15 seconds rather than every 10 minutes,
+and signs transactions meanwhile: there is no mismatch to refuse yet. `qrl_sign` signs no transaction and is not affected.
 
 **The fee cap.** A transaction's fee, `gas × maxFeePerGas`, the most it can pay, may be at most 1 quanta
 (10^18 Planck), gqrl's own default `--rpc.txfeecap`, unless the account's policy sets another `max-fee`. It applies to

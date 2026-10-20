@@ -204,7 +204,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	chainDone := make(chan struct{})
 	go func() {
 		defer close(chainDone)
-		txs.chain.run(chainCtx, ChainCheckInterval)
+		txs.chain.run(chainCtx, ChainCheckInterval, ChainRetryInterval)
 	}()
 
 	var serveErr error
