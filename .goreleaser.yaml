@@ -160,6 +160,9 @@ release:
     name: go-remotesigner
   prerelease: auto
 
+# The release workflow publishes the tag's CHANGELOG.md entry as the release
+# notes (--release-notes, from tools/releasedocs -notes); this git log is
+# used only without them, as in the dry run.
 changelog:
   use: git
   sort: asc

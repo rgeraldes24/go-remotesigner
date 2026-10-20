@@ -446,8 +446,9 @@ type workflowStep struct {
 // releaseWorkflowProblems returns what is wrong with the release job's
 // steps: before the step that publishes (goreleaser release without
 // --snapshot), it must check that the tagged commit is on main, with a
-// checkout that fetched main, and run the compliance gates; and setup-go
-// must not restore a cache an earlier run saved.
+// checkout that fetched main, run the compliance gates and write the release
+// notes from CHANGELOG.md, which the publishing step passes to goreleaser;
+// and setup-go must not restore a cache an earlier run saved.
 func releaseWorkflowProblems(steps []workflowStep) []string {
 	publish := slices.IndexFunc(steps, func(s workflowStep) bool {
 		return strings.Contains(s.Run, "goreleaser release") && !strings.Contains(s.Run, "--snapshot")
@@ -492,6 +493,12 @@ func releaseWorkflowProblems(steps []workflowStep) []string {
 			p = append(p, "setup-go restores a cache (want cache: false): the release would be built from it")
 		}
 	}
+	if !slices.ContainsFunc(before, func(s workflowStep) bool { return strings.Contains(s.Run, "tools/releasedocs -notes") }) {
+		p = append(p, "no step before publishing writes the release notes from the tag's CHANGELOG.md entry (tools/releasedocs -notes)")
+	}
+	if !strings.Contains(steps[publish].Run, "--release-notes") {
+		p = append(p, "goreleaser release runs without --release-notes, so the release page lists the git log instead of the CHANGELOG.md entry")
+	}
 	return p
 }
 
@@ -535,8 +542,9 @@ func TestReleaseWorkflowProblems(t *testing.T) {
 		{Uses: "actions/setup-go@abc", With: map[string]any{"cache": false}},
 		{Run: `go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"`},
 		{Run: "make license-hash headercheck nogpl licenses GO_LICENSES=x\ngo vet ./...\ngo vet -tags noexecution ./...\n"},
+		{Run: `go run ./tools/releasedocs -notes "${GITHUB_REF_NAME}" > notes.md`},
 		{Run: "make release-snapshot GORELEASER=goreleaser\nmake release-check\n"},
-		{Name: "Publish", Run: "goreleaser release --clean"},
+		{Name: "Publish", Run: "goreleaser release --clean --release-notes notes.md"},
 	}
 	with := func(edit func([]workflowStep) []workflowStep) []workflowStep {
 		steps := slices.Clone(good)
@@ -563,9 +571,13 @@ func TestReleaseWorkflowProblems(t *testing.T) {
 			s[4].Run = "go vet ./...\ngo vet -tags noexecution ./...\n"
 			return s
 		}), []string{"make license-hash", "make headercheck", "make nogpl", "make licenses"}},
-		{"no dry run checks", with(func(s []workflowStep) []workflowStep { return slices.Delete(s, 5, 6) }),
+		{"no dry run checks", with(func(s []workflowStep) []workflowStep { return slices.Delete(s, 6, 7) }),
 			[]string{"make release-check"}},
-		{"no publish step", good[:6], []string{"goreleaser release"}},
+		{"no release notes", with(func(s []workflowStep) []workflowStep { return slices.Delete(s, 5, 6) }),
+			[]string{"CHANGELOG.md entry (tools/releasedocs -notes)"}},
+		{"notes not passed", with(func(s []workflowStep) []workflowStep { s[7].Run = "goreleaser release --clean"; return s }),
+			[]string{"--release-notes"}},
+		{"no publish step", good[:7], []string{"goreleaser release"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
