@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"strconv"
 
+	"github.com/theQRL/go-qrl/accounts"
 	"github.com/theQRL/go-qrl/common"
 	"github.com/theQRL/go-qrl/core/types"
 	walletcommon "github.com/theQRL/go-qrllib/wallet/common"
@@ -226,5 +227,59 @@ func genTransactions(g *generator) error {
 			"These are test keys: never use them on a live network.")).
 		set("generator", g.info).
 		set("accounts", accountRecs).
+		set("cases", recs))
+}
+
+// textCase is one message of the text-hash vectors.
+type textCase struct {
+	name string
+	data []byte
+}
+
+// byteRun is n bytes counting up from 0, wrapping at 251.
+func byteRun(n int) []byte {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = byte(i % 251)
+	}
+	return b
+}
+
+func textCases() []textCase {
+	return []textCase{
+		{"empty", []byte{}},
+		{"hello_joe", []byte("Hello Joe")}, // the value go-qrl's own accounts test expects
+		{"zero_byte", []byte{0}},
+		{"nine_bytes", byteRun(9)},
+		{"ten_bytes", byteRun(10)}, // the length takes two digits
+		{"hash_sized", byteRun(32)},
+		{"prefixed", append([]byte("\x19QRL Signed Message:\n32"), byteRun(32)...)},
+		{"utf8", []byte("go-remotesigner \u00e9\u2713")},
+		{"not_utf8", []byte{0xff, 0xfe, 0x80, 0x00, 0xc3}},
+		{"hundred_bytes", byteRun(100)},
+		{"thousand_bytes", byteRun(1000)},
+	}
+}
+
+// genTextHash writes transactions/text_hash.json: go-qrl's
+// accounts.TextHash of messages, at the go-qrl commit qrysm pins, as the
+// oracle of the message qrl_sign signs.
+func genTextHash(g *generator) error {
+	var recs []obj
+	for _, c := range textCases() {
+		h := accounts.TextHash(c.data)
+		if len(h) != 32 {
+			return fmt.Errorf("%s: a text hash of %d bytes", c.name, len(h))
+		}
+		recs = append(recs, obj{}.
+			set("name", c.name).
+			set("data", hx(c.data)).
+			set("text_hash", hx(h)))
+	}
+	return writeJSON(g.vectors, "transactions/text_hash.json", obj{}.
+		set("description", g.description("The message qrl_sign signs: go-qrl's accounts.TextHash, at the go-qrl "+
+			"commit qrysm pins, of each data, which is Keccak-256 of \"\\x19QRL Signed Message:\\n\", the data's "+
+			"length in decimal, and the data.")).
+		set("generator", g.info).
 		set("cases", recs))
 }

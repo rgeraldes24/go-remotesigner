@@ -6,8 +6,10 @@
 package execution
 
 import (
+	"bytes"
 	"encoding/json"
 	"math/big"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/theQRL/go-qrl/common/hexutil"
 	"github.com/theQRL/go-qrl/core/types"
+	walletmldsa87 "github.com/theQRL/go-qrllib/wallet/ml_dsa_87"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/signer/provider"
@@ -146,6 +149,54 @@ func TestTransactionVectors(t *testing.T) {
 			}
 			if hedged := sign(mldsa87.Hedged); hedged.Hash() == det.Hash() {
 				t.Fatal("a hedged signature equals the deterministic one")
+			}
+		})
+	}
+}
+
+// textHashVectors is testdata/vectors/transactions/text_hash.json, written
+// by tools/vectorgen with go-qrl's own accounts.TextHash at the go-qrl
+// commit qrysm pins (cyyber/go-qrl).
+type textHashVectors struct {
+	Cases []struct {
+		Name     string        `json:"name"`
+		Data     hexutil.Bytes `json:"data"`
+		TextHash hexutil.Bytes `json:"text_hash"`
+	} `json:"cases"`
+}
+
+// TextHash is go-qrl's accounts.TextHash on every text-hash vector, and
+// qrl_sign of each vector's data signs that vector's text hash: the
+// signature verifies with go-qrllib over it.
+func TestTextHashVectors(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "vectors", "transactions", "text_hash.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v textHashVectors
+	if err := json.Unmarshal(data, &v); err != nil || len(v.Cases) == 0 {
+		t.Fatalf("text-hash vectors: %d cases (%v)", len(v.Cases), err)
+	}
+	f := newFixture(t, 1, defaultAllow)
+	k, addr := f.key(0)
+	pk := k.PublicKey()
+	desc, err := walletmldsa87.NewMLDSA87Descriptor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range v.Cases {
+		t.Run(c.Name, func(t *testing.T) {
+			if h := TextHash(c.Data); !bytes.Equal(h[:], c.TextHash) {
+				t.Fatalf("TextHash(%x) = %x, want go-qrl's %x", c.Data, h, c.TextHash)
+			}
+			w := f.post(call(i+1, MethodSign, addr, hexutil.Encode(c.Data)), nil)
+			r := decodeOne(t, w.Body.Bytes())
+			var sig hexutil.Bytes
+			if w.Code != http.StatusOK || r.Error != nil || json.Unmarshal(r.Result, &sig) != nil {
+				t.Fatalf("qrl_sign: %d %.300s", w.Code, w.Body)
+			}
+			if !walletmldsa87.Verify(c.TextHash, sig, (*walletmldsa87.PK)(&pk), [3]byte(desc)) {
+				t.Fatal("the qrl_sign signature does not verify over go-qrl's text hash")
 			}
 		})
 	}
