@@ -120,7 +120,7 @@ GOTOOLCHAIN=local CGO_ENABLED=0 GOPROXY=off go build -mod=vendor -trimpath -o re
 ```
 
 `GOTOOLCHAIN=local` keeps the go command on that Go: without it, a Go older than the `toolchain` line of `go.mod`
-(go1.26.9) tries to download that toolchain, which `GOPROXY=off` forbids, and the build fails.
+(go1.26.11) tries to download that toolchain, which `GOPROXY=off` forbids, and the build fails.
 
 ## 4. The release dry run
 
@@ -266,7 +266,7 @@ publishes are met once, for 1.0.0, and are not repeated here.
 | The default flavour's archives and images carry the go-qrl paragraph of `NOTICE.execution` in their `NOTICE`, the LGPL and GPL texts in `LICENSES/` and go-qrl's licence files, and no go-qrl source; the consensus flavour's carry none of them, and `go version -m` lists no go-qrl module in its binaries | `make release-check` (section 4); `TestConsensusFlavourLinksNoGoQRL` and `TestNoticeSplitsFlavours` (`test/repo`) |
 | The source archive, `remotesigner-<version>-src-vendored.tar.gz`, holds both NOTICE files, the GNU texts and every linked module in `vendor/`, go-qrl at the version `go.mod` requires, is listed in `checksums.txt`, rebuilds the default flavour offline, and is attached to the release next to the archives, where the default flavour's `NOTICE` says it is | `make release-check` (`TestReleaseSource`); `TestReleaseAttachesSource` (`test/repo`), for the release step the dry run skips |
 | The binaries of the tag `v1.1.0` report `1.1.0`, the default flavour's followed by go-qrl's notice | `make release-version RELEASE_TAG=v1.1.0` (section 4) by hand; in CI, `TestReleaseVersion` on the dry run and `TestVersionNotice` (`cmd/remotesigner`) |
-| Execution mode in front of gqrl `--dev`: a transfer is mined, the nonce retry works, and a wrong chain ID, a fill that changes the request, a filled nonce far above the pending one and a fee over the cap are refused | `make gqrl-e2e` (`TestGQRLDev`), the `gqrl-e2e` job of CI |
+| Execution mode in front of gqrl `--dev`: a transfer is mined, the nonce retry works, a wrong chain ID, a fill that changes the request, a filled nonce far above the pending one and a fee over the cap are refused, a `qrl_sign` signature verifies with go-qrllib under the key `GET /api/v1/execution/publicKeys` lists, and the allowlist forwards `net_version` and keeps `admin_*`, `debug_*`, `personal_*` and `qrl_signTypedData` from the node | `make gqrl-e2e` (`TestGQRLDev`), the `gqrl-e2e` jobs of CI, on every pull request, and of the nightly workflow (`TestNightlyWorkflow`, `test/repo`) |
 | Transaction hashes equal those of go-qrl's own `SignTx` in the golden vectors | `TestTransactionVectors` (`internal/execution`); `make vectors` leaves no difference |
 | The secret stores read seeds from a Vault dev server and LocalStack's Secrets Manager, and their GCP and Azure clients pass against in-process fakes of those services; the consensus flavour links no cloud SDK and neither flavour a Vault SDK | `make test-cloud`, the `cloud-secrets` job of CI; `TestCloudSDKsInDefaultFlavourOnly` and `TestNoVaultSDKLinked` (`test/repo`) |
 | [`execution.md`](execution.md) and the store pages ([`hashicorp-vault.md`](hashicorp-vault.md), [`aws-secrets-manager.md`](aws-secrets-manager.md), [`gcp-secret-manager.md`](gcp-secret-manager.md), [`azure-key-vault.md`](azure-key-vault.md)) exist and are linked from the README with every other operator page; the flag reference lists the execution and store flags | `TestOperatorDocs` (`test/repo`); `go run ./tools/flagdoc -check` |
