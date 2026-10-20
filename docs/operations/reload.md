@@ -263,7 +263,6 @@ Argon2id run of 4 MiB and about 20 ms instead of 256 MiB and 1.5 s, which makes 
 cheaper too.
 
 The 512 MiB kept out of the budget hold the loaded keys too, and each key takes about 60 KiB: on the development
-machine 4,096 keys peaked at about 210 MiB of RSS and 10,000 keys at about 620 MiB
-([`../benchmarks.md`](../benchmarks.md), B11). The automatic sizing does not count the keys, so above about 8,000
-keys set `--signer-load-parallelism` to at most (memory limit − 512 MiB − keys × 60 KiB) / 512 MiB, so that the keys
-and the running decrypts fit together.
+machine 10,000 `file-raw` keys peaked at about 620 MiB of RSS ([`../benchmarks.md`](../benchmarks.md), B11). The
+automatic sizing does not count the keys, so above about 8,000 keys set `--signer-load-parallelism` to at most (memory
+limit − 512 MiB − keys × 60 KiB) / 512 MiB, so that the keys and the running decrypts fit together.

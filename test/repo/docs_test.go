@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -137,5 +138,34 @@ func TestUpgradeNotesSchema(t *testing.T) {
 	_, tail, ok := strings.Cut(msg, ", written by")
 	if !ok || !strings.Contains(doc, "`… written by"+tail+"`") {
 		t.Errorf("upgrade.md does not quote the refusal of a newer store, %q", msg)
+	}
+}
+
+// rssFigure finds a measured memory figure in an operator page: "about
+// <n> MiB of RSS".
+var rssFigure = regexp.MustCompile(`about ([0-9][0-9,]*) MiB of RSS`)
+
+// Every RSS figure the operator pages quote is one docs/benchmarks.md
+// records ("about <n> MiB"), so that a sizing rule never rests on a
+// measurement nobody took.
+func TestDocsRSSFiguresAreMeasured(t *testing.T) {
+	text := map[string]string{}
+	for _, f := range repoFiles(t) {
+		text[f.path] = f.text
+	}
+	n := 0
+	for name, body := range text {
+		if !strings.HasPrefix(name, "docs/operations/") {
+			continue
+		}
+		for _, m := range rssFigure.FindAllStringSubmatch(body, -1) {
+			n++
+			if !strings.Contains(text["docs/benchmarks.md"], "about "+m[1]+" MiB") {
+				t.Errorf("%s quotes %q, which docs/benchmarks.md does not record", name, m[0])
+			}
+		}
+	}
+	if n == 0 {
+		t.Error("no RSS figure in the operator pages; reload.md sizes key memory from one")
 	}
 }
