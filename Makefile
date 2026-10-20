@@ -23,7 +23,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test test-postgres test-cloud fuzz fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check release-version image docker-smoke systemd-smoke clean
+.PHONY: all build build-consensus test test-postgres test-cloud fuzz gqrl-e2e release-src fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check release-version image docker-smoke systemd-smoke clean
 
 all: build build-consensus
 
@@ -123,9 +123,22 @@ license-hash:
 	@echo "$(LICENSE_SHA256)  LICENSE" | shasum -a 256 -c -
 	@echo "$(LICENSE_SHA256)  LICENSES/Apache-2.0.txt" | shasum -a 256 -c -
 
+## licenses: go-licenses check of both flavours against ALLOWED_LICENSES, with one exception: go-qrl in the default
+## flavour. go-licenses reads go-qrl's COPYING (the GPL text) and reports GPL-3.0, while the go-qrl library the
+## default flavour links is LGPL-3.0-or-later (docs/operations/release.md). So the default flavour's check leaves out
+## go-qrl's packages (the prefix ends in a slash: go-licenses matches prefixes, and the bare module path would also
+## leave out go-qrllib), and two tests check go-qrl instead: every go-qrl file the binary links on any target is
+## LGPL and none is under cmd/ or internal/, and LICENSES/ holds go-qrl's own LGPL and GPL texts. The consensus
+## flavour has no exception: go-qrl there fails the check.
+## Both checks read the dependencies that ship: the binaries are built with CGO_ENABLED=0, which links
+## github.com/decred/dcrd/dcrec/secp256k1 where a cgo build links go-qrl's own crypto/secp256k1, and the release
+## documents are made for linux/amd64 (tools/releasedocs).
+GO_QRL_LIBRARY := github.com/theQRL/go-qrl/
+LICENSES_ENV   := CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 licenses:
-	$(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES)
-	GOFLAGS=-tags=noexecution $(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES)
+	$(LICENSES_ENV) $(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES) --ignore $(GO_QRL_LIBRARY)
+	$(LICENSES_ENV) GOFLAGS=-tags=noexecution $(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES)
+	$(GO) test -count=1 -run '^(TestLinkedGoQRLIsLGPL|TestGNUTextsAreGoQRLs|TestConsensusFlavourLinksNoGoQRL)$$' ./test/repo/
 
 vuln:
 	$(GOVULNCHECK) ./...
@@ -182,6 +195,26 @@ B19_DURATION ?= 1h
 b19:
 	REMOTESIGNER_B19_DURATION=$(B19_DURATION) $(GO) test -count=1 -run '^TestB19IdleConnectionRace$$' -timeout 90m -v ./test/acceptance/
 
+## gqrl-e2e: execution mode against gqrl --dev (TestGQRLDev in internal/execution): a mined transfer, the nonce
+## retry, the chain-ID, payload, nonce cross-check and fee-cap refusals. gqrl is built from go-qrl at the commit
+## go.mod requires, in GQRL_SRC (cloned when missing), unless GQRL names a gqrl binary built from that commit.
+## GQRL_SRC defaults to a clone per commit in the user's cache directory, outside the source tree: go-qrl's own
+## files are not gofmt-clean, and `gofmt -l .` would list them from a clone under the repository.
+GQRL_COMMIT = $(lastword $(subst -, ,$(shell $(GO) list -m -f '{{.Version}}' github.com/theQRL/go-qrl)))
+GQRL_SRC   ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-remotesigner/go-qrl-$(GQRL_COMMIT)
+GQRL       ?=
+gqrl-e2e:
+	@if [ -z "$(GQRL)" ]; then \
+		set -e; \
+		test -d "$(GQRL_SRC)/.git" || git clone --filter=blob:none --no-checkout https://github.com/theQRL/go-qrl "$(GQRL_SRC)"; \
+		git -C "$(GQRL_SRC)" -c advice.detachedHead=false checkout -q $(GQRL_COMMIT) 2>/dev/null || \
+			{ git -C "$(GQRL_SRC)" fetch -q --filter=blob:none origin && git -C "$(GQRL_SRC)" checkout -q $(GQRL_COMMIT); }; \
+		echo "building gqrl at go-qrl $(GQRL_COMMIT)"; \
+		cd "$(GQRL_SRC)" && CGO_ENABLED=0 $(GO) build -trimpath -o $(abspath $(BIN_DIR))/gqrl ./cmd/gqrl; \
+	fi
+	REMOTESIGNER_GQRL=$(if $(GQRL),$(abspath $(GQRL)),$(abspath $(BIN_DIR))/gqrl) \
+		$(GO) test -count=1 -timeout 10m -run '^TestGQRLDev$$' -v ./internal/execution/
+
 ## bench-b14: benchmark B14, a pruning run over 4,096 validators x 512 epochs in a bbolt store, with signing alongside
 bench-b14:
 	REMOTESIGNER_BENCH=1 $(GO) test -count=1 -run '^TestB14' -timeout 30m -v ./internal/slashing/boltstore/
@@ -206,6 +239,19 @@ RELEASE_REF ?= main
 release-docs:
 	$(GO) run ./tools/releasedocs -out $(RELEASE_DIR) -go-licenses "$(GO_LICENSES)" -ref "$(RELEASE_REF)"
 
+## release-src: RELEASE_DIR/remotesigner-<VERSION>-src-vendored.tar.gz, the source each release attaches: the
+## committed tree (git archive HEAD) with every module it links in vendor/ (go mod vendor), so that the default
+## flavour can be rebuilt with a modified go-qrl, as the LGPL asks (docs/operations/release.md). Run it after
+## release-docs, which empties RELEASE_DIR.
+SRC_NAME = remotesigner-$(VERSION)-src-vendored
+release-src:
+	rm -rf $(RELEASE_DIR)/src
+	mkdir -p $(RELEASE_DIR)/src/$(SRC_NAME)
+	git archive --format=tar HEAD | tar -x -C $(RELEASE_DIR)/src/$(SRC_NAME)
+	cd $(RELEASE_DIR)/src/$(SRC_NAME) && $(GO) mod vendor
+	tar -C $(RELEASE_DIR)/src -czf $(RELEASE_DIR)/$(SRC_NAME).tar.gz $(SRC_NAME)
+	rm -rf $(RELEASE_DIR)/src
+
 ## release-snapshot: the release dry run: goreleaser (v2) builds every archive, SBOM and image of both flavours into
 ## dist/ and the local image store, and publishes and signs nothing. Signing is always skipped; add sbom to
 ## RELEASE_SKIP when syft is not installed.
@@ -221,7 +267,8 @@ release-snapshot:
 ## and the docker-smoke checks on the images of this machine's architecture, one per flavour
 RELEASE_DIST ?= dist
 release-check:
-	REMOTESIGNER_RELEASE_DIST=$(abspath $(RELEASE_DIST)) $(if $(findstring sbom,$(RELEASE_SKIP)),,REMOTESIGNER_RELEASE_SBOM=1) \
+	REMOTESIGNER_RELEASE_DIST=$(abspath $(RELEASE_DIST)) REMOTESIGNER_RELEASE_DOCS=$(abspath $(RELEASE_DIR)) \
+		$(if $(findstring sbom,$(RELEASE_SKIP)),,REMOTESIGNER_RELEASE_SBOM=1) \
 		$(GO) test -count=1 -run '^TestRelease' -v ./test/release/
 
 ## release-version: build every binary as goreleaser builds them for the release of RELEASE_TAG, through a

@@ -30,9 +30,10 @@ AWS Secrets Manager, GCP Secret Manager and Azure Key Vault secrets, each one se
 [`azure-key-vault.md`](docs/operations/azure-key-vault.md)). `remotesigner consensus keystore
 verify` checks qrysm and deposit CLI keystores and their password files offline
 ([`docs/operations/keystores.md`](docs/operations/keystores.md)). In the default flavour, `remotesigner execution`
-holds QRL account keys for JSON-RPC clients in front of a gqrl node: it answers `qrl_accounts` and `qrl_sign` and
-forwards an allowlist of methods to the node, without the client's credentials
-([`docs/operations/execution.md`](docs/operations/execution.md)); it does not sign transactions yet. To try the signer, see
+holds QRL account keys for JSON-RPC clients in front of a gqrl node: it answers `qrl_accounts`, `qrl_sign`,
+`qrl_signTransaction` and `qrl_sendTransaction` under a chain ID, a fee cap, a per-account policy and an audit log,
+and forwards an allowlist of methods to the node, without the client's credentials
+([`docs/operations/execution.md`](docs/operations/execution.md)). To try the signer, see
 [`docs/operations/quickstart.md`](docs/operations/quickstart.md); every flag is in
 [`docs/reference/flags.md`](docs/reference/flags.md).
 
@@ -61,7 +62,7 @@ unit, example configuration files, the Grafana dashboard and the Prometheus aler
 | [`docs/operations/backup.md`](docs/operations/backup.md) | backing up and restoring the bbolt store |
 | [`docs/operations/randao.md`](docs/operations/randao.md) | RANDAO reveals: the frontier rule, gap advances, sizing the bucket, resetting a key, the alerts |
 | [`docs/operations/metrics.md`](docs/operations/metrics.md) | the metrics catalogue, the alert rules and their runbooks, the Grafana dashboard |
-| [`docs/operations/execution.md`](docs/operations/execution.md) | execution mode: account keys, the JSON-RPC methods and the proxy to gqrl |
+| [`docs/operations/execution.md`](docs/operations/execution.md) | execution mode: account keys, the JSON-RPC methods, transaction signing, the policy file, the proxy to gqrl and the LGPL notes |
 | [`docs/operations/upgrade.md`](docs/operations/upgrade.md) | upgrading and going back: the schema-version rule, one signer, Postgres replicas |
 | [`docs/operations/release.md`](docs/operations/release.md) | what a release contains, how to verify it, the release dry run, and the v1.0 release checklist |
 | [`docs/reference/flags.md`](docs/reference/flags.md) | every flag with its environment variable, config-file key and default, and every `--X…` override explained (generated) |
@@ -113,11 +114,16 @@ Web3Signer is listed in [DEVIATIONS.md](DEVIATIONS.md).
 Both binaries link this project's Apache-2.0 code and dependencies under Apache-2.0, MIT, BSD-2-Clause and
 BSD-3-Clause; [NOTICE](NOTICE) lists each one with its copyright notice, and new dependencies must carry a licence
 from the allowlist in [CONTRIBUTING.md](CONTRIBUTING.md). The generic licence texts are in [LICENSES/](LICENSES).
-Release archives and images ship `LICENSE`, their flavour's `NOTICE`, `LICENSES/` and a `third_party_licenses/`
-directory with each linked module's own licence file, with this README and the systemd unit and example configuration
-files of [`deploy/`](deploy) ([`docs/operations/release.md`](docs/operations/release.md)). Current
-builds neither copy nor link any GPL or LGPL code. The development tool [`tools/vectorgen`](tools/vectorgen/README.md),
-a separate module that generates the golden test vectors, links qrysm (GPL-3.0) and is never built into a release.
+The consensus-only binary, `remotesigner-consensus`, links nothing else. The default binary, `remotesigner`, also
+links the go-qrl library (LGPL-3.0-or-later), unmodified, for execution mode, with two more modules under
+BSD-3-Clause and ISC; its release appends [NOTICE.execution](NOTICE.execution) to its NOTICE and ships the LGPL and
+GPL texts in `LICENSES/`, and every release attaches `remotesigner-<version>-src-vendored.tar.gz`, the source with
+every dependency vendored. Release archives and images ship `LICENSE`, their flavour's `NOTICE`, `LICENSES/` and a
+`third_party_licenses/` directory with each linked module's own licence file, with this README and the systemd unit
+and example configuration files of [`deploy/`](deploy) ([`docs/operations/release.md`](docs/operations/release.md)).
+Neither binary copies or links any GPL code, and no go-qrl code is copied into this repository. The development tool
+[`tools/vectorgen`](tools/vectorgen/README.md), a separate module that generates the golden test vectors, links qrysm
+(GPL-3.0) and is never built into a release.
 
 ## Trademarks
 

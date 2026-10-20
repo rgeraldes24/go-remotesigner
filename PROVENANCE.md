@@ -74,8 +74,29 @@ nor `pkg/go-qrl-types` (tree `fc5b262a3483358cbd4ce6f7bd7ea0ce20306dfd`) at `0b9
 the latter reaches the keystore only as a dependency of the former. The hardened copy decrypts only and implements no
 wallet interface, so neither package is vendored or copied.
 
-The signer module links no go-qrl (`github.com/theQRL/go-qrl`, LGPL-3.0-or-later), and no go-qrl code is copied
-into it. The execution-mode key code outside `internal/execution` (the account keystore of
+## go-qrl
+
+The default flavour links go-qrl (`github.com/theQRL/go-qrl`, LGPL-3.0-or-later) at `theQRL/go-qrl` `b92884a3a1d5`
+(`v0.3.4-0.20260608175446-b92884a3a1d5`, no `replace`), unmodified, as a library: `internal/execution` imports its
+`common`, `common/hexutil`, `core/types` and `crypto/pqcrypto/wallet` packages to build, encode and sign
+transactions (`types.DynamicFeeTx`, `types.SignTx`, `types.NewZondSigner`, `types.Sender`) and to read and write
+gqrl's JSON encodings. depguard allows go-qrl nowhere else and never its `cmd/**` or `internal/**`, the consensus
+flavour (`-tags noexecution`) links none of it, and `test/repo` checks that every linked go-qrl file is LGPL
+(`TestLinkedGoQRLIsLGPL`). No go-qrl code is copied into this repository: the `pqcrypto/wallet.Wallet` adapter of
+`internal/execution/wallet.go` implements go-qrl's interface over this project's key, and the transaction methods'
+behaviour (gqrl's required members, the `{raw, tx}` result, `qrl_fillTransaction`'s defaults, the transaction-pool
+messages the retry matches) is written from facts about gqrl at that commit (`internal/qrlapi/api.go` and
+`transaction_args.go`, `core/txpool`), not from its code. `NOTICE.execution` and `docs/operations/release.md` record
+what the LGPL asks of the default flavour and how a release provides it.
+
+The fill-sign-send flow of `qrl_sendTransaction`, its nonce retry loop and the signer's own downstream calls are
+classed `w3s-derived` (Web3Signer's `SendTransactionHandler`, `TransactionTransmitter`, `RetryingTransactionTransmitter`,
+`NonceTooLowRetryMechanism`, `RetryMechanism`, `VertxNonceRequestTransmitter` and `EthNonceProvider`), as is
+`qrl_signTransaction` (`EthSignTransactionResultProvider`, `EthSendTransactionJsonParameters`,
+`TransactionSerializer`). The parts with no Web3Signer counterpart (the wallet adapter, the payload check, the
+policy file, the audit log, the chain-ID check, the per-sender locks) are classed `new`.
+
+No go-qrl code is copied into the signer module. The execution-mode key code outside `internal/execution` (the account keystore of
 `internal/keys/keystore/qrlv1/account.go` and its sealing helper in `internal/keys/keystoretest`, and the extended
 seed of `internal/crypto/mldsa87/extended.go`) and `TextHash` in `internal/execution/methods.go` are written from
 facts about go-qrl at `theQRL/go-qrl` `b92884a3a1d5`: the account keystore JSON that `accounts/keystore` writes (a
@@ -134,6 +155,11 @@ and the round-trip check `vectorgen interchange-check`.
   `test/acceptance` builds and runs it in a temporary directory (`make vectors-contract`); its DTO-rename test
   copies the qrysm packages the tool links into a temporary directory and renames two JSON field names in the
   copy, so no qrysm file ever enters the repository. `tools/vectorgen/README.md` records the pin and how to bump it.
+- **The transaction vectors.** `testdata/vectors/transactions/signing.json` holds transactions signed by go-qrl's own
+  `types.SignTx` at the go-qrl commit qrysm pins (`cyyber/go-qrl` `a9f196d809aa`), in deterministic mode, with
+  their signing hashes; `vectorgen` writes them, and `internal/execution/golden_test.go` requires the signer's
+  `qrl_signTransaction`, built on `theQRL/go-qrl` `b92884a3a1d5`, to reproduce them byte for byte. Program output,
+  data only, like the other vectors.
 - **The go-qrl keystore.** `gqrlKeystore` in `internal/keys/keystore/qrlv1/account_test.go` is an account keystore
   written by go-qrl's own `accounts/keystore.EncryptKey` at `b92884a3a1d5`, with its light Argon2id parameters, for
   the extended seed and password the test names. It is program output, data only. It was generated once by a
@@ -171,10 +197,11 @@ attribution line below our header.
 `headercheck` checks `.go`, `.sql`, `.yaml`/`.yml`, `.sh`, `.py`, `.service` (systemd units), `Dockerfile*` and
 `deploy/**/*.json` files (JSON files carry the notice in a top-level `description` field). Every such file needs a
 row, as does every file under `third_party/` and every derived file of any type. Markdown, the Makefile,
-`go.mod`/`go.sum`, `renovate.json`, `.gitignore`, the licence texts and `NOTICE` are project files that need no row
-unless they are derived from upstream or live under `third_party/`, and the generated files under `testdata/vectors/`
-are covered as a whole by "Golden vectors"; every other tracked file needs a row (`test/repo` checks this). For a row
-of a kind `headercheck` does not read (such as Markdown), the row records origin only and no header is required.
+`go.mod`/`go.sum`, `renovate.json`, `.gitignore`, the licence texts, `NOTICE` and `NOTICE.execution` are project
+files that need no row unless they are derived from upstream or live under `third_party/`, and the generated files
+under `testdata/vectors/` are covered as a whole by "Golden vectors"; every other tracked file needs a row
+(`test/repo` checks this). For a row of a kind `headercheck` does not read (such as Markdown), the row records origin
+only and no header is required.
 
 `headercheck` checks only that a `w3s-derived` header has a ConsenSys line, since CI has no Web3Signer checkout.
 That each one carries exactly the ConsenSys lines of the upstream files its row names is checked against a checkout
@@ -307,8 +334,16 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/execution/accounts_w3s_test.go` | w3s-derived | Web3Signer | `signing/src/test/java/tech/pegasys/web3signer/signing/config/SecpArtifactSignerProviderAdapterTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/allowlist.go` | new | | | |
 | `internal/execution/allowlist_test.go` | new | | | |
+| `internal/execution/audit.go` | new | | | |
+| `internal/execution/audit_test.go` | new | | | |
+| `internal/execution/call.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/transaction/VertxNonceRequestTransmitter.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/transaction/EthNonceProvider.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/chainid.go` | new | | | |
+| `internal/execution/chainid_test.go` | new | | | |
 | `internal/execution/doc.go` | new | | | |
 | `internal/execution/downstream.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/WebClientOptionsFactory.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/DownstreamPathCalculator.java`<br>`commandline/src/main/java/tech/pegasys/web3signer/commandline/subcommands/Eth1SubCommand.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/fakegqrl_test.go` | new | | | |
+| `internal/execution/golden_test.go` | new | | | |
+| `internal/execution/gqrl_test.go` | new | | | |
 | `internal/execution/handler.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/JsonRpcHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/RequestMapper.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/internalresponse/InternalResponseHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/JsonRpcErrorHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/HttpResponseFactory.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/util/ResponseCodeSelector.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/handler_test.go` | new | | | |
 | `internal/execution/helpers_test.go` | new | | | |
@@ -316,6 +351,9 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/execution/jsonrpc_test.go` | new | | | |
 | `internal/execution/methods.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/routes/eth1/JsonRpcRoute.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/Eth1AccountsHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/internalresponse/EthSignResultProvider.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/util/EthMessageUtil.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/methods_w3s_test.go` | w3s-derived | Web3Signer | `core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/EthAccountsIntegrationTest.java`<br>`core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/EthSignIntegrationTest.java`<br>`core/src/test/java/tech/pegasys/web3signer/core/service/jsonrpc/EthSignResultProviderTest.java`<br>`core/src/test/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/RequestMapperTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/payload.go` | new | | | |
+| `internal/execution/policy.go` | new | | | |
+| `internal/execution/policy_test.go` | new | | | |
 | `internal/execution/proxy.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/PassThroughHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/HeaderHelpers.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/VertxRequestTransmitter.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/ForwardedMessageResponder.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/proxy_test.go` | new | | | |
 | `internal/execution/proxy_w3s_test.go` | w3s-derived | Web3Signer | `core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/ProxyIntegrationTest.java`<br>`core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/FailedConnectionIntegrationTest.java`<br>`core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/TimeoutTest.java`<br>`core/src/test/java/tech/pegasys/web3signer/core/service/DownstreamPathCalculatorTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
@@ -324,6 +362,13 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/execution/run_test.go` | new | | | |
 | `internal/execution/scan.go` | new | | | |
 | `internal/execution/scan_test.go` | new | | | |
+| `internal/execution/senderlock.go` | new | | | |
+| `internal/execution/sendtx.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/SendTransactionHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/TransactionTransmitter.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/RetryingTransactionTransmitter.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/NonceTooLowRetryMechanism.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/sendtransaction/RetryMechanism.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/sendtx_test.go` | new | | | |
+| `internal/execution/sendtx_w3s_test.go` | w3s-derived | Web3Signer | `core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/SigningEthSendTransactionIntegrationTest.java`<br>`core/src/test/java/tech/pegasys/web3signer/core/service/jsonrpc/sendtransaction/NonceTooLowRetryMechanismTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/transaction.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/internalresponse/EthSignTransactionResultProvider.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/EthSendTransactionJsonParameters.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/signing/TransactionSerializer.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/transaction_test.go` | new | | | |
+| `internal/execution/wallet.go` | new | | | |
 | `internal/hygiene/hygiene.go` | new | | | |
 | `internal/hygiene/hygiene_linux.go` | new | | | |
 | `internal/hygiene/hygiene_other.go` | new | | | |
@@ -558,6 +603,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/release/smokeclient/main.go` | new | | | |
 | `test/release/smokeclient/owner_other.go` | new | | | |
 | `test/release/smokeclient/owner_unix.go` | new | | | |
+| `test/release/source_test.go` | new | | | |
 | `test/release/systemd_test.go` | new | | | |
 | `test/release/version_test.go` | new | | | |
 | `test/repo/deploy_test.go` | new | | | |
@@ -611,6 +657,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `tools/vectorgen/roots.go` | new | | | |
 | `tools/vectorgen/signing.go` | new | | | |
 | `tools/vectorgen/stream.go` | new | | | |
+| `tools/vectorgen/transactions.go` | new | | | |
 | `tools/vectorgen/vectorgen_test.go` | new | | | |
 | `tools/vectorgen/verify.go` | new | | | |
 | `tools/vectorgen/verify_test.go` | new | | | |

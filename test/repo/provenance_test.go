@@ -40,8 +40,8 @@ func provenancePaths(t *testing.T) []string {
 
 // rowless reports whether a file needs no PROVENANCE.md row, as PROVENANCE.md
 // ("Header classes") lists them: project Markdown, the build and module
-// files, the licence texts and NOTICE, and the generated golden vectors,
-// which PROVENANCE.md covers as a whole ("Golden vectors").
+// files, the licence texts and the NOTICE files, and the generated golden
+// vectors, which PROVENANCE.md covers as a whole ("Golden vectors").
 func rowless(p string) bool {
 	base := path.Base(p)
 	switch {
@@ -49,7 +49,7 @@ func rowless(p string) bool {
 		return true
 	case base == "go.mod", base == "go.sum":
 		return true
-	case slices.Contains([]string{"LICENSE", "NOTICE", "Makefile", ".gitignore", "renovate.json"}, p):
+	case slices.Contains([]string{"LICENSE", "NOTICE", "NOTICE.execution", "Makefile", ".gitignore", "renovate.json"}, p):
 		return true
 	case strings.HasPrefix(p, "LICENSES/") && strings.HasSuffix(base, ".txt"):
 		return true
@@ -93,9 +93,10 @@ func TestProvenanceCoversEveryFile(t *testing.T) {
 func TestRowless(t *testing.T) {
 	for p, want := range map[string]bool{
 		"README.md": true, "docs/operations/release.md": true, "tools/vectorgen/go.sum": true,
-		"LICENSES/MIT.txt": true, "NOTICE": true, "testdata/vectors/signing/attestation.json": true,
+		"LICENSES/MIT.txt": true, "NOTICE": true, "NOTICE.execution": true,
+		"testdata/vectors/signing/attestation.json": true, "docs/LICENSE": false,
 		"deploy/systemd/remotesigner.service": false, "internal/consensus/testdata/signing.json": false,
-		"docs/LICENSE": false, "LICENSES/notes.md.bak": false, "deploy/config/example.toml": false,
+		"LICENSES/notes.md.bak": false, "deploy/config/example.toml": false,
 	} {
 		if got := rowless(p); got != want {
 			t.Errorf("rowless(%q) = %v, want %v", p, got, want)

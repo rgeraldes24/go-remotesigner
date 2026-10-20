@@ -52,8 +52,12 @@ func executionConfigFrom(c *cli.Context) (*config.Config, error) {
 			TLSCAFile:      c.String(flags.DownstreamHTTPTLSCAFile),
 			ProxyHost:      c.String(flags.DownstreamHTTPProxyHost),
 		},
-		AllowedMethods: c.StringSlice(flags.ExecutionProxyAllowedMethods),
-		Keystores:      keystoresFrom(c),
+		AllowedMethods:  c.StringSlice(flags.ExecutionProxyAllowedMethods),
+		Keystores:       keystoresFrom(c),
+		ChainID:         c.Uint64(flags.ChainID),
+		PolicyFile:      c.String(flags.ExecutionPolicyFile),
+		AuditLogFile:    c.String(flags.ExecutionAuditLogFile),
+		NonceCrosscheck: c.Bool(flags.ExecutionNonceCrosscheck),
 	}
 	d := &cfg.Execution.Downstream
 	if d.Port, err = tcpPort(c, flags.DownstreamHTTPPort); err != nil {
@@ -83,6 +87,9 @@ func executionConfigFrom(c *cli.Context) (*config.Config, error) {
 	}
 	if err := checkKeystores(cfg.Execution.Keystores); err != nil {
 		return nil, err
+	}
+	if cfg.Execution.ChainID == 0 {
+		return nil, fmt.Errorf("--%s is required: the chain ID transactions are signed for", flags.ChainID)
 	}
 	return cfg, nil
 }

@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -116,6 +117,22 @@ func (n *node) received() []recorded {
 	return append([]recorded(nil), n.requests...)
 }
 
+// clientCalls is received without the chain-ID checks a running signer
+// makes on its own.
+func (n *node) clientCalls() []recorded {
+	var out []recorded
+	for _, r := range n.received() {
+		var m struct {
+			Method string `json:"method"`
+		}
+		if json.Unmarshal(r.body, &m) == nil && m.Method == MethodChainID {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // downstreamOf is the downstream configuration of a test server.
 func downstreamOf(t *testing.T, srv *httptest.Server) config.Downstream {
 	t.Helper()
@@ -130,6 +147,9 @@ func downstreamOf(t *testing.T, srv *httptest.Server) config.Downstream {
 	return config.Downstream{Host: u.Hostname(), Port: uint16(port), Path: "/", Timeout: 2 * time.Second}
 }
 
+// testChainID is the chain ID of the fixtures: gqrl --dev's.
+const testChainID = 1337
+
 // fixture is a Handler over loaded accounts and a fake node.
 type fixture struct {
 	t        *testing.T
@@ -137,6 +157,7 @@ type fixture struct {
 	accounts *Accounts
 	node     *node
 	handler  *Handler
+	txs      *Transactions
 	ext      []*[mldsa87.ExtendedSeedSize]byte
 }
 
@@ -176,7 +197,9 @@ func newFixtureWith(t *testing.T, n int, allow []string, d config.Downstream, nd
 	}
 	p, closeLog := newProxy(ds, quiet())
 	t.Cleanup(closeLog)
-	f.handler = newHandler(f.accounts, a, p, quiet())
+	f.txs = NewTransactions(TransactionsConfig{ChainID: big.NewInt(testChainID), NonceCrosscheck: true})
+	f.txs.chain = newChainMonitor(big.NewInt(testChainID), p, quiet())
+	f.handler = newHandler(f.accounts, a, p, f.txs, quiet())
 	return f
 }
 

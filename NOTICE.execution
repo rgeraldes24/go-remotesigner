@@ -1,0 +1,67 @@
+Execution mode and go-qrl
+-------------------------
+
+This part of the NOTICE ships with the remotesigner binary only. The
+remotesigner-consensus binary does not link the software below.
+
+The remotesigner binary links the go-qrl library
+(https://github.com/theQRL/go-qrl), licensed under the GNU Lesser General
+Public License, version 3 or (at your option) any later version. Its
+execution mode encodes and signs transactions with go-qrl's library
+packages, which it uses unmodified; no go-qrl command (cmd/, licensed under
+the GNU General Public License) is part of it. The binary is a Combined
+Work in the sense of the LGPL: go-remotesigner's own code stays under the
+Apache License, Version 2.0, and go-qrl stays under the LGPL. The texts of
+the LGPL and of the GNU General Public License it supplements are
+LICENSES/LGPL-3.0-or-later.txt and LICENSES/GPL-3.0-or-later.txt.
+
+The corresponding source of each release is published with it as
+remotesigner-<version>-src-vendored.tar.gz: the go-remotesigner source with
+every module it links, go-qrl included, in vendor/, so that the binary can
+be rebuilt with a modified go-qrl. go-qrl's own source is also at
+https://github.com/theQRL/go-qrl, at the version recorded in go.mod.
+Nothing in go-remotesigner's licence forbids modifying go-qrl in a
+rebuilt binary or reverse engineering it to debug such modifications.
+
+
+Third-party software in the remotesigner binary only
+----------------------------------------------------
+
+These modules are linked by execution mode, in addition to those above.
+Each entry gives the copyright notice of the component, as its source
+states it, and its licence. LICENSES/ in this flavour also holds
+LGPL-3.0-or-later.txt, GPL-3.0-or-later.txt and ISC.txt.
+
+GNU Lesser General Public License v3.0 or later
+(LICENSES/LGPL-3.0-or-later.txt, with LICENSES/GPL-3.0-or-later.txt):
+
+  github.com/theQRL/go-qrl, the packages common, common/hexutil,
+  common/math, core/types, crypto, crypto/pqcrypto, crypto/pqcrypto/wallet,
+  log, params and rlp
+    Copyright 2014 The go-ethereum Authors
+    Copyright 2015 The go-ethereum Authors
+    Copyright 2016 The go-ethereum Authors
+    Copyright 2017 The go-ethereum Authors
+    Copyright 2020 The go-ethereum Authors
+    Copyright 2021 The go-ethereum Authors
+    Copyright 2022 The go-ethereum Authors
+    Copyright 2023 The go-ethereum Authors
+    Copyright 2025 The go-ethereum Authors
+    These are the notices the linked files carry, each first found in
+    common/big.go, common/debug.go, common/format.go, common/math/big.go,
+    rlp/iterator.go, core/types/hashing.go, core/types/withdrawal.go,
+    core/types/hashes.go and crypto/keccak.go. The linked files without a
+    notice are under the LGPL by go-qrl's README, which licenses all of
+    go-qrl outside cmd/ under it.
+
+BSD 3-Clause License (LICENSES/BSD-3-Clause.txt):
+
+  github.com/holiman/uint256
+    Copyright 2020 uint256 Authors
+
+ISC License (LICENSES/ISC.txt):
+
+  github.com/decred/dcrd/dcrec/secp256k1/v4
+    Copyright (c) 2013-2017 The btcsuite developers
+    Copyright (c) 2015-2020 The Decred developers
+    Copyright (c) 2017 The Lightning Network Developers

@@ -55,26 +55,21 @@ const (
 // of times their size.
 type method func(ctx context.Context, req *Request) (any, *Error)
 
-// methods is the table of intercepted methods. Transaction signing is not
-// part of this release: its two methods are answered here with "method not
-// enabled", so that they never reach the downstream node, which would sign
-// with keys of its own. Typed-data signing is not offered at all, and its
-// method is never forwarded either.
+// methods is the table of intercepted methods. The transaction methods are
+// answered here, so that they never reach the downstream node, which would
+// sign with keys of its own. Typed-data signing is not offered at all, and
+// its method is never forwarded either.
 func (h *Handler) methods() map[string]method {
 	return map[string]method{
 		MethodAccounts:        h.qrlAccounts,
 		MethodSign:            h.qrlSign,
 		MethodHealthStatus:    func(context.Context, *Request) (any, *Error) { return "OK", nil },
-		MethodSignTransaction: notEnabled,
-		MethodSendTransaction: notEnabled,
+		MethodSignTransaction: h.qrlSignTransaction,
+		MethodSendTransaction: h.qrlSendTransaction,
 		MethodSignTypedData: func(context.Context, *Request) (any, *Error) {
 			return nil, ErrMethodNotFound.with("typed-data signing is not offered")
 		},
 	}
-}
-
-func notEnabled(_ context.Context, req *Request) (any, *Error) {
-	return nil, ErrMethodNotEnabled.with(req.Method + " is not available in this release")
 }
 
 // qrlAccounts is qrl_accounts: the loaded addresses in QIP-55 form, sorted

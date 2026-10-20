@@ -15,6 +15,10 @@ import (
 // -tags noexecution. It links permissively licensed code only.
 const binaryName = "remotesigner-consensus"
 
+// flavourNotice: this flavour links no code whose licence asks for a
+// notice in --version.
+const flavourNotice = ""
+
 // flavourCommands: this flavour has no execution mode.
 func flavourCommands(func(runFunc) runFunc, io.Writer, io.Writer) []*cli.Command { return nil }
 
