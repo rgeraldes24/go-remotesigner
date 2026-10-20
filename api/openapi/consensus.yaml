@@ -1268,7 +1268,8 @@ components:
       description: |
         No fork_info (sending one is 400). Object: ValidatorRegistrationV1. Domain
         compute_domain(DOMAIN_APPLICATION_BUILDER 0x00000001, GENESIS_FORK_VERSION, zero GVR).
-        Clock: timestamp ≤ now + SECONDS_PER_SLOT. Optional fee-recipient pin. Hedged. qrysm oneof 109.
+        Clock: timestamp ≤ now + SECONDS_PER_SLOT (off while the genesis time is unknown). Optional fee-recipient
+        pin: another fee_recipient is 403 `ARTIFACT_TYPE_DISABLED`. Hedged. qrysm oneof 109.
       properties:
         type:
           type: string
@@ -1643,7 +1644,8 @@ components:
     Forbidden:
       description: |
         Policy refusal: wrong scope (including a sign token or a client certificate on an admin route), host not
-        allowed, Origin present, artifact type disabled.
+        allowed, Origin present, artifact type disabled (including a registration whose fee_recipient differs from
+        the key's pin).
       content:
         application/json:
           schema:

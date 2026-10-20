@@ -230,6 +230,14 @@ Server pipeline, in order:
 A refused request never reaches step 11: nothing is signed before every check has passed and the slashing record is
 committed.
 
+Steps 5 and 6 run in this order, and step 5 computes the domain from the signer's own network (and the bound GVR, or
+the request's while a trust-on-first-use pin is pending). A client that computed its `signing_root` from a
+`fork_info` that differs from the network, the case of a validator client on another network, is therefore refused
+at step 5 with `SIGNING_ROOT_MISMATCH`; `FORK_INFO_MISMATCH` is the answer when the request carries no
+`signing_root`, or one that equals the signer's root next to a `fork_info` that differs. The qrysm client always
+sends `signing_root`, and its startup capabilities check ([section 16](#16-capabilities-and-api_version)) catches
+another network before any duty.
+
 ## 8. Artifact types
 
 General rules (details and anchors in [`docs/spec/signing-roots.md`](spec/signing-roots.md) and
@@ -274,7 +282,7 @@ Per-type notes:
   on the wire. Bodies reach about 1.2 MB.
 - **`VALIDATOR_REGISTRATION`.** A `fork_info` key is an unknown field. `pubkey` must equal the identified key (400
   `PUBKEY_MISMATCH`). With `--registration-fee-recipient-file`, a `fee_recipient` different from the key's pinned
-  address is refused.
+  address is refused with 403 `ARTIFACT_TYPE_DISABLED`, at step 3 of the pipeline, before the `pubkey` check.
 - **Not accepted.** The legacy `epoch` oneof (105) and any `RANDAO_REVEAL` signing type: RANDAO is a hash-onion
   pre-image, served by [its own endpoint](#14-randao-reveal). `DEPOSIT` is not in v1.
 
@@ -303,7 +311,9 @@ Every 4xx and 5xx body has this shape (the Web3Signer error shape plus a machine
 ```
 
 `code` is the HTTP status. `message` is a fixed string with no internal paths or exception text. `reason` is one of
-the values below; each has exactly one status code. 401 responses carry `WWW-Authenticate: Bearer`, and 429 and 503
+the values below; each has exactly one status code. The one 4xx body without a `reason` is the answer to a request
+that matches no route ([section 6](#6-authentication-and-scopes)): Web3Signer's `{code, message}` with 404 `Not Found`,
+or 405 `Method Not Allowed` and an `Allow` header, which no operation of the spec lists. 401 responses carry `WWW-Authenticate: Bearer`, and 429 and 503
 responses carry `Retry-After` where a retry makes sense.
 
 <!-- contract:reasons:begin -->
@@ -323,7 +333,7 @@ responses carry `Retry-After` where a retry makes sense.
 | `FORBIDDEN_SCOPE` | 403 | The credentials do not grant the route's scope (a sign token or a client certificate on an admin route) | error |
 | `HOST_NOT_ALLOWED` | 403 | The `Host` header is not in the host allowlist | error |
 | `ORIGIN_NOT_ALLOWED` | 403 | The request carries an `Origin` header | error |
-| `ARTIFACT_TYPE_DISABLED` | 403 | The type is disabled by policy (exits without `--voluntary-exit-signing-enabled`) | error |
+| `ARTIFACT_TYPE_DISABLED` | 403 | The type is disabled by policy (exits without `--voluntary-exit-signing-enabled`), or a registration's `fee_recipient` differs from the key's pin (`--registration-fee-recipient-file`) | error |
 | `UNKNOWN_KEY` | 404 | No loaded key matches the identifier | "public key not found" |
 | `PROTECTION_DISABLED` | 404 | `highWatermark` or a RANDAO state reset was requested while slashing protection is disabled | error |
 | `RELOAD_IN_PROGRESS` | 409 | `POST /reload` while a reload is running | not called by the client |
@@ -363,8 +373,9 @@ The qrysm client logs 412 refusals at WARN, never ERROR.
   slashing database, which would freeze a validator permanently.
 - Genesis time comes from the named network, `--network-genesis-time` or `--network-genesis-state`
   ([`docs/spec/network-config.md`](spec/network-config.md)). When sources disagree, the signer refuses to start.
-- When genesis time is unknown, signing bounds are off, with a startup WARN; on a non-loopback listener the signer
-  then refuses to start unless `--Xallow-unknown-genesis-time` is set.
+- When genesis time is unknown, every signing bound is off, with a startup WARN: the registration bound
+  (`timestamp ≤ now + SECONDS_PER_SLOT`) too, although it needs only the wall clock. On a non-loopback listener the
+  signer then refuses to start unless `--Xallow-unknown-genesis-time` is set.
 - New RANDAO layers always require genesis time ([section 14](#14-randao-reveal)).
 - A wrong genesis time silently shifts every bound, so the VC compares the signer's `genesis_time`,
   `seconds_per_slot` and `slots_per_epoch` with its own chain at startup ([section 16](#16-capabilities-and-api_version)).
@@ -665,6 +676,23 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
     `imported`; `duplicate` is a key that is loaded and enabled.
   - A `DELETE /qrl/v1/keystores` body needs `Content-Type: application/json`, as a POST's does: 415
     `UNSUPPORTED_MEDIA_TYPE` otherwise, which the operation already lists.
+
+  The review for the 1.0.0 release added these, each stating what the signer has done since `1.0.0`:
+  - A registration whose `fee_recipient` differs from the key's pin is refused with 403 `ARTIFACT_TYPE_DISABLED`,
+    the policy refusal, at step 3 ([sections 8](#8-artifact-types) and [11](#11-errors)); DEVIATIONS.md row X35
+    records the difference from Web3Signer ([section 21](#21-deviations-from-web3signer)).
+  - While the genesis time is unknown the registration bound is off too ([section 12](#12-wall-clock-bounds)).
+  - A request whose `fork_info` differs from the network and that carries its own `signing_root` is refused with
+    `SIGNING_ROOT_MISMATCH`, since step 5 runs before step 6
+    ([section 7](#7-request-envelope-and-validation-pipeline)).
+  - A request that matches no route gets a 404 or 405 `{code, message}` body without a `reason`
+    ([section 11](#11-errors)).
+- Open items, which would change the wire behaviour, so they wait for a contract version and the matching qrysm
+  client change:
+  - Keeping the registration bound on while the genesis time is unknown: it needs only the wall clock, but a
+    registration the signer signs today would then be refused with 412 `CLOCK_BOUND`.
+  - A reason code for requests that match no route (for example `NO_ROUTE` on the 404 and 405), so that every 4xx body
+    carries a `reason`: it adds a value to the `ErrorReason` enum, which both ends decode strictly.
 - Known gaps, to be closed by the next version (the signer already behaves this way at `1.0.0`):
   - `GET …/highWatermark` answers 500 `STORE_UNAVAILABLE` when the slashing-protection store cannot be read, a
     status its operation does not list. With the Postgres store that is any database outage, not only a damaged
@@ -698,7 +726,8 @@ show on this contract:
 | X20 (exits off by default), X21 (clock bounds) | [sections 8](#8-artifact-types) and [12](#12-wall-clock-bounds) |
 | X22 (RANDAO reveal endpoint) | [section 14](#14-randao-reveal) |
 | X23 (metric names) | [section 18](#18-metric-label-values) |
-| X24 (no `DEPOSIT`), X27 (no raw-signing endpoints), X35 (registration `pubkey` must be the identified key) | [section 8](#8-artifact-types) |
+| X24 (no `DEPOSIT`), X27 (no raw-signing endpoints) | [section 8](#8-artifact-types) |
+| X35 (registration `pubkey` must be the identified key; the fee-recipient pin refuses any other `fee_recipient` with 403 `ARTIFACT_TYPE_DISABLED`) | [sections 8](#8-artifact-types) and [11](#11-errors) |
 | X29 (reload never disables keys) | [section 17](#17-supporting-endpoints) |
 | X36 (`/upcheck` 503 while loading), X37 (healthcheck detail needs the sign scope), X44 (fixed reload messages) | [sections 5](#5-endpoints) and [17](#17-supporting-endpoints) |
 | X45 (every POST needs `application/json`) | [section 7](#7-request-envelope-and-validation-pipeline) |
