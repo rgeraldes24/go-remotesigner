@@ -3,8 +3,8 @@
 `remotesigner execution` holds QRL account keys for wallets and tools that talk JSON-RPC: it lists the accounts,
 signs messages with them, and forwards everything else to a gqrl node, so that the node holds no keys. It is the
 execution-layer counterpart of `remotesigner consensus`, and a port of Web3Signer's `eth1` mode. Every flag is in
-[`../reference/flags.md`](../reference/flags.md#execution-flags); the differences from Web3Signer are rows X68-X79 of
-[`DEVIATIONS.md`](../../DEVIATIONS.md).
+[`../reference/flags.md`](../reference/flags.md#execution-flags); the differences from Web3Signer are rows X28 and
+X76-X87 of [`DEVIATIONS.md`](../../DEVIATIONS.md).
 
 This release answers `qrl_accounts`, `qrl_sign` and `health_status`. Transaction signing (`qrl_signTransaction`,
 `qrl_sendTransaction`) is not part of it: both methods are refused (section 4) and never reach the node.
