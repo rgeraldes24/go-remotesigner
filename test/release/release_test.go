@@ -283,9 +283,8 @@ func checkImageFiles(t *testing.T, flavour, image string) {
 // entrypoint and labels, its licence files and binary. The images of this
 // machine's architecture, one per flavour, also print the run's version and
 // go through the smoke test (TestDockerSmoke's checks): the release images
-// themselves, not another
-// build of the Dockerfile, run the signer as non-root with a read-only root
-// file system.
+// themselves, not another build of the Dockerfile, run the signer as
+// non-root with a read-only root file system.
 func TestReleaseImages(t *testing.T) {
 	dist := distDir(t)
 	requireDocker(t)
