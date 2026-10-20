@@ -59,10 +59,11 @@ func auditFixture(t *testing.T) (*fixture, *fakeGQRL, string) {
 
 // The audit log is JSON Lines, mode 0600, appended to: each signed
 // transaction (before it leaves the signer), the node's answer to each
-// sent one, and each refusal (G4 S27: the chain ID, the fee cap, an
-// unknown account and a type other than 0x2 here; the policy's in
+// sent one, and each refusal (the chain ID, the fee cap, an unknown
+// account and a type other than 0x2 here; the policy's in
 // TestPolicyThroughTheEndpoint), with hash, from, to, nonce, value, fee
-// (gas × maxFeePerGas) and chain ID.
+// (gas × maxFeePerGas) and chain ID: docs/operations/execution.md,
+// section 10.
 func TestAuditLog(t *testing.T) {
 	f, g, path := auditFixture(t)
 	_, addr := f.key(0)

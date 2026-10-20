@@ -73,8 +73,8 @@ func TestChainMonitor(t *testing.T) {
 // Until the node first answers, run asks again every retry, not every
 // interval: a node that is down at startup is compared with --chain-id as
 // soon as it is up. After the answer, the interval applies. The signer
-// runs it with a 15-second retry and the 10-minute interval of DESIGN
-// §4.2.
+// runs it with a 15-second retry and a 10-minute interval
+// (docs/operations/execution.md, section 8).
 func TestChainMonitorRetriesUntilAnswered(t *testing.T) {
 	if ChainCheckInterval != 10*time.Minute || ChainRetryInterval != 15*time.Second {
 		t.Fatalf("intervals %v and %v, want 10m and 15s", ChainCheckInterval, ChainRetryInterval)
