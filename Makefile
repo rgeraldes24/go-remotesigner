@@ -130,10 +130,14 @@ license-hash:
 ## leave out go-qrllib), and two tests check go-qrl instead: every go-qrl file the binary links on any target is
 ## LGPL and none is under cmd/ or internal/, and LICENSES/ holds go-qrl's own LGPL and GPL texts. The consensus
 ## flavour has no exception: go-qrl there fails the check.
+## Both checks read the dependencies that ship: the binaries are built with CGO_ENABLED=0, which links
+## github.com/decred/dcrd/dcrec/secp256k1 where a cgo build links go-qrl's own crypto/secp256k1, and the release
+## documents are made for linux/amd64 (tools/releasedocs).
 GO_QRL_LIBRARY := github.com/theQRL/go-qrl/
+LICENSES_ENV   := CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 licenses:
-	$(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES) --ignore $(GO_QRL_LIBRARY)
-	GOFLAGS=-tags=noexecution $(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES)
+	$(LICENSES_ENV) $(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES) --ignore $(GO_QRL_LIBRARY)
+	$(LICENSES_ENV) GOFLAGS=-tags=noexecution $(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES)
 	$(GO) test -count=1 -run '^(TestLinkedGoQRLIsLGPL|TestGNUTextsAreGoQRLs|TestConsensusFlavourLinksNoGoQRL)$$' ./test/repo/
 
 vuln:
