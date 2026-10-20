@@ -210,7 +210,7 @@ func TestLoadPolicy(t *testing.T) {
 
 // Through the endpoint: a policy refusal is -32003 "Transaction rejected"
 // with the reason, for both transaction methods, and written to the audit
-// log (G4 S27), and the hourly count is charged once per
+// log, and the hourly count is charged once per
 // qrl_sendTransaction however often it retries.
 func TestPolicyThroughTheEndpoint(t *testing.T) {
 	f, g, path := auditFixture(t)
