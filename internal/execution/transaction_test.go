@@ -197,6 +197,31 @@ func TestSignTransactionParams(t *testing.T) {
 	}
 }
 
+// A member that does not decode is named in the error's data, with
+// go-qrl's reason, whichever Go release decodes it: the first such member
+// in document order, after members that decode.
+func TestParamError(t *testing.T) {
+	addr := "Q" + strings.Repeat("ab", 64)
+	for _, tt := range []struct {
+		obj, want string
+	}{
+		{`{"from":"q` + addr[1:] + `"}`, "from: hex string without Q prefix"},
+		{`{"from":"` + addr + `","nonce":"0x01","gas":"0x01"}`, "nonce: hex number with leading zero digits"},
+		{`{"value":1}`, "value: non-string"},
+		{`{"accessList":[{"address":"0x00"}]}`, "accessList: "},
+		{`{"FROM":"0x00"}`, "FROM: "},
+	} {
+		var a txArgs
+		err := json.Unmarshal([]byte(tt.obj), &a)
+		if err == nil {
+			t.Fatalf("%s decoded", tt.obj)
+		}
+		if got := paramError(json.RawMessage(tt.obj), err); !strings.HasPrefix(got, tt.want) {
+			t.Errorf("paramError(%s) = %q, want it to start with %q", tt.obj, got, tt.want)
+		}
+	}
+}
+
 // An address that is not loaded is -32000, as for qrl_sign.
 func TestSignTransactionUnknownAccount(t *testing.T) {
 	f := newFixture(t, 1, defaultAllow)

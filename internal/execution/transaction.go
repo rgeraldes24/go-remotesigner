@@ -126,7 +126,7 @@ func (t *Transactions) parseTxArgs(req *Request, log logrus.FieldLogger) (*txArg
 	}
 	var a txArgs
 	if err := json.Unmarshal(params[0], &a); err != nil {
-		return nil, ErrInvalidParams.with(paramError(err))
+		return nil, ErrInvalidParams.with(paramError(params[0], err))
 	}
 	switch {
 	case a.From == nil:
@@ -168,20 +168,51 @@ func isDynamicFeeType(raw json.RawMessage) bool {
 	return json.Unmarshal(raw, &n) == nil && n.String() == "2"
 }
 
-// paramError is the data of an invalid-params error: the field and what is
-// wrong with it, as go-qrl's decoders say it.
-func paramError(err error) string {
+// paramError is the data of an invalid-params error for the transaction
+// object obj, which err failed to decode: the member and what is wrong with
+// it, as go-qrl's decoders say it. encoding/json names the field of an error
+// from a member's own decoder in some Go releases only (Go 1.26 does, Go
+// 1.27 does not), so the member is found by decoding each one on its own.
+func paramError(obj json.RawMessage, err error) string {
+	name, merr := failingMember(obj)
+	if name == "" {
+		return cut(err.Error())
+	}
 	var te *json.UnmarshalTypeError
-	if errors.As(err, &te) && te.Field != "" {
-		return te.Field + ": " + cut(te.Value)
+	if errors.As(merr, &te) {
+		return name + ": " + cut(te.Value)
 	}
-	msg := err.Error()
-	if i := strings.Index(msg, "into Go struct field txArgs."); i >= 0 {
-		rest := msg[i+len("into Go struct field txArgs."):]
-		field, _, _ := strings.Cut(rest, " ")
-		return field + ": " + strings.TrimSpace(msg[:i])
+	return name + ": " + cut(strings.TrimPrefix(merr.Error(), "json: "))
+}
+
+// failingMember returns the first member of the JSON object obj, in
+// document order, that does not decode into txArgs on its own, with its
+// error, or "" when every member decodes.
+func failingMember(obj json.RawMessage) (string, error) {
+	dec := json.NewDecoder(bytes.NewReader(obj))
+	if _, err := dec.Token(); err != nil {
+		return "", err
 	}
-	return cut(msg)
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", err
+		}
+		name, _ := tok.(string)
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return "", err
+		}
+		one, err := json.Marshal(map[string]json.RawMessage{name: raw})
+		if err != nil {
+			return "", err
+		}
+		var a txArgs
+		if err := json.Unmarshal(one, &a); err != nil {
+			return name, err
+		}
+	}
+	return "", nil
 }
 
 // data is the input: input, or data when input is absent.
