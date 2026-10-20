@@ -158,8 +158,10 @@ and the round-trip check `vectorgen interchange-check`.
 - **The transaction vectors.** `testdata/vectors/transactions/signing.json` holds transactions signed by go-qrl's own
   `types.SignTx` at the go-qrl commit qrysm pins (`cyyber/go-qrl` `a9f196d809aa`), in deterministic mode, with
   their signing hashes; `vectorgen` writes them, and `internal/execution/golden_test.go` requires the signer's
-  `qrl_signTransaction`, built on `theQRL/go-qrl` `b92884a3a1d5`, to reproduce them byte for byte. Program output,
-  data only, like the other vectors.
+  `qrl_signTransaction`, built on `theQRL/go-qrl` `b92884a3a1d5`, to reproduce them byte for byte.
+  `testdata/vectors/transactions/text_hash.json` holds go-qrl's `accounts.TextHash` of messages at the same commit,
+  which the signer's own `TextHash` and the message `qrl_sign` signs must equal. Program output, data only, like the
+  other vectors.
 - **The go-qrl keystore.** `gqrlKeystore` in `internal/keys/keystore/qrlv1/account_test.go` is an account keystore
   written by go-qrl's own `accounts/keystore.EncryptKey` at `b92884a3a1d5`, with its light Argon2id parameters, for
   the extended seed and password the test names. It is program output, data only. It was generated once by a

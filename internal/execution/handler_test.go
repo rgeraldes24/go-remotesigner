@@ -117,7 +117,8 @@ func TestQRLSignVerifiesWithGoQRLLib(t *testing.T) {
 
 // TextHash is go-qrl's accounts.TextHash: the value for "Hello Joe" is the
 // one go-qrl's own accounts test expects, and the empty Keccak-256 is the
-// algorithm's published value (not SHA3-256's).
+// algorithm's published value (not SHA3-256's). TestTextHashVectors checks
+// it against go-qrl itself.
 func TestTextHash(t *testing.T) {
 	if h := TextHash([]byte("Hello Joe")); hex.EncodeToString(h[:]) !=
 		"1e5ec1e5c116994bf377af15a5997a992650145ca8d5b00eb77d4c8aa5f245c4" {

@@ -129,6 +129,7 @@ func generate(repo string) error {
 		{"keystores", genKeystores},
 		{"interchange", genInterchange},
 		{"transactions", genTransactions},
+		{"text hash", genTextHash},
 		{"readme", genReadme},
 	}
 	for _, s := range steps {
