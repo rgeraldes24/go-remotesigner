@@ -13,13 +13,18 @@ the GNU General Public License) is part of it. The binary is a Combined
 Work in the sense of the LGPL: go-remotesigner's own code stays under the
 Apache License, Version 2.0, and go-qrl stays under the LGPL. The texts of
 the LGPL and of the GNU General Public License it supplements are
-LICENSES/LGPL-3.0-or-later.txt and LICENSES/GPL-3.0-or-later.txt.
+LICENSES/LGPL-3.0-or-later.txt and LICENSES/GPL-3.0-or-later.txt, next to
+this NOTICE in the release archive, and under /usr/share/doc/remotesigner/
+in the image.
 
 The corresponding source of each release is published with it as
-remotesigner-<version>-src-vendored.tar.gz: the go-remotesigner source with
-every module it links, go-qrl included, in vendor/, so that the binary can
-be rebuilt with a modified go-qrl. go-qrl's own source is also at
-https://github.com/theQRL/go-qrl, at the version recorded in go.mod.
+remotesigner-<version>-src-vendored.tar.gz, a file of the GitHub release
+https://github.com/rgeraldes24/go-remotesigner/releases/tag/v<version>,
+where <version> is the version that remotesigner --version reports: the
+go-remotesigner source with every module it links, go-qrl included, in
+vendor/, so that the binary can be rebuilt with a modified go-qrl. go-qrl's
+own source is also at https://github.com/theQRL/go-qrl, at the version
+recorded in go.mod.
 Nothing in go-remotesigner's licence forbids modifying go-qrl in a
 rebuilt binary or reverse engineering it to debug such modifications.
 

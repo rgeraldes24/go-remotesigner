@@ -300,6 +300,8 @@ func TestExecutionNotice(t *testing.T) {
 		"links the go-qrl library (https://github.com/theQRL/go-qrl), licensed under the GNU Lesser General Public License",
 		"LICENSES/LGPL-3.0-or-later.txt and LICENSES/GPL-3.0-or-later.txt",
 		"remotesigner-<version>-src-vendored.tar.gz",
+		"https://github.com/rgeraldes24/go-remotesigner/releases/tag/v<version>",
+		"under /usr/share/doc/remotesigner/ in the image",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("NOTICE.execution does not say %q", want)
