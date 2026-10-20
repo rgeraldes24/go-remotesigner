@@ -236,7 +236,7 @@ quantities without leading zeros, `0x` data):
 | `input` (or `data`) | call data; when both are given they must be equal |
 | `accessList` | signed as given; absent is empty |
 | `chainId` | must be `--chain-id`; absent is `--chain-id` |
-| `type` | optional; must be `0x2` |
+| `type` | optional; must be `0x2`, else -32602, and the refusal is written to the audit log (section 10) |
 
 Other members are ignored, as gqrl ignores them. A member that does not decode is -32602, with the member's name and
 go-qrl's reason in `data`.
@@ -339,7 +339,7 @@ It records, one object per line:
 | `signed` | a transaction was signed, before it leaves the signer (returned by `qrl_signTransaction` or sent by `qrl_sendTransaction`) |
 | `sent` | the node accepted a sent transaction |
 | `node-refused` | the node refused a sent transaction; `reason` is its message (a retry follows when step 6 of section 8 applies) |
-| `refused` | the signer refused a transaction: an unknown account, the chain ID, the fee cap, the policy or the node's fill answer; `reason` says which |
+| `refused` | the signer refused a transaction: an unknown account, a `type` other than `0x2` (answered with -32602, as gqrl does), the chain ID, the fee cap, the policy or the node's fill answer; `reason` says which |
 
 ```json
 {"time":"2026-10-20T08:15:02.731Z","method":"qrl_sendTransaction","outcome":"signed","hash":"0x5bfe…","from":"Q45F3…","to":"Q1111…","nonce":"0x7","value":"0xde0b6b3a7640000","fee":"0xeebe0b40ed208","chainId":"0x539"}

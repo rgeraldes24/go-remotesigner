@@ -108,10 +108,15 @@ type txArgs struct {
 	Type                 json.RawMessage   `json:"type"`
 }
 
+// typeRefusal is the refusal of a transaction whose type is not 0x2.
+const typeRefusal = "only dynamic-fee transactions (type 0x2) are signed"
+
 // parseTxArgs reads the params of a transaction method: one transaction
 // object. A member that is not valid for its field is -32602, as gqrl
-// refuses it.
-func parseTxArgs(req *Request) (*txArgs, *Error) {
+// refuses it. A type other than 0x2 is -32602 too, and, as a transaction
+// the signer refuses, is logged and written to the audit log once from is
+// known.
+func (t *Transactions) parseTxArgs(req *Request, log logrus.FieldLogger) (*txArgs, *Error) {
 	params, ok := elements(req.Params, 1)
 	if !ok || len(params) != 1 {
 		return nil, ErrInvalidParams.with(req.Method + " takes [transaction]")
@@ -127,7 +132,9 @@ func parseTxArgs(req *Request) (*txArgs, *Error) {
 	case a.From == nil:
 		return nil, ErrInvalidParams.with("from is required")
 	case a.Type != nil && !isDynamicFeeType(a.Type):
-		return nil, ErrInvalidParams.with("only dynamic-fee transactions (type 0x2) are signed")
+		t.logRefusal(req.Method, typeRefusal, log)
+		t.auditRefusal(req.Method, &a, typeRefusal, log)
+		return nil, ErrInvalidParams.with(typeRefusal)
 	case a.Data != nil && a.Input != nil && !bytes.Equal(*a.Data, *a.Input):
 		return nil, ErrInvalidParams.with(`both "data" and "input" are set and not equal; use "input"`)
 	case a.To == nil && len(a.data()) == 0:
@@ -242,7 +249,8 @@ type signTransactionResult struct {
 // the node for anything, and the result is {raw, tx}. The chain ID, the
 // fee cap and the account's policy apply.
 func (h *Handler) qrlSignTransaction(_ context.Context, req *Request) (any, *Error) {
-	a, e := parseTxArgs(req)
+	t := h.txs
+	a, e := t.parseTxArgs(req, h.log)
 	if e != nil {
 		return nil, e
 	}
@@ -254,7 +262,6 @@ func (h *Handler) qrlSignTransaction(_ context.Context, req *Request) (any, *Err
 	case a.Nonce == nil:
 		return nil, ErrInvalidParams.with("nonce not specified")
 	}
-	t := h.txs
 	from := Address(*a.From)
 	key, ok := h.accounts.Lookup(from)
 	if !ok {
@@ -338,9 +345,14 @@ func (t *Transactions) sign(method string, key *mldsa87.Key, from Address, data 
 // refused records a refusal in the log and the audit log and returns its
 // error.
 func (t *Transactions) refused(method string, a *txArgs, r *refusal, log logrus.FieldLogger) *Error {
-	log.WithFields(logrus.Fields{"method": method, "reason": r.reason}).Warn("A transaction was refused")
+	t.logRefusal(method, r.reason, log)
 	t.auditRefusal(method, a, r.reason, log)
 	return ErrTxRejected.with(r.reason)
+}
+
+// logRefusal logs the refusal of a transaction.
+func (*Transactions) logRefusal(method, reason string, log logrus.FieldLogger) {
+	log.WithFields(logrus.Fields{"method": method, "reason": reason}).Warn("A transaction was refused")
 }
 
 // auditRefusal writes the refusal of a's transaction to the audit log.

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -178,10 +179,11 @@ func TestLoadPolicy(t *testing.T) {
 }
 
 // Through the endpoint: a policy refusal is -32003 "Transaction rejected"
-// with the reason, for both transaction methods, and the hourly count is
-// charged once per qrl_sendTransaction however often it retries.
+// with the reason, for both transaction methods, and written to the audit
+// log (G4 S27), and the hourly count is charged once per
+// qrl_sendTransaction however often it retries.
 func TestPolicyThroughTheEndpoint(t *testing.T) {
-	f, g := sendFixture(t, 1)
+	f, g, path := auditFixture(t)
 	_, addr := f.key(0)
 	from := f.accounts.List()[0].Address
 	pol, err := ParsePolicy([]byte("accounts:\n  " + qOf(from) + ":\n    allowed-recipients: [" + recipient + "]\n    max-value: 10\n    max-transactions-per-hour: 2\n"))
@@ -221,5 +223,21 @@ func TestPolicyThroughTheEndpoint(t *testing.T) {
 	r := decodeOne(t, f.post(call(3, MethodSignTransaction, fullTx(addr, "value", "0x1", "nonce", "0x2")), nil).Body.Bytes())
 	if r.Error == nil || r.Error.Code != -32003 || !strings.Contains(r.Error.Data.(string), "max-transactions-per-hour") {
 		t.Fatalf("third in the hour: %+v", r.Error)
+	}
+	var refused []string
+	for _, e := range readAudit(t, path) {
+		if e.Outcome == AuditRefused {
+			refused = append(refused, e.Method+": "+e.Reason)
+		}
+	}
+	want := []string{
+		MethodSignTransaction + ": value 11 Planck is above this account's max-value of 10",
+		MethodSignTransaction + ": the recipient is not in this account's allowed-recipients",
+		MethodSendTransaction + ": value 11 Planck is above this account's max-value of 10",
+		MethodSendTransaction + ": the recipient is not in this account's allowed-recipients",
+		MethodSignTransaction + ": this account has signed 2 transactions in the last hour, its max-transactions-per-hour",
+	}
+	if !slices.Equal(refused, want) {
+		t.Fatalf("audited refusals:\n%s\nwant:\n%s", strings.Join(refused, "\n"), strings.Join(want, "\n"))
 	}
 }
