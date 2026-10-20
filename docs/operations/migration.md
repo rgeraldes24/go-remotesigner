@@ -166,15 +166,18 @@ bin/remotesigner-consensus --data-path=/var/lib/remotesigner consensus --network
 
   **Why a source below the repaired epoch is safe there.** Every attestation this signer recorded and left out of the
   file (older, pruned, or signed before the repair) has a target below the oldest exported attestation's. A history
-  without surround votes, which is all this signer ever records, never lowers its source as its target grows, so
-  each of them also has a source at or below the exported attestation's. An attestation the importing side allows
-  has a target above that attestation's and a source at or above its source: it cannot repeat any of their targets,
-  and it neither surrounds one (its source is not lower) nor is surrounded by one (its target is higher). History
-  the validator signed elsewhere, which the repair fenced, is covered the same way when the repair was made at or
-  above the chain head, as section 8 asks: its targets are then at or below the repaired epoch, so below the exported
-  attestation's, and its sources at or below that attestation's source, unless the exported attestation is itself
-  slashable against it, which no export can change. What the importing side gives up is the margin the repair added
-  below the newest attestation, not protection.
+  without surround votes never lowers its source as its target grows, and every history this signer signed itself is
+  one, since it refuses a surround vote before signing; so each of them also has a source at or below the exported
+  attestation's. An attestation the importing side allows has a target above that attestation's and a source at or
+  above its source: it cannot repeat any of their targets, and it neither surrounds one (its source is not lower) nor
+  is surrounded by one (its target is higher). History the validator signed elsewhere, which the repair fenced, is
+  covered the same way when the repair was made at or above the chain head, as section 8 asks: its targets are then at
+  or below the repaired epoch, so below the exported attestation's, and its sources at or below that attestation's
+  source, unless the exported attestation is itself slashable against it, which no export can change. An imported
+  history that already held a surround vote, which the import reports with a warning (section 2), is outside this
+  argument: an older record of it may have a source above the exported attestation's, and an attestation the importing
+  side then allows could surround that record. Such a key has signed slashable messages already. What the importing
+  side gives up is the margin the repair added below the newest attestation, not protection.
 - The file is written next to `--to` and renamed into place when complete, so a failed export leaves no partial
   file.
 

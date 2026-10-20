@@ -44,11 +44,14 @@ commit is harmless: the retry is a `re_reveal` of the same layer.
 asking for `last+1, last+2, …, now`. The lower edge allows at most `skew + 2` frontier moves in one real slot (3 with
 the default skew), then one per slot.
 
-**Why a deeper commitment advances.** Layers below `m` were never released by this signer, so whoever presents one
-has read it on chain or holds a leak; releasing the next one costs a new layer under the same rules. Refusing it
-would let a malicious beacon node seed a stale first use (for example with the public deposit commitment `x_L`) and
-block every honest proposal afterwards. A migration, an import or a restored backup therefore needs no override: the
-next honest proposal advances the frontier and raises the `RemoteSignerRandaoGapAdvanced` alert once.
+**Why a deeper commitment advances.** Layers below `m` were never released by this signer, so whoever presents one has
+read it on chain or holds a leak; releasing the next one costs a new layer under the same rules. Refusing it would let
+a malicious beacon node seed a stale first use (for example with the public deposit commitment `x_L`) and block every
+honest proposal afterwards. A store restored from an older backup, or a key whose frontier is stored here while
+another signer released deeper layers (a key moved back after it signed elsewhere), therefore needs no override: the
+next honest proposal advances the frontier as `gap_advanced` and raises the `RemoteSignerRandaoGapAdvanced` alert
+once. A migration, or an import of a key new to this store, needs nothing either: the key has no frontier here, so its
+first reveal is a `first_use`, which raises no alert.
 
 **Genesis time is required.** Without it the window cannot be evaluated: only re-reveals are served, `capabilities`
 reports `randao_reveal: false`, startup logs an ERROR and `keys-check/randao` is DOWN, so the qrysm validator client
