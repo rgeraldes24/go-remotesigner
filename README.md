@@ -12,7 +12,8 @@ Consensys.
 
 Pre-release: 1.0.0 is prepared, and [`CHANGELOG.md`](CHANGELOG.md) lists what it contains. The gates it still waits
 for, which need infrastructure this repository does not have, are in the
-[release checklist](docs/operations/release.md#6-the-v10-release-checklist). The HTTP contract with the qrysm validator client is [`docs/contract.md`](docs/contract.md) and
+[release checklist](docs/operations/release.md#6-the-v10-release-checklist). The HTTP contract with the qrysm
+validator client is [`docs/contract.md`](docs/contract.md) and
 [`api/openapi/consensus.yaml`](api/openapi/consensus.yaml), with the protocol facts it relies on in
 [`docs/spec/`](docs/spec/README.md). `remotesigner consensus` signs all nine artifact types behind slashing protection
 in a bbolt file or, for replicas serving the same keys, a shared Postgres database, releases RANDAO reveals under the

@@ -110,8 +110,8 @@ allocates only small bookkeeping, which is why B6 stays far under its memory bou
 
 ## Public keys and idle connections (B15, B19, the API server)
 
-**B15: met on the development machine.** **B19: met on the development machine** in its first 1 h run (Run V, 2026-10-20:
-162 POSTs, 0 errors); the nightly job runs it every night.
+**B15: met on the development machine.** **B19: met on the development machine** in its first 1 h run (Run V,
+2026-10-20: 162 POSTs, 0 errors); the nightly job runs it every night.
 
 ```
 go test -run '^$' -bench PublicKeys10k -benchtime 10x -count 10 ./internal/api/consensus/ | tee b15.txt && benchstat b15.txt
@@ -351,9 +351,9 @@ checks that share and cannot catch a load whose decrypts are slow. B12 starts wi
 B7 burst four times (the first warms up; the median p99 of the other three is the baseline), adds 100 standard-KDF
 keystores, posts `/reload`, waits 2 s and runs the burst again while the reload decrypts. Each burst has signing
 roots of its own (the attestations' epochs rise by one per burst, the sync committee messages name another block
-root), so that every request is signed. Before the v1.0 run B12 sent one burst over 32 keys four times, so from the second
-burst on the response cache answered every request: its earlier rows compare cache hits, not signing. Peak RSS
-is sampled with `ps` every 100 ms.
+root), so that every request is signed. Before the v1.0 run B12 sent one burst over 32 keys four times, so from the
+second burst on the response cache answered every request: its earlier rows compare cache hits, not signing. Peak
+RSS is sampled with `ps` every 100 ms.
 
 | ID | Test | Threshold | Development-machine results | Verdict |
 |---|---|---|---|---|

@@ -313,8 +313,8 @@ Every 4xx and 5xx body has this shape (the Web3Signer error shape plus a machine
 `code` is the HTTP status. `message` is a fixed string with no internal paths or exception text. `reason` is one of
 the values below; each has exactly one status code. The one 4xx body without a `reason` is the answer to a request
 that matches no route ([section 6](#6-authentication-and-scopes)): Web3Signer's `{code, message}` with 404 `Not Found`,
-or 405 `Method Not Allowed` and an `Allow` header, which no operation of the spec lists. 401 responses carry `WWW-Authenticate: Bearer`, and 429 and 503
-responses carry `Retry-After` where a retry makes sense.
+or 405 `Method Not Allowed` and an `Allow` header, which no operation of the spec lists. 401 responses carry
+`WWW-Authenticate: Bearer`, and 429 and 503 responses carry `Retry-After` where a retry makes sense.
 
 <!-- contract:reasons:begin -->
 | Reason | Status | When | qrysm client |

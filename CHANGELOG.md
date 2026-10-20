@@ -80,7 +80,8 @@ from Consensys Web3Signer. Every behaviour that differs from Web3Signer is liste
 - **Networks.** `--network` is required: the built-in `minimal`, `end-to-end` (alias `e2e`), `end-to-end-mainnet` and
   `interop`, or a qrysm configuration file with the genesis time and validators root from flags or a genesis state.
 - **Configuration.** Every flag also reads a `REMOTESIGNER_` environment variable and a YAML `--config-file`; the
-  flag reference is generated from the flag definitions. Booleans take `--flag=false`, never `--flag false`.
+  flag reference is generated from the flag definitions. Booleans take `--flag=false`, never `--flag false`. Logs
+  are text or JSON (`--logging-format`), with Web3Signer's levels (`--logging`).
 - **Container image and deployment examples.** A distroless, non-root image per flavour that runs with a read-only
   root file system and a TLS-first entrypoint, a docker-compose example with a validator client, a hardened systemd
   unit, and example configurations for a single host (bbolt) and Postgres replicas.

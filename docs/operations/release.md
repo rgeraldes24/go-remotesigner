@@ -1,8 +1,9 @@
 # Releases
 
 This page lists what a release contains, how the licence files differ per flavour, how to verify a release, how
-maintainers run the release dry run and publish, and what still stands between the repository and `v1.0.0`. The configuration is [`.goreleaser.yaml`](../../.goreleaser.yaml)
-(goreleaser v2) and the workflow [`.github/workflows/release.yml`](../../.github/workflows/release.yml).
+maintainers run the release dry run and publish, and what still stands between the repository and `v1.0.0`. The
+configuration is [`.goreleaser.yaml`](../../.goreleaser.yaml) (goreleaser v2) and the workflow
+[`.github/workflows/release.yml`](../../.github/workflows/release.yml).
 
 ## 1. What a release contains
 
@@ -150,9 +151,10 @@ provenance attestation. Every other workflow reads only.
 
 ## 6. The v1.0 release checklist
 
-`v1.0.0` is tagged only when every item below holds. The items of section 6.1 are met in this repository, and CI
-checks them on every pull request. Those of section 6.2 need infrastructure or decisions this repository does not
-have; each is recorded where the table says once it is met.
+`v1.0.0` is tagged only when every item below holds. The items of section 6.1 are met in this repository: CI checks
+those that a test or a make target checks on every pull request, and the others (the reviews, the benchmark runs and
+`make release-version`) are done by hand before the tag. Those of section 6.2 need infrastructure or decisions this
+repository does not have; each is recorded where the table says once it is met.
 
 ### 6.1 Met in the repository
 
@@ -162,7 +164,7 @@ have; each is recorded where the table says once it is met.
 | `PROVENANCE.md` records every file, and every header matches its class | `make headercheck`; `TestProvenanceCoversEveryFile` (`test/repo`) |
 | `DEVIATIONS.md` is reviewed against the code, and its rows that show on the API are mapped in the contract | the review for 1.0.0; `make contract` |
 | Every archive and image carries `LICENSE`, its flavour's `NOTICE`, `LICENSES/` and `third_party_licenses/` | `make release-check` (section 4) |
-| The binaries of the tag `v1.0.0` report `1.0.0` | `make release-version` (section 4), `TestReleaseVersion` |
+| The binaries of the tag `v1.0.0` report `1.0.0` | `make release-version` (section 4) by hand; in CI, `TestReleaseVersion` checks the dry run's `<version>-SNAPSHOT-<short commit>` |
 | Every operator page exists and is linked from the README; the flag reference is current | `TestOperatorDocs` (`test/repo`); `go run ./tools/flagdoc -check` |
 | The benchmarks that run on a development machine are re-run for the release | [`docs/benchmarks.md`](../benchmarks.md#v10-release-run-dev-machine), "v1.0 release run" |
 
