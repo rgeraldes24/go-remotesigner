@@ -57,8 +57,9 @@ Signed-off-by: Jane Doe <jane@example.org>
 
 ## File headers and PROVENANCE.md
 
-Every new or changed `.go`, `.sql`, `.yaml`/`.yml`, `.sh`, `Dockerfile*` or `deploy/**/*.json` file needs a row in
-the file table of `PROVENANCE.md` and the header of its class (see "Header classes" there):
+Every new or changed `.go`, `.sql`, `.yaml`/`.yml`, `.sh`, `.py`, `.service`, `Dockerfile*` or `deploy/**/*.json`
+file needs a row in the file table of `PROVENANCE.md` and the header of its class (see "Header classes" there), and so
+does any other new file except the kinds that section exempts:
 
 - A file you wrote for this project (class `new`):
 
@@ -73,7 +74,8 @@ the file table of `PROVENANCE.md` and the header of its class (see "Header class
   translated from Java to Go and adapted for QRL. Derived from `<path in Web3Signer>` at commit
   30af06dc975ba5b8ed0e17e53cba8683ca50ec02."
 
-If your change behaves differently from Web3Signer, add a row to `DEVIATIONS.md`.
+If your change behaves differently from Web3Signer, add a row to `DEVIATIONS.md`. If it changes what an operator
+sees, add a line under `## [Unreleased]` in `CHANGELOG.md`.
 
 `headercheck` reads the working tree, not the git index. It ignores the editor and OS files that `.gitignore`
 excludes (`.DS_Store`, `*.swp`, `.idea/`, `.vscode/`), but other untracked files of a checked kind need a row too,

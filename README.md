@@ -10,7 +10,9 @@ Consensys.
 
 ## Status
 
-Pre-release. The HTTP contract with the qrysm validator client is [`docs/contract.md`](docs/contract.md) and
+Pre-release: 1.0.0 is prepared, and [`CHANGELOG.md`](CHANGELOG.md) lists what it contains. The gates it still waits
+for, which need infrastructure this repository does not have, are in the
+[release checklist](docs/operations/release.md#6-the-v10-release-checklist). The HTTP contract with the qrysm validator client is [`docs/contract.md`](docs/contract.md) and
 [`api/openapi/consensus.yaml`](api/openapi/consensus.yaml), with the protocol facts it relies on in
 [`docs/spec/`](docs/spec/README.md). `remotesigner consensus` signs all nine artifact types behind slashing protection
 in a bbolt file or, for replicas serving the same keys, a shared Postgres database, releases RANDAO reveals under the
@@ -46,13 +48,14 @@ unit, example configuration files, the Grafana dashboard and the Prometheus aler
 | [`docs/operations/randao.md`](docs/operations/randao.md) | RANDAO reveals: the frontier rule, gap advances, sizing the bucket, resetting a key, the alerts |
 | [`docs/operations/metrics.md`](docs/operations/metrics.md) | the metrics catalogue, the alert rules and their runbooks, the Grafana dashboard |
 | [`docs/operations/upgrade.md`](docs/operations/upgrade.md) | upgrading and going back: the schema-version rule, one signer, Postgres replicas |
-| [`docs/operations/release.md`](docs/operations/release.md) | what a release contains, how to verify it, and the release dry run |
+| [`docs/operations/release.md`](docs/operations/release.md) | what a release contains, how to verify it, the release dry run, and the v1.0 release checklist |
 | [`docs/reference/flags.md`](docs/reference/flags.md) | every flag with its environment variable, config-file key and default, and every `--X…` override explained (generated) |
 | [`docs/reference/registration-fee-recipient-file.md`](docs/reference/registration-fee-recipient-file.md) | the per-key fee-recipient file |
 | [`docs/contract.md`](docs/contract.md) | the HTTP contract with the qrysm validator client |
 | [`docs/spec/README.md`](docs/spec/README.md) | the protocol facts the signer relies on: SSZ containers, signing roots, the RANDAO onion, network configuration |
 | [`docs/benchmarks.md`](docs/benchmarks.md) | benchmark results, measured on a development machine |
 | [`DEVIATIONS.md`](DEVIATIONS.md) | every behaviour that differs from Web3Signer |
+| [`CHANGELOG.md`](CHANGELOG.md) | what each release adds, changes and fixes |
 
 ## Building
 
@@ -74,8 +77,11 @@ or any other GPL or LGPL code.
 
 ```
 $ bin/remotesigner --version
-remotesigner version v0.0.0-... (commit ..., go1.26.9, linux/amd64)
+remotesigner version 1.0.0 (commit ..., go1.26.9, linux/amd64)
 ```
+
+The version is the tag's without its `v` (`1.0.0` for `v1.0.0`), as in the release binaries; between tags it is
+`git describe`'s.
 
 ## Contributing
 

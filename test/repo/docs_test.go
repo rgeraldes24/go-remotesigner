@@ -58,14 +58,17 @@ var operatorPages = []struct {
 	{"docs/operations/metrics.md", []string{"## 2. Catalogue", "## 4. Alerts"}},
 	{"docs/operations/upgrade.md", []string{"## 2. The schema-version rule", "## 4. Postgres replicas",
 		"## 5. Going back to an older release"}},
-	{"docs/operations/release.md", []string{"## 3. Verifying a release"}},
+	{"docs/operations/release.md", []string{"## 3. Verifying a release", "## 6. The v1.0 release checklist",
+		"Both nightly end-to-end runs green for 7 consecutive nights", "Benchmark B16",
+		"Reference-VM runs of B1-B15 and B18-B20", "public ghcr.io packages", "Making the repository public"}},
+	{"CHANGELOG.md", []string{"## [1.0.0]"}},
 	{"docs/reference/flags.md", []string{"## Override flags", "### What each override accepts"}},
 	{"docs/reference/registration-fee-recipient-file.md", nil},
 }
 
 // Every page of the operator documentation exists, covers its topic, and is
-// linked from the README; no page under docs/operations or docs/reference is
-// left out of the README.
+// linked from the README, as is CHANGELOG.md; no page under docs/operations or
+// docs/reference is left out of the README.
 func TestOperatorDocs(t *testing.T) {
 	files := repoFiles(t)
 	text := map[string]string{}
