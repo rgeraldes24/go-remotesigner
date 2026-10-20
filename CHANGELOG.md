@@ -62,7 +62,7 @@ Web3Signer are rows X25, X26, X28 and X76-X106 of [`DEVIATIONS.md`](DEVIATIONS.m
   [`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources) and the page of each store it lists.
 - **The source of each release.** Every release attaches `remotesigner-<version>-src-vendored.tar.gz`: the tagged
   source with every module the binaries link in `vendor/`, go-qrl included, which rebuilds the default flavour
-  offline ([`docs/operations/release.md`](docs/operations/release.md#1-what-a-release-contains)).
+  offline with Go 1.26.5 or later ([`docs/operations/release.md`](docs/operations/release.md#3-verifying-a-release)).
 
 ### Changed
 
