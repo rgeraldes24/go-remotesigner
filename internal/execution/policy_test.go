@@ -30,10 +30,29 @@ func qOf(a Address) string { return "Q" + hex.EncodeToString(a[:]) }
 
 // The policy file's syntax: unknown keys, bad addresses, an account named
 // twice (in two spellings), negative or oversized limits, amounts that are
-// not decimal Planck and a file that lets no account sign are refused.
+// not decimal Planck, a key or list entry without a value (YAML's null,
+// which would lift the limit), a second document and a file that lets no
+// account sign are refused.
 func TestParsePolicyRefusals(t *testing.T) {
 	a := qOf(addrOf(1))
+	section := "accounts:\n  " + a + ":\n"
 	for _, tt := range []struct{ name, yaml, want string }{
+		{"recipients without a value", section + "    allowed-recipients:\n    max-value: 1\n", "line 3: allowed-recipients has no value"},
+		{"recipients commented out", section + "    allowed-recipients:\n#      - " + recipient + "\n", "allowed-recipients has no value"},
+		{"empty recipient entry", section + "    allowed-recipients:\n      -\n      - " + recipient + "\n", "line 4: a list entry has no value"},
+		{"max-value without a value", section + "    max-value:\n", "max-value has no value"},
+		{"max-fee null", section + "    max-fee: null\n", "max-fee has no value"},
+		{"contract-creation null", section + "    contract-creation: ~\n", "contract-creation has no value"},
+		{"max-data-bytes without a value", section + "    max-data-bytes:\n", "max-data-bytes has no value"},
+		{"rate tilde", section + "    max-transactions-per-hour: ~\n", "max-transactions-per-hour has no value"},
+		{"all limits empty", section + "    allowed-recipients:\n#      - Q11\n    max-value:\n    max-transactions-per-hour:\n    max-data-bytes:\n", "has no value"},
+		{"account without a section", section, a + " has no value"},
+		{"default without a value", "default:\n" + section + "    max-value: 1\n", "default has no value"},
+		{"accounts without a value", "default: {}\naccounts:\n", "accounts has no value"},
+		{"null document", "~\n", "the document is empty"},
+		{"second document", "accounts:\n  " + a + ":\n    allowed-recipients: []\n---\ndefault: {}\n", "more than one YAML document"},
+		{"trailing document marker", "default: {}\n---\n", "more than one YAML document"},
+		{"bad second document", "default: {}\n---\n[\n", "invalid policy"},
 		{"unknown key", "accounts:\n  " + a + ":\n    max-gas: 1\n", "max-gas"},
 		{"unknown top key", "account: {}\n", "account"},
 		{"bad account", "accounts:\n  Q12: {}\n", "not Q followed by 128 hex characters"},
@@ -105,6 +124,17 @@ accounts:
 				t.Fatalf("%v, want %q", r, tt.refusal)
 			}
 		})
+	}
+	// An empty list allows no recipient; a leading document marker is one document.
+	none, err := ParsePolicy([]byte("---\naccounts:\n  " + qOf(a1) + ":\n    allowed-recipients: []\n  " + qOf(a2) + ": {}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := none.Check(a1, &to1, big.NewInt(0), 0, fee(1)); r == nil || !strings.Contains(r.reason, "allowed-recipients") {
+		t.Fatalf("allowed-recipients: []: %v", r)
+	}
+	if r := none.Check(a2, &to1, new(big.Int).Lsh(big.NewInt(1), 100), 1<<20, fee(1)); r != nil {
+		t.Fatalf("an empty section: %s", r.reason)
 	}
 	withDefault, err := ParsePolicy([]byte("default:\n  max-value: 5\n  contract-creation: true\naccounts:\n  " + qOf(a1) + ":\n    max-value: 1\n"))
 	if err != nil {

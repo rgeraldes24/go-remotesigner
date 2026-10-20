@@ -79,7 +79,8 @@ type policyFile struct {
 }
 
 // accountPolicyYAML is one account's section. Amounts are decimal Planck,
-// as YAML integers or strings.
+// as YAML integers or strings. A nil field is an absent key; a key without
+// a value never gets here (refuseNulls).
 type accountPolicyYAML struct {
 	AllowedRecipients *[]string `yaml:"allowed-recipients"`
 	MaxValue          *planck   `yaml:"max-value"`
@@ -126,14 +127,29 @@ func LoadPolicy(path string) (*Policy, error) {
 	return p, nil
 }
 
-// ParsePolicy parses policy-file content. Unknown keys, an address that
-// is not Q and 128 hex characters, an account named twice and a file that
-// names no account and has no default are refused.
+// ParsePolicy parses policy-file content: one YAML document. Unknown
+// keys, a key or list entry without a value, an address that is not Q and
+// 128 hex characters, an account named twice, a second document and a file
+// that names no account and has no default are refused.
 func ParsePolicy(data []byte) (*Policy, error) {
-	var pf policyFile
+	var root yaml.Node
 	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&pf); err != nil {
+	if err := dec.Decode(&root); err != nil {
+		return nil, fmt.Errorf("invalid policy: %w", err)
+	}
+	switch err := dec.Decode(new(yaml.Node)); {
+	case err == nil:
+		return nil, errors.New("invalid policy: more than one YAML document (---); a policy file is one document")
+	case !errors.Is(err, io.EOF):
+		return nil, fmt.Errorf("invalid policy: %w", err)
+	}
+	if err := refuseNulls(&root); err != nil {
+		return nil, fmt.Errorf("invalid policy: %w", err)
+	}
+	var pf policyFile
+	strict := yaml.NewDecoder(bytes.NewReader(data))
+	strict.KnownFields(true)
+	if err := strict.Decode(&pf); err != nil {
 		return nil, fmt.Errorf("invalid policy: %w", err)
 	}
 	p := &Policy{file: true, accounts: map[Address]*AccountPolicy{}, sent: map[Address][]time.Time{}}
@@ -168,6 +184,34 @@ func ParsePolicy(data []byte) (*Policy, error) {
 		return nil, errors.New("the policy names no account and has no default: no account could sign")
 	}
 	return p, nil
+}
+
+// refuseNulls refuses a null anywhere in a policy file: a key without a
+// value, a list entry without one, or an empty document. The policy reads
+// a null key as an absent one, and an absent limit is no limit, so
+// "allowed-recipients:" with every entry commented out would otherwise
+// allow every recipient, where "allowed-recipients: []" allows none.
+func refuseNulls(n *yaml.Node) error {
+	for i, c := range n.Content {
+		if c.Kind == yaml.ScalarNode && c.ShortTag() == "!!null" {
+			switch {
+			case n.Kind == yaml.DocumentNode:
+				return errors.New("the document is empty")
+			case n.Kind == yaml.MappingNode && i%2 == 1:
+				k := n.Content[i-1]
+				return fmt.Errorf("line %d: %s has no value; give it one ([] for an empty list, {} for an empty "+
+					"section), or remove the key for its default", k.Line, k.Value)
+			case n.Kind == yaml.SequenceNode:
+				return fmt.Errorf("line %d: a list entry has no value", c.Line)
+			default:
+				return fmt.Errorf("line %d: a key is null", c.Line)
+			}
+		}
+		if err := refuseNulls(c); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // build checks a section and applies the defaults of a policy file: the
