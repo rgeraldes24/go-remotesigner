@@ -301,6 +301,10 @@ func TestForkInfoMismatch(t *testing.T) {
 		if req.ForkInfo == nil {
 			continue
 		}
+		d, err := p.Check(req, testKeyID)
+		if err != nil {
+			t.Fatalf("%s: %v", req.Type(), err)
+		}
 		for _, m := range mutations {
 			m.f(req.ForkInfo)
 			if _, err := p.Check(req, testKeyID); reason(t, err) != apierr.ForkInfoMismatch {
@@ -309,7 +313,13 @@ func TestForkInfoMismatch(t *testing.T) {
 			if _, _, err := p.CheckForkInfo(req.ForkInfo); reason(t, err) != apierr.ForkInfoMismatch {
 				t.Errorf("CheckForkInfo with wrong %s: %v", m.name, err)
 			}
-			*req.ForkInfo = *forkInfo()
+			// A signing_root equal to the signer's own passes step 5, so
+			// step 6 refuses the fork_info (docs/contract.md section 7).
+			req.SigningRoot = &d.SigningRoot
+			if _, err := p.Check(req, testKeyID); reason(t, err) != apierr.ForkInfoMismatch {
+				t.Errorf("%s with wrong %s and the signer's signing_root: %v", req.Type(), m.name, err)
+			}
+			*req.ForkInfo, req.SigningRoot = *forkInfo(), nil
 		}
 	}
 	// With the client's root present, a wrong GVR fails at step 5, which
