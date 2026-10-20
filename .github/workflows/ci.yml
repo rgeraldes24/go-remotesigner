@@ -241,8 +241,9 @@ jobs:
   gqrl-e2e:
     # Execution mode against gqrl --dev: gqrl built from go-qrl at the
     # commit go.mod requires, the signer in front of it (TestGQRLDev): a
-    # mined transfer, the nonce retry, and the chain-ID, payload, nonce
-    # cross-check and fee-cap refusals.
+    # mined transfer, the nonce retry, the chain-ID, payload, nonce
+    # cross-check and fee-cap refusals, qrl_sign verified with go-qrllib,
+    # and the proxy allowlist. The nightly workflow runs it too.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

@@ -538,6 +538,48 @@ func TestReleaseWorkflow(t *testing.T) {
 	}
 }
 
+// The nightly workflow runs on a schedule the signer's long checks that the
+// v1.1 checklist names (docs/operations/release.md section 7.2): B19, the
+// gqrl end-to-end test of execution mode, and the keystore and interchange
+// fuzzers.
+func TestNightlyWorkflow(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(root, ".github/workflows/nightly.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var w struct {
+		On struct {
+			Schedule []struct {
+				Cron string `yaml:"cron"`
+			} `yaml:"schedule"`
+		} `yaml:"on"`
+		Jobs map[string]struct {
+			Steps []workflowStep `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &w); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.On.Schedule) == 0 {
+		t.Error("the nightly workflow has no schedule")
+	}
+	targets := map[string]bool{}
+	for _, job := range w.Jobs {
+		for _, s := range job.Steps {
+			for _, line := range strings.Split(s.Run, "\n") {
+				if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "make "); ok {
+					targets[firstField(rest)] = true
+				}
+			}
+		}
+	}
+	for _, want := range []string{"b19", "gqrl-e2e", "fuzz-keystore", "fuzz-interchange"} {
+		if !targets[want] {
+			t.Errorf("no nightly job runs make %s", want)
+		}
+	}
+}
+
 func TestReleaseWorkflowProblems(t *testing.T) {
 	good := []workflowStep{
 		{Uses: "actions/checkout@abc", With: map[string]any{"fetch-depth": 0}},

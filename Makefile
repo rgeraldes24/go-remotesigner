@@ -196,8 +196,9 @@ b19:
 	REMOTESIGNER_B19_DURATION=$(B19_DURATION) $(GO) test -count=1 -run '^TestB19IdleConnectionRace$$' -timeout 90m -v ./test/acceptance/
 
 ## gqrl-e2e: execution mode against gqrl --dev (TestGQRLDev in internal/execution): a mined transfer, the nonce
-## retry, the chain-ID, payload, nonce cross-check and fee-cap refusals. gqrl is built from go-qrl at the commit
-## go.mod requires, in GQRL_SRC (cloned when missing), unless GQRL names a gqrl binary built from that commit.
+## retry, the chain-ID, payload, nonce cross-check and fee-cap refusals, qrl_sign verified with go-qrllib, and the
+## proxy allowlist (net_version forwarded; admin_*, debug_*, personal_* refused). gqrl is built from go-qrl at the
+## commit go.mod requires, in GQRL_SRC (cloned when missing), unless GQRL names a gqrl binary built from that commit.
 ## GQRL_SRC defaults to a clone per commit in the user's cache directory, outside the source tree: go-qrl's own
 ## files are not gofmt-clean, and `gofmt -l .` would list them from a clone under the repository.
 GQRL_COMMIT = $(lastword $(subst -, ,$(shell $(GO) list -m -f '{{.Version}}' github.com/theQRL/go-qrl)))
