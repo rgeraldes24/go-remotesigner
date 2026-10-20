@@ -8,6 +8,7 @@ package execution
 import (
 	"bufio"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,7 +59,9 @@ func auditFixture(t *testing.T) (*fixture, *fakeGQRL, string) {
 
 // The audit log is JSON Lines, mode 0600, appended to: each signed
 // transaction (before it leaves the signer), the node's answer to each
-// sent one, and each refusal, with hash, from, to, nonce, value, fee
+// sent one, and each refusal (G4 S27: the chain ID, the fee cap, an
+// unknown account and a type other than 0x2 here; the policy's in
+// TestPolicyThroughTheEndpoint), with hash, from, to, nonce, value, fee
 // (gas × maxFeePerGas) and chain ID.
 func TestAuditLog(t *testing.T) {
 	f, g, path := auditFixture(t)
@@ -84,6 +87,16 @@ func TestAuditLog(t *testing.T) {
 	_, _ = f.sendTx(t, 3, fullTx(addr, "chainId", "0x1"))                                   // wrong chain
 	_, _ = f.sendTx(t, 4, fullTx(addr, "gas", "0x1000000", "maxFeePerGas", "0xe8d4a51000")) // fee cap
 	_, _ = f.sendTx(t, 5, fullTx(recipient))                                                // unknown account
+	// A type other than 0x2 is -32602, as gqrl refuses it, and a refusal the
+	// log records, for both methods.
+	if code, r := f.sendTx(t, 6, fullTx(addr, "type", "0x1")); code != http.StatusBadRequest || r.Error == nil ||
+		r.Error.Code != ErrInvalidParams.Code {
+		t.Fatalf("type 0x1: %d %+v", code, r.Error)
+	}
+	if r := decodeOne(t, f.post(call(7, MethodSignTransaction, fullTx(addr, "type", "0x0")), nil).Body.Bytes()); r.Error == nil ||
+		r.Error.Code != ErrInvalidParams.Code {
+		t.Fatalf("type 0x0: %+v", r.Error)
+	}
 
 	fi, err := os.Stat(path)
 	if err != nil || fi.Mode().Perm() != 0o600 {
@@ -99,6 +112,7 @@ func TestAuditLog(t *testing.T) {
 		"qrl_sendTransaction signed", "qrl_sendTransaction node-refused",
 		"qrl_sendTransaction signed", "qrl_sendTransaction sent",
 		"qrl_sendTransaction refused", "qrl_sendTransaction refused", "qrl_sendTransaction refused",
+		"qrl_sendTransaction refused", "qrl_signTransaction refused",
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("entries:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -115,7 +129,8 @@ func TestAuditLog(t *testing.T) {
 	if entries[3].Hash != entries[4].Hash || entries[4].Nonce != "0x0" {
 		t.Fatalf("sent entry %+v", entries[4])
 	}
-	for i, reason := range map[int]string{5: "not --chain-id 1337", 6: "above the cap", 7: ErrUnknownAccount.Message} {
+	for i, reason := range map[int]string{5: "not --chain-id 1337", 6: "above the cap", 7: ErrUnknownAccount.Message,
+		8: typeRefusal, 9: typeRefusal} {
 		if e := entries[i]; !strings.Contains(e.Reason, reason) || e.Hash != "" || e.From == "" {
 			t.Errorf("refusal %d: %+v, want %q", i, e, reason)
 		}

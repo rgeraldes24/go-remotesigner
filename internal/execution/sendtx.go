@@ -74,11 +74,11 @@ func needsRetry(e *Error) bool {
 // transaction holds it, the signer fills, signs and sends again, up to
 // MaxNonceRetries times.
 func (h *Handler) qrlSendTransaction(ctx context.Context, req *Request) (any, *Error) {
-	a, e := parseTxArgs(req)
+	t := h.txs
+	a, e := t.parseTxArgs(req, h.log)
 	if e != nil {
 		return nil, e
 	}
-	t := h.txs
 	from := Address(*a.From)
 	key, ok := h.accounts.Lookup(from)
 	if !ok {
