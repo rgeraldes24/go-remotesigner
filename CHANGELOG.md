@@ -17,7 +17,10 @@ release workflow refuses to publish a version whose entry is missing or undated
 The first release: a remote signer for the ML-DSA-87 validator keys of qrysm validator clients on Testnet V3, ported
 from Consensys Web3Signer and, like it, licensed under the Apache License 2.0 ([`LICENSE`](LICENSE),
 [`NOTICE`](NOTICE)). Every behaviour that differs from Web3Signer is listed in [`DEVIATIONS.md`](DEVIATIONS.md)
-(rows X1-X75); the ones about execution mode (X25, X26, X28) describe a later release.
+(rows X1-X75); the ones about execution mode (X25, X26, X28) describe a later release. The validator client needs
+qrysm's remote-signer keymanager, and
+[`docs/operations/requirements.md`](docs/operations/requirements.md#5-a-qrysm-validator-client-with-the-remote-signer-keymanager)
+section 5 names the qrysm build that has it.
 
 ### Added
 

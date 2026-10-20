@@ -74,6 +74,8 @@ certificate flags for mTLS). No qrysm release ships them yet: they are in review
 [`rgeraldes24/qrysm`](https://github.com/rgeraldes24/qrysm/pulls), for qrysm's `main`. Until a release has them,
 build the validator client from the branch that holds all three,
 [`remote-signer/q3-vc-wiring`](https://github.com/rgeraldes24/qrysm/tree/remote-signer/q3-vc-wiring). A validator
-client without them stops at once with `flag provided but not defined: -validators-external-signer-url`. The
+client without them stops at once with `flag provided but not defined: -validators-external-signer-url`. The v1.0
+release waits for them to merge: until then this section names the review branch, and the
+[release checklist](release.md#62-open-gates-this-repository-cannot-meet-today) keeps the merge as an open gate. The
 validator client also checks the signer's contract version when it starts
 ([`upgrade.md`](upgrade.md#1-before-every-upgrade)).
