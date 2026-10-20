@@ -27,7 +27,8 @@ of a file that is being written is not.
   ```
 
   The signer is down for as long as the copy takes (a 4,096-validator store with 512 epochs of history is about
-  400 MiB). Plan it between duties.
+  400 MiB). Plan it between duties. With the container image, copy `/data` out of the stopped container with
+  `docker cp` ([`deploy-docker.md`](deploy-docker.md#6-running-it)).
 - **Signer running.** Take an atomic file-system snapshot (LVM, ZFS, Btrfs, or a cloud volume snapshot) of the
   volume that holds the file, and copy the file out of the snapshot. The snapshot is the state a crash would have
   left, which bbolt recovers from. Do not `cp` or `rsync` the live file: a commit during the copy can mix pages of two
@@ -70,8 +71,10 @@ signer signs, give the store that history back, in order of preference:
    ([`migration.md`](migration.md#8-no-history-to-import)). It never lowers a watermark, so it is safe to run on a
    backup that turns out to be recent.
 
-Keys that were disabled after the backup (keymanager `DELETE`) come back enabled from an older backup; disable them
-again, or remove them from the key configuration, before starting.
+Keys that were disabled after the backup (keymanager `DELETE`, `consensus disable-validator`) come back enabled from
+an older backup, and an import enables every key whose history it imports cleanly, those disabled before the backup
+included ([`migration.md`](migration.md#2-import-the-history)). Disable them again, or remove them from the key
+configuration, before starting.
 
 ## 4. Why an old backup is safe for RANDAO
 

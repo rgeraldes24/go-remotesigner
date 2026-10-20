@@ -16,18 +16,28 @@ var (
 	consensus = flavours[1]
 )
 
+// fakeReadme is the README of fakeRepo: links to files a release ships and
+// to files it does not.
+const fakeReadme = "# go-remotesigner\n\nSee [the guide](docs/operations/deploy-systemd.md#1-install-the-binary), " +
+	"[`deploy/`](deploy), [LICENSE](LICENSE), [the unit](deploy/systemd/remotesigner.service), " +
+	"[LICENSES/](LICENSES), [upstream](https://github.com/Consensys/web3signer) and [below](#license).\n"
+
 // fakeRepo writes a repository root with the files assemble reads, and
 // NOTICE.execution and the GPL texts when execution is set.
 func fakeRepo(t *testing.T, execution bool) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"LICENSE":                   "Apache License\n",
-		"README.md":                 "# go-remotesigner\n",
-		"NOTICE":                    "go-remotesigner\nCopyright 2026 The go-remotesigner Authors\n",
-		"LICENSES/Apache-2.0.txt":   "Apache\n",
-		"LICENSES/MIT.txt":          "MIT\n",
-		"LICENSES/BSD-3-Clause.txt": "BSD\n",
+		"LICENSE":                             "Apache License\n",
+		"README.md":                           fakeReadme,
+		"NOTICE":                              "go-remotesigner\nCopyright 2026 The go-remotesigner Authors\n",
+		"LICENSES/Apache-2.0.txt":             "Apache\n",
+		"LICENSES/MIT.txt":                    "MIT\n",
+		"LICENSES/BSD-3-Clause.txt":           "BSD\n",
+		"deploy/config/single-host.yaml":      "data-path: /var/lib/remotesigner\n",
+		"deploy/config/postgres-ha.yaml":      "data-path: /var/lib/remotesigner\n",
+		"deploy/systemd/remotesigner.service": "[Unit]\n",
+		"deploy/docker/Dockerfile":            "FROM scratch\n",
 	}
 	if execution {
 		files[executionNotice] = "This product links go-qrl, licensed under the LGPL.\n"
@@ -166,7 +176,7 @@ func TestAssemble(t *testing.T) {
 	for _, f := range flavours {
 		t.Run(f.name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), f.name)
-			if err := assemble(root, dir, f); err != nil {
+			if err := assemble(root, dir, f, "v1.0.0"); err != nil {
 				t.Fatal(err)
 			}
 			var got []string
@@ -181,15 +191,33 @@ func TestAssemble(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// The unit and the example configuration ship; the Docker files
+			// do not.
 			want := []string{"LICENSE", "LICENSES/Apache-2.0.txt", "LICENSES/BSD-3-Clause.txt", "LICENSES/MIT.txt",
-				"NOTICE", "README.md"}
+				"NOTICE", "README.md", "deploy/config/postgres-ha.yaml", "deploy/config/single-host.yaml",
+				"deploy/systemd/remotesigner.service"}
 			if f.execution {
 				want = []string{"LICENSE", "LICENSES/Apache-2.0.txt", "LICENSES/BSD-3-Clause.txt",
 					"LICENSES/GPL-3.0-or-later.txt", "LICENSES/LGPL-3.0-or-later.txt", "LICENSES/MIT.txt", "NOTICE",
-					"README.md"}
+					"README.md", "deploy/config/postgres-ha.yaml", "deploy/config/single-host.yaml",
+					"deploy/systemd/remotesigner.service"}
 			}
 			if !slices.Equal(got, want) {
 				t.Errorf("files = %q, want %q", got, want)
+			}
+			for _, name := range []string{"deploy/config/single-host.yaml", "deploy/systemd/remotesigner.service"} {
+				a, errA := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
+				b, errB := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
+				if errA != nil || errB != nil || string(a) != string(b) {
+					t.Errorf("%s: shipped %q, the repository's %q (%v, %v)", name, b, a, errB, errA)
+				}
+			}
+			readme, err := os.ReadFile(filepath.Join(dir, "README.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(readme), "(https://github.com/rgeraldes24/go-remotesigner/blob/v1.0.0/docs/operations/deploy-systemd.md#1-install-the-binary)") {
+				t.Errorf("the shipped README links to the guide in the release directory, which has none:\n%s", readme)
 			}
 			notice, err := os.ReadFile(filepath.Join(dir, "NOTICE"))
 			if err != nil {
@@ -199,6 +227,41 @@ func TestAssemble(t *testing.T) {
 				t.Errorf("NOTICE mentions the LGPL: %v, want %v", lgpl, f.execution)
 			}
 		})
+	}
+}
+
+// The shipped README keeps a link to a file the release directory holds,
+// and points every other relative link at the repository's file at the
+// release's ref; absolute links and links within the page stay.
+func TestShippedReadme(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"LICENSE", "deploy/systemd/remotesigner.service"} {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "LICENSES"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const blob = "https://github.com/rgeraldes24/go-remotesigner/blob/v1.2.3/"
+	got := string(shippedReadme([]byte(fakeReadme), dir, "v1.2.3"))
+	for _, want := range []string{
+		"[the guide](" + blob + "docs/operations/deploy-systemd.md#1-install-the-binary)",
+		// A directory the release holds only part of, or a copy of.
+		"[`deploy/`](" + blob + "deploy)",
+		"[LICENSES/](" + blob + "LICENSES)",
+		"[LICENSE](LICENSE)",
+		"[the unit](deploy/systemd/remotesigner.service)",
+		"[upstream](https://github.com/Consensys/web3signer)",
+		"[below](#license)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("shipped README lacks %q:\n%s", want, got)
+		}
 	}
 }
 

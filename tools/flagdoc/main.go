@@ -18,6 +18,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -61,19 +63,32 @@ remotesigner [global flags] consensus [consensus flags] import --from <file> [im
 remotesigner [global flags] consensus [consensus flags] export --to <file> [--keys <id>,...] [export flags]
 remotesigner [global flags] consensus [consensus flags] watermark-repair --epoch <epoch> --slot <slot> [repair flags]
 remotesigner [global flags] consensus [consensus flags] set-high-watermark (--epoch <epoch> --slot <slot> | --remove) [flags]
+remotesigner [global flags] consensus [consensus flags] disable-validator --key <id> [flags]
 remotesigner [global flags] consensus keystore verify --file <keystore> --password-file <file>
+remotesigner [global flags] consensus keystore verify --keystores-path <dir> (--keystores-password-file <file> | --keystores-passwords-path <dir>)
+remotesigner --version
 ` + "```" + `
 
 Every flag can also be set:
 
 - in the environment, as ` + "`REMOTESIGNER_<NAME>`" + ` for a global flag and ` + "`REMOTESIGNER_CONSENSUS_<NAME>`" + ` for a
   consensus flag (the flag name or any alias in upper case, dashes as underscores);
-- in the YAML file given by ` + "`--config-file`" + `, under its bare name. Consensus flags may sit at the top level or in a
-  ` + "`consensus:`" + ` section. A list flag takes a YAML list. Unknown keys are rejected.
+- in the YAML file given by ` + "`--config-file`" + `, under its bare name or any of its aliases (the Config file column lists
+  them all). Consensus flags may sit at the top level or in a ` + "`consensus:`" + ` section. A list flag takes a YAML list.
+  Unknown keys are rejected, and so is a flag set under two of its names.
 
 Precedence: command line, then environment, then config file, then default. Booleans are written ` + "`--flag`" + `,
-` + "`--flag=true`" + ` or ` + "`--flag=false`" + `; ` + "`--flag false`" + ` does not work. Exit codes: 2 for usage errors (including a
-missing ` + "`--network`" + ` and an invalid config file), 1 when the signer refuses to start or fails.
+` + "`--flag=true`" + ` or ` + "`--flag=false`" + `. ` + "`--flag false`" + ` does not work: the command-line parser (urfave/cli) reads
+` + "`false`" + ` as an argument, which every command refuses as a usage error, so write ` + "`=`" + ` where Web3Signer takes the
+value as the next argument (` + "`--slashing-protection-enabled=false`" + `). In the environment and the config file a
+boolean takes a value, such as ` + "`true`" + ` or ` + "`false`" + `. Exit codes: 2 for usage errors (including a missing ` + "`--network`" + ` and an
+invalid config file), 1 when the signer refuses to start or fails.
+
+Signals: ` + "`SIGHUP`" + ` re-reads the token files, the TLS certificate and the client trust files
+([` + "`../operations/tls.md`" + `](../operations/tls.md#5-rotating-tokens-and-certificates-with-sighup)); key files are
+reloaded with ` + "`POST /reload`" + ` instead ([` + "`../operations/reload.md`" + `](../operations/reload.md#3-reload)).
+` + "`SIGTERM`" + ` and ` + "`SIGINT`" + ` stop the signer: it stops accepting connections, lets in-flight requests finish for
+up to 10 s, closes the store, wipes the keys and exits 0.
 `)
 	section(&b, "## Global flags", "", flags.Global(), false)
 	section(&b, "## Consensus flags", flags.ConsensusCommand, flags.Consensus(), false)
@@ -120,12 +135,40 @@ variables, so that a signer's ` + "`REMOTESIGNER_CONSENSUS_KEYSTORES_*`" + ` set
 	b.WriteString(`
 ## Override flags
 
-These flags are hidden from ` + "`--help`" + `. Each one accepts a risk that a startup fail-safe otherwise refuses on a
-non-loopback listener. None of them can re-enable a disabled slashing protection there: that refusal has no override.
+These flags are hidden from ` + "`--help`" + `. Each one lifts a startup refusal that protects a listener beyond loopback,
+and accepts the risk that refusal guards against; on a loopback listener none of them is needed. They are set like
+any other flag, on the command line, in the environment or in the config file. None of them can re-enable a
+disabled slashing protection on such a listener: that refusal has no override. The container image, its entrypoint
+and the examples in ` + "`deploy/`" + ` set none of them.
 `)
 	section(&b, "### Global", "", flags.Global(), true)
 	section(&b, "### Consensus", flags.ConsensusCommand, flags.Consensus(), true)
+	overrides(&b)
 	return b.Bytes()
+}
+
+// overrides explains each hidden flag, in the order of the tables above.
+func overrides(b *bytes.Buffer) {
+	b.WriteString("\n### What each override accepts\n")
+	doc := flags.Overrides()
+	for _, f := range slices.Concat(flags.Global(), flags.Consensus()) {
+		if !isHidden(f) {
+			continue
+		}
+		o := doc[f.Names()[0]]
+		fmt.Fprintf(b, "\n#### `--%s`\n\n", f.Names()[0])
+		fmt.Fprintf(b, "- **Refused without it.** %s\n", markup(o.Refused))
+		fmt.Fprintf(b, "- **The risk it accepts.** %s\n", markup(o.Risk))
+		fmt.Fprintf(b, "- **Instead.** %s\n", markup(o.Instead))
+	}
+}
+
+// flagName is a flag name in an override's explanation.
+var flagName = regexp.MustCompile(`--[A-Za-z][A-Za-z0-9-]*(?:=[a-z0-9+]+)?`)
+
+// markup sets the flag names of an explanation in code spans.
+func markup(s string) string {
+	return flagName.ReplaceAllStringFunc(s, func(n string) string { return "`" + n + "`" })
 }
 
 // subcommand marks a section of subcommand flags, which have no
@@ -148,12 +191,9 @@ func section(b *bytes.Buffer, title, command string, fs []cli.Flag, hidden bool)
 		for _, e := range d.GetEnvVars() {
 			env = append(env, "`"+e+"`")
 		}
-		yamlKey := "`" + f.Names()[0] + "`"
-		switch {
-		case command == subcommand:
+		yamlKey := configKeys(f.Names(), command)
+		if command == subcommand {
 			yamlKey = "none"
-		case command != "":
-			yamlKey = "`" + f.Names()[0] + "` or `" + command + "." + f.Names()[0] + "`"
 		}
 		if len(env) == 0 {
 			env = []string{"none"}
@@ -164,6 +204,25 @@ func section(b *bytes.Buffer, title, command string, fs []cli.Flag, hidden bool)
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n",
 			strings.Join(names, ", "), strings.Join(env, ", "), yamlKey, defaultOf(f), escape(d.GetUsage()))
 	}
+}
+
+// configKeys renders the config-file keys of a flag with the given names:
+// every name, as the YAML loader accepts each one, and for a flag of a
+// command also each name in the command's section.
+func configKeys(names []string, command string) string {
+	keys := make([]string, 0, 2*len(names))
+	for _, n := range names {
+		keys = append(keys, "`"+n+"`")
+	}
+	if command != "" {
+		for _, n := range names {
+			keys = append(keys, "`"+command+"."+n+"`")
+		}
+	}
+	if len(keys) == 1 {
+		return keys[0]
+	}
+	return strings.Join(keys[:len(keys)-1], ", ") + " or " + keys[len(keys)-1]
 }
 
 func dashes(name string) string {

@@ -2,7 +2,9 @@
 
 This page runs `remotesigner consensus` on one host, next to the qrysm validator client, with `file-raw` keys,
 generated bearer tokens and a file network. Every flag is listed in [`../reference/flags.md`](../reference/flags.md);
-the HTTP API is [`../contract.md`](../contract.md).
+the HTTP API is [`../contract.md`](../contract.md). Read [`requirements.md`](requirements.md) first: the networks the
+signer supports, and the rules a deployment must follow that the signer cannot check. To run it as a service, see
+[`deploy-systemd.md`](deploy-systemd.md) or [`deploy-docker.md`](deploy-docker.md).
 
 > This release signs all nine artifact types behind slashing protection, releases RANDAO reveals under the frontier
 > rule ([`randao.md`](randao.md)), and serves the operational API (`publicKeys`, `capabilities`, `highWatermark`,
@@ -200,7 +202,9 @@ The defaults bind `127.0.0.1`. A non-loopback `--http-listen-host` turns on fail
 | genesis time unknown | pass `--network-genesis-time` or `--network-genesis-state` (or `--Xallow-unknown-genesis-time`) |
 | a non-loopback `--metrics-host` with a `--metrics-host-allowlist` of loopback names only | add the name Prometheus scrapes with |
 
-Requests are also refused whatever the listener: any `Origin` header (403), a `Host` outside the allowlist (403), a
+Each `--X…` override, the risk it accepts and what to configure instead, is explained in
+[`../reference/flags.md`](../reference/flags.md#what-each-override-accepts). Requests are also refused whatever the
+listener: any `Origin` header (403), a `Host` outside the allowlist (403), a
 POST (or keymanager `DELETE`) that is not `application/json` (415), and bodies over the route limit (413). At most
 `--http-max-connections` (1,024) connections are open at once; further ones wait.
 

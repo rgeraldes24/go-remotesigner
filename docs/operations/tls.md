@@ -86,7 +86,8 @@ answers on the signer's address.
 
 **Rotate it.** Delete both files, then restart the signer or send it SIGHUP (section 5): it generates a new pair and
 logs the new fingerprint. Pin the new certificate in every client; clients that still pin the old one fail to connect
-until they are updated.
+until they are updated. The container image has no shell to delete them with: copy a new pair into the volume
+instead ([`deploy-docker.md`](deploy-docker.md#6-running-it)).
 
 ## 3. Client certificates (mTLS)
 
@@ -182,7 +183,8 @@ works for the last client too, which leaves a trust that accepts nobody and logs
 To rotate a token, write a new one (`0x` and at least 64 hex characters) into its file, or delete the file, and send
 SIGHUP; then give the new sign token to the validator clients. The old token stops working at once, so update the
 clients right after the reload. To rotate a certificate, replace the files in place (write the new ones next to them
-and rename them over the old ones) and send SIGHUP.
+and rename them over the old ones) and send SIGHUP. With the container image, the files in `/data` are replaced with
+`docker cp`, owned by the image's user ([`deploy-docker.md`](deploy-docker.md#6-running-it)).
 
 ## 6. Listening beyond loopback
 
@@ -194,7 +196,7 @@ A non-loopback `--http-listen-host` refuses to start (exit code 1) when:
 | `--http-auth-mode=token` over plaintext HTTP | configure TLS (section 1); `--Xallow-plaintext-token-auth` accepts the risk instead and is never set by the shipped image |
 | `--http-host-allowlist` with loopback names only | add the names clients use |
 | `--slashing-protection-enabled=false` | none: protection can be disabled only when every listener is loopback |
-| GVR to be pinned on first use, genesis time unknown | pass them, or the matching `--Xallow-…` flag ([`quickstart.md`](quickstart.md#10-listening-beyond-loopback)) |
+| GVR to be pinned on first use, genesis time unknown | pass them, or accept the risk with the matching `--Xallow-…` flag ([`../reference/flags.md`](../reference/flags.md#what-each-override-accepts)) |
 | a non-loopback metrics listener with a loopback-only `--metrics-host-allowlist` | add the name Prometheus scrapes with |
 
 TLS lifts only the plaintext-token refusal; every other one still applies. All applicable refusals are reported

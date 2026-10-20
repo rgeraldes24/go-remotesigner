@@ -9,7 +9,9 @@
 # docs/operations/deploy-docker.md.
 #
 # Next to this file:
-#   keys/                 the signer's key-config files (read-only in the container)
+#   keys/                 the signer's keys, read-only in the container: the keystores in
+#                         keys/keystores/ and the password they were created with in
+#                         keys/password.txt, owned by 65532 with modes 0700 and 0600
 #   network/config.yaml   the chain's qrysm-format config (read-only)
 #   validator/            signer-cert.pem, signer-auth-token and remote-keys.txt, copied
 #                         from the signer after its first start (read-only)
@@ -29,13 +31,16 @@ services:
     # generates the tokens into /data. These arguments replace its default command.
     command:
       - --http-host-allowlist=signer
-      - --key-config-path=/keys
       - consensus
       - --network=/network/config.yaml
       - --network-genesis-time=${GENESIS_TIME:?set GENESIS_TIME to the genesis time in Unix seconds}
       - --network-genesis-validators-root=${GENESIS_VALIDATORS_ROOT:?set GENESIS_VALIDATORS_ROOT to 0x and 64 hex characters}
+      - --keystores-path=/keys/keystores
+      - --keystores-password-file=/keys/password.txt
     read_only: true
     cap_drop: [ALL]
+    # The signer sizes keystore decryption (Argon2id, up to 512 MiB per standard keystore) to this limit.
+    mem_limit: 2g
     security_opt: ["no-new-privileges:true"]
     volumes:
       # Tokens, TLS certificate and key, and the slashing-protection store: keep this volume and back it up.

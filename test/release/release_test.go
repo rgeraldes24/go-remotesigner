@@ -77,7 +77,8 @@ func ofType(as []artifact, typ string) []artifact {
 
 // TestReleaseArchives checks every archive of the dry run: both flavours for
 // every target, each with its binary, LICENSE, the flavour's NOTICE,
-// LICENSES/ and third_party_licenses/, a static trimmed binary and, in the
+// LICENSES/, third_party_licenses/, the deploy/ examples the systemd guide
+// installs and a README without dead links, a static trimmed binary and, in the
 // consensus flavour, no go-qrl module in `go version -m`; and checksums.txt
 // covers every archive.
 func TestReleaseArchives(t *testing.T) {

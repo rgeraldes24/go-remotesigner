@@ -183,6 +183,35 @@ one.
 
 Removing a key's files only evicts it (section 3.1); it does not disable it.
 
+### 5.1 Enabling a key again
+
+A disabled key stays disabled across restarts, reloads and evictions, on every replica. Enable it again only once no
+other signer and no validator client's own keystore can sign for it: the store cannot see their history. Then, in
+order of preference:
+
+1. **Import its keystore through the keymanager** (`--key-manager-api-enabled`): `POST /qrl/v1/keystores` with the
+   keystore, its password and, when the key signed elsewhere since it was disabled here, that signer's history in
+   `slashing_protection` ([`keymanager.md`](keymanager.md#3-importing-keys)). The result is `imported`. This works
+   whatever source loads the key: a loaded key is enabled where it is, without any file written, and a key that is
+   not loaded is written to `--key-config-path` and loaded. There is no need to `DELETE` it first: a `DELETE`
+   would only disable it again.
+2. **Import its history offline**, for a key without a keystore (a `file-raw` seed) or a signer without the
+   keymanager: `consensus import` of an EIP-3076 file whose element for the key imports cleanly enables it, even
+   when the store already holds every record in it ([`migration.md`](migration.md#2-import-the-history)). The key's
+   own history serves:
+
+   ```
+   remotesigner --data-path=/var/lib/remotesigner consensus --network=<network> export --keys=<id> --to=key.json
+   remotesigner --data-path=/var/lib/remotesigner consensus --network=<network> import --from=key.json
+   ```
+
+   With bbolt the signer must be stopped for both; with Postgres both run online. A key that has no history in the
+   store is left out of the export (the command says so on stderr); for it, an element with empty
+   `signed_blocks` and `signed_attestations` lists, under the store's genesis validators root, does the same.
+
+The keymanager answers `imported` for the key, and the offline import counts it among the validators it imported;
+from then on its blocks, attestations and new RANDAO layers no longer get `412 VALIDATOR_DISABLED`.
+
 ## 6. Memory for keystore decryption
 
 Every keystore decrypt runs Argon2id. One process-wide semaphore admits the decrypts of the startup load and of
@@ -223,8 +252,17 @@ host; every "Keys loaded" log line reports the decrypts of its load and their ti
 not lost: the keystores it loaded stay loaded and count as unchanged, so the next reload decrypts only the rest.
 Light-KDF keystores take about 20 ms each; 4,096 of them load in seconds.
 
+**Large fleets.** A `file-raw` key runs no Argon2id at all: the signer derives the key pair from the seed in the
+key-config file, under a millisecond of one core per key, and spreads that over the CPUs. On the development machine
+10,000 `file-raw` keys were loaded and `/upcheck` answered `200` within about 1 to 2 s of the start
+([`../benchmarks.md`](../benchmarks.md), B11). For thousands of keys that is the way to start and reload in seconds
+instead of an hour. The price is that the seed is in the clear on disk, protected only by the file's mode (see
+"Secret files" above), the host and its disk encryption, where a keystore also needs its password file. Light-KDF
+keystores (the deposit CLI's `--lightkdf`) sit between the two: the password still guards the seed, but with an
+Argon2id run of 4 MiB and about 20 ms instead of 256 MiB and 1.5 s, which makes each guess at the password that much
+cheaper too.
+
 The 512 MiB kept out of the budget hold the loaded keys too, and each key takes about 60 KiB: on the development
-machine 4,096 keys peaked at about 210 MiB of RSS and 10,000 keys at about 620 MiB
-([`../benchmarks.md`](../benchmarks.md), B11). The automatic sizing does not count the keys, so above about 8,000
-keys set `--signer-load-parallelism` to at most (memory limit − 512 MiB − keys × 60 KiB) / 512 MiB, so that the keys
-and the running decrypts fit together.
+machine 10,000 `file-raw` keys peaked at about 620 MiB of RSS ([`../benchmarks.md`](../benchmarks.md), B11). The
+automatic sizing does not count the keys, so above about 8,000 keys set `--signer-load-parallelism` to at most (memory
+limit − 512 MiB − keys × 60 KiB) / 512 MiB, so that the keys and the running decrypts fit together.

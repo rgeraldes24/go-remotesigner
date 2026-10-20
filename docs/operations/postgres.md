@@ -4,7 +4,7 @@ The default store is a bbolt file that one signer process holds. To run two or m
 highly available pair behind one name, or replicas that fail over), give them one Postgres database instead:
 
 ```
---slashing-protection-db-url=postgres://remotesigner@db.internal:5432/remotesigner?sslmode=verify-full
+--slashing-protection-db-url='postgres://remotesigner@db.internal:5432/remotesigner?sslmode=verify-full&sslrootcert=/etc/remotesigner/db-ca.pem'
 --slashing-protection-db-password-file=/etc/remotesigner/db-password
 ```
 
@@ -13,11 +13,24 @@ replicas can sign conflicting messages for one key, and the store commands (impo
 watermark, RANDAO reset, disabling a key) run online while the replicas sign.
 [`deploy/config/postgres-ha.yaml`](../../deploy/config/postgres-ha.yaml) is a complete replica configuration.
 
+Under the systemd unit ([`deploy-systemd.md`](deploy-systemd.md#8-more-than-one-signer-postgres)), the files that
+configuration names in `/etc/remotesigner` must exist before the first start, because the unit makes `/etc`
+read-only to the signer, and be readable by the service user:
+
+| File | Owner, mode |
+|---|---|
+| `auth-token`, `admin-token` (`0x` and 64 hex characters), `db-password` (the signers' role's password), `tls/signer.key` | remotesigner, `0600` |
+| `tls/signer.crt` (for the shared name), `db-ca.pem` (the database server's CA) | root, `0644` |
+| `tls/` | root, `0755` |
+
 ## 1. Requirements
 
 - PostgreSQL 13 or later (tested with 17). The database holds nothing but the signer's tables.
-- TLS to the server, with `sslmode=verify-full` and the server's CA in `sslrootcert=` or `~/.postgresql/root.crt`.
-  The connection carries every signing decision.
+- TLS to the server, with `sslmode=verify-full`. The connection carries every signing decision. Name the server's CA
+  with `sslrootcert=` in the URL, as the examples do: without it the system's roots are used, which do not know the
+  private CA of an internal server (`x509: certificate signed by unknown authority`). libpq's fallback,
+  `~/.postgresql/root.crt`, does not apply under the systemd unit: its user has no home directory, and the unit
+  hides `/home` (`ProtectHome=yes`).
 - Two roles: an owner that creates the schema, and the role the signers connect as, which may read and write rows
   but not change the schema (section 2).
 - Connections: 17 per replica (a pool of 16 for signing and one for pruning) and one per running store command;
@@ -67,7 +80,7 @@ three blocks as written and then sign, import, prune and export as the signers' 
 
 ```
 remotesigner consensus migrate \
-    --slashing-protection-db-url=postgres://remotesigner_owner@db.internal:5432/remotesigner?sslmode=verify-full \
+    --slashing-protection-db-url='postgres://remotesigner_owner@db.internal:5432/remotesigner?sslmode=verify-full&sslrootcert=/etc/remotesigner/db-ca.pem' \
     --slashing-protection-db-password-file=/etc/remotesigner/db-owner-password
 # Postgres database "remotesigner" on db.internal:5432: slashing-protection schema version 1 created
 ```
@@ -80,6 +93,8 @@ remotesigner consensus migrate \
 - `consensus migrate` holds the session lock `pg_advisory_lock(3, 0)` while it reads and upgrades the schema, and
   runs each migration in its own transaction. Running it again is harmless: "already at schema version 1; nothing
   to do".
+- Upgrading replicas to a release that changes the schema means stopping all of them before the migration, since a
+  signer checks the version only when it starts ([`upgrade.md`](upgrade.md#4-postgres-replicas)).
 - `--slashing-protection-db-migrate` on `consensus` migrates at startup instead. Several replicas started together
   then migrate once: the others wait for the lock and find the schema current. It needs a role that may create
   tables, which the signers' role of section 2 is not, so the least-privilege setup runs `consensus migrate` as the

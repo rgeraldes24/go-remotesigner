@@ -9,14 +9,16 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // The smoke test's chain: the end-to-end file network with its interop
@@ -29,6 +31,17 @@ const (
 	signerAlias = "signer"
 )
 
+// The smoke test's key: a deposit CLI keystore with the light KDF, so that
+// decrypting it takes milliseconds, in the layout deploy-docker.md gives
+// the key volume: the keystores in keystores/ and their password in
+// password.txt.
+const (
+	smokeKeystore       = "deposit-cli-light.json"
+	smokeKeystoresPath  = "/keys/keystores"
+	smokePasswordFile   = "/keys/password.txt"
+	smokeKeystoreInRepo = "testdata/vectors/keystores/" + smokeKeystore
+)
+
 // fingerprintRE finds the certificate fingerprint the signer logs.
 var fingerprintRE = regexp.MustCompile(`sha256-fingerprint="?([0-9A-F]{2}(?::[0-9A-F]{2}){31})"?`)
 
@@ -39,7 +52,7 @@ type smokeEnv struct {
 	image   string
 	prefix  string // container, volume and network names start with it
 	network string
-	keys    string // key-config volume, one file-raw key
+	keys    string // key volume: one keystore and its password file
 	netDir  string // directory holding network.yaml
 	client  string // directory holding the smokeclient binary
 	pubkey  string
@@ -61,8 +74,9 @@ func TestDockerSmoke(t *testing.T) {
 // smoke runs image through its real entrypoint on a user-defined Docker
 // network, as an operator would, hardened (read-only root file system, no
 // capabilities, no new privileges): a file network with
-// --network-genesis-time and --network-genesis-validators-root, one key, and
-// a client container that reaches the signer by name at
+// --network-genesis-time and --network-genesis-validators-root, one
+// keystore loaded from a keystore directory with its password file, and a
+// client container that reaches the signer by name at
 // https://signer:9000, pinning the certificate by the fingerprint the signer
 // logged, and checks that the signer runs as the nonroot user. It also
 // checks the refusals: no certificate with generation off, no host
@@ -81,6 +95,19 @@ func smoke(t *testing.T, image string) {
 		checkImageConfig(t, flavour, cfg, licences)
 		if !strings.Contains(licences, "Apache-2.0") {
 			t.Errorf("licence label %q does not name Apache-2.0", licences)
+		}
+	})
+
+	// The guide checks the keystores with the image before the first start.
+	t.Run("keystore verify", func(t *testing.T) {
+		out, errOut, code, err := dockerRun(append(append([]string{"run", "--rm"}, e.signerFlags(e.volume("verify"))...),
+			image, "consensus", "keystore", "verify", "--keystores-path="+smokeKeystoresPath,
+			"--keystores-password-file="+smokePasswordFile)...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code != 0 || !strings.Contains(out, "1 keystores: 1 OK, 0 refused") {
+			t.Errorf("keystore verify: exit %d: %s%s", code, out, errOut)
 		}
 	})
 
@@ -113,6 +140,16 @@ func smoke(t *testing.T, image string) {
 		if code := strings.TrimSpace(docker(t, "inspect", "--format", "{{.State.ExitCode}}", ctr)); code != "0" {
 			t.Errorf("exit code %s after SIGTERM, want 0", code)
 		}
+		// The upgrade guide migrates the stopped signer's volume with the
+		// new image before it starts that image.
+		out, errOut, code, err := dockerRun(append(append([]string{"run", "--rm"}, e.signerFlags(vol)...),
+			image, "consensus", "migrate")...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code != 0 || !strings.Contains(out, "; nothing to do") {
+			t.Errorf("consensus migrate on the data volume: exit %d: %s%s", code, out, errOut)
+		}
 		again := e.startSigner(vol)
 		if fp2 := e.fingerprint(again); fp2 != fp {
 			t.Errorf("after a restart the signer serves %s, want the certificate it generated, %s", fp2, fp)
@@ -139,7 +176,7 @@ func smoke(t *testing.T, image string) {
 	}{
 		{name: "no certificate and generation off", global: []string{"--tls-generate-self-signed=false"},
 			wantCode: 1, wantText: "plaintext"},
-		{name: "no host allowlist", args: e.consensusArgs("--key-config-path=/keys"),
+		{name: "no host allowlist", args: e.consensusArgs(),
 			wantCode: 1, wantText: "--http-host-allowlist"},
 		{name: "no network", args: []string{}, wantCode: 2, wantText: "--network is required"},
 	}
@@ -183,14 +220,9 @@ func newSmokeEnv(t *testing.T, image string) *smokeEnv {
 	}
 	e := &smokeEnv{t: t, image: image, prefix: "remotesigner-smoke-" + hex.EncodeToString(id[:])}
 
-	// One file-raw key: interop key 0.
-	var keys struct {
-		Keys []struct{ Seed, Pubkey string } `json:"keys"`
-	}
-	if err := json.Unmarshal(readRepo(t, "testdata/vectors/keys/interop.json"), &keys); err != nil || len(keys.Keys) == 0 {
-		t.Fatalf("interop keys: %v", err)
-	}
-	e.pubkey = keys.Keys[0].Pubkey
+	// One keystore, with the light KDF.
+	var password string
+	e.pubkey, password = smokeKeystoreKey(t)
 	var nets struct {
 		Networks []struct {
 			Name string `json:"name"`
@@ -211,11 +243,16 @@ func newSmokeEnv(t *testing.T, image string) *smokeEnv {
 
 	t.Cleanup(func() { e.cleanup() })
 	// The containers run as 65532. The network config is readable by
-	// everyone; the key-config file holds a seed, which
+	// everyone; the password file is a secret file, which
 	// --strict-file-permissions refuses when its group or other users can
-	// read it, so it is given to 65532 alone, as deploy-docker.md says.
-	e.keys = e.keyVolume("key-0.yaml",
-		fmt.Sprintf("type: file-raw\nkeyType: ML_DSA_87\nprivateKey: %q\n", keys.Keys[0].Seed))
+	// read it, so the key volume is given to 65532 alone, as deploy-docker.md
+	// says.
+	e.keys = e.keyVolume([]volumeEntry{
+		{name: "keystores/", mode: 0o700},
+		{name: "keystores/" + smokeKeystoreName, mode: 0o600,
+			content: string(readRepo(t, smokeKeystoreInRepo))},
+		{name: "password.txt", mode: 0o600, content: password + "\n"},
+	})
 	e.netDir = inputDir(t, "network", "config.yaml", string(readRepo(t, smokeNetwork)), 0o644)
 	e.client = e.buildClient()
 
@@ -224,11 +261,42 @@ func newSmokeEnv(t *testing.T, image string) *smokeEnv {
 	return e
 }
 
-// keyVolume creates a named volume holding one file, owned by the image's
-// user with mode 0600, and returns the volume's name. A bind mount cannot
-// set that owner without root on the host, so the file goes in through
-// docker cp, from a tar stream that carries the owner and mode.
-func (e *smokeEnv) keyVolume(name, content string) string {
+// smokeKeystoreKey returns the public key and the password of the smoke
+// test's keystore, from the keystore vectors' index.
+func smokeKeystoreKey(t *testing.T) (pubkey, password string) {
+	t.Helper()
+	var index struct {
+		Keystores []struct{ File, Password, Pubkey string } `json:"keystores"`
+	}
+	if err := json.Unmarshal(readRepo(t, "testdata/vectors/keystores/index.json"), &index); err != nil {
+		t.Fatalf("keystore index: %v", err)
+	}
+	for _, k := range index.Keystores {
+		if k.File == smokeKeystore {
+			return k.Pubkey, k.Password
+		}
+	}
+	t.Fatalf("testdata/vectors/keystores/index.json lists no %s", smokeKeystore)
+	return "", ""
+}
+
+// smokeKeystoreName is the smoke test's keystore under the name the deposit
+// CLI gives it.
+const smokeKeystoreName = "keystore-m_12381_238_0_0-1760000000.json"
+
+// volumeEntry is a file, or a directory when its name ends in "/", of a
+// volume keyVolume fills.
+type volumeEntry struct {
+	name    string
+	mode    int64
+	content string
+}
+
+// keyVolume creates a named volume holding entries, owned by the image's
+// user, and returns the volume's name. A bind mount cannot set that owner
+// without root on the host, so the files go in through docker cp, from a
+// tar stream that carries the owner and modes.
+func (e *smokeEnv) keyVolume(entries []volumeEntry) string {
 	t := e.t
 	t.Helper()
 	vol := e.volume("keys")
@@ -236,13 +304,18 @@ func (e *smokeEnv) keyVolume(name, content string) string {
 		"--volume", vol+":/keys", e.image))
 	var b bytes.Buffer
 	tw := tar.NewWriter(&b)
-	hdr := &tar.Header{Typeflag: tar.TypeReg, Name: name, Mode: 0o600, Uid: 65532, Gid: 65532,
-		Size: int64(len(content)), ModTime: time.Now()}
-	if err := tw.WriteHeader(hdr); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tw.Write([]byte(content)); err != nil {
-		t.Fatal(err)
+	for _, en := range entries {
+		hdr := &tar.Header{Typeflag: tar.TypeReg, Name: en.name, Mode: en.mode, Uid: 65532, Gid: 65532,
+			Size: int64(len(en.content)), ModTime: time.Now()}
+		if strings.HasSuffix(en.name, "/") {
+			hdr.Typeflag, hdr.Size = tar.TypeDir, 0
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(en.content)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := tw.Close(); err != nil {
 		t.Fatal(err)
@@ -314,8 +387,8 @@ func (e *smokeEnv) volume(suffix string) string {
 // the test network under the service name, with its data volume and the
 // read-only inputs.
 func (e *smokeEnv) signerFlags(vol string) []string {
-	return []string{"--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
-		"--label", "remotesigner-smoke=" + e.prefix,
+	return []string{"--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--memory=2g",
+		"--stop-timeout=30", "--label", "remotesigner-smoke=" + e.prefix,
 		"--network", e.network, "--network-alias", signerAlias,
 		"--volume", vol + ":/data",
 		"--volume", e.keys + ":/keys:ro",
@@ -323,17 +396,18 @@ func (e *smokeEnv) signerFlags(vol string) []string {
 }
 
 // consensusArgs are the consensus arguments an operator appends to the
-// entrypoint, after the global flags given.
+// entrypoint, after the global flags given: the network, its genesis time
+// and validators root, and the keystore directory with its password file.
 func (e *smokeEnv) consensusArgs(global ...string) []string {
 	return append(global, "consensus", "--network=/network/config.yaml",
-		"--network-genesis-time="+smokeGenesisTime, "--network-genesis-validators-root="+e.gvr)
+		"--network-genesis-time="+smokeGenesisTime, "--network-genesis-validators-root="+e.gvr,
+		"--keystores-path="+smokeKeystoresPath, "--keystores-password-file="+smokePasswordFile)
 }
 
 // signerArgs are the arguments of a working signer, with extra global
-// flags after the host allowlist and the key directory.
+// flags after the host allowlist.
 func (e *smokeEnv) signerArgs(extra []string) []string {
-	return e.consensusArgs(append([]string{"--http-host-allowlist=" + signerAlias, "--key-config-path=/keys"},
-		extra...)...)
+	return e.consensusArgs(append([]string{"--http-host-allowlist=" + signerAlias}, extra...)...)
 }
 
 // startSigner starts a signer container on vol, with extra global flags
@@ -456,4 +530,246 @@ func (e *smokeEnv) cleanup() {
 		}
 	}
 	_, _, _, _ = dockerRun("network", "rm", e.network)
+}
+
+// guideMarker marks the `docker run` example of the Docker guide that the
+// smoke test mirrors.
+const guideMarker = "<!-- docker-smoke:run -->"
+
+// guideRun returns the docker options and the signer's arguments of the
+// `docker run` command in the block that follows guideMarker in
+// docs/operations/deploy-docker.md.
+func guideRun(t *testing.T) (opts, args []string) {
+	t.Helper()
+	text := string(readRepo(t, "docs/operations/deploy-docker.md"))
+	_, after, ok := strings.Cut(text, guideMarker+"\n```\n")
+	if !ok {
+		t.Fatalf("deploy-docker.md has no code block after %s", guideMarker)
+	}
+	block, _, _ := strings.Cut(after, "\n```")
+	for _, line := range strings.Split(strings.ReplaceAll(block, "\\\n", " "), "\n") {
+		words := shellWords(line)
+		if len(words) < 2 || words[0] != "docker" || words[1] != "run" {
+			continue
+		}
+		for i, w := range words[2:] {
+			if strings.HasPrefix(w, "ghcr.io/") {
+				return words[2 : 2+i], words[3+i:]
+			}
+		}
+	}
+	t.Fatalf("the block after %s has no docker run of a ghcr.io image", guideMarker)
+	return nil, nil
+}
+
+// shellWords splits a shell command line into words, with double quotes
+// grouping, as the guide's commands use them.
+func shellWords(line string) []string {
+	var words []string
+	var w strings.Builder
+	inWord, quoted := false, false
+	for _, r := range line {
+		switch {
+		case r == '"':
+			quoted, inWord = !quoted, true
+		case (r == ' ' || r == '\t') && !quoted:
+			if inWord {
+				words, inWord = append(words, w.String()), false
+				w.Reset()
+			}
+		default:
+			w.WriteRune(r)
+			inWord = true
+		}
+	}
+	if inWord {
+		words = append(words, w.String())
+	}
+	return words
+}
+
+// dockerOptions groups docker run options by name; an option given as
+// "--name value" or "--name=value" gets its value, a bare one "".
+func dockerOptions(words []string) map[string][]string {
+	takesValue := map[string]bool{"--name": true, "--network": true, "--network-alias": true, "-v": true,
+		"--volume": true, "--label": true}
+	out := map[string][]string{}
+	for i := 0; i < len(words); i++ {
+		name, value, hasValue := strings.Cut(words[i], "=")
+		if name == "-v" {
+			name = "--volume"
+		}
+		if !hasValue && takesValue[words[i]] && i+1 < len(words) {
+			value, i = words[i+1], i+1
+		}
+		out[name] = append(out[name], value)
+	}
+	return out
+}
+
+// volumeTargets returns the container side of each volume option, with its
+// mode: "/keys:ro" for "$PWD/keys:/keys:ro".
+func volumeTargets(volumes []string) []string {
+	var out []string
+	for _, v := range volumes {
+		_, target, _ := strings.Cut(v, ":")
+		out = append(out, target)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// TestDockerGuideMatchesSmoke keeps the Docker guide's `docker run` example
+// and the smoke test in step, without Docker: the same hardening, memory
+// limit, service name and mounts, and the same signer arguments, chain values
+// aside. The smoke test then runs what the guide tells an operator to run.
+func TestDockerGuideMatchesSmoke(t *testing.T) {
+	opts, args := guideRun(t)
+	e := &smokeEnv{prefix: "p", network: "n", keys: "k", netDir: "d",
+		gvr: "0x9471e8fb19e0faae953e9d46889f207192bcec9b14293d7ba418ae4dc5e3ac8f"}
+	guide, smoke := dockerOptions(opts), dockerOptions(e.signerFlags("v"))
+	for _, name := range []string{"--read-only", "--cap-drop", "--security-opt", "--memory", "--stop-timeout",
+		"--network-alias"} {
+		if !slices.Equal(guide[name], smoke[name]) {
+			t.Errorf("%s: the guide gives %q, the smoke test %q", name, guide[name], smoke[name])
+		}
+	}
+	if g, s := volumeTargets(guide["--volume"]), volumeTargets(smoke["--volume"]); !slices.Equal(g, s) {
+		t.Errorf("mounts: the guide has %q, the smoke test %q", g, s)
+	}
+	if g, s := withoutChainValues(args), withoutChainValues(e.signerArgs(nil)); !slices.Equal(g, s) {
+		t.Errorf("signer arguments:\n the guide      %q\n the smoke test %q", g, s)
+	}
+}
+
+// chainValue is a signer argument that carries one chain's value.
+var chainValue = regexp.MustCompile(`^(--network-genesis-time|--network-genesis-validators-root)=.*`)
+
+// withoutChainValues returns args with the chain's values replaced by a
+// placeholder, which the guide, the smoke test and the compose example each
+// give their own way.
+func withoutChainValues(args []string) []string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		out[i] = chainValue.ReplaceAllString(a, "$1=<value>")
+	}
+	return out
+}
+
+// TestComposeMatchesGuide keeps the compose example's signer in step with
+// the Docker guide's `docker run` example, and so with the smoke test that
+// runs it: the same arguments, chain values aside, the same mounts, memory
+// limit and stop grace period, and the same hardening.
+func TestComposeMatchesGuide(t *testing.T) {
+	opts, args := guideRun(t)
+	guide := dockerOptions(opts)
+	var c struct {
+		Services map[string]struct {
+			Command         []string `yaml:"command"`
+			ReadOnly        bool     `yaml:"read_only"`
+			CapDrop         []string `yaml:"cap_drop"`
+			SecurityOpt     []string `yaml:"security_opt"`
+			MemLimit        string   `yaml:"mem_limit"`
+			StopGracePeriod string   `yaml:"stop_grace_period"`
+			Volumes         []string `yaml:"volumes"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(readRepo(t, "deploy/docker/compose.yaml"), &c); err != nil {
+		t.Fatal(err)
+	}
+	s, ok := c.Services["signer"]
+	if !ok {
+		t.Fatal("deploy/docker/compose.yaml has no signer service")
+	}
+	if g, s := withoutChainValues(args), withoutChainValues(s.Command); !slices.Equal(g, s) {
+		t.Errorf("signer arguments:\n the guide   %q\n compose.yaml %q", g, s)
+	}
+	if g, s := volumeTargets(guide["--volume"]), volumeTargets(s.Volumes); !slices.Equal(g, s) {
+		t.Errorf("mounts: the guide has %q, compose.yaml %q", g, s)
+	}
+	for _, tt := range []struct{ option, guide, compose string }{
+		{"--memory / mem_limit", strings.Join(guide["--memory"], ","), s.MemLimit},
+		{"--stop-timeout / stop_grace_period", strings.Join(guide["--stop-timeout"], ",") + "s", s.StopGracePeriod},
+		{"--cap-drop / cap_drop", strings.Join(guide["--cap-drop"], ","), strings.Join(s.CapDrop, ",")},
+		{"--security-opt / security_opt", strings.Join(guide["--security-opt"], ",") + ":true",
+			strings.Join(s.SecurityOpt, ",")},
+	} {
+		if tt.guide != tt.compose {
+			t.Errorf("%s: the guide gives %q, compose.yaml %q", tt.option, tt.guide, tt.compose)
+		}
+	}
+	if _, ok := guide["--read-only"]; !ok || !s.ReadOnly {
+		t.Errorf("read-only root file system: the guide %v, compose.yaml %v", ok, s.ReadOnly)
+	}
+}
+
+// guideBlocks returns the fenced code blocks of a Markdown text that
+// directly follow a line holding only marker, in order, at any indentation
+// (a block in a list item), with the fence's indentation removed.
+func guideBlocks(text, marker string) []string {
+	var blocks []string
+	lines := strings.Split(text, "\n")
+	for i := 0; i+1 < len(lines); i++ {
+		fence := lines[i+1]
+		if strings.TrimSpace(lines[i]) != marker || strings.TrimSpace(fence) != "```" {
+			continue
+		}
+		indent := fence[:len(fence)-len(strings.TrimLeft(fence, " "))]
+		var block []string
+		for j := i + 2; j < len(lines) && strings.TrimSpace(lines[j]) != "```"; j++ {
+			block = append(block, strings.TrimPrefix(lines[j], indent))
+		}
+		blocks = append(blocks, strings.Join(block, "\n"))
+	}
+	return blocks
+}
+
+// The Docker guide's commands beyond the `docker run` the smoke test runs:
+// the client container that checks and reloads the signer runs as the user
+// who copied the certificate out (docker cp writes it 0600, owned by that
+// user) and pins it; files copied into /data get the owner and mode the
+// signer's own files have; a backup is taken from the stopped signer; a
+// mounted certificate is readable by the image's user, its key by it alone;
+// and the compose walkthrough creates the directory it copies into.
+func TestDockerGuideCommands(t *testing.T) {
+	text := string(readRepo(t, "docs/operations/deploy-docker.md"))
+	const client = `docker run --rm --network signer-net --user "$(id -u):$(id -g)" -v "$PWD/validator:/v:ro" `
+	for _, tt := range []struct {
+		marker string
+		want   []string
+	}{
+		{"<!-- docker-guide:check -->", []string{client, "--cacert /v/signer-cert.pem", "https://signer:9000/upcheck",
+			`-H "Authorization: Bearer $(cat validator/signer-auth-token)"`, "https://signer:9000/api/v1/consensus/publicKeys"}},
+		{"<!-- docker-guide:reload -->", []string{client, "--cacert /v/signer-cert.pem", "-X POST",
+			"-H 'Content-Type: application/json'", `$(docker cp signer:/data/admin-token - | tar -xOf -)`,
+			"https://signer:9000/reload"}},
+		{"<!-- docker-guide:rotate-token -->", []string{"umask 077", "--owner=65532 --group=65532 --mode=0600",
+			"docker cp --archive - signer:/data", "docker kill --signal=HUP signer"}},
+		{"<!-- docker-guide:rotate-certificate -->", []string{"umask 077", "--owner=65532 --group=65532 --mode=0600",
+			"key.pem cert.pem | docker cp --archive - signer:/data/tls", "docker kill --signal=HUP signer",
+			"validator/signer-cert.pem"}},
+		{"<!-- docker-guide:backup -->", []string{"docker stop signer\n", "docker cp signer:/data - >", "docker start signer"}},
+		{"<!-- docker-guide:own-certificate -->", []string{"chmod 0600 tls/signer.key", "sudo chown -R 65532:65532 tls"}},
+		{"<!-- docker-guide:compose-copy -->", []string{"mkdir -p validator\ndocker compose cp"}},
+	} {
+		blocks := guideBlocks(text, tt.marker)
+		if len(blocks) != 1 {
+			t.Errorf("deploy-docker.md: want one block marked %s, got %d", tt.marker, len(blocks))
+			continue
+		}
+		for _, want := range tt.want {
+			if !strings.Contains(blocks[0], want) {
+				t.Errorf("%s lacks %q:\n%s", tt.marker, want, blocks[0])
+			}
+		}
+		// Every client container of a block runs as the user and pins
+		// the certificate.
+		if n := strings.Count(blocks[0], "curlimages/curl"); n != strings.Count(blocks[0], client) ||
+			n != strings.Count(blocks[0], "--cacert /v/signer-cert.pem") {
+			t.Errorf("%s: a client container that does not run as the user or pin the certificate:\n%s", tt.marker, blocks[0])
+		}
+	}
+	if got := guideBlocks("- step:\n\n  <!-- m -->\n  ```\n  a\n    b\n  ```\n", "<!-- m -->"); !slices.Equal(got, []string{"a\n  b"}) {
+		t.Errorf("guideBlocks of an indented block = %q", got)
+	}
 }

@@ -3,8 +3,8 @@
 A `VALIDATOR_REGISTRATION` names the address that block builders pay. Anyone who can make the signer sign one can
 redirect a validator's rewards, so the signer can pin a fee recipient per key: a registration for a pinned key is
 signed only when its `fee_recipient` is the pinned address. Keys without a pin are not restricted. The option is off
-unless the flag names a file. It is read by `internal/consensus/policy` (`LoadFeeRecipientPins`); the
-`consensus` subcommand wires the flag together with the sign endpoint.
+unless the flag names a file. The signer reads the file once, at startup: a file that fails to load refuses the
+start (exit code 1), and a change takes effect at the next start, not on `SIGHUP` or `POST /reload`.
 
 ## Format
 
@@ -12,7 +12,7 @@ A YAML list (JSON is accepted, as YAML) of entries with exactly two keys:
 
 ```yaml
 # one entry per pinned key
-- key: 0x6a0520f46e95a03d3957eb79b5756ac5c57a29c57c4344c0ba4c2b19dd6fa73c
+- key: 0x9e7e647fffc2c484f3a36dc6450ccfa78eec68528fa00628b4e7e05854431e1b
   fee_recipient: Q2b3f5c7d9e1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4
 - key: 0x<5,184 hex characters of the full public key>
   fee_recipient: Q<128 hex characters>

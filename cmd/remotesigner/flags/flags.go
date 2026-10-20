@@ -149,6 +149,62 @@ const (
 	DefaultKeyConfigFileMaxSize = 104_857_600
 )
 
+// Override explains one of the hidden --X… flags, each of which lifts a
+// startup refusal of a non-loopback listener: what is refused without it,
+// the risk an operator accepts with it, and the configuration that makes it
+// unnecessary. tools/flagdoc renders them into docs/reference/flags.md.
+type Override struct {
+	Refused string
+	Risk    string
+	Instead string
+}
+
+// Overrides returns the explanation of every hidden flag, by flag name.
+func Overrides() map[string]Override {
+	return map[string]Override{
+		AllowPlaintextTokenAuth: {
+			Refused: "A non-loopback API listener with --http-auth-mode=token and no TLS (no --tls-cert-file, " +
+				"--tls-keystore-file or --tls-generate-self-signed). The mtls modes always need TLS, and loopback " +
+				"listeners are never refused.",
+			Risk: "Every request carries the sign or admin token in clear: anyone who can read the traffic (the " +
+				"LAN, the host network, another container on the Docker network) can replay it, sign duties with " +
+				"the sign token (slashing protection still applies) and, with the admin token, reload keys, reset " +
+				"RANDAO frontiers and, with --key-manager-api-enabled, import and delete keys. Every response can " +
+				"be read as well, signatures and RANDAO reveals included.",
+			Instead: "Serve TLS: --tls-generate-self-signed, which the container image sets, or --tls-cert-file " +
+				"and --tls-key-file, and give the validator client the certificate " +
+				"(--validators-external-signer-tls-ca-file). Use the override only on a throwaway test network " +
+				"whose keys guard nothing.",
+		},
+		AllowUnknownGenesisTime: {
+			Refused: "A non-loopback API listener when no source gives the genesis time: neither a built-in " +
+				"network that knows it, --network-genesis-time nor --network-genesis-state.",
+			Risk: "Without a genesis time the signer cannot tell the current slot. Its wall-clock bounds are off, " +
+				"so a client with the sign token can have blocks and attestations signed for slots and epochs far " +
+				"in the future: signatures it can broadcast later, and slashing-protection records that refuse " +
+				"the validator's honest attestations until the chain reaches those epochs. New RANDAO layers are " +
+				"refused, so the validators cannot propose, and capabilities reports a null genesis_time, which " +
+				"the qrysm validator client refuses at startup.",
+			Instead: "Pass --network-genesis-time, or --network-genesis-state with the chain's genesis state.",
+		},
+		AllowGVRTOFU: {
+			Refused: "A non-loopback API listener for a file network when no source gives the genesis validators " +
+				"root: neither --network-genesis-validators-root nor --network-genesis-state. A built-in network " +
+				"never pins on first use: without one of those flags it refuses to start (exit code 1) on any " +
+				"listener, and the override does not change that.",
+			Risk: "The first request that carries the network's fork version pins its genesis validators root " +
+				"into the slashing-protection store for good, and every later request must match it. Networks " +
+				"built from one configuration share their fork version, so the first client to reach the signer " +
+				"decides which chain it signs for. When that is another chain that uses the same keys, the signer " +
+				"signs for that chain from then on and refuses every request for the intended one. Undoing a wrong " +
+				"pin needs a new store.",
+			Instead: "Pass --network-genesis-validators-root, or --network-genesis-state with the chain's genesis " +
+				"state. Trust on first use is meant for a test network on a loopback listener, as the qrysm " +
+				"end-to-end test runs it.",
+		},
+	}
+}
+
 // DefaultHostAllowlist is the default of --http-host-allowlist.
 var DefaultHostAllowlist = []string{"localhost", "127.0.0.1", "::1"}
 

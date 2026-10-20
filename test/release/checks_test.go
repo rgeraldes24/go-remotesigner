@@ -95,6 +95,50 @@ func TestLicenceProblems(t *testing.T) {
 	}
 }
 
+func TestShippedDocsProblems(t *testing.T) {
+	want := map[string][]byte{"deploy/config/single-host.yaml": []byte("data-path: /x\n"),
+		"deploy/systemd/remotesigner.service": []byte("[Unit]\n")}
+	good := map[string]tarFile{
+		"README.md": regular("See [LICENSE](LICENSE), [the example](deploy/config/single-host.yaml#L1), " +
+			"[the guide](https://github.com/rgeraldes24/go-remotesigner/blob/v1.0.0/docs/operations/deploy-systemd.md) " +
+			"and [below](#license).\n"),
+		"LICENSE":                             regular("Apache"),
+		"deploy/config/single-host.yaml":      regular("data-path: /x\n"),
+		"deploy/systemd/remotesigner.service": regular("[Unit]\n"),
+	}
+	with := func(edit func(map[string]tarFile)) map[string]tarFile {
+		files := maps.Clone(good)
+		edit(files)
+		return files
+	}
+	tests := []struct {
+		name  string
+		files map[string]tarFile
+		want  string
+	}{
+		{"complete", good, ""},
+		{"no unit", with(func(f map[string]tarFile) { delete(f, "deploy/systemd/remotesigner.service") }),
+			"deploy/systemd/remotesigner.service missing"},
+		{"another configuration", with(func(f map[string]tarFile) { f["deploy/config/single-host.yaml"] = regular("other\n") }),
+			"deploy/config/single-host.yaml missing or not the repository's"},
+		{"no README", with(func(f map[string]tarFile) { delete(f, "README.md") }), "README.md missing"},
+		{"a dead link", with(func(f map[string]tarFile) {
+			f["README.md"] = regular("Start with [the guide](docs/operations/deploy-systemd.md).\n")
+		}), "links to docs/operations/deploy-systemd.md"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shippedDocsProblems(want, tt.files)
+			switch {
+			case tt.want == "" && len(got) != 0:
+				t.Errorf("problems %q, want none", got)
+			case tt.want != "" && (len(got) != 1 || !strings.Contains(got[0], tt.want)):
+				t.Errorf("problems %q, want one mentioning %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // goVersionOutput is `go version -m` output for a build with the given tags
 // and extra dependency lines.
 func goVersionOutput(tags, cgo string, deps ...string) string {
