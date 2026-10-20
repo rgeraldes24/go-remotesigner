@@ -181,17 +181,19 @@ const (
 	DefaultAzureResponseTimeout = 60
 )
 
-// Override explains one of the hidden --X… flags, each of which lifts a
-// startup refusal of a non-loopback listener: what is refused without it,
+// Override explains one of the hidden --Xallow-* flags, each of which lifts
+// a startup refusal of a non-loopback listener: what is refused without it,
 // the risk an operator accepts with it, and the configuration that makes it
-// unnecessary. tools/flagdoc renders them into docs/reference/flags.md.
+// unnecessary. tools/flagdoc renders them into docs/reference/flags.md. The
+// other hidden flags, the secret-store overrides (--Xazure-*, --Xgcp-*),
+// refuse nothing and are explained on their store pages.
 type Override struct {
 	Refused string
 	Risk    string
 	Instead string
 }
 
-// Overrides returns the explanation of every hidden flag, by flag name.
+// Overrides returns the explanation of every --Xallow-* flag, by flag name.
 func Overrides() map[string]Override {
 	return map[string]Override{
 		AllowPlaintextTokenAuth: {
