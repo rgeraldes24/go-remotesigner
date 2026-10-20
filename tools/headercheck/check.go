@@ -221,7 +221,8 @@ func kindOf(rel string) string {
 		return "//"
 	case strings.HasSuffix(base, ".sql"):
 		return "--"
-	case strings.HasSuffix(base, ".yaml"), strings.HasSuffix(base, ".yml"), strings.HasSuffix(base, ".sh"):
+	case strings.HasSuffix(base, ".yaml"), strings.HasSuffix(base, ".yml"), strings.HasSuffix(base, ".sh"),
+		strings.HasSuffix(base, ".py"), strings.HasSuffix(base, ".service"):
 		return "#"
 	case strings.HasSuffix(base, ".json") && strings.HasPrefix(rel, "deploy/"):
 		return "json"

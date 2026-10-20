@@ -53,6 +53,8 @@ package qrlv1
 	newSh         = "#!/bin/sh\n# Copyright 2026 The go-remotesigner Authors.\n# SPDX-License-Identifier: Apache-2.0\nset -eu\n"
 	newYAML       = "# Copyright 2026 The go-remotesigner Authors.\n# SPDX-License-Identifier: Apache-2.0\nname: ci\n"
 	newDockerfile = "# Copyright 2026 The go-remotesigner Authors.\n# SPDX-License-Identifier: Apache-2.0\nFROM scratch\n"
+	newPy         = "# Copyright 2026 The go-remotesigner Authors.\n# SPDX-License-Identifier: Apache-2.0\n\nimport hashlib\n"
+	newUnit       = "# Copyright 2026 The go-remotesigner Authors.\n# SPDX-License-Identifier: Apache-2.0\n#\n# The unit.\n\n[Unit]\n"
 	w3sJSON       = `{"title": "dashboard", "description": "Copyright 2020 ConsenSys AG.\nCopyright 2026 The go-remotesigner Authors.\nSPDX-License-Identifier: Apache-2.0\nModified by The go-remotesigner Authors, 2026.\nDerived from Web3Signer dashboard/web3signer.json at commit ` + w3sCommit + `."}`
 )
 
@@ -68,6 +70,8 @@ func fixture(t *testing.T) string {
 		"internal/slashing/pgstore/sql/0001.sql":    newSQL,
 		"deploy/entrypoint.sh":                      newSh,
 		"deploy/Dockerfile":                         newDockerfile,
+		"deploy/systemd/app.service":                newUnit,
+		"internal/consensus/testdata/gen.py":        newPy,
 		"deploy/grafana/dashboard.json":             w3sJSON,
 		".github/workflows/ci.yml":                  newYAML,
 		"third_party/ks/go.mod":                     "module x\n",
@@ -96,6 +100,8 @@ func fixture(t *testing.T) string {
 		"| `internal/slashing/pgstore/sql/0001.sql` | new | | | |",
 		"| `deploy/entrypoint.sh` | new | | | |",
 		"| `deploy/Dockerfile` | new | | | |",
+		"| `deploy/systemd/app.service` | new | | | |",
+		"| `internal/consensus/testdata/gen.py` | new | | | |",
 		"| `deploy/grafana/dashboard.json` | w3s-derived | Web3Signer | `dashboard/web3signer.json` | `"+w3sCommit+"` |",
 		"| `.github/workflows/ci.yml` | new | | | |",
 		"| `third_party/ks/go.mod` | new | | | sha256 `"+modSum+"` |",
@@ -112,8 +118,8 @@ func TestCheckFixturePasses(t *testing.T) {
 	if len(res.problems) != 0 {
 		t.Fatalf("unexpected problems:\n%s", strings.Join(res.problems, "\n"))
 	}
-	if res.files != 8 || res.trees != 1 {
-		t.Fatalf("checked %d files and %d trees, want 8 and 1", res.files, res.trees)
+	if res.files != 10 || res.trees != 1 {
+		t.Fatalf("checked %d files and %d trees, want 10 and 1", res.files, res.trees)
 	}
 }
 
@@ -286,6 +292,27 @@ func TestCheckFailures(t *testing.T) {
 				writeFile(t, filepath.Join(dir, "deploy/Dockerfile"), "FROM scratch\n"+newDockerfile, 0o644)
 			},
 			want: []string{"deploy/Dockerfile: new: missing"},
+		},
+		{
+			name: "systemd unit without a row",
+			mutate: func(t *testing.T, dir string) {
+				writeFile(t, filepath.Join(dir, "deploy/systemd/other.service"), newUnit, 0o644)
+			},
+			want: []string{"deploy/systemd/other.service: no PROVENANCE.md row"},
+		},
+		{
+			name: "systemd unit without a header",
+			mutate: func(t *testing.T, dir string) {
+				writeFile(t, filepath.Join(dir, "deploy/systemd/app.service"), "[Unit]\nDescription=app\n", 0o644)
+			},
+			want: []string{"deploy/systemd/app.service: new: missing \"Copyright <year> The go-remotesigner Authors.\" line"},
+		},
+		{
+			name: "python file without SPDX",
+			mutate: func(t *testing.T, dir string) {
+				writeFile(t, filepath.Join(dir, "internal/consensus/testdata/gen.py"), "# Copyright 2026 The go-remotesigner Authors.\nimport os\n", 0o644)
+			},
+			want: []string{"gen.py: new: missing SPDX-License-Identifier: Apache-2.0"},
 		},
 		{
 			name: "deploy json without a row",
