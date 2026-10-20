@@ -5,6 +5,48 @@ were set for the reference hardware: a 4-vCPU x86-64 cloud VM and a 4-vCPU Gravi
 p99 and p99.9 with `benchstat` over at least 10 runs. Rows measured elsewhere say so and must be re-run on the
 reference VMs before v1.0.
 
+The first section is the run for the 1.0.0 release; the sections after it describe each benchmark and keep the runs
+made when its component landed.
+
+## v1.0 release run (dev machine)
+
+**These are development-machine numbers, not the release gate.** v1.0 needs every benchmark below within its threshold
+on the reference VMs, and B16, which no machine here can run; both are open items of the
+[release checklist](operations/release.md#62-open-gates-this-repository-cannot-meet-today). Run V re-ran every
+benchmark that runs on this machine, on the code of the 1.0.0 candidate, with the commands of the sections below.
+
+Run V, 2026-10-20, Go 1.26.9, Apple M2 (4 performance and 4 efficiency cores, 16 GiB, darwin/arm64), PostgreSQL 17
+(`postgres:17-alpine`) in Docker Desktop for B13 and B14. The machine was shared with other work throughout; the
+load average of each run is in the table, and it moved within runs (a build by other work pushed it from 5 to 32
+between B10 and B11).
+
+| ID | Threshold | Run V | Load average | Verdict (dev machine) |
+|---|---|---|---|---|
+| B1 | mean ≤ 2 ms; p99 ≤ 6 ms; p99.99 ≤ 12 ms (amd64) | 10 runs of 20,000: mean 0.439 ms ± 3 %, p50 0.353 ms, p99 1.39 ms, p99.99 13.9 ms ± 32 % (2.6-28.6 ms; above 12 ms in 7 of 10) | 1.8-3.5 | mean and p99 met; p99.99 not met (scheduler pauses of the shared machine) |
+| B2 | as B1; identical bytes for repeated roots | mean 0.432 ms ± 3 %, p50 0.351 ms, p99 1.30 ms, p99.99 8.0 ms ± 82 % (2.8-20.0 ms; above 12 ms in 3 of 10); every repeated root gave identical bytes | 1.8-3.5 | mean and p99 met; p99.99 not met in 3 of 10 |
+| B3 | mean ≤ 1 ms | 0.145 ms ± 9 % | 1.8-3.5 | met |
+| B4 | ≥ 1,000 signatures/s on 4 vCPU; no data races | `-cpu 4`, 10 runs: distinct keys 8,178/s ± 6 %, shared key 2,228/s ± 3 %; no race under `-race` | 3.1-3.4 | met |
+| B5 | ≤ 10 ms / ≤ 3 ms / ≤ 50 µs | contribution (128 signatures) 1.66 ms, aggregate (32) 0.429 ms, attestation data 1.04 µs (10 runs each) | 3.3-3.4 | met |
+| B6 | ≤ 20 ms; ≤ 6 MB allocated | 3.40 ms ± 3 % (335 MiB/s), 592 KiB and 59 allocations | 3.3-3.4 | met |
+| B7 | last ≤ 1 s, p99 ≤ 500 ms, 0 errors | 5 runs: last 293-542 ms, p50 25-51 ms, p99 288-537 ms, 0 errors; p99 over 500 ms in one run (537 ms), and in a sixth run at 12:51 (570 ms) | 5.7-8.1 (sixth: 4.0) | met in 4 of 6 |
+| B8 | each ≤ 250 ms; RSS + ≤ 128 MiB | slowest 26.9-30.0 ms; RSS +26-35 MiB | 5.7-8.1 | met |
+| B9 | reveal p99 ≤ 0.5 s; unknown ≤ 0.6 s, cached on retry; signing p99 ≤ 500 ms alongside | 4 first reveals p99 198-299 ms; unknown 57-140 ms, retry 0.22-0.26 ms; signing p99 alongside 145-260 ms | 5.7-8.1 | met |
+| B10 | single ≤ 3 s (amd64) / ≤ 5 s (arm64); the knee; RSS ≤ base + P × 320 MiB | P = 1: 1.48-1.54 s; throughput P=1 0.65-0.68/s, P=2 1.17-1.29/s, P=4 2.16-2.22/s, P=8 2.45-2.86/s, P=16 1.04-2.00/s; peak RSS P=1 521, P=2 1,034, P=4 2,060, P=8 2,830, P=16 5,606 MiB | 5-21 | single met; knee at P = 4-8; RSS not met at any P (bound open, see [B10](#argon2id-keystore-decryption-b10-internalkeyskeystoreqrlv1)) |
+| B11 | 10k raw: ready ≤ 30 s, `publicKeys` ≤ 5 s | ready 4.04 s, `publicKeys` 955 ms, peak RSS 625 MiB | 18-19 | met |
+| B11 | keystores: ready ≤ 1.2 × N × t_B10 / P | 100: P = 8, t_B10 = 9.06 s: ready 2 min 10 s, bound 2 min 16 s, peak RSS 4,195 MiB. 1,000: t_B10 = 9.71 s before the load and 3.66 s after it: ready 12 min 14 s, bound 24 min 17 s, peak RSS 4,639 MiB | 14-32 | met under the threshold's rule (the larger t_B10); the load fell during the 1,000-keystore run, and against the t_B10 measured after it (bound 9 min 9 s) it would have missed |
+| B12 | B7 p99 during the reload ≤ 2 × without | 3 runs, every burst signed (B12 now sends new signing roots per burst): B7 p99 114-137 ms without a reload, 250-471 ms during a reload of 100 standard-KDF keystores (2.2-3.4 ×); the reload took 58-62 s at 4.0-4.3 s per decrypt | 5.7-9.4 | not met (3 of 3); the burst still met B7's own bound (p99 ≤ 500 ms) |
+| B13 | p50 ≤ 5 ms, p99 ≤ 20 ms; burst ≤ 100 ms; stalled DB fails in ≤ 5 s | attestation p50 1.37 ms, p99 1.81 ms; block p50 1.08 ms, p99 1.44 ms; burst of 33 wall p50 27.4 ms, p99 46.6 ms; stalled database 4.50 s | 8-12 | met |
+| B14 | run ≤ 5 min; signing p99 during ≤ 2 × baseline | bbolt: steady state 10.9 s, 1.64 ×; first run on twice the window 7.2 s, 0.52 ×. Postgres: 34.1 s, 0.90 ×; 44.4 s, 0.52 × | 3.9-5.0 (bbolt), 8-12 (Postgres) | met |
+| B15 | ≤ 2 s on a LAN; transient allocation ≤ 64 MB | plain 19.4 ms ± 1 %, 70 KiB; gzip 507 ms ± 6 %, 1.2 MiB (10 runs each) | 3.3-4.0 | met |
+| B16 | 24 h with 4,096 keys: 0 failed duties; RSS flat within ± 10 %; no goroutine growth | not run: it needs a time-compressed driver of the mainnet duty schedule, which does not exist yet, and a reference VM for 24 h | — | open (release checklist) |
+| B18 | ≤ 100 × t_B10 / P + 10 s; no write-deadline error | P = 8, t_B10 = 3.06 s: 46.1 s (28.9 s for 64, 17.3 s for 36) against 48 s; peak RSS 4,891 MiB | 12-14 | met |
+| B19 | 0 idle-connection errors over 1 h with `IdleTimeout` 120 s | 1 h run (`make b19 B19_DURATION=1h`, alongside the other runs): 162 POSTs, 0 connection errors | 2-32 over the hour | met (the first 1 h run) |
+| B20 | p99 handshake ≤ 200 ms on 4 vCPU | 5 runs: P-256 p99 22.0-25.1 ms (max 25.4 ms), RSA-2048 p99 42.8-106.2 ms (max 106.2 ms). B7 over TLS on HTTP/1.1: P-256 p99 325-371 ms, RSA-2048 211-382 ms; on h2: P-256 200-645 ms (over 500 ms in one run), RSA-2048 165-433 ms; 0 errors | 5.7-8.1 | storm met; B7 over TLS met in 19 of the 20 measurements (and missed once more in the sixth run: RSA-2048 on HTTP/1.1, p99 792 ms) |
+
+The AWS KMS benchmark belongs to v2 and is not listed. Every B7-type latency here includes the loopback round trip
+and a Go client on the same shared machine; the B7 misses are single runs next to passing ones, so the reference VMs
+decide. The raw logs of Run V are not kept in the repository.
+
 ## ML-DSA-87 (B1-B4, `internal/crypto/mldsa87`)
 
 **Status: open.** The criterion "B1-B4 meet their thresholds" is not yet confirmed. The only
@@ -68,9 +110,8 @@ allocates only small bookkeeping, which is why B6 stays far under its memory bou
 
 ## Public keys and idle connections (B15, B19, the API server)
 
-**B15: met on the development machine.** **B19: implemented as a nightly job; no 1 h run recorded yet** (a 40 s
-smoke run and a 5 min run passed with 0 errors). B19 is met only once a 1 h run, nightly or local, is recorded
-below.
+**B15: met on the development machine.** **B19: met on the development machine** in its first 1 h run (Run V, 2026-10-20:
+162 POSTs, 0 errors); the nightly job runs it every night.
 
 ```
 go test -run '^$' -bench PublicKeys10k -benchtime 10x -count 10 ./internal/api/consensus/ | tee b15.txt && benchstat b15.txt
@@ -87,7 +128,7 @@ about 2:1 at any level. B19 runs the built binary and two clients with Go's defa
 |---|---|---|---|---|
 | B15 | `BenchmarkPublicKeys10k/plain` | ≤ 2 s on a LAN; transient allocation ≤ 64 MB | 20.7-21.0 ms, 71.6 KB and 12 allocations per request | met on dev machine |
 | B15 | `BenchmarkPublicKeys10k/gzip` | as above | 526-551 ms, 1.28 MB and 32 allocations per request | met on dev machine |
-| B19 | `TestB19IdleConnectionRace` (`make b19`) | 0 "server closed idle connection" or EOF errors over 1 h with `IdleTimeout` 120 s | 40 s smoke run: 0 errors; 5 min run (2026-10-15): 14 POSTs, 0 errors | pending: first 1 h run |
+| B19 | `TestB19IdleConnectionRace` (`make b19`) | 0 "server closed idle connection" or EOF errors over 1 h with `IdleTimeout` 120 s | 1 h run (Run V, 2026-10-20): 162 POSTs, 0 errors; earlier a 40 s smoke run (0 errors) and a 5 min run (2026-10-15: 14 POSTs, 0 errors) | met on dev machine |
 
 Run E, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), 10 runs of 10 requests each, load average 4-5 from
 other work.
@@ -171,12 +212,17 @@ five rounds per P at load average 16-25 from other work. RSS: one run of two rou
   base + P × 512 MiB. `GOMEMLIMIT` lowered it only at P = 4 (1,547 MiB against 2,059 MiB without it); at P = 1, 2
   and 8 the peaks were equal, and at P = 16 it was 6,163 MiB against 5,906 MiB. The 320 MiB-per-decrypt bound is
   therefore not reached, and a loader that runs decrypts concurrently has to count 512 MiB for each.
-- **Open before v1.0.** B10 gates v1.0. Either the RSS bound is revised to 512 MiB per decrypt, the slot size of the
-  keystore loader's Argon2id semaphore, or a mitigation (such as a garbage collection after each run, inside the
-  semaphore slot) is added in the keystore loader and B10's RSS rows are measured again with it. The loader already
-  counts 512 MiB for each standard-KDF decrypt it admits
+- **Open before v1.0: a decision for the maintainers.** B10 gates v1.0, and its RSS bound was not met in any run
+  (Run G, and Run V in [the v1.0 table](#v10-release-run-dev-machine)). Either the bound is revised to what the
+  keystore loader's Argon2id semaphore budgets, 512 MiB for the process plus 512 MiB per standard-KDF decrypt (every
+  run so far meets it: Run V peaked at 521, 1,034, 2,060, 2,830 and 5,606 MiB for P = 1, 2, 4, 8 and 16, against
+  1,024 to 8,704 MiB), or a mitigation is added in the loader and B10's RSS rows are measured again with it. The
+  loader already counts 512 MiB for each standard-KDF decrypt it admits
   ([`operations/reload.md`](operations/reload.md#6-memory-for-keystore-decryption)), so its memory stays within the
-  budget either way.
+  budget either way. For Run V a garbage collection after each decrypt, inside its slot, was tried in a throw-away
+  copy of the benchmark (not in the code): peak RSS 265, 777, 1,289 and 2,157 MiB for P = 1, 2, 4 and 8, which meets
+  320 MiB per decrypt at P = 1 and 8 but not at P = 2 (388 MiB per decrypt) and only just misses it at P = 4, so that
+  mitigation alone would not make the 320 MiB bound hold.
 
 ## TLS handshake storm (B20, the built binary)
 
@@ -283,9 +329,10 @@ the median on a quiet machine and 0.5 ms, with a p99 of 4.5 ms, at a load averag
 
 ## Key loading and reload (B11, B12, the built binary)
 
-**B11 and B12: met on the development machine**, pending the reference VMs. The keystore rows of B11 are met in run
-L, measured against the threshold's bound; run K's 1,000-keystore load, on a machine loaded by other work, did not meet that
-bound. Every run shared the machine with other work, so the absolute times say much about that load.
+**B11: met on the development machine**, pending the reference VMs. **B12: not met on the development machine** in
+Run V, the first run in which B12 measured signing (see below). The keystore rows of B11 are met in runs L and V,
+measured against the threshold's bound; run K's 1,000-keystore load, on a machine loaded by other work, did not meet
+that bound. Every run shared the machine with other work, so the absolute times say much about that load.
 
 ```
 make bench-loading     # REMOTESIGNER_BENCH=1 go test -run '^TestB1[12]' ./test/acceptance/
@@ -300,17 +347,20 @@ mean time of one decrypt when P run together, the B10 measure, taken in the test
 before the signer starts and once after it stops, and the larger of the two counts. The mean decrypt time the signer
 measured during the load ("Keys loaded": `decrypt-time` / `decrypts`) is logged beside it, with the share of the P
 decrypt slots the load kept busy. It is not the threshold: a bound built from the load's own decrypt time only
-checks that share and cannot catch a load whose decrypts are slow. B12 starts with 32 `file-raw` keys, runs the B7
-burst four times (the first records the attestations; the median p99 of the other three is the baseline), adds 100
-standard-KDF keystores, posts `/reload`, waits 2 s and runs the burst again while the reload decrypts. Peak RSS is
-sampled with `ps` every 100 ms.
+checks that share and cannot catch a load whose decrypts are slow. B12 starts with B7's 158 `file-raw` keys, runs the
+B7 burst four times (the first warms up; the median p99 of the other three is the baseline), adds 100 standard-KDF
+keystores, posts `/reload`, waits 2 s and runs the burst again while the reload decrypts. Each burst has signing
+roots of its own (the attestations' epochs rise by one per burst, the sync committee messages name another block
+root), so that every request is signed. Before the v1.0 run B12 sent one burst over 32 keys four times, so from the second
+burst on the response cache answered every request: its earlier rows compare cache hits, not signing. Peak RSS
+is sampled with `ps` every 100 ms.
 
 | ID | Test | Threshold | Development-machine results | Verdict |
 |---|---|---|---|---|
 | B11 | `TestB11StartupFileRaw` (10,000 keys) | ready ≤ 30 s; `publicKeys` ≤ 5 s | ready 1.09 s, `publicKeys` 554 ms, peak RSS 635 MiB (run K); ready 2.13 s, 813 ms, 617 MiB (run J) | met on dev machine |
 | B11 | `TestB11StartupKeystores/100` | ready ≤ 1.2 × N × t_B10 / P | run L: P = 8, t_B10 = 3.33 s (2.88 s before the load, 3.33 s after it): ready 46 s, bound 50 s; 3.56 s per decrypt during the load, slots 97 % busy; peak RSS 4,375 MiB. Run K: ready 35 s; t_B10 not measured before the load, B10's 2.97-4.16 s gives a bound of 45-62 s | met on dev machine |
 | B11 | `TestB11StartupKeystores/1000` | as above | run L: P = 8, t_B10 = 3.55 s (2.93 s before, 3.55 s after): ready 6 min 49 s, bound 8 min 52 s; 3.26 s per decrypt during the load, slots 100 % busy; peak RSS 5,138 MiB. Run K: ready 20 min 3 s against 10 min 14 s (t = 4.09 s, measured after the load; 9.61 s per decrypt during it) | met on dev machine in run L; run K not met under heavy load; re-run on the reference VMs |
-| B12 | `TestB12ReloadDuringBurst` | B7 p99 during the reload ≤ 2 × B7 p99 without | p99 256 ms without (median of 181, 256 and 278 ms), 322 ms during a reload of 100 standard-KDF keystores (bound 511 ms); last response 325 ms; the reload took 59 s at 4.0 s per decrypt (run K) | met on dev machine |
+| B12 | `TestB12ReloadDuringBurst` | B7 p99 during the reload ≤ 2 × B7 p99 without | Run V (every burst signed): p99 114-137 ms without, 250-471 ms during the reload (2.2-3.4 ×), 3 runs. Run K, cache hits (see above): p99 256 ms without (median of 181, 256 and 278 ms), 322 ms during a reload of 100 standard-KDF keystores; the reload took 59 s at 4.0 s per decrypt | not met on dev machine (Run V); run K did not measure signing |
 
 Run L, 2026-10-18, Go 1.26.9, Apple M2 (4 performance and 4 efficiency cores, 16 GiB, darwin/arm64): the keystore
 rows of B11 only, load average 2.4 at the start and 9-16 during the loads, which ran eight Argon2id decrypts at once
@@ -326,8 +376,10 @@ day, is the `file-raw` row of an attempt at load average 50-60 whose keystore ro
   plus the process, as B10's memory note predicts; run L's 1,000-keystore load reached 5,138 MiB, still well within
   the 8 GiB limit the budget was sized from. The 10,000 `file-raw` keys took about 620 MiB, about 60 KiB per
   key ([`operations/reload.md`](operations/reload.md#6-memory-for-keystore-decryption)).
-- **Reload isolation.** A reload loads at most `GOMAXPROCS − 1` sources at once, so one CPU stays free for signing;
-  B12's p99 rose by a quarter during a reload that kept seven Argon2id runs busy.
+- **Reload isolation.** A reload loads at most `GOMAXPROCS − 1` sources at once, so one CPU stays free for signing.
+  With every burst signed (Run V), B12's p99 rose 2.2-3.4 times during a reload that kept seven Argon2id runs busy on
+  this machine's eight cores, four of them efficiency cores; the burst stayed within B7's 500 ms. Whether one free
+  CPU is enough on the 4-vCPU reference VMs, or a reload must leave more, is for their run to show.
 
 ## Keymanager import (B18, the built binary)
 
