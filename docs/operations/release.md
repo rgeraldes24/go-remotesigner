@@ -15,7 +15,7 @@ Two flavours, built from the same commit with `CGO_ENABLED=0 -trimpath`:
 
 | File | Content |
 |---|---|
-| `<flavour>_<version>_<os>_<arch>.tar.gz` | for linux and darwin, amd64 and arm64: a directory with the binary, `LICENSE`, the flavour's `NOTICE`, `LICENSES/` and `third_party_licenses/` |
+| `<flavour>_<version>_<os>_<arch>.tar.gz` | for linux and darwin, amd64 and arm64: a directory with the binary, `LICENSE`, the flavour's `NOTICE`, `LICENSES/`, `third_party_licenses/`, `README.md`, and the release's systemd unit and example configuration files in `deploy/systemd/` and `deploy/config/` ([`deploy-systemd.md`](deploy-systemd.md) installs them from there) |
 | `<archive>.sbom.json` | the archive's SPDX SBOM (syft) |
 | `checksums.txt` | SHA-256 of every archive and SBOM |
 | `checksums.txt.sigstore.json` | the keyless cosign signature bundle of `checksums.txt` |
@@ -24,7 +24,9 @@ Two flavours, built from the same commit with `CGO_ENABLED=0 -trimpath`:
 GitHub also stores a build provenance attestation for every file in `checksums.txt`.
 
 `third_party_licenses/` is `go-licenses save` of the flavour's binary: the licence and notice files of every module it
-links, under the module's path. The image carries the same files under `/usr/share/doc/remotesigner/`, and its
+links, under the module's path. `README.md` is the repository's, with each link to a file the archive does not hold
+pointing at that file in the repository at the release's tag. The image carries the same files under
+`/usr/share/doc/remotesigner/`, and its
 `org.opencontainers.image.licenses` label is the SPDX expression of the licences the binary links, generated per
 flavour from `go-licenses report` (for example `Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND MIT`).
 
@@ -87,13 +89,14 @@ make release-check
 `make release-check` ([`test/release`](../../test/release/release_test.go)) reads `dist/artifacts.json` and checks:
 
 - archives exist for both flavours and every target, and `checksums.txt` matches them;
-- every archive holds its binary, `LICENSE`, the flavour's `NOTICE`, exactly the flavour's `LICENSES/` texts, and
-  `third_party_licenses/`;
+- every archive holds its binary, `LICENSE`, the flavour's `NOTICE`, exactly the flavour's `LICENSES/` texts,
+  `third_party_licenses/`, the repository's `deploy/config/` and `deploy/systemd/` files, and a `README.md` whose
+  relative links all name files the archive holds;
 - every binary is static and trimmed; the consensus binaries are built with `noexecution` and `go version -m` lists
   no go-qrl module;
 - every archive has an SPDX SBOM (unless the dry run skipped them);
 - every image (both flavours, amd64 and arm64) runs as `65532:65532` with the documented entrypoint and no
-  plaintext-token override, carries its flavour's labels and licence files, holds a binary that passes the same build
+  plaintext-token override, carries its flavour's labels and the same licence and documentation files, holds a binary that passes the same build
   checks, and has `/data` owned by the nonroot user with mode `0700`;
 - the images of this machine's architecture, one per flavour, pass the Docker smoke test
   ([`deploy-docker.md`](deploy-docker.md#8-building-the-image)): run hardened, with a read-only root file system and

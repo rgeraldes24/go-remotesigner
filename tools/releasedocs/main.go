@@ -1,12 +1,18 @@
 // Copyright 2026 The go-remotesigner Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-// Command releasedocs assembles the licence files that each release flavour
-// ships in its archives and its image.
+// Command releasedocs assembles the licence and documentation files that
+// each release flavour ships in its archives and its image.
 //
 // For each flavour it writes <out>/<flavour>/ with:
 //
-//   - LICENSE and README.md, copied from the repository;
+//   - LICENSE, copied from the repository;
+//   - README.md: the repository's, with every relative link to a file this
+//     directory does not hold pointed at the repository on GitHub at -ref
+//     (the release's tag), so that the shipped copy has no dead links;
+//   - deploy/config/ and deploy/systemd/: the example configuration files and
+//     the systemd unit, which docs/operations/deploy-systemd.md installs from
+//     the archive, so that they are the release's own;
 //   - NOTICE: the repository's NOTICE. The default flavour appends
 //     NOTICE.execution when the repository has one: that fragment holds the
 //     notices of the execution mode, which the consensus flavour never links;
@@ -30,7 +36,7 @@
 //
 // Usage:
 //
-//	go run ./tools/releasedocs [-root .] [-out build/release] [-go-licenses go-licenses]
+//	go run ./tools/releasedocs [-root .] [-out build/release] [-go-licenses go-licenses] [-ref main]
 package main
 
 import (
@@ -40,6 +46,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,7 +79,15 @@ const (
 	// executionNotice is the NOTICE fragment only the execution flavour
 	// ships.
 	executionNotice = "NOTICE.execution"
+	// repoURL is the repository on GitHub, which the shipped README links
+	// to.
+	repoURL = "https://github.com/rgeraldes24/go-remotesigner"
 )
+
+// deployDirs are the deploy/ directories every flavour ships, at the same
+// paths: the systemd guide runs in the extracted archive and installs the
+// unit and the example configuration from there.
+var deployDirs = []string{"deploy/config", "deploy/systemd"}
 
 // executionOnly are the LICENSES/ texts that only the execution flavour
 // ships: the texts of the LGPL code execution mode links and of the GPL it
@@ -91,14 +107,15 @@ func main() {
 	root := flag.String("root", ".", "repository root")
 	out := flag.String("out", "build/release", "output directory; replaced")
 	goLicenses := flag.String("go-licenses", "go-licenses", "the go-licenses command")
+	ref := flag.String("ref", "main", "the git ref (the release's tag) the shipped README links to")
 	flag.Parse()
-	if err := run(*root, *out, *goLicenses); err != nil {
+	if err := run(*root, *out, *goLicenses, *ref); err != nil {
 		fmt.Fprintln(os.Stderr, "releasedocs:", err)
 		os.Exit(1)
 	}
 }
 
-func run(root, out, goLicenses string) error {
+func run(root, out, goLicenses, ref string) error {
 	goroot, err := goEnv(root, "GOROOT")
 	if err != nil {
 		return err
@@ -108,7 +125,7 @@ func run(root, out, goLicenses string) error {
 	}
 	for _, f := range flavours {
 		dir := filepath.Join(out, f.name)
-		if err := assemble(root, dir, f); err != nil {
+		if err := assemble(root, dir, f, ref); err != nil {
 			return fmt.Errorf("%s: %w", f.name, err)
 		}
 		tl := goLicensesTool{bin: goLicenses, root: root, goroot: goroot}
@@ -135,16 +152,15 @@ func run(root, out, goLicenses string) error {
 	return nil
 }
 
-// assemble writes the repository's licence files for flavour f into dir:
-// LICENSE, README.md, NOTICE and LICENSES/.
-func assemble(root, dir string, f flavour) error {
+// assemble writes the repository's licence and documentation files for
+// flavour f into dir: LICENSE, NOTICE, LICENSES/, the deployDirs and
+// README.md, whose links to the repository point at ref.
+func assemble(root, dir string, f flavour, ref string) error {
 	if err := os.MkdirAll(filepath.Join(dir, "LICENSES"), 0o755); err != nil {
 		return err
 	}
-	for _, name := range []string{"LICENSE", "README.md"} {
-		if err := copyFile(filepath.Join(root, name), filepath.Join(dir, name)); err != nil {
-			return err
-		}
+	if err := copyFile(filepath.Join(root, "LICENSE"), filepath.Join(dir, "LICENSE")); err != nil {
+		return err
 	}
 	notice, err := noticeFor(root, f)
 	if err != nil {
@@ -162,7 +178,70 @@ func assemble(root, dir string, f flavour) error {
 			return err
 		}
 	}
-	return nil
+	for _, d := range deployDirs {
+		if err := copyDir(filepath.Join(root, filepath.FromSlash(d)), filepath.Join(dir, filepath.FromSlash(d))); err != nil {
+			return err
+		}
+	}
+	// Last, so that it sees every file the directory ships.
+	readme, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "README.md"), shippedReadme(readme, dir, ref), 0o644)
+}
+
+// mdLink matches a Markdown inline link's target.
+var mdLink = regexp.MustCompile(`\]\(([^()\s]+)\)`)
+
+// shippedReadme returns the README text for the release directory dir: a
+// relative link to a regular file dir holds stays as it is, and every other
+// relative link points to the repository's file at ref. A release has no
+// docs/ tree, so the repository's relative links would otherwise be dead.
+func shippedReadme(text []byte, dir, ref string) []byte {
+	return mdLink.ReplaceAllFunc(text, func(m []byte) []byte {
+		target := string(mdLink.FindSubmatch(m)[1])
+		if !relativeLink(target) {
+			return m
+		}
+		name, _, _ := strings.Cut(target, "#")
+		if fi, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err == nil && fi.Mode().IsRegular() {
+			return m
+		}
+		return []byte("](" + repoURL + "/blob/" + ref + "/" + strings.TrimPrefix(target, "./") + ")")
+	})
+}
+
+// relativeLink reports whether a link target is a path relative to the
+// page: no scheme, not absolute, not a fragment of the page itself.
+func relativeLink(target string) bool {
+	if target == "" || strings.HasPrefix(target, "#") || strings.HasPrefix(target, "/") {
+		return false
+	}
+	u, err := url.Parse(target)
+	return err == nil && u.Scheme == ""
+}
+
+// copyDir copies the regular files of the directory src, recursively, to
+// dst with mode 0644.
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		switch {
+		case d.IsDir():
+			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
+		case d.Type().IsRegular():
+			return copyFile(p, filepath.Join(dst, rel))
+		default:
+			return fmt.Errorf("%s: not a regular file", p)
+		}
+	})
 }
 
 // noticeFor returns the NOTICE flavour f ships: the repository's NOTICE,

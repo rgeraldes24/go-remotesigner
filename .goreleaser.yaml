@@ -20,9 +20,10 @@ project_name: go-remotesigner
 
 before:
   hooks:
-    # build/release/<flavour>/ (LICENSE, NOTICE, LICENSES/, third_party_licenses/) and
+    # build/release/<flavour>/ (LICENSE, NOTICE, LICENSES/, third_party_licenses/, README.md with its
+    # links to the repository at the release's tag, deploy/config/ and deploy/systemd/) and
     # build/release/<flavour>.licenses (the SPDX expression of the image label).
-    - make release-docs GO_LICENSES={{ envOrDefault "GO_LICENSES" "go-licenses" }}
+    - make release-docs GO_LICENSES={{ envOrDefault "GO_LICENSES" "go-licenses" }} RELEASE_REF={{ .Tag }}
 
 builds:
   - id: remotesigner
@@ -52,8 +53,10 @@ builds:
     goarch: [amd64, arm64]
     mod_timestamp: "{{ .CommitTimestamp }}"
 
-# Each archive holds the flavour's binary and its licence files: LICENSE, the
-# flavour's NOTICE, LICENSES/ and third_party_licenses/.
+# Each archive holds the flavour's binary and build/release/<flavour>/: LICENSE,
+# the flavour's NOTICE, LICENSES/, third_party_licenses/, README.md, and the
+# systemd unit and example configuration files under deploy/, which the
+# systemd guide installs from the extracted archive.
 archives:
   - id: remotesigner
     ids: [remotesigner]

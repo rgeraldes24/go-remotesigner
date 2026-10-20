@@ -91,7 +91,8 @@ Both binaries link this project's Apache-2.0 code and dependencies under Apache-
 BSD-3-Clause; [NOTICE](NOTICE) lists each one with its copyright notice, and new dependencies must carry a licence
 from the allowlist in [CONTRIBUTING.md](CONTRIBUTING.md). The generic licence texts are in [LICENSES/](LICENSES).
 Release archives and images ship `LICENSE`, their flavour's `NOTICE`, `LICENSES/` and a `third_party_licenses/`
-directory with each linked module's own licence file ([`docs/operations/release.md`](docs/operations/release.md)). Current
+directory with each linked module's own licence file, with this README and the systemd unit and example configuration
+files of [`deploy/`](deploy) ([`docs/operations/release.md`](docs/operations/release.md)). Current
 builds neither copy nor link any GPL or LGPL code. The development tool [`tools/vectorgen`](tools/vectorgen/README.md),
 a separate module that generates the golden test vectors, links qrysm (GPL-3.0) and is never built into a release.
 

@@ -40,7 +40,7 @@ LABEL org.opencontainers.image.title="${FLAVOUR}" \
       org.opencontainers.image.base.name="gcr.io/distroless/static-debian13:nonroot"
 
 COPY --chmod=0555 ${TARGETPLATFORM}/${FLAVOUR} /usr/local/bin/remotesigner
-# LICENSE, the flavour's NOTICE, LICENSES/ and third_party_licenses/.
+# LICENSE, the flavour's NOTICE, LICENSES/, third_party_licenses/, README.md and the deploy/ examples.
 COPY build/release/${FLAVOUR}/ /usr/share/doc/remotesigner/
 # /data holds the generated tokens and TLS certificate, the slashing-protection store and the ports file. It is
 # created empty, owned by the nonroot user and mode 0700 (a copy of the base image's empty /home/nonroot), so that a

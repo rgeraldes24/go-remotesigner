@@ -19,7 +19,7 @@ signature, SBOM and provenance is in [`release.md`](release.md#3-verifying-a-rel
 | Path | Content |
 |---|---|
 | `/usr/local/bin/remotesigner` | the static binary, the image's only program: there is no shell |
-| `/usr/share/doc/remotesigner/` | `LICENSE`, the flavour's `NOTICE`, `LICENSES/` and `third_party_licenses/` |
+| `/usr/share/doc/remotesigner/` | `LICENSE`, the flavour's `NOTICE`, `LICENSES/`, `third_party_licenses/`, `README.md`, and the example configuration files and systemd unit in `deploy/`, as in the release archives ([`release.md`](release.md#1-what-a-release-contains)) |
 | `/data` | empty, owned by `65532:65532`, mode `0700`: mount a volume here |
 
 The base is distroless `static-debian13:nonroot`, pinned by digest. The image runs as its `nonroot` user

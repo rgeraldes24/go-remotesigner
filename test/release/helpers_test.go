@@ -204,12 +204,73 @@ func licenceProblems(flavour string, want releaseDocs, files map[string]tarFile)
 	return p
 }
 
-// checkLicenceFiles reports licenceProblems as test errors.
+// checkLicenceFiles reports licenceProblems and shippedDocsProblems as test
+// errors.
 func checkLicenceFiles(t *testing.T, flavour string, files map[string]tarFile) {
 	t.Helper()
 	for _, p := range licenceProblems(flavour, wantDocs(t, flavour), files) {
 		t.Error(p)
 	}
+	for _, p := range shippedDocsProblems(wantDeploy(t), files) {
+		t.Error(p)
+	}
+}
+
+// shippedDeployDirs are the deploy/ directories a release ships at the same
+// paths (tools/releasedocs): the systemd guide installs the unit and the
+// example configuration from the extracted archive.
+var shippedDeployDirs = []string{"deploy/config", "deploy/systemd"}
+
+// wantDeploy returns the files of shippedDeployDirs in the repository, by
+// slash-separated path.
+func wantDeploy(t *testing.T) map[string][]byte {
+	t.Helper()
+	out := map[string][]byte{}
+	for _, d := range shippedDeployDirs {
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(d)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if e.Type().IsRegular() {
+				out[d+"/"+e.Name()] = readRepo(t, d+"/"+e.Name())
+			}
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("no files in the shipped deploy/ directories")
+	}
+	return out
+}
+
+// readmeLink matches a Markdown inline link's target.
+var readmeLink = regexp.MustCompile(`\]\(([^()\s]+)\)`)
+
+// shippedDocsProblems returns what files, a release's tree, lacks besides
+// its licence files: the repository's deploy files (want), and a README.md
+// whose relative links all name files the release holds.
+func shippedDocsProblems(want map[string][]byte, files map[string]tarFile) []string {
+	var p []string
+	for name, data := range want {
+		if f, ok := files[name]; !ok || !bytes.Equal(f.data, data) {
+			p = append(p, name+" missing or not the repository's")
+		}
+	}
+	readme, ok := files["README.md"]
+	if !ok {
+		p = append(p, "README.md missing")
+	}
+	for _, m := range readmeLink.FindAllStringSubmatch(string(readme.data), -1) {
+		target, _, _ := strings.Cut(m[1], "#")
+		if target == "" || strings.Contains(target, "://") || strings.HasPrefix(target, "mailto:") {
+			continue
+		}
+		if f, ok := files[path.Clean(target)]; !ok || f.hdr.Typeflag != tar.TypeReg {
+			p = append(p, "README.md links to "+m[1]+", which the release does not hold")
+		}
+	}
+	slices.Sort(p)
+	return p
 }
 
 // buildInfo is what `go version -m` reports about a binary.

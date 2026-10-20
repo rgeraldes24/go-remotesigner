@@ -156,12 +156,14 @@ bench-postgres:
 bench-e2e:
 	REMOTESIGNER_BENCH=1 $(GO) test -count=1 -run '^TestB([789]|20)' -v ./test/acceptance/
 
-## release-docs: the licence files each release flavour ships, into build/release/<flavour>/ (LICENSE, NOTICE,
-## LICENSES/, third_party_licenses/ from go-licenses save), and build/release/<flavour>.licenses, the SPDX expression
-## of the image's licence label (tools/releasedocs)
+## release-docs: the licence and documentation files each release flavour ships, into build/release/<flavour>/
+## (LICENSE, NOTICE, LICENSES/, third_party_licenses/ from go-licenses save, README.md with its links to the
+## repository at RELEASE_REF, and deploy/config/ and deploy/systemd/), and build/release/<flavour>.licenses, the SPDX
+## expression of the image's licence label (tools/releasedocs)
 RELEASE_DIR ?= build/release
+RELEASE_REF ?= main
 release-docs:
-	$(GO) run ./tools/releasedocs -out $(RELEASE_DIR) -go-licenses "$(GO_LICENSES)"
+	$(GO) run ./tools/releasedocs -out $(RELEASE_DIR) -go-licenses "$(GO_LICENSES)" -ref "$(RELEASE_REF)"
 
 ## release-snapshot: the release dry run: goreleaser (v2) builds every archive, SBOM and image of both flavours into
 ## dist/ and the local image store, and publishes and signs nothing. Signing is always skipped; add sbom to
@@ -171,7 +173,8 @@ release-snapshot:
 	GO_LICENSES="$(GO_LICENSES)" $(GORELEASER) release --snapshot --clean --skip=$(RELEASE_SKIP)
 
 ## release-check: check the dry run's output (test/release): both flavours for every target, each archive and image
-## with LICENSE, its flavour's NOTICE, LICENSES/ and third_party_licenses/; static binaries, the consensus ones built
+## with LICENSE, its flavour's NOTICE, LICENSES/, third_party_licenses/, the README without dead links, and the
+## repository's deploy/config/ and deploy/systemd/; static binaries, the consensus ones built
 ## with noexecution and linking no go-qrl module; checksums and SBOMs; the images' nonroot user, entrypoint, labels
 ## and /data; and the docker-smoke checks on the images of this machine's architecture, one per flavour
 RELEASE_DIST ?= dist
