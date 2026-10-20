@@ -20,8 +20,9 @@ Every flag can also be set:
 
 - in the environment, as `REMOTESIGNER_<NAME>` for a global flag and `REMOTESIGNER_CONSENSUS_<NAME>` for a
   consensus flag (the flag name or any alias in upper case, dashes as underscores);
-- in the YAML file given by `--config-file`, under its bare name. Consensus flags may sit at the top level or in a
-  `consensus:` section. A list flag takes a YAML list. Unknown keys are rejected.
+- in the YAML file given by `--config-file`, under its bare name or any of its aliases (the Config file column lists
+  them all). Consensus flags may sit at the top level or in a `consensus:` section. A list flag takes a YAML list.
+  Unknown keys are rejected, and so is a flag set under two of its names.
 
 Precedence: command line, then environment, then config file, then default. Booleans are written `--flag`,
 `--flag=true` or `--flag=false`. `--flag false` does not work: the command-line parser (urfave/cli) reads
@@ -42,13 +43,13 @@ up to 10 s, closes the store, wipes the keys and exits 0.
 |---|---|---|---|---|
 | `--config-file` | none | none | unset | YAML file of flag values: bare flag names, with an optional consensus: section. Unknown keys are rejected. |
 | `--data-path` | `REMOTESIGNER_DATA_PATH` | `data-path` | unset | Directory for the generated token files, the slashing-protection store and the ports file |
-| `--key-config-path`, `--key-store-path` | `REMOTESIGNER_KEY_CONFIG_PATH`, `REMOTESIGNER_KEY_STORE_PATH` | `key-config-path` | unset | Directory of key-config files (\*.yaml or \*.yml; types file-raw and file-keystore); unset loads none |
+| `--key-config-path`, `--key-store-path` | `REMOTESIGNER_KEY_CONFIG_PATH`, `REMOTESIGNER_KEY_STORE_PATH` | `key-config-path` or `key-store-path` | unset | Directory of key-config files (\*.yaml or \*.yml; types file-raw and file-keystore); unset loads none |
 | `--key-store-config-file-max-size` | `REMOTESIGNER_KEY_STORE_CONFIG_FILE_MAX_SIZE` | `key-store-config-file-max-size` | `104857600` | Largest key-config file loaded, in bytes (Web3Signer counts code points); a larger file fails to load. Must be above 0. |
 | `--strict-file-permissions` | `REMOTESIGNER_STRICT_FILE_PERMISSIONS` | `strict-file-permissions` | `true` | Refuse secret files (password files, key-config files with a seed) that their group or other users can read, and, with --key-manager-api-enabled, a --key-config-path directory they can access; false loads them with a warning |
 | `--reload-timeout` | `REMOTESIGNER_RELOAD_TIMEOUT` | `reload-timeout` | `60` | Minutes a POST /reload may load keys; the sources not loaded by then keep their previous keys. The startup load is not bounded. |
 | `--signer-load-parallelism` | `REMOTESIGNER_SIGNER_LOAD_PARALLELISM` | `signer-load-parallelism` | `0 (from the memory limit)` | Keystore decrypts with the standard KDF that may run at once; 0 sizes the Argon2id budget from GOMEMLIMIT, the cgroup limit or half the RAM |
-| `--logging`, `-l` | `REMOTESIGNER_LOGGING`, `REMOTESIGNER_L` | `logging` | `INFO` | Log level: OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE or ALL |
-| `--logging-format`, `--log-format` | `REMOTESIGNER_LOGGING_FORMAT`, `REMOTESIGNER_LOG_FORMAT` | `logging-format` | `text` | Log format: text or json |
+| `--logging`, `-l` | `REMOTESIGNER_LOGGING`, `REMOTESIGNER_L` | `logging` or `l` | `INFO` | Log level: OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE or ALL |
+| `--logging-format`, `--log-format` | `REMOTESIGNER_LOGGING_FORMAT`, `REMOTESIGNER_LOG_FORMAT` | `logging-format` or `log-format` | `text` | Log format: text or json |
 | `--log-file` | `REMOTESIGNER_LOG_FILE` | `log-file` | unset | Write logs to this file instead of standard error |
 | `--http-listen-host` | `REMOTESIGNER_HTTP_LISTEN_HOST` | `http-listen-host` | `127.0.0.1` | Host the API listens on. A non-loopback host turns on the remote-listener fail-safes. |
 | `--http-listen-port` | `REMOTESIGNER_HTTP_LISTEN_PORT` | `http-listen-port` | `9000` | Port the API listens on; 0 picks a free port (see the ports file) |

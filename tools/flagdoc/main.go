@@ -73,8 +73,9 @@ Every flag can also be set:
 
 - in the environment, as ` + "`REMOTESIGNER_<NAME>`" + ` for a global flag and ` + "`REMOTESIGNER_CONSENSUS_<NAME>`" + ` for a
   consensus flag (the flag name or any alias in upper case, dashes as underscores);
-- in the YAML file given by ` + "`--config-file`" + `, under its bare name. Consensus flags may sit at the top level or in a
-  ` + "`consensus:`" + ` section. A list flag takes a YAML list. Unknown keys are rejected.
+- in the YAML file given by ` + "`--config-file`" + `, under its bare name or any of its aliases (the Config file column lists
+  them all). Consensus flags may sit at the top level or in a ` + "`consensus:`" + ` section. A list flag takes a YAML list.
+  Unknown keys are rejected, and so is a flag set under two of its names.
 
 Precedence: command line, then environment, then config file, then default. Booleans are written ` + "`--flag`" + `,
 ` + "`--flag=true`" + ` or ` + "`--flag=false`" + `. ` + "`--flag false`" + ` does not work: the command-line parser (urfave/cli) reads
@@ -190,12 +191,9 @@ func section(b *bytes.Buffer, title, command string, fs []cli.Flag, hidden bool)
 		for _, e := range d.GetEnvVars() {
 			env = append(env, "`"+e+"`")
 		}
-		yamlKey := "`" + f.Names()[0] + "`"
-		switch {
-		case command == subcommand:
+		yamlKey := configKeys(f.Names(), command)
+		if command == subcommand {
 			yamlKey = "none"
-		case command != "":
-			yamlKey = "`" + f.Names()[0] + "` or `" + command + "." + f.Names()[0] + "`"
 		}
 		if len(env) == 0 {
 			env = []string{"none"}
@@ -206,6 +204,25 @@ func section(b *bytes.Buffer, title, command string, fs []cli.Flag, hidden bool)
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n",
 			strings.Join(names, ", "), strings.Join(env, ", "), yamlKey, defaultOf(f), escape(d.GetUsage()))
 	}
+}
+
+// configKeys renders the config-file keys of a flag with the given names:
+// every name, as the YAML loader accepts each one, and for a flag of a
+// command also each name in the command's section.
+func configKeys(names []string, command string) string {
+	keys := make([]string, 0, 2*len(names))
+	for _, n := range names {
+		keys = append(keys, "`"+n+"`")
+	}
+	if command != "" {
+		for _, n := range names {
+			keys = append(keys, "`"+command+"."+n+"`")
+		}
+	}
+	if len(keys) == 1 {
+		return keys[0]
+	}
+	return strings.Join(keys[:len(keys)-1], ", ") + " or " + keys[len(keys)-1]
 }
 
 func dashes(name string) string {
