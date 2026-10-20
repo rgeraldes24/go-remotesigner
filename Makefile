@@ -242,14 +242,16 @@ release-docs:
 ## release-src: RELEASE_DIR/remotesigner-<VERSION>-src-vendored.tar.gz, the source each release attaches: the
 ## committed tree (git archive HEAD) with every module it links in vendor/ (go mod vendor), so that the default
 ## flavour can be rebuilt with a modified go-qrl, as the LGPL asks (docs/operations/release.md). Run it after
-## release-docs, which empties RELEASE_DIR.
+## release-docs, which empties RELEASE_DIR. The archive carries no extended attributes: COPYFILE_DISABLE=1 keeps
+## macOS's tar (bsdtar) from adding an AppleDouble ._ entry per file, and --no-xattrs, which GNU tar takes too,
+## its LIBARCHIVE.xattr headers.
 SRC_NAME = remotesigner-$(VERSION)-src-vendored
 release-src:
 	rm -rf $(RELEASE_DIR)/src
 	mkdir -p $(RELEASE_DIR)/src/$(SRC_NAME)
 	git archive --format=tar HEAD | tar -x -C $(RELEASE_DIR)/src/$(SRC_NAME)
 	cd $(RELEASE_DIR)/src/$(SRC_NAME) && $(GO) mod vendor
-	tar -C $(RELEASE_DIR)/src -czf $(RELEASE_DIR)/$(SRC_NAME).tar.gz $(SRC_NAME)
+	COPYFILE_DISABLE=1 tar --no-xattrs -C $(RELEASE_DIR)/src -czf $(RELEASE_DIR)/$(SRC_NAME).tar.gz $(SRC_NAME)
 	rm -rf $(RELEASE_DIR)/src
 
 ## release-snapshot: the release dry run: goreleaser (v2) builds every archive, SBOM and image of both flavours into
