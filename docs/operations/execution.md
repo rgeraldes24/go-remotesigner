@@ -325,7 +325,14 @@ accounts:
 
 Amounts are decimal integers of Planck (YAML integers or strings, `_` allowed as a separator). Unknown keys, an
 address that is not `Q` and 128 hex characters, an account named twice (in any spelling) and a file that names no
-account and has no default are refused. The hourly count is kept in memory, per process: a restart resets it, and
+account and has no default are refused.
+
+A key without a value is refused too, wherever it is: `max-value:` with nothing after it, `~` or `null`, an
+`allowed-recipients:` whose entries are all commented out, an empty list entry, or an account named with no section.
+YAML reads each of these as null, and taking null for an absent key would lift the limit: `allowed-recipients:` alone
+would allow every recipient. Write `allowed-recipients: []` to allow none, `Q…: {}` for an account that gets only the
+defaults, or remove the key to get the "When absent" column. The file is one YAML document: a second one, after
+`---`, is refused rather than ignored. The hourly count is kept in memory, per process: a restart resets it, and
 each signer in front of one node counts only its own transactions. A `qrl_sendTransaction` counts once however often
 it retries. A refusal is -32003 "Transaction rejected" with the reason in `data`, which names no address.
 
