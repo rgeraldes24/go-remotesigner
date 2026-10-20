@@ -668,6 +668,10 @@ func TestReleaseTagDefault(t *testing.T) {
 	}
 }
 
+// releaseURL is the GitHub release of a version, where its source archive
+// is attached, as NOTICE.execution writes it.
+const releaseURL = "https://github.com/rgeraldes24/go-remotesigner/releases/tag/v<version>"
+
 // releaseConfig is the part of .goreleaser.yaml that attaches the source
 // archive to a release.
 type releaseConfig struct {
@@ -689,7 +693,8 @@ type extraFile struct {
 // releaseSourceProblems checks that a release built with cfg attaches the
 // source archive that `make release-src` writes to src (for one version),
 // with its checksum, and that the default flavour's NOTICE, which ends with
-// NOTICE.execution (notice), tells where that archive is.
+// NOTICE.execution (notice), tells where that archive is: its file name and
+// the URL of the GitHub release that attaches it.
 func releaseSourceProblems(cfg releaseConfig, src, notice string) []string {
 	var p []string
 	docs := slices.IndexFunc(cfg.Before.Hooks, func(h string) bool { return strings.HasPrefix(h, "make release-docs ") })
@@ -714,8 +719,14 @@ func releaseSourceProblems(cfg releaseConfig, src, notice string) []string {
 	if !takes(cfg.Checksum.ExtraFiles) {
 		p = append(p, "checksum.extra_files does not cover "+src)
 	}
-	if !strings.Contains(notice, "remotesigner-<version>-src-vendored.tar.gz") {
-		p = append(p, "NOTICE.execution does not name remotesigner-<version>-src-vendored.tar.gz")
+	var words []string
+	for _, w := range strings.Fields(notice) {
+		words = append(words, strings.TrimRight(w, ",.:;"))
+	}
+	for _, want := range []string{"remotesigner-<version>-src-vendored.tar.gz", releaseURL} {
+		if !slices.Contains(words, want) {
+			p = append(p, "NOTICE.execution does not name "+want)
+		}
 	}
 	return p
 }
@@ -758,7 +769,8 @@ func TestReleaseAttachesSource(t *testing.T) {
 
 func TestReleaseSourceProblems(t *testing.T) {
 	const src = "build/release/remotesigner-1.1.0-src-vendored.tar.gz"
-	const notice = "published with it as\nremotesigner-<version>-src-vendored.tar.gz: the source"
+	const notice = "published with it as\nremotesigner-<version>-src-vendored.tar.gz, a file of the release\n" +
+		releaseURL + ", where"
 	glob := []extraFile{{Glob: "build/release/remotesigner-*-src-vendored.tar.gz"}}
 	good := func() releaseConfig {
 		var c releaseConfig
@@ -782,7 +794,12 @@ func TestReleaseSourceProblems(t *testing.T) {
 			c.Release.ExtraFiles = []extraFile{{Glob: "build/release/*.licenses"}}
 		}, notice, "release.extra_files"},
 		{"no checksum", func(c *releaseConfig) { c.Checksum.ExtraFiles = nil }, notice, "checksum.extra_files"},
-		{"notice without the archive", func(*releaseConfig) {}, "go-qrl's source is at https://github.com/theQRL/go-qrl", "NOTICE.execution"},
+		{"notice without the archive", func(*releaseConfig) {}, "the source is at " + releaseURL, "src-vendored"},
+		{"notice without the release", func(*releaseConfig) {}, "the source is remotesigner-<version>-src-vendored.tar.gz",
+			"releases/tag"},
+		{"notice with another release", func(*releaseConfig) {},
+			"remotesigner-<version>-src-vendored.tar.gz at https://github.com/theQRL/go-qrl/releases/tag/v<version>",
+			"releases/tag"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

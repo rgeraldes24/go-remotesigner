@@ -75,12 +75,30 @@ func versionLine(flavour string, md metadata) string {
 // that only that flavour prints it.
 const goQRLNotice = "licensed under the GNU Lesser"
 
-func versionNoticeProblems(flavour, out string) []string {
-	notice := strings.Contains(strings.Join(strings.Fields(out), " "), goQRLNotice)
+// releasesURL is the page of the repository's GitHub releases.
+const releasesURL = "https://github.com/rgeraldes24/go-remotesigner/releases"
+
+// versionNoticeProblems checks the --version output of a binary of version:
+// in the default flavour, the go-qrl notice with the directions to the
+// corresponding source of that version, the file name of its source
+// archive and the URL of its release; in the consensus flavour, nothing of
+// go-qrl or the LGPL.
+func versionNoticeProblems(flavour, version, out string) []string {
+	words := " " + strings.Join(strings.Fields(out), " ") + " "
+	notice := strings.Contains(words, goQRLNotice)
 	switch {
 	case flavour == fullFlavour && !notice:
 		return []string{fmt.Sprintf("%s --version prints no go-qrl notice (%q): %q", flavour, goQRLNotice, out)}
-	case flavour != fullFlavour && (notice || strings.Contains(out, "go-qrl") || strings.Contains(out, "LGPL")):
+	case flavour == fullFlavour:
+		var p []string
+		for _, want := range []string{"remotesigner-" + version + "-src-vendored.tar.gz",
+			releasesURL + "/tag/v" + version} {
+			if !strings.Contains(words, " "+want+" ") {
+				p = append(p, fmt.Sprintf("%s --version does not name %s: %q", flavour, want, out))
+			}
+		}
+		return p
+	case notice || strings.Contains(out, "go-qrl") || strings.Contains(out, "LGPL"):
 		return []string{fmt.Sprintf("%s --version names go-qrl or the LGPL: %q", flavour, out)}
 	}
 	return nil
@@ -114,7 +132,7 @@ func TestReleaseVersion(t *testing.T) {
 		if want := versionLine(flavour, md); !strings.HasPrefix(string(out), want) {
 			t.Errorf("%s --version printed %q, want it to start with %q", bin, out, want)
 		}
-		for _, p := range versionNoticeProblems(flavour, string(out)) {
+		for _, p := range versionNoticeProblems(flavour, md.Version, string(out)) {
 			t.Error(p)
 		}
 		ran[flavour] = true
@@ -162,21 +180,30 @@ func TestVersionProblems(t *testing.T) {
 
 func TestVersionNoticeProblems(t *testing.T) {
 	const line = "remotesigner version 1.1.0 (commit abc, go1.26.9, linux/amd64)\n"
-	notice := line + "\nThis binary links the go-qrl library (https://github.com/theQRL/go-qrl),\n" +
+	const goQRL = "\nThis binary links the go-qrl library (https://github.com/theQRL/go-qrl),\n" +
 		"Copyright 2014-2025 The go-ethereum Authors, licensed under the GNU Lesser\nGeneral Public License v3.0 or later.\n"
+	source := func(v string) string {
+		return "The corresponding source, with go-qrl vendored, is the file\n  remotesigner-" + v +
+			"-src-vendored.tar.gz\nof the release\n  " + releasesURL + "/tag/v" + v + "\n"
+	}
+	notice := line + goQRL + source("1.1.0")
 	tests := []struct {
 		name, flavour, out string
 		want               bool
 	}{
 		{"default flavour with the notice", fullFlavour, notice, false},
 		{"default flavour without it", fullFlavour, line, true},
+		{"default flavour without the source", fullFlavour, line + goQRL, true},
+		{"default flavour naming the pattern", fullFlavour, line + goQRL + source("<version>"), true},
+		{"default flavour naming another version", fullFlavour, line + goQRL + source("1.0.0"), true},
+		{"default flavour naming a longer version", fullFlavour, line + goQRL + source("1.1.0-rc.1"), true},
 		{"consensus flavour without it", consensusFlavour, line, false},
 		{"consensus flavour with it", consensusFlavour, notice, true},
 		{"consensus flavour naming go-qrl", consensusFlavour, line + "links go-qrl\n", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := versionNoticeProblems(tt.flavour, tt.out); (len(got) > 0) != tt.want {
+			if got := versionNoticeProblems(tt.flavour, "1.1.0", tt.out); (len(got) > 0) != tt.want {
 				t.Errorf("versionNoticeProblems = %q, want problems: %v", got, tt.want)
 			}
 		})

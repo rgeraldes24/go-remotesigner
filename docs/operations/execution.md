@@ -368,7 +368,7 @@ release checks enforce both. The consensus flavour, `remotesigner-consensus`, li
 The default flavour is therefore an LGPL combined work: go-remotesigner's code stays Apache-2.0 and go-qrl stays LGPL.
 Its releases carry what the LGPL asks ([`release.md`](release.md#2-notice-and-licence-texts-per-flavour)): the NOTICE
 appends [`NOTICE.execution`](../../NOTICE.execution), which says that go-qrl is used and under the LGPL; `LICENSES/`
-holds the LGPL and GPL texts; `--version` prints go-qrl's notice with a pointer to them; and each release attaches
-`remotesigner-<version>-src-vendored.tar.gz`, the source with every dependency vendored, from which the binary can be
-rebuilt with a modified go-qrl. Anyone who needs a permissively licensed binary uses `remotesigner-consensus`, which
+holds the LGPL and GPL texts; `--version` prints go-qrl's notice with where to find them and the version's source; and
+each release attaches `remotesigner-<version>-src-vendored.tar.gz`, the source with every dependency vendored, from
+which the binary can be rebuilt with a modified go-qrl. Anyone who needs a permissively licensed binary uses `remotesigner-consensus`, which
 has no execution mode.

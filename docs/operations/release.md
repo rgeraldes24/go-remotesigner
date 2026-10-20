@@ -73,9 +73,12 @@ flavour without the go-qrl paragraph, both GNU texts and go-qrl's licence files,
 **The LGPL's obligations, and how a release meets them.** The default flavour is a combined work of
 go-remotesigner's Apache-2.0 code and the go-qrl library. Its archives and images carry the notice that go-qrl is
 used and is under the LGPL (NOTICE), the LGPL and GPL texts (`LICENSES/`), and `--version` prints the go-qrl notice
-with a pointer to those texts. The corresponding source is `remotesigner-<version>-src-vendored.tar.gz`, which builds
-the binary with a modified go-qrl in `vendor/`. go-qrl is never modified or copied into this repository; if that ever
-changes, the copy keeps go-qrl's LGPL headers in a directory of its own.
+with where those texts are, in the archive and under `/usr/share/doc/remotesigner/` in the image. The corresponding
+source is `remotesigner-<version>-src-vendored.tar.gz`, which builds the binary with a modified go-qrl in `vendor/`.
+The image holds no source archive and ghcr.io serves none, so both say where it is: `NOTICE.execution` names the
+file and its GitHub release, `https://github.com/rgeraldes24/go-remotesigner/releases/tag/v<version>`, and
+`--version` prints both with the binary's own version filled in. go-qrl is never modified or copied into this
+repository; if that ever changes, the copy keeps go-qrl's LGPL headers in a directory of its own.
 
 ## 3. Verifying a release
 
