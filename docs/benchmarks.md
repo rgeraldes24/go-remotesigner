@@ -50,7 +50,6 @@ signing path nor the slashing-protection stores, and its secret-store loaders ru
 are again single runs next to passing ones, and B12 met its bound in two of three runs, where Run V met it in none;
 the reference VMs decide both. The raw logs of Run W are not kept in the repository.
 
-
 ## v1.0 release run (dev machine)
 
 **These are development-machine numbers, not the release gate.** v1.0 needs every benchmark below within its threshold

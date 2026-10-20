@@ -24,8 +24,8 @@ listener, with token and client-certificate authentication over TLS, the request
 from `file-raw` and `file-keystore` key files, from keystore directories and from secret stores, with reloads that
 never disable a key ([`docs/operations/reload.md`](docs/operations/reload.md)), and the keymanager API to list, import
 and delete keys while it runs ([`docs/operations/keymanager.md`](docs/operations/keymanager.md)). The secret stores
-hold seeds only: HashiCorp Vault's KV version 2 engine, read over plain HTTP in both flavours
-([`docs/operations/hashicorp-vault.md`](docs/operations/hashicorp-vault.md)), and, in the default flavour,
+hold seeds only: HashiCorp Vault's KV version 2 engine, read through Vault's HTTP API without a Vault SDK in both
+flavours ([`docs/operations/hashicorp-vault.md`](docs/operations/hashicorp-vault.md)), and, in the default flavour,
 AWS Secrets Manager, GCP Secret Manager and Azure Key Vault secrets, each one secret per key file or in bulk
 ([`aws-secrets-manager.md`](docs/operations/aws-secrets-manager.md),
 [`gcp-secret-manager.md`](docs/operations/gcp-secret-manager.md),
