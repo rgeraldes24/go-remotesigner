@@ -156,6 +156,14 @@ unless they are derived from upstream or live under `third_party/`, and the gene
 are covered as a whole by "Golden vectors"; every other tracked file needs a row (`test/repo` checks this). For a row
 of a kind `headercheck` does not read (such as Markdown), the row records origin only and no header is required.
 
+`headercheck` checks only that a `w3s-derived` header has a ConsenSys line, since CI has no Web3Signer checkout.
+That each one carries exactly the ConsenSys lines of the upstream files its row names is checked against a checkout
+at the recorded commit:
+
+```
+REMOTESIGNER_WEB3SIGNER_DIR=<web3signer checkout> go test -count=1 -run ConsenSysLinesMatchUpstream ./tools/headercheck/
+```
+
 Every file under `third_party/` outside a vendored tree records `sha256 <hex>` of its content as its revision, and
 `headercheck` verifies it, so nothing under `third_party/` changes without a reviewed `PROVENANCE.md` update. Editor
 and OS files that `.gitignore` excludes (`.DS_Store`, `*.swp`, `.idea/`, `.vscode/`) are ignored everywhere,
@@ -482,6 +490,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `tools/headercheck/main.go` | new | | | |
 | `tools/headercheck/provenance.go` | new | | | |
 | `tools/headercheck/provenance_test.go` | new | | | |
+| `tools/headercheck/upstream_test.go` | new | | | |
 | `tools/releasedocs/main.go` | new | | | |
 | `tools/releasedocs/main_test.go` | new | | | |
 | `tools/releasedocs/notes.go` | new | | | |

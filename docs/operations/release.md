@@ -153,8 +153,8 @@ provenance attestation. Every other workflow reads only.
 ## 6. The v1.0 release checklist
 
 `v1.0.0` is tagged only when every item below holds. The items of section 6.1 are met in this repository: CI checks
-those that a test or a make target checks on every pull request, and the others (the reviews, the benchmark runs and
-`make release-version`) are done by hand before the tag. Those of section 6.2 need infrastructure or decisions this
+those that a test or a make target checks on every pull request, and the others (the reviews, the comparison of the
+ConsenSys lines with Web3Signer, the benchmark runs and `make release-version`) are done by hand before the tag. Those of section 6.2 need infrastructure or decisions this
 repository does not have; each is recorded where the table says once it is met.
 
 ### 6.1 Met in the repository
@@ -162,7 +162,7 @@ repository does not have; each is recorded where the table says once it is met.
 | Item | Checked by |
 |---|---|
 | `CHANGELOG.md` has the 1.0.0 entry, in Keep a Changelog form | `TestChangelog` (`tools/releasedocs`) |
-| `PROVENANCE.md` records every file, and every header matches its class | `make headercheck`; `TestProvenanceCoversEveryFile` (`test/repo`) |
+| `PROVENANCE.md` records every file, and every header matches its class | `make headercheck`; `TestProvenanceCoversEveryFile` (`test/repo`); by hand, the ConsenSys lines against a Web3Signer checkout (`PROVENANCE.md`, "Header classes") |
 | `DEVIATIONS.md` is reviewed against the code, and its rows that show on the API are mapped in the contract | the review for 1.0.0; `make contract` |
 | Every archive and image carries `LICENSE`, its flavour's `NOTICE`, `LICENSES/` and `third_party_licenses/` | `make release-check` (section 4) |
 | The binaries of the tag `v1.0.0` report `1.0.0` | `make release-version` (section 4) by hand; in CI, `TestReleaseVersion` checks the dry run's `<version>-SNAPSHOT-<short commit>`, and `TestMakeBuildVersion` (`test/repo`) what `make build` passes for a tag |
