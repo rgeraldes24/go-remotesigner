@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -270,10 +271,15 @@ func TestSuccessAndRouting(t *testing.T) {
 		t.Errorf("2 MiB + 1 body: %d", rec.Code)
 	}
 
+	// An unrouted request gets Web3Signer's {code, message}, the one 4xx body
+	// without a reason (docs/contract.md section 11).
 	for _, tok := range []string{signTok, adminTok} {
 		rec := do("GET", "/nope", tok, "", "")
 		if rec.Code != 404 {
 			t.Fatalf("unknown path: %d", rec.Code)
+		}
+		if body := rec.Body.String(); body != `{"code":404,"message":"Not Found"}` {
+			t.Errorf("unknown path body %s", body)
 		}
 		if e := decodeErr(t, rec); e.Message != "Not Found" || e.Reason != "" {
 			t.Errorf("unknown path body %+v", e)
@@ -282,9 +288,60 @@ func TestSuccessAndRouting(t *testing.T) {
 		if rec.Code != 405 || rec.Header().Get("Allow") != "GET, HEAD" {
 			t.Fatalf("wrong method: %d, Allow %q", rec.Code, rec.Header().Get("Allow"))
 		}
-		if e := decodeErr(t, rec); e.Message != "Method Not Allowed" {
+		if body := rec.Body.String(); body != `{"code":405,"message":"Method Not Allowed"}` {
+			t.Errorf("wrong method body %s", body)
+		}
+		if e := decodeErr(t, rec); e.Message != "Method Not Allowed" || e.Reason != "" {
 			t.Errorf("wrong method body %+v", e)
 		}
+	}
+}
+
+// A request the HTTP server cannot parse never reaches a handler: Go's
+// server answers a malformed header line with a text/plain 400 and headers
+// over MaxHeaderBytes with a 431, neither with a JSON body, and closes the
+// connection (docs/contract.md section 11).
+func TestUnparsableRequest(t *testing.T) {
+	base := serve(t, newTestServer(t, nil))
+	addr := strings.TrimPrefix(base, "http://")
+	for _, tt := range []struct {
+		name, request string
+		code          int
+	}{
+		{"malformed header line", "GET /upcheck HTTP/1.1\r\nHost: localhost\r\nBad Header\r\n\r\n", 400},
+		{"headers over the limit", "GET /upcheck HTTP/1.1\r\nHost: localhost\r\nX-Pad: " +
+			strings.Repeat("a", MaxHeaderBytes+8<<10) + "\r\n\r\n", 431},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = conn.Close() }()
+			if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := io.WriteString(conn, tt.request); err != nil {
+				t.Fatal(err)
+			}
+			resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The body runs to the end of the connection. After a 431 the
+			// server closes it with the rest of the headers unread, which
+			// resets it instead of ending it.
+			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if err != nil && !errors.Is(err, syscall.ECONNRESET) {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != tt.code || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain") ||
+				!resp.Close || json.Valid(body) {
+				t.Errorf("%d %q close=%v body %q, want a plain-text %d that closes the connection",
+					resp.StatusCode, resp.Header.Get("Content-Type"), resp.Close, body, tt.code)
+			}
+		})
 	}
 }
 

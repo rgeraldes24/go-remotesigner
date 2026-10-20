@@ -37,7 +37,10 @@ import (
 //     is not the threshold, since a bound built from the load's own decrypt
 //     time cannot catch a load whose decrypts are slow.
 //   - B12, a reload of 100 standard-KDF keystores during the B7 burst: the
-//     burst's p99 stays within twice its p99 without a reload.
+//     burst's p99 stays within twice its p99 without a reload. Every burst
+//     has signing roots of its own (b7RequestsRound) and one request per
+//     key, so that each is signed rather than answered from the response
+//     cache.
 //
 // They run only with REMOTESIGNER_BENCH=1 (make bench-loading). Each also
 // logs the signer's peak RSS, for the memory sizing in
@@ -217,15 +220,19 @@ func TestB11StartupKeystores(t *testing.T) {
 func TestB12ReloadDuringBurst(t *testing.T) {
 	benchEnabled(t)
 	keys := t.TempDir()
-	ids := writeKeys(t, keys, 32)
+	ids := writeKeys(t, keys, b7Keys)
 	ks := newKeystoreSet(t, "password", keystoretest.Standard)
 	s := start(t, options{keys: keys, consensus: ks.flags()})
 	s.waitReady()
-	reqs := b7Requests(t, ids)
-	burst(t, s, reqs) // the first burst records the attestations
+	// Every round has new signing roots and one request per key, as in B7,
+	// so that each burst is signed: a repeat would be answered from the
+	// response cache.
+	round := 0
+	next := func() []burstRequest { round++; return b7RequestsRound(t, ids, round) }
+	burst(t, s, next()) // warm-up: the first burst also registers the keys' first records
 	var base []time.Duration
 	for range 3 {
-		lat, _ := burst(t, s, reqs)
+		lat, _ := burst(t, s, next())
 		base = append(base, percentile(lat, 0.99))
 	}
 	slices.Sort(base)
@@ -238,11 +245,11 @@ func TestB12ReloadDuringBurst(t *testing.T) {
 		t.Fatalf("POST /reload: %d %s", code, body)
 	}
 	time.Sleep(2 * time.Second) // the decrypts are running
-	lat, wall := burst(t, s, reqs)
+	lat, wall := burst(t, s, next())
 	during := percentile(lat, 0.99)
 	s.waitReloadStatus("completed", time.Hour)
 	reload := time.Since(started)
-	if got := len(s.publicKeys()); got != 132 {
+	if got := len(s.publicKeys()); got != b7Keys+100 {
 		t.Fatalf("%d keys after the reload", got)
 	}
 	tp, _ := meanDecrypt(t, s)

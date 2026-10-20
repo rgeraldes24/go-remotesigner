@@ -5,6 +5,8 @@ package acceptance
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -81,7 +83,38 @@ const b7Keys = 32 + 126
 // response cache would answer a repeat of a key and root.
 func b7Requests(t *testing.T, ids []string) []burstRequest {
 	t.Helper()
-	var att, msg []byte
+	att, msg := b7Bodies(t)
+	return b7Burst(ids, att, msg)
+}
+
+// b7RequestsRound is the B7 burst over ids for round r of a test that sends
+// it again: every signing root differs from those of the other rounds, so
+// that each round is signed instead of answered by the response cache, and
+// slashing protection allows every round. The attestation's source and
+// target epochs rise by r, the sync committee message names a block root of
+// round r, and signing_root is left out (the signer computes it).
+func b7RequestsRound(t *testing.T, ids []string, r int) []burstRequest {
+	t.Helper()
+	att, msg := b7Bodies(t)
+	return b7Burst(ids, editBody(t, att, func(m map[string]any) {
+		a := m["attestation"].(map[string]any)
+		for _, cp := range []string{"source", "target"} {
+			c := a[cp].(map[string]any)
+			e, err := strconv.ParseUint(c["epoch"].(string), 10, 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c["epoch"] = strconv.FormatUint(e+uint64(r), 10)
+		}
+	}), editBody(t, msg, func(m map[string]any) {
+		m["sync_committee_message"].(map[string]any)["beacon_block_root"] = fmt.Sprintf("0x%064x", r+1)
+	}))
+}
+
+// b7Bodies returns the typical minimal-preset attestation and sync
+// committee message of the golden vectors.
+func b7Bodies(t *testing.T) (att, msg []byte) {
+	t.Helper()
 	for _, c := range vectors.Signing(t) {
 		if c.Preset != "minimal" || c.Name != "typical" {
 			continue
@@ -96,12 +129,34 @@ func b7Requests(t *testing.T, ids []string) []burstRequest {
 	if att == nil || msg == nil {
 		t.Fatal("no typical attestation or sync committee message")
 	}
+	return att, msg
+}
+
+// b7Burst is the B7 burst of the bodies att and msg over ids.
+func b7Burst(ids []string, att, msg []byte) []burstRequest {
 	var out []burstRequest
 	for i := range 32 {
 		out = append(out, burstRequest{ids[i%len(ids)], att})
 	}
 	for i := range 126 {
 		out = append(out, burstRequest{ids[(32+i)%len(ids)], msg})
+	}
+	return out
+}
+
+// editBody returns the request body with edit applied and without its
+// signing_root.
+func editBody(t *testing.T, body []byte, edit func(map[string]any)) []byte {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		t.Fatal(err)
+	}
+	delete(m, "signing_root")
+	edit(m)
+	out, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
 	}
 	return out
 }

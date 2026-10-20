@@ -5,8 +5,8 @@
 // PROVENANCE.md ("Header classes").
 //
 // It reads the machine-readable file table in PROVENANCE.md and checks every
-// .go, .sql, .yaml, .yml, .sh, Dockerfile* and deploy/**/*.json file against
-// the header class recorded for it:
+// .go, .sql, .yaml, .yml, .sh, .py, .service (systemd unit), Dockerfile* and
+// deploy/**/*.json file against the header class recorded for it:
 //
 //   - new: our copyright line and SPDX Apache-2.0, and no ConsenSys line;
 //   - w3s-derived: a ConsenSys line, our line, SPDX Apache-2.0, a

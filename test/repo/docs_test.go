@@ -31,7 +31,8 @@ var operatorPages = []struct {
 		"## 2. One seed is a validator key or an account key, never both",
 		"## 3. Booleans take `=`: `--flag=false`, never `--flag false`",
 		"## 4. Deploy signers next to their validator clients",
-		"## 5. A qrysm validator client with the remote-signer keymanager", "remote-signer/q3-vc-wiring"}},
+		"## 5. A qrysm validator client with the remote-signer keymanager", "remote-signer/q3-vc-wiring",
+		"The v1.0\nrelease waits for them to merge"}},
 	{"docs/operations/quickstart.md", []string{"## 2. Key files", "## 3. Network"}},
 	{"docs/operations/deploy-docker.md", []string{"## 2. The entrypoint", "## 3. Volumes and keys",
 		"## 4. First start: pin the certificate", "## 5. The compose example", "## 9. Orchestrators", "Kurtosis",
@@ -58,14 +59,21 @@ var operatorPages = []struct {
 	{"docs/operations/metrics.md", []string{"## 2. Catalogue", "## 4. Alerts"}},
 	{"docs/operations/upgrade.md", []string{"## 2. The schema-version rule", "## 4. Postgres replicas",
 		"## 5. Going back to an older release"}},
-	{"docs/operations/release.md", []string{"## 3. Verifying a release"}},
+	{"docs/operations/release.md", []string{"## 3. Verifying a release", "## 6. The v1.0 release checklist",
+		"qrysm's remote-signer client merged", "the pin of `tools/vectorgen/contract` moved to the merged commit",
+		"Both nightly end-to-end runs green for 7 consecutive nights", "Benchmark B16",
+		"time-compressed replay of the mainnet duty schedule, which does not exist yet",
+		"Reference-VM runs of B1-B15 and B18-B20", "The deployment guides brought up by an independent reviewer",
+		"The stacked pull requests merged into `main`", "public ghcr.io packages", "Making the repository public"}},
+	{"CHANGELOG.md", []string{"## [1.0.0]", "listens, is not bounded", "Every global and `consensus` flag",
+		"hex of the wrong\n  length are refused"}},
 	{"docs/reference/flags.md", []string{"## Override flags", "### What each override accepts"}},
 	{"docs/reference/registration-fee-recipient-file.md", nil},
 }
 
 // Every page of the operator documentation exists, covers its topic, and is
-// linked from the README; no page under docs/operations or docs/reference is
-// left out of the README.
+// linked from the README, as is CHANGELOG.md; no page under docs/operations or
+// docs/reference is left out of the README.
 func TestOperatorDocs(t *testing.T) {
 	files := repoFiles(t)
 	text := map[string]string{}
@@ -103,6 +111,71 @@ func TestOperatorDocs(t *testing.T) {
 		if (strings.HasPrefix(f.path, "docs/operations/") || strings.HasPrefix(f.path, "docs/reference/")) &&
 			strings.HasSuffix(f.path, ".md") && !slices.Contains(listed, f.path) {
 			t.Errorf("%s is not in the operator documentation list (and maybe not in the README)", f.path)
+		}
+	}
+}
+
+// The README ships in every release archive and image, so its Status
+// section states nothing that tagging a release makes stale: no version and
+// no pre-release state. CHANGELOG.md, which the shipped README links at the
+// release's tag, says what each version holds and whether it is released.
+func TestReadmeStatusIsReleaseNeutral(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, status, ok := strings.Cut(string(data), "\n## Status\n")
+	if !ok {
+		t.Fatal("README.md has no Status section")
+	}
+	if i := strings.Index(status, "\n## "); i >= 0 {
+		status = status[:i]
+	}
+	stale := regexp.MustCompile(`(?i)pre-?release|\bprepared\b|\b\d+\.\d+\.\d+\b`)
+	for _, m := range stale.FindAllString(status, -1) {
+		t.Errorf("README.md Status says %q, which a release would make stale", m)
+	}
+}
+
+// Every Markdown page of the repository can be reached from the README by
+// following relative links, directly (the operator pages, CHANGELOG.md, the
+// contract) or through an index such as docs/spec/README.md, so that no
+// page is left where a reader of the README cannot find it.
+func TestEveryPageReachableFromReadme(t *testing.T) {
+	md := map[string]string{}
+	for _, f := range repoFiles(t) {
+		if strings.HasSuffix(f.path, ".md") {
+			md[f.path] = f.text
+		}
+	}
+	reached := map[string]bool{"README.md": true}
+	queue := []string{"README.md"}
+	for len(queue) > 0 {
+		p := queue[0]
+		queue = queue[1:]
+		targets, _ := mdLinks(md[p])
+		for _, target := range targets {
+			file, _, _ := strings.Cut(target, "#")
+			if file == "" {
+				continue
+			}
+			dest := path.Clean(path.Join(path.Dir(p), file))
+			if _, ok := md[dest]; !ok {
+				// A directory link reaches its README.
+				dest = path.Join(dest, "README.md")
+			}
+			if _, ok := md[dest]; ok && !reached[dest] {
+				reached[dest] = true
+				queue = append(queue, dest)
+			}
+		}
+	}
+	if len(reached) < 2 {
+		t.Fatalf("the README reaches %d pages: the link parser is broken", len(reached))
+	}
+	for p := range md {
+		if !reached[p] {
+			t.Errorf("%s cannot be reached from the README by relative links", p)
 		}
 	}
 }

@@ -130,13 +130,15 @@ go run . -signer http://127.0.0.1:9000 -token-file <data-path>/auth-token -netwo
 
 ### Contract pin
 
-The revived keymanager is on no theQRL or cyyber branch yet. It is the tip of a stack of three qrysm PRs on
-`cyyber/qrysm` `0b9cdf25`, the commit the golden vectors pin: rgeraldes24/qrysm#60 (branch
-`remote-signer/q1-randao-slot`, `8fc55fff`), which passes the proposal slot to `RandaoRevealer` (the tool's RANDAO
-check calls `RandaoReveal` with it), then #61 (`remote-signer/q2-remote-keymanager`, `2e957846`), the revived
-keymanager, then #62 (`remote-signer/q3-vc-wiring`, `eefefe92`), its validator wiring. One module cannot hold two
-qrysm versions, and moving the golden-vector pin would change every fixture's generator record, so `contract/go.mod`
-pins qrysm on its own:
+The revived keymanager is on no theQRL or cyyber branch yet, and the v1.0 release waits for it: the merge of #60-#62
+and the move of this pin to the merged commit are an open gate of the release checklist
+([`docs/operations/release.md`](../../docs/operations/release.md#62-open-gates-this-repository-cannot-meet-today)
+section 6.2). The pin is the tip of a stack of three qrysm PRs on `cyyber/qrysm` `0b9cdf25`, the commit the golden
+vectors pin: rgeraldes24/qrysm#60 (branch `remote-signer/q1-randao-slot`, `8fc55fff`), which passes the proposal
+slot to `RandaoRevealer` (the tool's RANDAO check calls `RandaoReveal` with it), then #61
+(`remote-signer/q2-remote-keymanager`, `2e957846`), the revived keymanager, then #62 (`remote-signer/q3-vc-wiring`,
+`eefefe92`), its validator wiring. One module cannot hold two qrysm versions, and moving the golden-vector pin would
+change every fixture's generator record, so `contract/go.mod` pins qrysm on its own:
 
 | Module | Replaced by | Why |
 |---|---|---|

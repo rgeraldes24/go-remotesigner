@@ -77,7 +77,8 @@ func ofType(as []artifact, typ string) []artifact {
 
 // TestReleaseArchives checks every archive of the dry run: both flavours for
 // every target, each with its binary, LICENSE, the flavour's NOTICE,
-// LICENSES/, third_party_licenses/, the deploy/ examples the systemd guide
+// LICENSES/, third_party_licenses/ with the licence (and any NOTICE) of every
+// module the binary links, the deploy/ examples the systemd guide
 // installs and a README without dead links, a static trimmed binary and, in the
 // consensus flavour, no go-qrl module in `go version -m`; and checksums.txt
 // covers every archive.
@@ -125,7 +126,8 @@ func TestReleaseArchives(t *testing.T) {
 			if !ok || bin.hdr.FileInfo().Mode().Perm()&0o111 == 0 {
 				t.Fatalf("no executable %s in the archive", a.Extra.ID)
 			}
-			checkBinary(t, a.Extra.ID, writeTemp(t, a.Extra.ID, bin.data, 0o755))
+			bi := checkBinary(t, a.Extra.ID, writeTemp(t, a.Extra.ID, bin.data, 0o755))
+			checkThirdParty(t, bi, files)
 		})
 	}
 }
@@ -253,18 +255,20 @@ func checkImageConfig(t *testing.T, flavour string, cfg imageConfig, licences st
 }
 
 // checkImageFiles checks the files of an image: the licence files under
-// /usr/share/doc/remotesigner/, the flavour's binary, and /data empty (no
-// token, key or store baked in), owned by the nonroot user with mode 0700.
+// /usr/share/doc/remotesigner/, with those of every module its binary links,
+// the flavour's binary, and /data empty (no token, key or store baked in),
+// owned by the nonroot user with mode 0700.
 func checkImageFiles(t *testing.T, flavour, image string) {
 	t.Helper()
 	ctr := strings.TrimSpace(docker(t, "create", image))
 	defer docker(t, "rm", ctr)
-	checkLicenceFiles(t, flavour, dockerTar(t, 1, "cp", ctr+":/usr/share/doc/remotesigner/", "-"))
+	docs := dockerTar(t, 1, "cp", ctr+":/usr/share/doc/remotesigner/", "-")
+	checkLicenceFiles(t, flavour, docs)
 	bin, ok := dockerTar(t, 0, "cp", ctr+":/usr/local/bin/remotesigner", "-")["remotesigner"]
 	if !ok {
 		t.Fatal("no /usr/local/bin/remotesigner")
 	}
-	checkBinary(t, flavour, writeTemp(t, "remotesigner", bin.data, 0o755))
+	checkThirdParty(t, checkBinary(t, flavour, writeTemp(t, "remotesigner", bin.data, 0o755)), docs)
 	dataDir := dockerTar(t, 0, "cp", ctr+":/data", "-")
 	data, ok := dataDir["data"]
 	if !ok {
@@ -281,14 +285,15 @@ func checkImageFiles(t *testing.T, flavour, image string) {
 // TestReleaseImages checks every image of the dry run, which goreleaser
 // loads into the local image store with one tag per architecture: its user,
 // entrypoint and labels, its licence files and binary. The images of this
-// machine's architecture, one per flavour, also go through the smoke test
-// (TestDockerSmoke's checks): the release images themselves, not another
-// build of the Dockerfile, run the signer as non-root with a read-only root
-// file system.
+// machine's architecture, one per flavour, also print the run's version and
+// go through the smoke test (TestDockerSmoke's checks): the release images
+// themselves, not another build of the Dockerfile, run the signer as
+// non-root with a read-only root file system.
 func TestReleaseImages(t *testing.T) {
 	dist := distDir(t)
 	requireDocker(t)
 	images := ofType(readArtifacts(t, dist), "Docker Image")
+	md := readMetadata(t, dist)
 	hostArch := strings.TrimSpace(docker(t, "version", "--format", "{{.Server.Arch}}"))
 
 	for _, flavour := range flavours {
@@ -323,8 +328,8 @@ func TestReleaseImages(t *testing.T) {
 				return
 			}
 			out := docker(t, "run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", img.Name, "--version")
-			if !strings.HasPrefix(out, flavour+" version ") {
-				t.Errorf("--version printed %q, want the %s flavour's version", out, flavour)
+			if want := versionLine(flavour, md); !strings.HasPrefix(out, want) {
+				t.Errorf("--version printed %q, want it to start with %q", out, want)
 			}
 			smoke(t, img.Name)
 		})

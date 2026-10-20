@@ -148,12 +148,21 @@ attribution line below our header.
 | `mit-derived` | Modified copies of MIT code | The original MIT copyright line, `SPDX-License-Identifier: MIT` (or `MIT AND Apache-2.0` together with the Apache notice), and a "Modified by" line; copies of the QRL keystore must carry Weald's copyright line, the Apache notice and `MIT AND Apache-2.0` (see "QRL code"); every file under `internal/keys/keystore/qrlv1/` is `mit-derived` except those `headercheck` lists as written for this project |
 | `vendored` | Pristine upstream trees under `third_party/` | No added header; the directory must hash to the recorded git tree id |
 
-`headercheck` checks `.go`, `.sql`, `.yaml`/`.yml`, `.sh`, `Dockerfile*` and `deploy/**/*.json` files (JSON files carry
-the notice in a top-level `description` field). Every such file needs a row, as does every file under
-`third_party/` and every derived file of any type. Markdown, the Makefile, `go.mod`/`go.sum`, `renovate.json` and
-the licence texts are project files that need no row unless they are derived from upstream or live under
-`third_party/`. For a row of a kind `headercheck` does not read (such as Markdown), the row records origin only and
-no header is required.
+`headercheck` checks `.go`, `.sql`, `.yaml`/`.yml`, `.sh`, `.py`, `.service` (systemd units), `Dockerfile*` and
+`deploy/**/*.json` files (JSON files carry the notice in a top-level `description` field). Every such file needs a
+row, as does every file under `third_party/` and every derived file of any type. Markdown, the Makefile,
+`go.mod`/`go.sum`, `renovate.json`, `.gitignore`, the licence texts and `NOTICE` are project files that need no row
+unless they are derived from upstream or live under `third_party/`, and the generated files under `testdata/vectors/`
+are covered as a whole by "Golden vectors"; every other tracked file needs a row (`test/repo` checks this). For a row
+of a kind `headercheck` does not read (such as Markdown), the row records origin only and no header is required.
+
+`headercheck` checks only that a `w3s-derived` header has a ConsenSys line, since CI has no Web3Signer checkout.
+That each one carries exactly the ConsenSys lines of the upstream files its row names is checked against a checkout
+at the recorded commit:
+
+```
+REMOTESIGNER_WEB3SIGNER_DIR=<web3signer checkout> go test -count=1 -run ConsenSysLinesMatchUpstream ./tools/headercheck/
+```
 
 Every file under `third_party/` outside a vendored tree records `sha256 <hex>` of its content as its revision, and
 `headercheck` verifies it, so nothing under `third_party/` changes without a reviewed `PROVENANCE.md` update. Editor
@@ -204,6 +213,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `deploy/docker/compose.yaml` | new | | | |
 | `deploy/grafana/remotesigner.json` | w3s-derived | Web3Signer | `dashboard/web3signer-eth2-dashboard-grafana.json` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `deploy/prometheus/alerts.yml` | new | | | |
+| `deploy/systemd/remotesigner.service` | new | | | |
 | `internal/api/apierr/apierr.go` | new | | | |
 | `internal/api/apierr/apierr_test.go` | new | | | |
 | `internal/api/apierr/messages.go` | new | | | |
@@ -460,10 +470,12 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/release/smokeclient/owner_other.go` | new | | | |
 | `test/release/smokeclient/owner_unix.go` | new | | | |
 | `test/release/systemd_test.go` | new | | | |
+| `test/release/version_test.go` | new | | | |
 | `test/repo/deploy_test.go` | new | | | |
 | `test/repo/docs_test.go` | new | | | |
 | `test/repo/links_test.go` | new | | | |
 | `test/repo/notice_test.go` | new | | | |
+| `test/repo/provenance_test.go` | new | | | |
 | `test/repo/public_test.go` | new | | | |
 | `test/repo/repo_test.go` | new | | | |
 | `third_party/qrl-keystore/README.md` | new | | | sha256 `b62799d6df0bdbbb39c3110d2f4ffe98e9e4508cc6f45ea618f943d29184b19c` |
@@ -478,8 +490,11 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `tools/headercheck/main.go` | new | | | |
 | `tools/headercheck/provenance.go` | new | | | |
 | `tools/headercheck/provenance_test.go` | new | | | |
+| `tools/headercheck/upstream_test.go` | new | | | |
 | `tools/releasedocs/main.go` | new | | | |
 | `tools/releasedocs/main_test.go` | new | | | |
+| `tools/releasedocs/notes.go` | new | | | |
+| `tools/releasedocs/notes_test.go` | new | | | |
 | `tools/vectorgen/blocks.go` | new | | | |
 | `tools/vectorgen/capabilities.go` | new | | | |
 | `tools/vectorgen/contract/contract.go` | new | | | |

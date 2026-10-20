@@ -182,8 +182,73 @@ func TestBuildProblems(t *testing.T) {
 		})
 	}
 	// go-qrllib is not go-qrl.
-	if bi := parseGoVersionM(goVersionOutput("noexecution", "0")); !slices.Equal(bi.deps, []string{"github.com/theQRL/go-qrllib"}) {
+	if bi := parseGoVersionM(goVersionOutput("noexecution", "0")); !slices.Equal(bi.paths(), []string{"github.com/theQRL/go-qrllib"}) {
 		t.Errorf("deps %q", bi.deps)
+	}
+}
+
+func TestParseGoVersionMDeps(t *testing.T) {
+	out := goVersionOutput("noexecution", "0", "github.com/prometheus/common") +
+		"\tdep\tgithub.com/a/b\tv1.0.0\n\t=>\tgithub.com/fork/b\tv1.0.1\th1:ghi=\n"
+	want := []module{
+		{path: "github.com/theQRL/go-qrllib", version: "v0.11.0", source: "github.com/theQRL/go-qrllib@v0.11.0"},
+		{path: "github.com/prometheus/common", version: "v0.3.4", source: "github.com/prometheus/common@v0.3.4"},
+		{path: "github.com/a/b", version: "v1.0.0", source: "github.com/fork/b@v1.0.1"},
+	}
+	if got := parseGoVersionM(out).deps; !slices.Equal(got, want) {
+		t.Errorf("deps %+v, want %+v", got, want)
+	}
+}
+
+// Every module the binary links needs its licence under
+// third_party_licenses/, and its NOTICE where its source has one; a file of
+// another module does not count, even one whose path the module's prefixes.
+func TestThirdPartyProblems(t *testing.T) {
+	deps := []module{{path: "github.com/theQRL/go-qrllib"}, {path: "github.com/prometheus/common"},
+		{path: "golang.org/x/net"}}
+	notices := map[string]bool{"github.com/prometheus/common": true}
+	good := map[string]tarFile{
+		qrllibLicense: regular("MIT"),
+		"third_party_licenses/github.com/prometheus/common/LICENSE": regular("Apache"),
+		"third_party_licenses/github.com/prometheus/common/NOTICE":  regular("Prometheus"),
+		"third_party_licenses/golang.org/x/net/netutil/LICENSE":     regular("BSD"),
+	}
+	with := func(edit func(map[string]tarFile)) map[string]tarFile {
+		files := maps.Clone(good)
+		edit(files)
+		return files
+	}
+	tests := []struct {
+		name  string
+		files map[string]tarFile
+		want  string
+	}{
+		{"complete", good, ""},
+		{"no licence of a module other than go-qrllib", with(func(f map[string]tarFile) {
+			delete(f, "third_party_licenses/github.com/prometheus/common/LICENSE")
+		}), "holds no licence file of github.com/prometheus/common"},
+		{"no NOTICE", with(func(f map[string]tarFile) {
+			delete(f, "third_party_licenses/github.com/prometheus/common/NOTICE")
+		}), "lacks the NOTICE file of github.com/prometheus/common"},
+		{"only a NOTICE", with(func(f map[string]tarFile) {
+			delete(f, "third_party_licenses/golang.org/x/net/netutil/LICENSE")
+			f["third_party_licenses/golang.org/x/net/NOTICE"] = regular("x")
+		}), "holds no licence file of golang.org/x/net"},
+		{"another module's licence", with(func(f map[string]tarFile) {
+			delete(f, "third_party_licenses/golang.org/x/net/netutil/LICENSE")
+			f["third_party_licenses/golang.org/x/network/LICENSE"] = regular("BSD")
+		}), "holds no licence file of golang.org/x/net"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := thirdPartyProblems(deps, notices, tt.files)
+			switch {
+			case tt.want == "" && len(got) != 0:
+				t.Errorf("problems %q, want none", got)
+			case tt.want != "" && (len(got) != 1 || !strings.Contains(got[0], tt.want)):
+				t.Errorf("problems %q, want one mentioning %q", got, tt.want)
+			}
+		})
 	}
 }
 

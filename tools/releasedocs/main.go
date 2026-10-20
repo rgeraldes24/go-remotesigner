@@ -28,6 +28,12 @@
 // binary links (from `go-licenses report`), which the image carries in its
 // org.opencontainers.image.licenses label.
 //
+// With -notes <tag> it instead prints the release notes of the tag: the
+// body of its CHANGELOG.md entry, which must be dated, with its relative
+// links pointed at the repository at the tag. A pre-release tag
+// (v1.0.0-rc.1) prints its version's entry, dated or still Unreleased. The
+// release workflow passes them to goreleaser (--release-notes).
+//
 // go-licenses runs for linux/amd64: the release images are linux, and the
 // linux builds link a superset of the darwin builds' modules
 // (github.com/prometheus/procfs is linux only). It runs with GOROOT set to
@@ -37,6 +43,7 @@
 // Usage:
 //
 //	go run ./tools/releasedocs [-root .] [-out build/release] [-go-licenses go-licenses] [-ref main]
+//	go run ./tools/releasedocs [-root .] -notes v1.0.0
 package main
 
 import (
@@ -108,11 +115,32 @@ func main() {
 	out := flag.String("out", "build/release", "output directory; replaced")
 	goLicenses := flag.String("go-licenses", "go-licenses", "the go-licenses command")
 	ref := flag.String("ref", "main", "the git ref (the release's tag) the shipped README links to")
+	notes := flag.String("notes", "", "instead, print the release notes of this tag (v1.0.0) from CHANGELOG.md")
 	flag.Parse()
-	if err := run(*root, *out, *goLicenses, *ref); err != nil {
+	var err error
+	if *notes != "" {
+		err = printNotes(*root, *notes)
+	} else {
+		err = run(*root, *out, *goLicenses, *ref)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "releasedocs:", err)
 		os.Exit(1)
 	}
+}
+
+// printNotes writes the release notes of tag to standard output.
+func printNotes(root, tag string) error {
+	changelog, err := os.ReadFile(filepath.Join(root, "CHANGELOG.md"))
+	if err != nil {
+		return err
+	}
+	notes, err := releaseNotes(changelog, tag)
+	if err != nil {
+		return err
+	}
+	_, err = os.Stdout.Write(notes)
+	return err
 }
 
 func run(root, out, goLicenses, ref string) error {
@@ -199,13 +227,22 @@ var mdLink = regexp.MustCompile(`\]\(([^()\s]+)\)`)
 // relative link points to the repository's file at ref. A release has no
 // docs/ tree, so the repository's relative links would otherwise be dead.
 func shippedReadme(text []byte, dir, ref string) []byte {
+	return linkToRepository(text, ref, func(name string) bool {
+		fi, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name)))
+		return err == nil && fi.Mode().IsRegular()
+	})
+}
+
+// linkToRepository points every relative Markdown link of text whose file
+// keep does not keep (the path without its #fragment) at that file in the
+// repository at ref.
+func linkToRepository(text []byte, ref string, keep func(name string) bool) []byte {
 	return mdLink.ReplaceAllFunc(text, func(m []byte) []byte {
 		target := string(mdLink.FindSubmatch(m)[1])
 		if !relativeLink(target) {
 			return m
 		}
-		name, _, _ := strings.Cut(target, "#")
-		if fi, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err == nil && fi.Mode().IsRegular() {
+		if name, _, _ := strings.Cut(target, "#"); keep(name) {
 			return m
 		}
 		return []byte("](" + repoURL + "/blob/" + ref + "/" + strings.TrimPrefix(target, "./") + ")")

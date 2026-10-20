@@ -3,8 +3,9 @@
 
 # Publishes a release when a version tag (v*) is pushed on a commit of main,
 # and at no other time. The tagged tree first goes through the compliance
-# gates, the release dry run and its checks, built from a cold Go cache;
-# only then does goreleaser publish both flavours (.goreleaser.yaml):
+# gates, its CHANGELOG.md entry (which must be dated) becomes the release
+# notes, and the release dry run and its checks run, built from a cold Go
+# cache; only then does goreleaser publish both flavours (.goreleaser.yaml):
 # the archives with an SBOM each, checksums.txt with a keyless cosign
 # signature, a build provenance attestation over the checksums, and the
 # multi-platform images on ghcr.io with their SBOM and provenance
@@ -69,6 +70,8 @@ jobs:
           make license-hash headercheck nogpl licenses GO_LICENSES="$(go env GOPATH)/bin/go-licenses"
           go vet ./...
           go vet -tags noexecution ./...
+      - name: Release notes from the tag's CHANGELOG.md entry (dated, except for a pre-release)
+        run: go run ./tools/releasedocs -notes "${GITHUB_REF_NAME}" > "${RUNNER_TEMP}/release-notes.md"
       - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           syft-version: ${{ env.SYFT_VERSION }}
@@ -93,7 +96,7 @@ jobs:
       - name: Publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: GO_LICENSES="$(go env GOPATH)/bin/go-licenses" goreleaser release --clean
+        run: GO_LICENSES="$(go env GOPATH)/bin/go-licenses" goreleaser release --clean --release-notes "${RUNNER_TEMP}/release-notes.md"
       - name: Build provenance of the archives
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
