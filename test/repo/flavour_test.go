@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -94,9 +95,24 @@ const goQRLCommit = "b92884a3a1d5"
 
 // The signer module requires theQRL's go-qrl at goQRLCommit and has no
 // replace directive, so that go install builds what the release builds and
-// no fork stands in for go-qrl; and it requires no module of the cyyber
-// stack, which only the tools/vectorgen modules link.
+// no fork stands in for go-qrl; it requires no module of the cyyber stack,
+// which only the tools/vectorgen modules link; and Renovate leaves the pin
+// alone, since a bump must move everything above with it.
 func TestGoQRLRequirement(t *testing.T) {
+	renovate, err := os.ReadFile(filepath.Join(root, "renovate.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		IgnoreDeps []string `json:"ignoreDeps"`
+	}
+	if err := json.Unmarshal(renovate, &cfg); err != nil {
+		t.Fatalf("renovate.json: %v", err)
+	}
+	if !slices.Contains(cfg.IgnoreDeps, goQRLModule) {
+		t.Errorf("renovate.json's ignoreDeps does not name %s: Renovate would open bumps of the pin", goQRLModule)
+	}
+
 	cmd := exec.Command("go", "mod", "edit", "-json")
 	cmd.Dir = root
 	out, err := cmd.Output()
