@@ -65,7 +65,8 @@ var operatorPages = []struct {
 		"time-compressed replay of the mainnet duty schedule, which does not exist yet",
 		"Reference-VM runs of B1-B15 and B18-B20", "The deployment guides brought up by an independent reviewer",
 		"The stacked pull requests merged into `main`", "public ghcr.io packages", "Making the repository public"}},
-	{"CHANGELOG.md", []string{"## [1.0.0]"}},
+	{"CHANGELOG.md", []string{"## [1.0.0]", "listens, is not bounded", "Every global and `consensus` flag",
+		"hex of the wrong\n  length are refused"}},
 	{"docs/reference/flags.md", []string{"## Override flags", "### What each override accepts"}},
 	{"docs/reference/registration-fee-recipient-file.md", nil},
 }

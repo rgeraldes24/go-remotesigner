@@ -16,7 +16,7 @@ remotesigner [global flags] consensus keystore verify --keystores-path <dir> (--
 remotesigner --version
 ```
 
-Every flag can also be set:
+Every global and consensus flag can also be set (the subcommands' own flags read what their tables list):
 
 - in the environment, as `REMOTESIGNER_<NAME>` for a global flag and `REMOTESIGNER_CONSENSUS_<NAME>` for a
   consensus flag (the flag name or any alias in upper case, dashes as underscores);

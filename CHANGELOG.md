@@ -32,9 +32,9 @@ section 5 names the qrysm build that has it.
   proofs are deterministic and everything else is hedged (`--selection-proof-signing`).
 - **Request validation.** The signer recomputes every object root, domain and signing root from its own network
   configuration and refuses a request whose `signing_root` or `fork_info` differs. Request bodies are decoded
-  strictly: unknown and duplicate fields, JSON numbers for 64-bit values and non-canonical hex are refused, each
-  with a machine-readable `reason`. Requests too far ahead of the wall clock are refused (`CLOCK_BOUND`, with
-  `--signing-clock-skew-slots`), exits are signed only with `--voluntary-exit-signing-enabled`, and
+  strictly: unknown and duplicate fields, JSON numbers for 64-bit values, non-canonical decimals and hex of the wrong
+  length are refused, each with a machine-readable `reason`. Requests too far ahead of the wall clock are refused
+  (`CLOCK_BOUND`, with `--signing-clock-skew-slots`), exits are signed only with `--voluntary-exit-signing-enabled`, and
   `--registration-fee-recipient-file` pins the fee recipient of a key's validator registrations.
 - **Safe signing order.** Each request is checked and its slashing record committed before the key signs, and every
   signature is verified before it is released; a key whose signature fails that check is quarantined until the next
@@ -62,9 +62,9 @@ section 5 names the qrysm build that has it.
   parameters before any work, compares the derived key with the declared one, and runs Argon2id under one
   memory-sized semaphore (`--signer-load-parallelism`). Password and seed files that other users can read are
   refused (`--strict-file-permissions`). `consensus keystore verify` checks keystores and password files offline.
-- **Reload.** `POST /reload` (and the startup load, which runs while the API already listens) loads only the sources
-  that changed, never disables a key, keeps the previous keys of a source that fails, and is bounded by
-  `--reload-timeout`. `GET /reload` reports its status.
+- **Reload.** `POST /reload` loads only the sources that changed, never disables a key, keeps the previous keys of a
+  source that fails, and is bounded by `--reload-timeout`. The startup load, which runs while the API already
+  listens, is not bounded. `GET /reload` reports the status of either.
 - **Keymanager API.** With `--key-manager-api-enabled`, `GET`, `POST` and `DELETE /qrl/v1/keystores` list, import
   (with their slashing-protection history) and delete keys while the signer runs, behind the admin token.
 - **Authentication and TLS.** Bearer tokens for a `sign` and an `admin` scope, generated on first start and rotated
@@ -84,8 +84,9 @@ section 5 names the qrysm build that has it.
   key as a label. Prometheus alert rules and a Grafana dashboard are in [`deploy/`](deploy).
 - **Networks.** `--network` is required: the built-in `minimal`, `end-to-end` (alias `e2e`), `end-to-end-mainnet` and
   `interop`, or a qrysm configuration file with the genesis time and validators root from flags or a genesis state.
-- **Configuration.** Every flag also reads a `REMOTESIGNER_` environment variable and a YAML `--config-file`; the
-  flag reference is generated from the flag definitions. Booleans take `--flag=false`, never `--flag false`. Logs
+- **Configuration.** Every global and `consensus` flag also reads a `REMOTESIGNER_` environment variable and a YAML
+  `--config-file`, while the subcommands' own flags read the environment at most; the flag reference, generated
+  from the flag definitions, lists what each flag reads. Booleans take `--flag=false`, never `--flag false`. Logs
   are text or JSON (`--logging-format`), with Web3Signer's levels (`--logging`).
 - **Container image and deployment examples.** A distroless, non-root image per flavour that runs with a read-only
   root file system and a TLS-first entrypoint, a docker-compose example with a validator client, a hardened systemd
