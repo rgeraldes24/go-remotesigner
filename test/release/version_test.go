@@ -70,13 +70,29 @@ func versionLine(flavour string, md metadata) string {
 	return fmt.Sprintf("%s version %s (commit %s, ", flavour, md.Version, md.Commit)
 }
 
+// goQRLNotice is a line of the go-qrl notice that the default flavour's
+// --version prints after the version, and versionNoticeProblems checks
+// that only that flavour prints it.
+const goQRLNotice = "licensed under the GNU Lesser"
+
+func versionNoticeProblems(flavour, out string) []string {
+	notice := strings.Contains(strings.Join(strings.Fields(out), " "), goQRLNotice)
+	switch {
+	case flavour == fullFlavour && !notice:
+		return []string{fmt.Sprintf("%s --version prints no go-qrl notice (%q): %q", flavour, goQRLNotice, out)}
+	case flavour != fullFlavour && (notice || strings.Contains(out, "go-qrl") || strings.Contains(out, "LGPL")):
+		return []string{fmt.Sprintf("%s --version names go-qrl or the LGPL: %q", flavour, out)}
+	}
+	return nil
+}
+
 // TestReleaseVersion checks the version every binary of a goreleaser run
 // reports: the version goreleaser derived from the tag, so that a release
-// of the tag v1.0.0 prints "remotesigner version 1.0.0 (commit ...", through
-// the ldflags of .goreleaser.yaml. It runs every binary built for this
-// machine; `make release-check` runs it on the dry run, and `make
-// release-version` on a build for a tag that need not exist
-// (docs/operations/release.md).
+// of the tag v1.1.0 prints "remotesigner version 1.1.0 (commit ...", through
+// the ldflags of .goreleaser.yaml, and, in the default flavour only, the
+// go-qrl notice after it. It runs every binary built for this machine;
+// `make release-check` runs it on the dry run, and `make release-version`
+// on a build for a tag that need not exist (docs/operations/release.md).
 func TestReleaseVersion(t *testing.T) {
 	dist := distDir(t)
 	md := readMetadata(t, dist)
@@ -97,6 +113,9 @@ func TestReleaseVersion(t *testing.T) {
 		}
 		if want := versionLine(flavour, md); !strings.HasPrefix(string(out), want) {
 			t.Errorf("%s --version printed %q, want it to start with %q", bin, out, want)
+		}
+		for _, p := range versionNoticeProblems(flavour, string(out)) {
+			t.Error(p)
 		}
 		ran[flavour] = true
 	}
@@ -138,5 +157,28 @@ func TestVersionProblems(t *testing.T) {
 	md := metadata{Tag: "v1.0.0", Version: "1.0.0", Commit: commit}
 	if got, want := versionLine(fullFlavour, md), "remotesigner version 1.0.0 (commit "+commit+", "; got != want {
 		t.Errorf("versionLine = %q, want %q", got, want)
+	}
+}
+
+func TestVersionNoticeProblems(t *testing.T) {
+	const line = "remotesigner version 1.1.0 (commit abc, go1.26.9, linux/amd64)\n"
+	notice := line + "\nThis binary links the go-qrl library (https://github.com/theQRL/go-qrl),\n" +
+		"Copyright 2014-2025 The go-ethereum Authors, licensed under the GNU Lesser\nGeneral Public License v3.0 or later.\n"
+	tests := []struct {
+		name, flavour, out string
+		want               bool
+	}{
+		{"default flavour with the notice", fullFlavour, notice, false},
+		{"default flavour without it", fullFlavour, line, true},
+		{"consensus flavour without it", consensusFlavour, line, false},
+		{"consensus flavour with it", consensusFlavour, notice, true},
+		{"consensus flavour naming go-qrl", consensusFlavour, line + "links go-qrl\n", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := versionNoticeProblems(tt.flavour, tt.out); (len(got) > 0) != tt.want {
+				t.Errorf("versionNoticeProblems = %q, want problems: %v", got, tt.want)
+			}
+		})
 	}
 }
