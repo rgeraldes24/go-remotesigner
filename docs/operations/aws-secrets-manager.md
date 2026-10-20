@@ -4,7 +4,7 @@ The signer reads validator seeds from AWS Secrets Manager in two ways, with Web3
 key-config document names one secret, and the bulk loader (`--aws-secrets-enabled`) loads every secret its name and
 tag filters select. Secrets Manager holds the seeds only; every signature is made in the signer's own memory. The
 client is aws-sdk-go-v2, linked by the default flavour, `remotesigner`, only: `remotesigner-consensus` refuses the
-bulk flags (exit 2) and fails `aws-secret` documents with a hint ([`DEVIATIONS.md`](../../DEVIATIONS.md), X76).
+bulk flags (exit 2) and fails `aws-secret` documents with a hint ([`DEVIATIONS.md`](../../DEVIATIONS.md), X96).
 
 How sources are loaded and reloaded is in [`reload.md`](reload.md); the other stores are
 [HashiCorp Vault](hashicorp-vault.md), [GCP Secret Manager](gcp-secret-manager.md) and
@@ -24,7 +24,7 @@ aws secretsmanager create-secret --name validators/batch-0 \
 A 51-byte extended seed (execution mode's format), a 32-byte value and a 4,896-byte expanded secret key are refused
 with a hint; a binary secret (`SecretBinary`) is refused too. No error or log line contains a value. **A bulk secret
 loads as a whole or fails**: one bad line fails that secret, which keeps the keys it had, and the log names the line
-by its number (X68).
+by its number (X88).
 
 ## 2. The `aws-secret` document
 
@@ -48,7 +48,7 @@ endpointOverride: https://vpce-….secretsmanager.us-east-1.vpce.amazonaws.com  
 
 **A file with a `secretAccessKey` is a secret file** under `--strict-file-permissions`: keep it at `0600`
 ([`reload.md`](reload.md#secret-files)). Up to `--aws-connection-cache-size` SDK clients (default 1) are kept for the
-documents during a load, by credentials, region and endpoint, as Web3Signer's cache does (X72); each load builds them
+documents during a load, by credentials, region and endpoint, as Web3Signer's cache does (X92); each load builds them
 again.
 
 ## 3. The bulk loader
@@ -66,10 +66,10 @@ remotesigner consensus --network=… \
 | `--aws-secrets-enabled` | `false` | Turn the loader on. |
 | `--aws-secrets-auth-mode` | `SPECIFIED` | `SPECIFIED` or `ENVIRONMENT`, as for the document. |
 | `--aws-secrets-access-key-id`, `--aws-secrets-secret-access-key` | unset | The access key; both required for `SPECIFIED`. |
-| `--aws-secrets-region` | unset | Required for `SPECIFIED`; with `ENVIRONMENT` the configured region is used when set, else the SDK's (X72). |
+| `--aws-secrets-region` | unset | Required for `SPECIFIED`; with `ENVIRONMENT` the configured region is used when set, else the SDK's (X92). |
 | `--aws-endpoint-override` | unset | The service endpoint URL, as above. |
 | `--aws-secrets-prefixes-filter` | none | Comma-separated name prefixes; a secret matches any. |
-| `--aws-secrets-tag` | none | `TAG_NAME=TAG_VALUE`, repeated or separated by `\|`; a name given twice keeps its last value, as in Web3Signer; a value cannot contain a comma (X75). |
+| `--aws-secrets-tag` | none | `TAG_NAME=TAG_VALUE`, repeated or separated by `\|`; a name given twice keeps its last value, as in Web3Signer; a value cannot contain a comma (X95). |
 
 The filters are Web3Signer's: one `name` filter with every prefix, one `tag-key` filter with every tag name, and one
 `tag-value` filter with every non-empty value. AWS matches any value within a filter and requires every filter, and
@@ -102,12 +102,12 @@ bulk loader `secretsmanager:ListSecrets`:
 ```
 
 The SDK logs nothing: its logger, which by default writes warnings to stderr in its own format, is replaced by a
-no-op, and no request or response logging is turned on (X81).
+no-op, and no request or response logging is turned on (X101).
 
 ## 5. Requests and limits
 
 Each call (a `GetSecretValue`, one page of `ListSecrets`) may take 30 seconds, the SDK's retries included, and each
-response is read up to 4 MiB; a value larger than 64 KiB fails its secret. No redirect is followed (X70, X78).
+response is read up to 4 MiB; a value larger than 64 KiB fails its secret. No redirect is followed (X90, X98).
 Proxies are taken from `HTTPS_PROXY` and `NO_PROXY`. A secret scheduled for deletion is not listed.
 
 **`AWS_CA_BUNDLE` and the shared config's `ca_bundle` are not supported**: the SDK can add a CA bundle only to its

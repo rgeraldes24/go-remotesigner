@@ -6,7 +6,7 @@ of a vault that carries the configured tags. Key Vault holds the seeds only; eve
 own memory. Key Vault *keys* are not used: Azure has no ML-DSA key type, so Web3Signer's `azure-key` signer has no QRL
 counterpart. The client is azure-sdk-for-go (`azsecrets`, `azidentity`), linked by the default flavour,
 `remotesigner`, only: `remotesigner-consensus` refuses the bulk flags (exit 2) and fails `azure-secret` documents with
-a hint ([`DEVIATIONS.md`](../../DEVIATIONS.md), X76).
+a hint ([`DEVIATIONS.md`](../../DEVIATIONS.md), X96).
 
 How sources are loaded and reloaded is in [`reload.md`](reload.md); the other stores are
 [HashiCorp Vault](hashicorp-vault.md), [AWS Secrets Manager](aws-secrets-manager.md) and
@@ -24,7 +24,7 @@ az keyvault secret set --vault-name validators-prod --name batch-0 --file seeds-
 ```
 
 A 51-byte extended seed, a 32-byte value and a 4,896-byte expanded secret key are refused with a hint; no error or
-log line contains a value. A bulk secret loads as a whole or fails (X68). As in Web3Signer, a disabled secret is
+log line contains a value. A bulk secret loads as a whole or fails (X88). As in Web3Signer, a disabled secret is
 listed and fails to load.
 
 ## 2. Authentication
@@ -39,7 +39,7 @@ The managed identities are read from the host's identity endpoint (the Azure Ins
 Service's `IDENTITY_ENDPOINT`). The identity needs the **Key Vault Secrets User** role on the vault (or a `get` and,
 for the bulk loader, `list` secret access policy).
 
-The SDK's log listener is removed, so `AZURE_SDK_GO_LOGGING=all` has no effect (X81).
+The SDK's log listener is removed, so `AZURE_SDK_GO_LOGGING=all` has no effect (X101).
 
 ## 3. The `azure-secret` document
 
@@ -82,9 +82,9 @@ remotesigner consensus --network=… \
 | `--azure-vault-enabled` | `false` | Turn the loader on. |
 | `--azure-vault-name` | unset | Required. |
 | `--azure-vault-auth-mode` | `CLIENT_SECRET` | As in section 2. |
-| `--azure-client-id`, `--azure-tenant-id`, `--azure-client-secret` | unset | As the mode needs; `CLIENT_SECRET` needs all three (Web3Signer does not check the client id at startup, X74). |
+| `--azure-client-id`, `--azure-tenant-id`, `--azure-client-secret` | unset | As the mode needs; `CLIENT_SECRET` needs all three (Web3Signer does not check the client id at startup, X94). |
 | `--azure-response-timeout` | `60` | Seconds, as the document's `timeout`. |
-| `--azure-tags` | none | `TAG_NAME=TAG_VALUE`, repeated or separated by `\|`: a secret must carry every one with that exact value (an empty value matches an empty tag value). A name given twice keeps its last value, as in Web3Signer; a value cannot contain a comma (X75). |
+| `--azure-tags` | none | `TAG_NAME=TAG_VALUE`, repeated or separated by `\|`: a secret must carry every one with that exact value (an empty value matches an empty tag value). A name given twice keeps its last value, as in Web3Signer; a value cannot contain a comma (X95). |
 
 Every selected secret is one source, `azure-bulk:<name>`. Keep the client secret off the command line: set
 `REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET`. The `--config-file` is not a secret file: its permissions are not
@@ -108,7 +108,7 @@ endpoints and emulators:
 
 The timeout bounds each request and each call, the SDK's retries included. A response is read up to 4 MiB (a larger
 one fails at once: the SDK does not retry it, as it retries a body it could not read) and a value up to 64 KiB. No
-redirect is followed (X70, X78). Proxies are taken from `HTTPS_PROXY` and `NO_PROXY`.
+redirect is followed (X90, X98). Proxies are taken from `HTTPS_PROXY` and `NO_PROXY`.
 
 ## 7. Reload and health
 
