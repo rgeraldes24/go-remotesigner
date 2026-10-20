@@ -24,6 +24,15 @@ own: a tag such as `v1.0.0-rc.1` publishes the notes of its version's entry, dat
   Transaction signing is not part of it yet: `qrl_signTransaction` and `qrl_sendTransaction` are refused.
   `remotesigner-consensus` has no execution mode. See [`docs/operations/execution.md`](docs/operations/execution.md)
   and rows X28 and X76-X87 of [`DEVIATIONS.md`](DEVIATIONS.md).
+- **Secret stores.** `remotesigner consensus` reads validator seeds from HashiCorp Vault's KV version 2 engine
+  (`hashicorp` key-config documents, over plain HTTP, in both flavours) and, in the default flavour only, from AWS
+  Secrets Manager, GCP Secret Manager and Azure Key Vault secrets: one secret per `aws-secret`, `gcp-secret` or
+  `azure-secret` key-config document, or in bulk with `--aws-secrets-enabled`, `--gcp-secrets-enabled` and
+  `--azure-vault-enabled`, one seed per line, each bulk loader with its `keys-check/*-bulk-loading` health check. A
+  key-config file with a store credential is a secret file, and no store client follows a redirect.
+  `remotesigner-consensus` refuses the AWS, GCP and Azure stores, and execution mode reads none. See
+  [`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources), the store pages it lists, and rows X88-X102
+  of [`DEVIATIONS.md`](DEVIATIONS.md).
 
 ## [1.0.0] - Unreleased
 
