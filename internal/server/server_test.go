@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -293,6 +294,54 @@ func TestSuccessAndRouting(t *testing.T) {
 		if e := decodeErr(t, rec); e.Message != "Method Not Allowed" || e.Reason != "" {
 			t.Errorf("wrong method body %+v", e)
 		}
+	}
+}
+
+// A request the HTTP server cannot parse never reaches a handler: Go's
+// server answers a malformed header line with a text/plain 400 and headers
+// over MaxHeaderBytes with a 431, neither with a JSON body, and closes the
+// connection (docs/contract.md section 11).
+func TestUnparsableRequest(t *testing.T) {
+	base := serve(t, newTestServer(t, nil))
+	addr := strings.TrimPrefix(base, "http://")
+	for _, tt := range []struct {
+		name, request string
+		code          int
+	}{
+		{"malformed header line", "GET /upcheck HTTP/1.1\r\nHost: localhost\r\nBad Header\r\n\r\n", 400},
+		{"headers over the limit", "GET /upcheck HTTP/1.1\r\nHost: localhost\r\nX-Pad: " +
+			strings.Repeat("a", MaxHeaderBytes+8<<10) + "\r\n\r\n", 431},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = conn.Close() }()
+			if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := io.WriteString(conn, tt.request); err != nil {
+				t.Fatal(err)
+			}
+			resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The body runs to the end of the connection. After a 431 the
+			// server closes it with the rest of the headers unread, which
+			// resets it instead of ending it.
+			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if err != nil && !errors.Is(err, syscall.ECONNRESET) {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != tt.code || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain") ||
+				!resp.Close || json.Valid(body) {
+				t.Errorf("%d %q close=%v body %q, want a plain-text %d that closes the connection",
+					resp.StatusCode, resp.Header.Get("Content-Type"), resp.Close, body, tt.code)
+			}
+		})
 	}
 }
 

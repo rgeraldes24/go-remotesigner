@@ -304,16 +304,19 @@ Per-type notes:
 
 ## 11. Errors
 
-Every 4xx and 5xx body has this shape (the Web3Signer error shape plus a machine-readable `reason`):
+Every 4xx and 5xx body the signer writes has this shape (the Web3Signer error shape plus a machine-readable
+`reason`):
 
 ```json
 { "code": 412, "message": "slashing protection refused the request", "reason": "SLASHING_DOUBLE_VOTE" }
 ```
 
-`code` is the HTTP status. `message` is a fixed string with no internal paths or exception text. `reason` is one of
-the values below; each has exactly one status code. The one 4xx body without a `reason` is the answer to a request
+`code` is the HTTP status. `message` is a fixed string with no internal paths or exception text. `reason` is one of the
+values below; each has exactly one status code. Of these bodies, the one without a `reason` is the answer to a request
 that matches no route ([section 6](#6-authentication-and-scopes)): Web3Signer's `{code, message}` with 404 `Not Found`,
-or 405 `Method Not Allowed` and an `Allow` header, which no operation of the spec lists. 401 responses carry
+or 405 `Method Not Allowed` and an `Allow` header, which no operation of the spec lists. A request the HTTP server
+cannot parse, such as a malformed header line or headers over the 64 KiB limit, never reaches the signer: Go's HTTP
+server answers it with a `text/plain` 400 or 431 and closes the connection. 401 responses carry
 `WWW-Authenticate: Bearer`, and 429 and 503 responses carry `Retry-After` where a retry makes sense.
 
 <!-- contract:reasons:begin -->
@@ -685,8 +688,8 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
   - A request whose `fork_info` differs from the network and that carries its own `signing_root` is refused with
     `SIGNING_ROOT_MISMATCH`, since step 5 runs before step 6
     ([section 7](#7-request-envelope-and-validation-pipeline)).
-  - A request that matches no route gets a 404 or 405 `{code, message}` body without a `reason`
-    ([section 11](#11-errors)).
+  - A request that matches no route gets a 404 or 405 `{code, message}` body without a `reason`, and one that the
+    HTTP server cannot parse gets Go's plain-text 400 or 431 ([section 11](#11-errors)).
 - Open items, which would change the wire behaviour, so they wait for a contract version and the matching qrysm
   client change:
   - Keeping the registration bound on while the genesis time is unknown: it needs only the wall clock, but a
