@@ -264,9 +264,9 @@ func (c Config) build(ctx context.Context, d document) (*mldsa87.Key, provider.M
 	if d.ext != nil {
 		k, err := mldsa87.FromExtendedSeed51(d.ext)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrPrivateKey, err)
+			return nil, provider.Meta{}, fmt.Errorf("%w: %v", ErrPrivateKey, err)
 		}
-		return k, nil
+		return k, provider.Meta{}, nil
 	}
 	if c.Decrypt == nil {
 		return nil, provider.Meta{}, fmt.Errorf("%w: type %s is not supported here", ErrUnsupported, TypeFileKeystore)
