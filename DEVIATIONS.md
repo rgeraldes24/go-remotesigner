@@ -15,9 +15,9 @@ them to the contract section that states the behaviour. The "go-remotesigner" co
 the behaviour. Rows X25, X26, X28 and X76-X87 describe execution mode (`remotesigner execution`), which is not part
 of 1.0.0. X28 and X76-X87 are specified in [`docs/operations/execution.md`](docs/operations/execution.md); X25 and X26
 are about transaction signing, which execution mode does not have yet: they record the design it will follow and have
-no page yet. Rows X88-X101 describe the secret stores, which are not part of 1.0.0 either; the store pages that
-[`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources) lists specify them. The register was reviewed
-against the code for 1.0.0.
+no page yet. Rows X88-X102 describe the secret stores, which are not part of 1.0.0 either: the store pages that
+[`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources) lists specify X88-X101, and `execution.md`
+specifies X102. The register was reviewed against the code for 1.0.0.
 
 | # | Area | Web3Signer | go-remotesigner | Class |
 |---|---|---|---|---|
@@ -122,3 +122,4 @@ against the code for 1.0.0.
 | X99 | Key-config files with store credentials | Read whatever their mode | A key-config file with a Vault `token`, an AWS `secretAccessKey` or an Azure `clientSecret` is a secret file: refused under `--strict-file-permissions` when its group or other users can read it (X62) ([docs/operations/reload.md](docs/operations/reload.md#secret-files)) | Fix |
 | X100 | Vault connections | `HTTP_2` over plain HTTP attempts an h2c upgrade; a custom trust store uses a TLS 1.3 context | Plain HTTP always speaks HTTP/1.1 (Go has no h2c upgrade), `HTTP_2` applies over TLS; TLS 1.2 or later ([docs/operations/hashicorp-vault.md](docs/operations/hashicorp-vault.md#2-the-key-config-document)) | Go-native |
 | X101 | SDK logging | The store SDKs log through log4j at the configured levels | The SDKs' loggers are discarded: `AZURE_SDK_GO_LOGGING`, `GOOGLE_SDK_GO_LOGGING_LEVEL` (which logs payloads) and `GRPC_GO_LOG_SEVERITY_LEVEL` have no effect, the AWS SDK's warnings, which it writes to stderr by default, are dropped, and its request logging stays off ([docs/operations/gcp-secret-manager.md](docs/operations/gcp-secret-manager.md#4-credentials)) | Policy |
+| X102 | Secret stores in execution mode | `eth1` loads secp256k1 keys from `hashicorp` and `azure-secret` key-config documents | Execution mode reads no secret store: a key-config file with a `hashicorp`, `aws-secret`, `azure-secret` or `gcp-secret` document fails to load with a hint, before anything is fetched; account keys come from `file-raw` and `file-keystore` documents and keystore directories ([docs/operations/execution.md](docs/operations/execution.md#3-account-keys)) | Simplification |

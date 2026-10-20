@@ -39,7 +39,8 @@
 // `privateKey` is the account's 51-byte extended seed (102 hex characters,
 // with or without 0x, descriptor 01 00 00 first) and `keystoreFile` a
 // go-qrl account keystore. Each mode refuses the other's keys, so one file
-// cannot serve both a validator and an account.
+// cannot serve both a validator and an account. The secret-store types hold
+// validator seeds and are refused in execution mode.
 //
 // `keyType` is ML_DSA_87, the default and only value. Unknown keys are
 // rejected. Each file is one source: either every document in it loads or
@@ -418,6 +419,10 @@ func parseDocument(n *yaml.Node, dir string, execution bool) (document, error) {
 		return document{}, fmt.Errorf("%w: missing type", ErrFormat)
 	default:
 		return document{}, fmt.Errorf("%w: unknown type %q", ErrUnsupported, truncate(typ))
+	}
+	if execution && typ != TypeFileRaw && typ != TypeFileKeystore {
+		return document{}, fmt.Errorf("%w: type %s: the secret stores hold validator seeds, and execution mode reads "+
+			"none; configure an account key as a file-raw or file-keystore document", ErrUnsupported, typ)
 	}
 	for k := range fields {
 		if !slices.Contains(allowed[typ], k) {
