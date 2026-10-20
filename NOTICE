@@ -150,7 +150,7 @@ BSD 2-Clause License (LICENSES/BSD-2-Clause.txt):
 
 BSD 3-Clause License (LICENSES/BSD-3-Clause.txt):
 
-  golang.org/x/oauth2, golang.org/x/sync and golang.org/x/time
+  golang.org/x/oauth2 and golang.org/x/time
     Copyright 2009 The Go Authors.
   github.com/google/uuid
     Copyright (c) 2009,2014 Google Inc. All rights reserved.
