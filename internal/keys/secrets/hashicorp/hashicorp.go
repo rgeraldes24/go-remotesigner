@@ -22,7 +22,7 @@
 // at commit 30af06dc975ba5b8ed0e17e53cba8683ca50ec02.
 
 // Package hashicorp reads seeds from HashiCorp Vault's KV version 2 secrets
-// engine over plain HTTP, as Web3Signer does: no Vault SDK is linked. A
+// engine through Vault's HTTP API, without a Vault SDK, as Web3Signer does. A
 // read is GET <scheme>://<host>:<port><keyPath> with the X-Vault-Token
 // header, and the seed is the value of one key of the secret's data
 // (data.data[keyName]). The token is configured (TOKEN) or obtained per

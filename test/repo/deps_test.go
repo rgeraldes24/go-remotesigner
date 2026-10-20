@@ -99,8 +99,8 @@ func deps(t *testing.T, tags string) []string {
 	return strings.Fields(string(out))
 }
 
-// TestNoVaultSDKLinked checks that HashiCorp Vault is read over
-// plain HTTP, as Web3Signer reads it, and no HashiCorp module (the Vault
+// TestNoVaultSDKLinked checks that HashiCorp Vault is read through
+// Vault's HTTP API, as Web3Signer reads it, and no HashiCorp module (the Vault
 // SDK and what it brings in) is in either flavour, by `go list -deps` of
 // every package and by `go version -m` of the built binaries.
 func TestNoVaultSDKLinked(t *testing.T) {

@@ -11,8 +11,10 @@ Consensys.
 ## Status
 
 [`CHANGELOG.md`](CHANGELOG.md) lists what each version contains. A version whose heading there still says
-`Unreleased` has not been tagged: it is tagged once it meets the
-[release checklist](docs/operations/release.md#6-the-v10-release-checklist). The HTTP contract with the qrysm
+`Unreleased` has not been tagged: it is tagged once it meets its release checklist in
+[`docs/operations/release.md`](docs/operations/release.md) (for
+[v1.0](docs/operations/release.md#6-the-v10-release-checklist) and
+[v1.1](docs/operations/release.md#7-the-v11-release-checklist)). The HTTP contract with the qrysm
 validator client is [`docs/contract.md`](docs/contract.md) and
 [`api/openapi/consensus.yaml`](api/openapi/consensus.yaml), with the protocol facts it relies on in
 [`docs/spec/`](docs/spec/README.md). `remotesigner consensus` signs all nine artifact types behind slashing protection
@@ -22,8 +24,8 @@ listener, with token and client-certificate authentication over TLS, the request
 from `file-raw` and `file-keystore` key files, from keystore directories and from secret stores, with reloads that
 never disable a key ([`docs/operations/reload.md`](docs/operations/reload.md)), and the keymanager API to list, import
 and delete keys while it runs ([`docs/operations/keymanager.md`](docs/operations/keymanager.md)). The secret stores
-hold seeds only: HashiCorp Vault's KV version 2 engine, read over plain HTTP in both flavours
-([`docs/operations/hashicorp-vault.md`](docs/operations/hashicorp-vault.md)), and, in the default flavour,
+hold seeds only: HashiCorp Vault's KV version 2 engine, read through Vault's HTTP API without a Vault SDK in both
+flavours ([`docs/operations/hashicorp-vault.md`](docs/operations/hashicorp-vault.md)), and, in the default flavour,
 AWS Secrets Manager, GCP Secret Manager and Azure Key Vault secrets, each one secret per key file or in bulk
 ([`aws-secrets-manager.md`](docs/operations/aws-secrets-manager.md),
 [`gcp-secret-manager.md`](docs/operations/gcp-secret-manager.md),
@@ -64,7 +66,7 @@ unit, example configuration files, the Grafana dashboard and the Prometheus aler
 | [`docs/operations/metrics.md`](docs/operations/metrics.md) | the metrics catalogue, the alert rules and their runbooks, the Grafana dashboard |
 | [`docs/operations/execution.md`](docs/operations/execution.md) | execution mode: account keys, the JSON-RPC methods, transaction signing, the policy file, the proxy to gqrl and the LGPL notes |
 | [`docs/operations/upgrade.md`](docs/operations/upgrade.md) | upgrading and going back: the schema-version rule, one signer, Postgres replicas |
-| [`docs/operations/release.md`](docs/operations/release.md) | what a release contains, how to verify it, the release dry run, and the v1.0 release checklist |
+| [`docs/operations/release.md`](docs/operations/release.md) | what a release contains, how to verify it, the release dry run, and the v1.0 and v1.1 release checklists |
 | [`docs/reference/flags.md`](docs/reference/flags.md) | every flag with its environment variable, config-file key and default, and every `--X…` override explained (generated) |
 | [`docs/reference/registration-fee-recipient-file.md`](docs/reference/registration-fee-recipient-file.md) | the per-key fee-recipient file |
 | [`docs/contract.md`](docs/contract.md) | the HTTP contract with the qrysm validator client |
@@ -93,13 +95,14 @@ Both flavours are static (`CGO_ENABLED=0`). The consensus-only flavour, `remotes
 or any other GPL or LGPL code, nor the AWS, Azure and GCP SDKs of the cloud secret stores.
 
 ```
-$ bin/remotesigner --version
-remotesigner version 1.0.0 (commit ..., go1.26.9, linux/amd64)
+$ bin/remotesigner-consensus --version
+remotesigner-consensus version 1.1.0 (commit ..., go1.26.9, linux/amd64)
 ```
 
-The version is the tag's without its `v` (`1.0.0` for `v1.0.0`), as in the release binaries and in a binary that
-`go install github.com/rgeraldes24/go-remotesigner/cmd/remotesigner@v1.0.0` builds; between tags it is
-`git describe`'s.
+The default flavour, `bin/remotesigner`, prints the same line with its own name, followed by the notice of the go-qrl
+library it links (LGPL-3.0-or-later). The version is the tag's without its `v` (`1.1.0` for `v1.1.0`), as in the
+release binaries and in a binary that `go install github.com/rgeraldes24/go-remotesigner/cmd/remotesigner@v1.1.0`
+builds; between tags it is `git describe`'s.
 
 ## Contributing
 

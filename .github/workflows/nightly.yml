@@ -56,3 +56,20 @@ jobs:
           go-version: "1.26.x"
       - name: Fuzz the interchange import and export
         run: make fuzz-interchange FUZZTIME=30m
+
+  gqrl-e2e:
+    # Execution mode against gqrl --dev every night as well as on every pull
+    # request (ci.yml): gqrl built from go-qrl at the commit go.mod
+    # requires, the signer in front of it (TestGQRLDev).
+    name: Execution mode against gqrl --dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+      - name: Build gqrl at the pinned go-qrl commit and run the end-to-end test
+        run: make gqrl-e2e

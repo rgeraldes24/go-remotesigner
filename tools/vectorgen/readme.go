@@ -71,6 +71,7 @@ generator record.
 | ` + "`interchange/qrysm-export.json`" + ` | An EIP-3076 export written by qrysm's validator from a known history of interop keys 0-3, in qrysm's native layout |
 | ` + "`interchange/index.json`" + ` | That history: the keys and how many blocks and attestations each holds |
 | ` + "`transactions/signing.json`" + ` | Execution-mode transactions signed by go-qrl's ` + "`types.SignTx`" + ` (the go-qrl commit qrysm pins): the request, the signing hash, and the signed transaction and its hash in deterministic mode |
+| ` + "`transactions/text_hash.json`" + ` | Messages and go-qrl's ` + "`accounts.TextHash`" + ` of each (the go-qrl commit qrysm pins): what ` + "`qrl_sign`" + ` signs |
 
 The two presets are the two end-to-end networks: ` + "`minimal`" + ` is ` + "`end-to-end`" + ` (the qrysm e2e,
 ` + "`GENESIS_FORK_VERSION 0x000000fd`" + `, 6 slots per epoch, 16-bit contribution bitvectors) and ` + "`mainnet`" + ` is
@@ -155,7 +156,9 @@ mostly out of any real range.
   qrysm's own export of it to equal ` + "`qrysm-export.json`" + ` byte for byte, with no key marked slashable.
 - **Transactions.** The signer's execution tests send every ` + "`request`" + ` of ` + "`transactions/signing.json`" + ` to
   ` + "`qrl_signTransaction`" + ` with the account's key and check the signing hash of the transaction it builds; with
-  the key in deterministic mode, its ` + "`raw`" + ` and ` + "`hash`" + ` must equal the vector's byte for byte.
+  the key in deterministic mode, its ` + "`raw`" + ` and ` + "`hash`" + ` must equal the vector's byte for byte. They
+  check the signer's text hash against every ` + "`text_hash`" + ` of ` + "`transactions/text_hash.json`" + `, and send each
+  ` + "`data`" + ` to ` + "`qrl_sign`" + `, whose signature must verify over that ` + "`text_hash`" + `.
 - **vectorgen verify.** ` + "`vectorgen verify --signer http://127.0.0.1:9000 --token-file <auth-token>`" + ` posts every
   fixture to a running signer and checks the answers with qrysm's verifier (` + "`tools/vectorgen/README.md`" + `).
 - **vectorgen contract.** ` + "`tools/vectorgen/contract`" + ` takes the interop genesis validators root from

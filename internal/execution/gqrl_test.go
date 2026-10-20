@@ -28,6 +28,7 @@ import (
 	"github.com/theQRL/go-qrl/common"
 	"github.com/theQRL/go-qrl/common/hexutil"
 	"github.com/theQRL/go-qrl/core/types"
+	walletmldsa87 "github.com/theQRL/go-qrllib/wallet/ml_dsa_87"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 )
@@ -171,20 +172,23 @@ func rpcCall(c *http.Client, url string, header http.Header, result any, method 
 }
 
 // interposer stands between the signer and gqrl: it forwards every call,
-// and when armed, rewrites the transaction of the next qrl_fillTransaction
-// answer, as a malicious or broken node would.
+// counts the methods that reach the node, and when armed, rewrites the
+// transaction of the next qrl_fillTransaction answer, as a malicious or
+// broken node would.
 type interposer struct {
 	*httptest.Server
 	mu    sync.Mutex
 	edit  func(tx *types.DynamicFeeTx)
 	fills int
+	seen  map[string]int
 }
 
 func newInterposer(t *testing.T, target string) *interposer {
 	t.Helper()
-	ip := &interposer{}
+	ip := &interposer{seen: map[string]int{}}
 	ip.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
+		ip.record(body)
 		resp, err := http.Post(target, "application/json", bytes.NewReader(body))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
@@ -221,6 +225,29 @@ func (ip *interposer) fillCount() int {
 	ip.mu.Lock()
 	defer ip.mu.Unlock()
 	return ip.fills
+}
+
+// record counts the method of each call in body, a call or a batch.
+func (ip *interposer) record(body []byte) {
+	var calls []fakeCall
+	var c fakeCall
+	if json.Unmarshal(body, &c) == nil {
+		calls = []fakeCall{c}
+	} else {
+		_ = json.Unmarshal(body, &calls)
+	}
+	ip.mu.Lock()
+	defer ip.mu.Unlock()
+	for _, c := range calls {
+		ip.seen[c.Method]++
+	}
+}
+
+// count is how many calls of method reached the node.
+func (ip *interposer) count(method string) int {
+	ip.mu.Lock()
+	defer ip.mu.Unlock()
+	return ip.seen[method]
 }
 
 // rewriteFill applies edit to the transaction of a qrl_fillTransaction
@@ -336,8 +363,11 @@ func (s *e2eSigner) auditOutcomes(t *testing.T) []string {
 // signed and sent again; a wrong chain ID is
 // refused, in the request and from the node; a node that changes to,
 // value, input, the access list or the chain ID in qrl_fillTransaction is
-// refused; so is a filled nonce far above the pending one; and the fee cap
-// holds for both methods and for fees the node proposes.
+// refused; so is a filled nonce far above the pending one; the fee cap
+// holds for both methods and for fees the node proposes; qrl_sign's
+// signature verifies with go-qrllib under the public key the signer lists;
+// and the allowlist forwards net_version to the node and keeps admin_*,
+// debug_*, personal_* and qrl_signTypedData from it.
 func TestGQRLDev(t *testing.T) {
 	bin := os.Getenv(GQRLEnv)
 	if bin == "" {
@@ -547,5 +577,60 @@ func TestGQRLDev(t *testing.T) {
 		})
 		refused(t, MethodSendTransaction, map[string]any{"from": s.from, "to": recipient, "value": "0x6"},
 			ErrTxRejected.Code, "above the cap")
+	})
+
+	t.Run("qrl_sign verifies with go-qrllib", func(t *testing.T) {
+		code, list := s.do(t, req{method: http.MethodGet, path: PublicKeysPath, header: s.bearer()})
+		var keys []struct {
+			Address   string        `json:"address"`
+			PublicKey hexutil.Bytes `json:"public_key"`
+		}
+		if err := json.Unmarshal([]byte(list), &keys); code != http.StatusOK || err != nil || len(keys) != 1 {
+			t.Fatalf("publicKeys: %d %.200s (%v)", code, list, err)
+		}
+		pk, err := walletmldsa87.BytesToPK(keys[0].PublicKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		desc, err := walletmldsa87.NewMLDSA87Descriptor()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if addr, err := walletmldsa87.GetMLDSA87Address(pk, desc); err != nil ||
+			!strings.EqualFold(common.Address(addr).Hex(), s.from) {
+			t.Fatalf("go-qrllib derives %x from the listed key, not %s (%v)", addr, s.from, err)
+		}
+		data := []byte("go-remotesigner end-to-end")
+		var sig hexutil.Bytes
+		if err := s.rpc(&sig, MethodSign, s.from, hexutil.Bytes(data)); err != nil {
+			t.Fatal(err)
+		}
+		digest := TextHash(data)
+		if !walletmldsa87.Verify(digest[:], sig, &pk, [3]byte(desc)) {
+			t.Fatal("the qrl_sign signature does not verify with go-qrllib")
+		}
+		if n := ip.count(MethodSign); n != 0 {
+			t.Fatalf("qrl_sign reached the node %d times", n)
+		}
+	})
+
+	t.Run("the allowlist", func(t *testing.T) {
+		var version string
+		if err := s.rpc(&version, "net_version"); err != nil || version != strconv.Itoa(devChainID) {
+			t.Fatalf("net_version %q (%v), want %d from the node", version, err, devChainID)
+		}
+		if ip.count("net_version") == 0 {
+			t.Fatal("net_version did not reach the node")
+		}
+		for _, method := range []string{"admin_nodeInfo", "debug_getRawHeader", "personal_listAccounts",
+			MethodSignTypedData} {
+			err := s.rpc(nil, method)
+			if e, ok := err.(*Error); !ok || e.Code != ErrMethodNotFound.Code {
+				t.Errorf("%s: %v, want %d", method, err, ErrMethodNotFound.Code)
+			}
+			if n := ip.count(method); n != 0 {
+				t.Errorf("%s reached the node %d times", method, n)
+			}
+		}
 	})
 }

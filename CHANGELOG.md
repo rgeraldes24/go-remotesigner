@@ -13,39 +13,76 @@ own: a tag such as `v1.0.0-rc.1` publishes the notes of its version's entry, dat
 
 ## [Unreleased]
 
+## [1.1.0] - Unreleased
+
+Execution mode, which holds QRL account keys in front of a gqrl node, and validator seeds read from secret stores.
+The HTTP contract with the qrysm validator client stays at 1.0.0: its one addition, the secret stores' health checks,
+is a clarification that [`docs/contract.md`](docs/contract.md#20-versioning-and-change-control) section 20 lists. The
+slashing-protection schema is unchanged and no flag was removed or renamed, so a 1.0.0 signer upgrades in place with
+its configuration ([`docs/operations/upgrade.md`](docs/operations/upgrade.md)). The behaviours that differ from
+Web3Signer are rows X25, X26, X28 and X76-X106 of [`DEVIATIONS.md`](DEVIATIONS.md).
+
 ### Added
 
-- **Execution mode.** `remotesigner execution`, in the default flavour only, holds QRL account keys (51-byte extended
-  seeds in `file-raw` key-config files, and go-qrl account keystores) for JSON-RPC clients in front of a gqrl node, in
-  a process of its own. At `POST /` it answers `qrl_accounts`, `qrl_sign`, `qrl_signTransaction`,
-  `qrl_sendTransaction` and `health_status`, splits batches of up to 1,000 requests, and forwards the methods
-  `--execution-proxy-allowed-methods` allows (`qrl_*`, `net_*` and `web3_*` by default) to the node, without the
-  client's credentials, cookies or forwarding headers and without following redirects.
-  `GET /api/v1/execution/publicKeys` lists the accounts with their public keys. Transactions are go-qrl's type-0x2
-  transactions, signed for `--chain-id`, which the signer compares with the node's chain ID, within the per-account
-  policy of `--execution-policy-file`, which a non-loopback listener requires, and a fee cap of 1 quanta unless that
-  policy sets another; `qrl_sendTransaction` asks the node's `qrl_fillTransaction` for what a request lacks and checks
-  its answer, and `--execution-audit-log-file` records every signature, send and refusal. Linking go-qrl
-  (LGPL-3.0-or-later) makes the default binary a combined work: its release appends `NOTICE.execution` to its NOTICE,
-  and every release attaches the source with every dependency vendored. `remotesigner-consensus` has no execution mode
-  and links no go-qrl. See [`docs/operations/execution.md`](docs/operations/execution.md) and rows X25, X26, X28,
-  X76-X87 and X103-X106 of [`DEVIATIONS.md`](DEVIATIONS.md).
+- **Execution mode.** `remotesigner execution`, in the default flavour only and in a process of its own, holds QRL
+  account keys for wallets and tools that speak JSON-RPC, so that the gqrl node behind it holds none: 51-byte
+  extended seeds in `file-raw` key-config files, and go-qrl account keystores in `file-keystore` documents or a
+  `--keystores-path` directory. At `POST /` it answers `qrl_accounts`, `qrl_sign` (a hedged ML-DSA-87 signature of
+  go-qrl's text hash, verified before it is returned) and `health_status`, and splits batches of up to 1,000
+  requests. `GET /api/v1/execution/publicKeys` lists each account's address with its public key, which a verifier of
+  `qrl_sign` needs. Clients authenticate with the sign token in an `Authorization: Bearer` header, a client
+  certificate or both; Basic authentication and a token in the URL are refused. See
+  [`docs/operations/execution.md`](docs/operations/execution.md).
+- **Transaction signing and sending.** `qrl_signTransaction` signs go-qrl's type-0x2 transactions for `--chain-id`
+  and answers gqrl's `{raw, tx}`; the signer compares that chain ID with the node's at startup and every 10 minutes,
+  and refuses transactions while they differ. `qrl_sendTransaction` asks the node's `qrl_fillTransaction` for what a
+  request lacks, takes only the nonce, gas and fees from its answer after checking that the rest is the request's,
+  refuses a filled nonce more than 64 above the account's pending one (`--execution-nonce-crosscheck`, on by
+  default), then signs and sends, one transaction per account at a time. When the request left the nonce to the
+  node, it tries again up to 10 times if the node reports that another transaction took the nonce.
+  Every transaction stays within a fee cap of 1 quanta, unless the policy sets another, and within the per-account
+  policy of `--execution-policy-file` (recipients, value, fee, contract creation, input size, transactions per
+  hour), which a listener beyond loopback requires. `--execution-audit-log-file` records every signature, every send
+  and every refusal.
+- **Proxy to the node.** Requests for the methods `--execution-proxy-allowed-methods` allows (`qrl_*`, `net_*` and
+  `web3_*` by default) are re-encoded and forwarded to the node without the client's `Authorization`, cookies or
+  forwarding headers, with the node's own credential from `--downstream-http-auth-header-file`, and, if asked, over
+  TLS (`--downstream-http-tls-enabled`) and through an HTTP proxy (`--downstream-http-proxy-host` and
+  `--downstream-http-proxy-port`); no redirect is followed, and responses stop at 25 MB. `qrl_signTypedData` is never
+  offered or forwarded, and methods outside the allowlist (by default `admin_*`, `debug_*`, `personal_*` and every
+  other namespace but those three) are refused.
 - **Secret stores.** `remotesigner consensus` reads validator seeds from HashiCorp Vault's KV version 2 engine
-  (`hashicorp` key-config documents, over plain HTTP, in both flavours) and, in the default flavour only, from AWS
-  Secrets Manager, GCP Secret Manager and Azure Key Vault secrets: one secret per `aws-secret`, `gcp-secret` or
-  `azure-secret` key-config document, or in bulk with `--aws-secrets-enabled`, `--gcp-secrets-enabled` and
-  `--azure-vault-enabled`, one seed per line, each bulk loader with its `keys-check/*-bulk-loading` health check. A
-  key-config file with a store credential is a secret file, and no store client follows a redirect.
-  `remotesigner-consensus` refuses the AWS, GCP and Azure stores, and execution mode reads none. See
-  [`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources), the store pages it lists, and rows X88-X102
-  of [`DEVIATIONS.md`](DEVIATIONS.md).
+  (`hashicorp` key-config documents, through Vault's HTTP API with token or Kubernetes authentication, in both
+  flavours) and, in the default flavour only, from AWS Secrets Manager, GCP Secret Manager and Azure Key Vault
+  secrets: one secret per `aws-secret`, `gcp-secret` or `azure-secret` key-config document, or in bulk with
+  `--aws-secrets-enabled`, `--gcp-secrets-enabled` and `--azure-vault-enabled`, one seed per line of each secret.
+  A secret that fails to load keeps the keys it had, no store client follows a redirect, and a key-config file that
+  holds a store credential is a secret file under `--strict-file-permissions`. `remotesigner-consensus` refuses the
+  AWS, GCP and Azure stores, and execution mode reads none. See
+  [`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources) and the page of each store it lists.
+- **The source of each release.** Every release attaches `remotesigner-<version>-src-vendored.tar.gz`: the tagged
+  source with every module the binaries link in `vendor/`, go-qrl included, which rebuilds the default flavour
+  offline with Go 1.26.5 or later ([`docs/operations/release.md`](docs/operations/release.md#3-verifying-a-release)).
+
+### Changed
+
+- **The default flavour links LGPL code.** `remotesigner` now links the go-qrl library (LGPL-3.0-or-later),
+  unmodified, for execution mode, which makes it a combined work: its archives and image append
+  [`NOTICE.execution`](NOTICE.execution) to the NOTICE and add the LGPL and GPL texts to `LICENSES/`, its image's
+  licence label names `LGPL-3.0-or-later`, and `--version` prints go-qrl's notice. With go-qrl and the AWS, GCP and
+  Azure SDKs, which it links too, it is about 13 MB larger than `remotesigner-consensus`
+  ([`docs/benchmarks.md`](docs/benchmarks.md#binary-size-with-the-secret-stores-no-benchmark-id)).
+  `remotesigner-consensus` links none of them and stays under permissive licences only: run it to sign consensus
+  duties without LGPL code ([`docs/operations/release.md`](docs/operations/release.md#2-notice-and-licence-texts-per-flavour)).
+- **`/healthcheck`** also lists `keys-check/aws-bulk-loading`, `keys-check/gcp-bulk-loading` and
+  `keys-check/azure-bulk-loading`, each while its bulk loader is enabled, with the data of the other key checks.
 
 ## [1.0.0] - Unreleased
 
 The first release: a remote signer for the ML-DSA-87 validator keys of qrysm validator clients on Testnet V3, ported
 from Consensys Web3Signer and, like it, licensed under the Apache License 2.0 ([`LICENSE`](LICENSE),
 [`NOTICE`](NOTICE)). Every behaviour that differs from Web3Signer is listed in [`DEVIATIONS.md`](DEVIATIONS.md)
-(rows X1-X75); the ones about execution mode (X25, X26, X28) describe a later release. The validator client needs
+(rows X1-X75); the ones about execution mode (X25, X26, X28) describe what 1.1.0 adds. The validator client needs
 qrysm's remote-signer keymanager, and
 [`docs/operations/requirements.md`](docs/operations/requirements.md#5-a-qrysm-validator-client-with-the-remote-signer-keymanager)
 section 5 names the qrysm build that has it.
@@ -134,5 +171,6 @@ section 5 names the qrysm build that has it.
   RANDAO operations, the metrics catalogue with alert runbooks, upgrades and releases, all indexed from the
   [README](README.md#documentation), with dev-machine benchmark results in [`docs/benchmarks.md`](docs/benchmarks.md).
 
-[Unreleased]: https://github.com/rgeraldes24/go-remotesigner/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/rgeraldes24/go-remotesigner/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/rgeraldes24/go-remotesigner/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/rgeraldes24/go-remotesigner/releases/tag/v1.0.0

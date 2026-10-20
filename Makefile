@@ -196,8 +196,9 @@ b19:
 	REMOTESIGNER_B19_DURATION=$(B19_DURATION) $(GO) test -count=1 -run '^TestB19IdleConnectionRace$$' -timeout 90m -v ./test/acceptance/
 
 ## gqrl-e2e: execution mode against gqrl --dev (TestGQRLDev in internal/execution): a mined transfer, the nonce
-## retry, the chain-ID, payload, nonce cross-check and fee-cap refusals. gqrl is built from go-qrl at the commit
-## go.mod requires, in GQRL_SRC (cloned when missing), unless GQRL names a gqrl binary built from that commit.
+## retry, the chain-ID, payload, nonce cross-check and fee-cap refusals, qrl_sign verified with go-qrllib, and the
+## proxy allowlist (net_version forwarded; admin_*, debug_*, personal_* refused). gqrl is built from go-qrl at the
+## commit go.mod requires, in GQRL_SRC (cloned when missing), unless GQRL names a gqrl binary built from that commit.
 ## GQRL_SRC defaults to a clone per commit in the user's cache directory, outside the source tree: go-qrl's own
 ## files are not gofmt-clean, and `gofmt -l .` would list them from a clone under the repository.
 GQRL_COMMIT = $(lastword $(subst -, ,$(shell $(GO) list -m -f '{{.Version}}' github.com/theQRL/go-qrl)))
@@ -242,14 +243,16 @@ release-docs:
 ## release-src: RELEASE_DIR/remotesigner-<VERSION>-src-vendored.tar.gz, the source each release attaches: the
 ## committed tree (git archive HEAD) with every module it links in vendor/ (go mod vendor), so that the default
 ## flavour can be rebuilt with a modified go-qrl, as the LGPL asks (docs/operations/release.md). Run it after
-## release-docs, which empties RELEASE_DIR.
+## release-docs, which empties RELEASE_DIR. The archive carries no extended attributes: COPYFILE_DISABLE=1 keeps
+## macOS's tar (bsdtar) from adding an AppleDouble ._ entry per file, and --no-xattrs, which GNU tar takes too,
+## its LIBARCHIVE.xattr headers.
 SRC_NAME = remotesigner-$(VERSION)-src-vendored
 release-src:
 	rm -rf $(RELEASE_DIR)/src
 	mkdir -p $(RELEASE_DIR)/src/$(SRC_NAME)
 	git archive --format=tar HEAD | tar -x -C $(RELEASE_DIR)/src/$(SRC_NAME)
 	cd $(RELEASE_DIR)/src/$(SRC_NAME) && $(GO) mod vendor
-	tar -C $(RELEASE_DIR)/src -czf $(RELEASE_DIR)/$(SRC_NAME).tar.gz $(SRC_NAME)
+	COPYFILE_DISABLE=1 tar --no-xattrs -C $(RELEASE_DIR)/src -czf $(RELEASE_DIR)/$(SRC_NAME).tar.gz $(SRC_NAME)
 	rm -rf $(RELEASE_DIR)/src
 
 ## release-snapshot: the release dry run: goreleaser (v2) builds every archive, SBOM and image of both flavours into
@@ -273,8 +276,9 @@ release-check:
 
 ## release-version: build every binary as goreleaser builds them for the release of RELEASE_TAG, through a
 ## GORELEASER_CURRENT_TAG that needs no git tag (nothing is tagged, archived or published), into RELEASE_DIST, and
-## check that each binary of this machine reports the tag's version: 1.0.0 for v1.0.0
-RELEASE_TAG ?= v1.0.0
+## check that each binary of this machine reports the tag's version (1.1.0 for v1.1.0), and the default flavour's
+## binaries go-qrl's notice. RELEASE_TAG defaults to the tag of the newest version that CHANGELOG.md has an entry for.
+RELEASE_TAG ?= v$(shell sed -n 's/^.. \[\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)\] - .*/\1/p' CHANGELOG.md | head -n 1)
 release-version:
 	GORELEASER_CURRENT_TAG=$(RELEASE_TAG) GO_LICENSES="$(GO_LICENSES)" $(GORELEASER) build --clean --skip=validate
 	REMOTESIGNER_RELEASE_DIST=$(abspath $(RELEASE_DIST)) $(GO) test -count=1 -run '^TestReleaseVersion$$' -v ./test/release/

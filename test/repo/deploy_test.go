@@ -538,6 +538,48 @@ func TestReleaseWorkflow(t *testing.T) {
 	}
 }
 
+// The nightly workflow runs on a schedule the signer's long checks that the
+// v1.1 checklist names (docs/operations/release.md section 7.2): B19, the
+// gqrl end-to-end test of execution mode, and the keystore and interchange
+// fuzzers.
+func TestNightlyWorkflow(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(root, ".github/workflows/nightly.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var w struct {
+		On struct {
+			Schedule []struct {
+				Cron string `yaml:"cron"`
+			} `yaml:"schedule"`
+		} `yaml:"on"`
+		Jobs map[string]struct {
+			Steps []workflowStep `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &w); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.On.Schedule) == 0 {
+		t.Error("the nightly workflow has no schedule")
+	}
+	targets := map[string]bool{}
+	for _, job := range w.Jobs {
+		for _, s := range job.Steps {
+			for _, line := range strings.Split(s.Run, "\n") {
+				if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "make "); ok {
+					targets[firstField(rest)] = true
+				}
+			}
+		}
+	}
+	for _, want := range []string{"b19", "gqrl-e2e", "fuzz-keystore", "fuzz-interchange"} {
+		if !targets[want] {
+			t.Errorf("no nightly job runs make %s", want)
+		}
+	}
+}
+
 func TestReleaseWorkflowProblems(t *testing.T) {
 	good := []workflowStep{
 		{Uses: "actions/checkout@abc", With: map[string]any{"fetch-depth": 0}},
@@ -623,6 +665,193 @@ func TestMakeBuildVersion(t *testing.T) {
 				t.Errorf("make %s for git describe %s: no %q in\n%s", target, tt.describe, want, out)
 			}
 		}
+	}
+}
+
+// make release-version builds for the tag of the newest version that
+// CHANGELOG.md has an entry for, unless RELEASE_TAG names another tag
+// (docs/operations/release.md section 4), so that its default follows the
+// release being prepared.
+func TestReleaseTagDefault(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make is not installed")
+	}
+	data, err := os.ReadFile(filepath.Join(root, "CHANGELOG.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newest := regexp.MustCompile(`(?m)^## \[(\d+\.\d+\.\d+)\] - `).FindSubmatch(data)
+	if newest == nil {
+		t.Fatal("CHANGELOG.md has no version entry")
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "RELEASE_TAG=") {
+			env = append(env, kv)
+		}
+	}
+	for _, tt := range []struct {
+		args []string
+		want string
+	}{
+		{nil, "v" + string(newest[1])},
+		{[]string{"RELEASE_TAG=v9.8.7-rc.1"}, "v9.8.7-rc.1"},
+	} {
+		args := append([]string{"-n", "-C", root, "release-version", "GO_LICENSES=go-licenses"}, tt.args...)
+		cmd := exec.Command("make", args...)
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("make %q: %v: %s", args, err, out)
+		}
+		if want := "GORELEASER_CURRENT_TAG=" + tt.want + " "; !strings.Contains(string(out), want) {
+			t.Errorf("make %q: no %q in\n%s", args, want, out)
+		}
+	}
+}
+
+// releaseURL is the GitHub release of a version, where its source archive
+// is attached, as NOTICE.execution writes it.
+const releaseURL = "https://github.com/rgeraldes24/go-remotesigner/releases/tag/v<version>"
+
+// releaseConfig is the part of .goreleaser.yaml that attaches the source
+// archive to a release.
+type releaseConfig struct {
+	Before struct {
+		Hooks []string `yaml:"hooks"`
+	} `yaml:"before"`
+	Checksum struct {
+		ExtraFiles []extraFile `yaml:"extra_files"`
+	} `yaml:"checksum"`
+	Release struct {
+		ExtraFiles []extraFile `yaml:"extra_files"`
+	} `yaml:"release"`
+}
+
+type extraFile struct {
+	Glob string `yaml:"glob"`
+}
+
+// releaseSourceProblems checks that a release built with cfg attaches the
+// source archive that `make release-src` writes to src (for one version),
+// with its checksum, and that the default flavour's NOTICE, which ends with
+// NOTICE.execution (notice), tells where that archive is: its file name and
+// the URL of the GitHub release that attaches it.
+func releaseSourceProblems(cfg releaseConfig, src, notice string) []string {
+	var p []string
+	docs := slices.IndexFunc(cfg.Before.Hooks, func(h string) bool { return strings.HasPrefix(h, "make release-docs ") })
+	srcHook := slices.IndexFunc(cfg.Before.Hooks, func(h string) bool {
+		return strings.HasPrefix(h, "make release-src ") && strings.Contains(h, "VERSION={{ .Version }}")
+	})
+	switch {
+	case srcHook < 0:
+		p = append(p, "no before hook runs make release-src VERSION={{ .Version }}")
+	case srcHook < docs:
+		p = append(p, "make release-src runs before make release-docs, which empties the directory it writes to")
+	}
+	takes := func(files []extraFile) bool {
+		return slices.ContainsFunc(files, func(f extraFile) bool {
+			ok, err := filepath.Match(f.Glob, src)
+			return err == nil && ok
+		})
+	}
+	if !takes(cfg.Release.ExtraFiles) {
+		p = append(p, "release.extra_files does not attach "+src)
+	}
+	if !takes(cfg.Checksum.ExtraFiles) {
+		p = append(p, "checksum.extra_files does not cover "+src)
+	}
+	var words []string
+	for _, w := range strings.Fields(notice) {
+		words = append(words, strings.TrimRight(w, ",.:;"))
+	}
+	for _, want := range []string{"remotesigner-<version>-src-vendored.tar.gz", releaseURL} {
+		if !slices.Contains(words, want) {
+			p = append(p, "NOTICE.execution does not name "+want)
+		}
+	}
+	return p
+}
+
+// Every release attaches the source archive the LGPL asks for, next to the
+// archives (docs/operations/release.md section 1): a before hook of
+// .goreleaser.yaml runs make release-src, the release and checksums.txt take
+// the file it writes, and the default flavour's NOTICE says where it is. The
+// dry run builds and checks that archive (TestReleaseSource in test/release)
+// but publishes no release, so this is the check of the release's own step.
+func TestReleaseAttachesSource(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make is not installed")
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".goreleaser.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg releaseConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	notice, err := os.ReadFile(filepath.Join(root, "NOTICE.execution"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("make", "-n", "-C", root, "release-src", "VERSION=1.1.0").CombinedOutput()
+	if err != nil {
+		t.Fatalf("make -n release-src: %v: %s", err, out)
+	}
+	src := regexp.MustCompile(`-czf (\S+-src-vendored\.tar\.gz) `).FindStringSubmatch(string(out))
+	if src == nil || src[1] != "build/release/remotesigner-1.1.0-src-vendored.tar.gz" {
+		t.Fatalf("make release-src VERSION=1.1.0 writes %q, want build/release/remotesigner-1.1.0-src-vendored.tar.gz:\n%s",
+			src, out)
+	}
+	for _, p := range releaseSourceProblems(cfg, src[1], string(notice)) {
+		t.Error(p)
+	}
+}
+
+func TestReleaseSourceProblems(t *testing.T) {
+	const src = "build/release/remotesigner-1.1.0-src-vendored.tar.gz"
+	const notice = "published with it as\nremotesigner-<version>-src-vendored.tar.gz, a file of the release\n" +
+		releaseURL + ", where"
+	glob := []extraFile{{Glob: "build/release/remotesigner-*-src-vendored.tar.gz"}}
+	good := func() releaseConfig {
+		var c releaseConfig
+		c.Before.Hooks = []string{"make release-docs GO_LICENSES=x RELEASE_REF={{ .Tag }}",
+			"make release-src VERSION={{ .Version }}"}
+		c.Checksum.ExtraFiles = slices.Clone(glob)
+		c.Release.ExtraFiles = slices.Clone(glob)
+		return c
+	}
+	tests := []struct {
+		name   string
+		edit   func(*releaseConfig)
+		notice string
+		want   string // a substring of the one problem
+	}{
+		{"good", func(*releaseConfig) {}, notice, ""},
+		{"no release-src hook", func(c *releaseConfig) { c.Before.Hooks = c.Before.Hooks[:1] }, notice, "no before hook"},
+		{"release-src before release-docs", func(c *releaseConfig) { slices.Reverse(c.Before.Hooks) }, notice, "empties"},
+		{"not attached", func(c *releaseConfig) { c.Release.ExtraFiles = nil }, notice, "release.extra_files"},
+		{"another file attached", func(c *releaseConfig) {
+			c.Release.ExtraFiles = []extraFile{{Glob: "build/release/*.licenses"}}
+		}, notice, "release.extra_files"},
+		{"no checksum", func(c *releaseConfig) { c.Checksum.ExtraFiles = nil }, notice, "checksum.extra_files"},
+		{"notice without the archive", func(*releaseConfig) {}, "the source is at " + releaseURL, "src-vendored"},
+		{"notice without the release", func(*releaseConfig) {}, "the source is remotesigner-<version>-src-vendored.tar.gz",
+			"releases/tag"},
+		{"notice with another release", func(*releaseConfig) {},
+			"remotesigner-<version>-src-vendored.tar.gz at https://github.com/theQRL/go-qrl/releases/tag/v<version>",
+			"releases/tag"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := good()
+			tt.edit(&c)
+			got := releaseSourceProblems(c, src, tt.notice)
+			if tt.want == "" && len(got) != 0 || tt.want != "" && (len(got) != 1 || !strings.Contains(got[0], tt.want)) {
+				t.Errorf("problems %q, want one mentioning %q", got, tt.want)
+			}
+		})
 	}
 }
 

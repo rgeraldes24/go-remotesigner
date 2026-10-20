@@ -12,11 +12,11 @@ ML-DSA-87, QRL sizes or the qrysm client), **QRL-sized** / **QRL time** (limits 
 
 Rows that show on the HTTP API are specified in [`docs/contract.md`](docs/contract.md), whose section 21 maps each of
 them to the contract section that states the behaviour. The "go-remotesigner" column links the page that specifies the
-behaviour. Rows X25, X26, X28, X76-X87 and X103-X106 describe execution mode (`remotesigner execution`), which is not
-part of 1.0.0; [`docs/operations/execution.md`](docs/operations/execution.md) specifies them. Rows X88-X102 describe
-the secret stores, which are not part of 1.0.0 either: the store pages that
-[`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources) lists specify X88-X101, and `execution.md`
-specifies X102. The register was reviewed against the code for 1.0.0.
+behaviour. Rows X25, X26, X28, X76-X87 and X103-X106 describe execution mode (`remotesigner execution`), which 1.1.0
+adds; [`docs/operations/execution.md`](docs/operations/execution.md) specifies them. Rows X88-X102 describe the secret
+stores, which 1.1.0 adds too: the store pages that [`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources)
+lists specify X88-X101, and `execution.md` specifies X102. The register was reviewed against the code for 1.0.0, and
+its rows X25, X26, X28 and X76-X106 again for 1.1.0.
 
 | # | Area | Web3Signer | go-remotesigner | Class |
 |---|---|---|---|---|

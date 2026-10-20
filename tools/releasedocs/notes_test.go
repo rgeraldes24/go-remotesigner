@@ -119,8 +119,8 @@ func TestReleaseNotesRefused(t *testing.T) {
 // The repository's CHANGELOG.md is in Keep a Changelog form: an Unreleased
 // section first, then one entry per version, newest first, each dated or
 // "Unreleased" and holding only the standard kinds of change, with a link
-// reference per version. It has the 1.0.0 entry, whose notes a release can
-// publish once its heading carries the tag's date.
+// reference per version. It has the 1.0.0 and 1.1.0 entries, whose notes a
+// release can publish once their headings carry the tag's date.
 func TestChangelog(t *testing.T) {
 	data, err := os.ReadFile("../../CHANGELOG.md")
 	if err != nil {
@@ -169,19 +169,24 @@ func TestChangelog(t *testing.T) {
 			t.Errorf("no link reference for [%s]", v)
 		}
 	}
-	if !slices.Contains(versions, "1.0.0") {
-		t.Fatal("no 1.0.0 entry")
-	}
-	dated := regexp.MustCompile(`(?m)^## \[1\.0\.0\] - .*$`).ReplaceAllString(text, "## [1.0.0] - 2026-11-02")
-	notes, err := releaseNotes([]byte(dated), "v1.0.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(notes), "### Added") {
-		t.Errorf("the 1.0.0 notes have no Added section:\n%s", notes)
-	}
-	if strings.Contains(string(notes), "](docs/") {
-		t.Error("the 1.0.0 notes keep a relative link, which a release page cannot resolve")
+	for _, version := range []string{"1.0.0", "1.1.0"} {
+		if !slices.Contains(versions, version) {
+			t.Errorf("no %s entry", version)
+			continue
+		}
+		heading := regexp.MustCompile(`(?m)^## \[` + regexp.QuoteMeta(version) + `\] - .*$`)
+		dated := heading.ReplaceAllString(text, "## ["+version+"] - 2026-11-02")
+		notes, err := releaseNotes([]byte(dated), "v"+version)
+		if err != nil {
+			t.Errorf("%s: %v", version, err)
+			continue
+		}
+		if !strings.Contains(string(notes), "### Added") {
+			t.Errorf("the %s notes have no Added section:\n%s", version, notes)
+		}
+		if strings.Contains(string(notes), "](docs/") {
+			t.Errorf("the %s notes keep a relative link, which a release page cannot resolve", version)
+		}
 	}
 }
 

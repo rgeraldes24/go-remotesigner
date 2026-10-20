@@ -17,7 +17,7 @@ const binaryName = "remotesigner-consensus"
 
 // flavourNotice: this flavour links no code whose licence asks for a
 // notice in --version.
-const flavourNotice = ""
+func flavourNotice(string) string { return "" }
 
 // flavourCommands: this flavour has no execution mode.
 func flavourCommands(func(runFunc) runFunc, io.Writer, io.Writer) []*cli.Command { return nil }
@@ -29,5 +29,5 @@ func flavourSections() map[string][]cli.Flag { return nil }
 // cloudSecretStores reports whether this flavour links the cloud SDKs of
 // the AWS, Azure and GCP secret stores. Like execution mode, they are in
 // the default flavour only, which keeps this one small; HashiCorp Vault,
-// read over plain HTTP, is in both.
+// read through Vault's HTTP API without a Vault SDK, is in both.
 const cloudSecretStores = false
