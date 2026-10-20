@@ -53,8 +53,8 @@ it.
   one), and empty for a raw seed.
 - `readonly` is `false` only for a key loaded from the key-config file the keymanager writes for it,
   `<sha256 of the public key>.yaml` in `--key-config-path`, holding that key alone, out of a keystore. Every other key
-  (a `file-raw` seed, a key-config file of another name, a key of `--keystores-path`) is read-only: a delete of it
-  is an error.
+  (a `file-raw` seed, a seed from a secret store, a key-config file of another name, a key of `--keystores-path`) is
+  read-only: a delete of it is an error.
 
 ## 3. Importing keys
 

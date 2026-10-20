@@ -1,0 +1,171 @@
+// Copyright 2026 The go-remotesigner Authors.
+// SPDX-License-Identifier: Apache-2.0
+
+package secrets
+
+import (
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
+)
+
+// ErrRedirect is the error of a store response that redirects: no store
+// client follows redirects, so that a credential is only ever sent to the
+// configured endpoint.
+var ErrRedirect = errors.New("the store answered with a redirect, which is not followed; configure the endpoint " +
+	"the redirect points to")
+
+// HTTPOptions configure a store's HTTP client.
+type HTTPOptions struct {
+	// Timeout bounds each request, from dialling to reading the body.
+	Timeout time.Duration
+	// TLS is the client's TLS configuration; nil is Go's default.
+	TLS *tls.Config
+	// HTTP1Only turns HTTP/2 off.
+	HTTP1Only bool
+}
+
+// HTTPClient returns an HTTP client for a store: each request has a
+// timeout, no redirect is followed, and a response body larger than
+// MaxResponseSize fails to read. Proxies come from the environment
+// (HTTPS_PROXY, NO_PROXY), as Go and the cloud SDKs default to.
+func HTTPClient(o HTTPOptions) *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	if o.TLS != nil {
+		t.TLSClientConfig = o.TLS
+	}
+	if o.HTTP1Only {
+		t.Protocols = new(http.Protocols)
+		t.Protocols.SetHTTP1(true)
+		t.ForceAttemptHTTP2 = false
+	}
+	return &http.Client{
+		Transport:     LimitTransport{Base: t, Max: MaxResponseSize},
+		Timeout:       o.Timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return ErrRedirect },
+	}
+}
+
+// LimitTransport bounds the response bodies of Base: a body that declares
+// or holds more than Max bytes fails with ErrTooLarge.
+type LimitTransport struct {
+	Base http.RoundTripper
+	Max  int64
+}
+
+// RoundTrip implements http.RoundTripper.
+func (l LimitTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := l.Base.RoundTrip(r)
+	if err != nil {
+		return nil, err
+	}
+	if resp.ContentLength > l.Max {
+		_ = resp.Body.Close()
+		return nil, &responseTooLarge{fmt.Sprintf("store response: %v: %d bytes, more than %d", ErrTooLarge,
+			resp.ContentLength, l.Max)}
+	}
+	resp.Body = &limitedBody{rc: resp.Body, max: l.Max, left: l.Max}
+	return resp, nil
+}
+
+// limitedBody fails once more than max bytes have been read.
+type limitedBody struct {
+	rc        io.ReadCloser
+	max, left int64
+}
+
+func (b *limitedBody) Read(p []byte) (int, error) {
+	if b.left < 0 {
+		return 0, b.tooLarge()
+	}
+	if int64(len(p)) > b.left+1 {
+		p = p[:b.left+1]
+	}
+	n, err := b.rc.Read(p)
+	b.left -= int64(n)
+	if b.left < 0 {
+		return n, b.tooLarge()
+	}
+	return n, err
+}
+
+func (b *limitedBody) tooLarge() error {
+	return &responseTooLarge{fmt.Sprintf("store response: %v: more than %d bytes", ErrTooLarge, b.max)}
+}
+
+func (b *limitedBody) Close() error { return b.rc.Close() }
+
+// responseTooLarge is the ErrTooLarge of a response over the limit. A
+// retry would fail the same way, and it says so: azcore's retry policy,
+// which retries a body it could not read, skips an error with a
+// NonRetriable method.
+type responseTooLarge struct{ msg string }
+
+func (e *responseTooLarge) Error() string { return e.msg }
+
+func (e *responseTooLarge) Unwrap() error { return ErrTooLarge }
+
+// NonRetriable marks the error as permanent for azcore's retry policy.
+func (e *responseTooLarge) NonRetriable() {}
+
+// ReadBody reads a response body, at most max bytes, so that no copy of a
+// secret is left behind: a body of declared length into one buffer of that
+// size, and one of unknown length (chunked, or from a proxy) into a buffer
+// that starts small and doubles, wiping each buffer it outgrows, so that
+// such a body costs what it holds, not max. The caller wipes the result.
+func ReadBody(resp *http.Response, max int64) ([]byte, error) {
+	tooLarge := fmt.Errorf("store response: %w: more than %d bytes", ErrTooLarge, max)
+	switch n := resp.ContentLength; {
+	case n > max:
+		return nil, tooLarge
+	case n >= 0:
+		b, err := secretfile.ReadLimited(resp.Body, n)
+		if errors.Is(err, secretfile.ErrTooLarge) {
+			return nil, errors.New("store response: longer than its Content-Length")
+		}
+		return b, err
+	}
+	b, err := readGrowing(resp.Body, max)
+	if errors.Is(err, ErrTooLarge) {
+		return nil, tooLarge
+	}
+	return b, err
+}
+
+// firstBodyBuffer is the buffer a body of unknown length is first read
+// into.
+const firstBodyBuffer = 4 << 10
+
+// readGrowing reads r, which must hold at most max bytes, into a buffer of
+// firstBodyBuffer bytes that doubles as it fills, up to max+1. Each buffer
+// it outgrows is wiped, and so is what it read when r fails or holds more
+// than max bytes.
+func readGrowing(r io.Reader, max int64) ([]byte, error) {
+	buf := make([]byte, 0, int(min(max+1, firstBodyBuffer)))
+	for {
+		if len(buf) == cap(buf) {
+			next := make([]byte, len(buf), int(min(max+1, 2*int64(cap(buf)))))
+			copy(next, buf)
+			mldsa87.Wipe(buf)
+			buf = next
+		}
+		n, err := r.Read(buf[len(buf):cap(buf)])
+		buf = buf[:len(buf)+n]
+		switch {
+		case int64(len(buf)) > max:
+			mldsa87.Wipe(buf)
+			return nil, ErrTooLarge
+		case errors.Is(err, io.EOF):
+			return buf, nil
+		case err != nil:
+			mldsa87.Wipe(buf)
+			return nil, err
+		}
+	}
+}

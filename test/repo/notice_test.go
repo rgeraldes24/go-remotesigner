@@ -26,12 +26,15 @@ import (
 // Lines "--- <module> NOTICE ---" start the reproduced NOTICE file of that
 // module.
 const (
-	noticePath     = "NOTICE"
-	binariesTitle  = "Third-party software in the binaries"
-	sourceTitle    = "Third-party code in the source repository only"
-	stdSubject     = "The Go standard library"
-	noticeFileHead = "--- "
-	noticeFileTail = " NOTICE ---"
+	noticePath    = "NOTICE"
+	binariesTitle = "Third-party software in the binaries"
+	sourceTitle   = "Third-party code in the source repository only"
+	// defaultOnlyTitle starts the entries of the modules only the default
+	// flavour, remotesigner, links: the cloud secret stores' SDKs.
+	defaultOnlyTitle = "Linked by remotesigner only"
+	stdSubject       = "The Go standard library"
+	noticeFileHead   = "--- "
+	noticeFileTail   = " NOTICE ---"
 )
 
 var (
@@ -92,6 +95,9 @@ type notice struct {
 	entries []*noticeEntry
 	files   map[string][]string // module path -> lines of its reproduced NOTICE file
 	prose   []string            // the unindented lines
+	// defaultOnly is the line of the defaultOnlyTitle heading, 0 without
+	// one: the entries below it are of the default flavour only.
+	defaultOnly int
 }
 
 func parseNotice(text string) (*notice, error) {
@@ -127,6 +133,9 @@ func parseNotice(text string) (*notice, error) {
 		case indent == 0:
 			n.prose = append(n.prose, line)
 			inEntry = false
+			if section == binariesTitle && body == defaultOnlyTitle {
+				n.defaultOnly = i + 1
+			}
 		case section != binariesTitle:
 			return nil, fmt.Errorf("line %d: indented line outside the binaries list", i+1)
 		case indent == 2:
@@ -171,6 +180,9 @@ type linkSet struct {
 	modules  map[string]string // module path -> source directory
 	vendored map[string]bool   // golang.org/x modules vendored into the standard library
 	goroot   string
+	// byFlavour holds the modules each flavour links on any target, by its
+	// build tags.
+	byFlavour map[string]map[string]bool
 }
 
 var (
@@ -202,7 +214,10 @@ func goList(goos, goarch, tags string) (string, error) {
 func linkedSet(t *testing.T) linkSet {
 	t.Helper()
 	linkOnce.Do(func() {
-		linked = linkSet{modules: map[string]string{}, vendored: map[string]bool{}}
+		linked = linkSet{modules: map[string]string{}, vendored: map[string]bool{}, byFlavour: map[string]map[string]bool{}}
+		for _, tags := range noticeFlavours {
+			linked.byFlavour[tags] = map[string]bool{}
+		}
 		var (
 			mu   sync.Mutex
 			wg   sync.WaitGroup
@@ -225,6 +240,7 @@ func linkedSet(t *testing.T) linkSet {
 						switch {
 						case f[0] == "module" && len(f) == 3:
 							linked.modules[f[1]] = f[2]
+							linked.byFlavour[tags][f[1]] = true
 						case f[0] == "std" && strings.HasPrefix(f[1], "vendor/golang.org/x/"):
 							name := strings.SplitN(strings.TrimPrefix(f[1], "vendor/golang.org/x/"), "/", 2)[0]
 							linked.vendored["golang.org/x/"+name] = true
@@ -391,6 +407,44 @@ func TestNoticeCoversLinkedModules(t *testing.T) {
 	}
 }
 
+// TestNoticeSplitsFlavours checks NOTICE's split by flavour: the entries
+// under "Linked by remotesigner only" name the modules that remotesigner
+// links and remotesigner-consensus does not, on any target, and every such
+// module is named there; the entries above it name modules both link.
+func TestNoticeSplitsFlavours(t *testing.T) {
+	n, ls := readNotice(t), linkedSet(t)
+	if n.defaultOnly == 0 {
+		t.Fatalf("NOTICE has no %q section", defaultOnlyTitle)
+	}
+	full, consensus := ls.byFlavour[""], ls.byFlavour["noexecution"]
+	defaultOnly := map[string]bool{}
+	for _, e := range n.entries {
+		if e.std() {
+			continue
+		}
+		below := e.line > n.defaultOnly
+		for _, m := range e.tokens() {
+			if _, ok := ls.modules[m]; !ok {
+				continue
+			}
+			switch {
+			case below && consensus[m]:
+				t.Errorf("NOTICE:%d: %s is under %q, but remotesigner-consensus links it too", e.line, m, defaultOnlyTitle)
+			case below:
+				defaultOnly[m] = true
+			case !consensus[m]:
+				t.Errorf("NOTICE:%d: remotesigner-consensus does not link %s: name it under %q", e.line, m,
+					defaultOnlyTitle)
+			}
+		}
+	}
+	for m := range full {
+		if !consensus[m] && !defaultOnly[m] {
+			t.Errorf("only remotesigner links %s, but NOTICE does not name it under %q", m, defaultOnlyTitle)
+		}
+	}
+}
+
 // TestNoticeLinesAreVerbatim checks that every notice line of an entry is
 // copied verbatim from the component's licence or named file: a copyright
 // line, with the "All rights reserved." lines that follow it, appears there
@@ -504,6 +558,10 @@ func TestNoticeHasEveryCopyrightLine(t *testing.T) {
 	}
 }
 
+// noticeFileNames are the names of a module's NOTICE file: the Apache
+// convention, and the .txt variant aws-sdk-go-v2 and gRPC use.
+var noticeFileNames = []string{"NOTICE", "NOTICE.txt"}
+
 // TestNoticeReproducesNoticeFiles checks that the NOTICE file of every
 // linked module that has one is reproduced verbatim, and nothing else is.
 func TestNoticeReproducesNoticeFiles(t *testing.T) {
@@ -523,8 +581,16 @@ func TestNoticeReproducesNoticeFiles(t *testing.T) {
 	}
 	want := map[string]bool{}
 	for m, dir := range ls.modules {
-		p := filepath.Join(dir, "NOTICE")
-		if !fileExists(p) {
+		var p string
+		for _, name := range noticeFileNames {
+			if q := filepath.Join(dir, name); fileExists(q) {
+				if p != "" {
+					t.Errorf("%s has two NOTICE files", m)
+				}
+				p = q
+			}
+		}
+		if p == "" {
 			continue
 		}
 		want[m] = true

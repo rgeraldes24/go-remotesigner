@@ -146,11 +146,13 @@ variables, so that a signer's ` + "`REMOTESIGNER_CONSENSUS_KEYSTORES_*`" + ` set
 	b.WriteString(`
 ## Override flags
 
-These flags are hidden from ` + "`--help`" + `. Each one lifts a startup refusal that protects a listener beyond loopback,
-and accepts the risk that refusal guards against; on a loopback listener none of them is needed. They are set like
-any other flag, on the command line, in the environment or in the config file. None of them can re-enable a
-disabled slashing protection on such a listener: that refusal has no override. The container image, its entrypoint
-and the examples in ` + "`deploy/`" + ` set none of them.
+These flags are hidden from ` + "`--help`" + `. They are set like any other flag, on the command line, in the environment
+or in the config file. Each ` + "`--Xallow-*`" + ` flag lifts a startup refusal that protects a listener beyond loopback,
+and accepts the risk that refusal guards against; on a loopback listener none of them is needed. None of them can
+re-enable a disabled slashing protection on such a listener: that refusal has no override. The container image, its
+entrypoint and the examples in ` + "`deploy/`" + ` set none of them. The ` + "`--Xazure-*`" + ` and ` + "`--Xgcp-*`" + ` overrides
+point a secret store's client at another endpoint, authority or trust anchor, as Web3Signer's unstable Azure options
+do: for sovereign clouds, private endpoints and emulators.
 `)
 	section(&b, "### Global", "", flags.Global(), true)
 	section(&b, "### Consensus", flags.ConsensusCommand, flags.Consensus(), true)
@@ -158,12 +160,14 @@ and the examples in ` + "`deploy/`" + ` set none of them.
 	return b.Bytes()
 }
 
-// overrides explains each hidden flag, in the order of the tables above.
+// overrides explains each --Xallow-* flag, in the order of the tables
+// above. The secret-store overrides refuse nothing; their store pages
+// explain them.
 func overrides(b *bytes.Buffer) {
 	b.WriteString("\n### What each override accepts\n")
 	doc := flags.Overrides()
 	for _, f := range slices.Concat(flags.Global(), flags.Consensus()) {
-		if !isHidden(f) {
+		if !isHidden(f) || !isFailSafeOverride(f.Names()[0]) {
 			continue
 		}
 		o := doc[f.Names()[0]]
@@ -242,6 +246,10 @@ func dashes(name string) string {
 	}
 	return "--"
 }
+
+// isFailSafeOverride reports whether the hidden flag name lifts a startup
+// refusal: an --Xallow-* flag.
+func isFailSafeOverride(name string) bool { return strings.HasPrefix(name, "Xallow-") }
 
 func isHidden(f cli.Flag) bool {
 	type hider interface{ IsVisible() bool }

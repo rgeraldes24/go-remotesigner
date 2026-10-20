@@ -13,6 +13,20 @@
   "postUpdateOptions": [
     "gomodTidy"
   ],
+  "packageRules": [
+    {
+      "description": [
+        "LocalStack 4.14.0 is the last release that serves Secrets Manager without LOCALSTACK_AUTH_TOKEN, which neither make test-cloud nor the cloud-secrets job has: its image (Makefile and ci.yml) gets digest updates only, until a token is wired in."
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "localstack/localstack"
+      ],
+      "allowedVersions": "<=4.14.0"
+    }
+  ],
   "ignorePaths": [
     "third_party/**",
     "tools/vectorgen/**"
@@ -40,6 +54,18 @@
       ],
       "matchStrings": [
         "// renovate: datasource=(?<datasource>docker)\\n[^\\n\"]*\"(?<depName>[^\"@:]+):(?<currentValue>[^\"@]+)@(?<currentDigest>sha256:[0-9a-f]{64})\""
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": [
+        "Images pinned by digest in Makefile variables (the secret-store test servers), marked with a '# renovate: datasource=docker' comment on the line before."
+      ],
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>docker)\\n[A-Z_]+ \\?= (?<depName>[^\\s:@]+):(?<currentValue>[^\\s@]+)@(?<currentDigest>sha256:[0-9a-f]{64})"
       ]
     }
   ]

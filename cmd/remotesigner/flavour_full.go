@@ -26,3 +26,7 @@ func flavourCommands(pick func(runFunc) runFunc, stdout, stderr io.Writer) []*cl
 func flavourSections() map[string][]cli.Flag {
 	return map[string][]cli.Flag{flags.ExecutionCommand: flags.Execution()}
 }
+
+// cloudSecretStores reports whether this flavour links the cloud SDKs of
+// the AWS, Azure and GCP secret stores.
+const cloudSecretStores = true

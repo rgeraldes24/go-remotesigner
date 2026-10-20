@@ -574,9 +574,10 @@ golden fixture for each check.
 - **`/upcheck`**: plain `OK` (not JSON), or 503 `LOADING` before the first key load and store open finish.
 - **`/healthcheck`**: the Web3Signer shape `{status, outcome, checks[{id, status, data?}]}` with the check ids
   `default-check`, `slashing-protection-db-health-check` (only when slashing protection is enabled, as in
-  Web3Signer), `keys-check/config-files-loading`,
-  `keys-check/keystores-bulk-loading` and `keys-check/randao` (degraded when keys cannot reveal or fewer than 1,024
-  layers remain). Unauthenticated callers see only `status` and `outcome`.
+  Web3Signer), `keys-check/config-files-loading`, `keys-check/keystores-bulk-loading`,
+  `keys-check/azure-bulk-loading`, `keys-check/aws-bulk-loading` and `keys-check/gcp-bulk-loading` (each only with its
+  key source, as in Web3Signer) and `keys-check/randao` (degraded when keys cannot reveal or fewer than 1,024 layers
+  remain). Unauthenticated callers see only `status` and `outcome`.
 - **`/reload`**: `POST` (admin) starts an asynchronous reload and returns 202, or 409 while one runs; `GET` (sign)
   reports its status. Keys absent from the new load are evicted from memory only; their slashing-protection `enabled`
   flag is never changed by a reload. A source that fails to load keeps its previous signers.
@@ -690,6 +691,12 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
     ([section 7](#7-request-envelope-and-validation-pipeline)).
   - A request that matches no route gets a 404 or 405 `{code, message}` body without a `reason`, and one that the
     HTTP server cannot parse gets Go's plain-text 400 or 431 ([section 11](#11-errors)).
+
+  The secret-store key sources added these:
+  - `/healthcheck` lists `keys-check/azure-bulk-loading`, `keys-check/aws-bulk-loading` and
+    `keys-check/gcp-bulk-loading` when the matching bulk loader is enabled, with the same `data` as the other
+    `keys-check/*` checks. A check id is a free string in the `HealthCheck` schema, so no shape changes
+    ([section 17](#17-supporting-endpoints)).
 - Open items, which would change the wire behaviour, so they wait for a contract version and the matching qrysm
   client change:
   - Keeping the registration bound on while the genesis time is unknown: it needs only the wall clock, but a

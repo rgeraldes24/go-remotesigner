@@ -52,9 +52,12 @@ func TestRender(t *testing.T) {
 	}
 }
 
-// Every --X override is explained in the reference: what it lifts, the risk
-// it accepts and what to configure instead. An override added without its
-// explanation, or an explanation left behind by a removed flag, fails here.
+// Every --Xallow-* override is explained in the reference: what it lifts,
+// the risk it accepts and what to configure instead. An override added
+// without its explanation, or an explanation left behind by a removed flag,
+// fails here. The other hidden flags are the secret-store overrides
+// (--Xazure-*, --Xgcp-*), which lift no refusal: the override section names
+// them, and their store pages explain them.
 func TestEveryOverrideIsExplained(t *testing.T) {
 	doc := string(render())
 	explained := flags.Overrides()
@@ -82,6 +85,18 @@ func TestEveryOverrideIsExplained(t *testing.T) {
 		if !strings.HasPrefix(name, "X") {
 			t.Errorf("--%s is hidden but not an --X override", name)
 		}
+		if !isFailSafeOverride(name) {
+			family, ok := storeOverride(name)
+			if !ok {
+				t.Errorf("--%s is hidden but neither an --Xallow-* nor a secret-store override", name)
+			} else if !strings.Contains(doc, "`--"+family+"-*`") {
+				t.Errorf("--%s: the override section does not name `--%s-*`", name, family)
+			}
+			if _, ok := explained[name]; ok || strings.Contains(doc, "\n#### `--"+name+"`\n") {
+				t.Errorf("--%s lifts no refusal, but the reference explains it as one", name)
+			}
+			continue
+		}
 		o, ok := explained[name]
 		if !ok || o.Refused == "" || o.Risk == "" || o.Instead == "" {
 			t.Errorf("--%s: explanation %+v, want what it lifts, its risk and what to do instead", name, o)
@@ -95,6 +110,17 @@ func TestEveryOverrideIsExplained(t *testing.T) {
 			t.Errorf("flags.Overrides explains --%s, which is no hidden flag", name)
 		}
 	}
+}
+
+// storeOverride returns the family of a secret-store override's name: Xazure
+// or Xgcp.
+func storeOverride(name string) (string, bool) {
+	for _, family := range []string{"Xazure", "Xgcp"} {
+		if strings.HasPrefix(name, family+"-") {
+			return family, true
+		}
+	}
+	return "", false
 }
 
 func TestConfigKeys(t *testing.T) {

@@ -33,6 +33,9 @@ const (
 	CheckSlashingProtection   = "slashing-protection-db-health-check"
 	CheckConfigFilesLoading   = "keys-check/config-files-loading"
 	CheckKeystoresBulkLoading = "keys-check/keystores-bulk-loading"
+	CheckAWSBulkLoading       = "keys-check/aws-bulk-loading"
+	CheckGCPBulkLoading       = "keys-check/gcp-bulk-loading"
+	CheckAzureBulkLoading     = "keys-check/azure-bulk-loading"
 	CheckRandao               = "keys-check/randao"
 )
 

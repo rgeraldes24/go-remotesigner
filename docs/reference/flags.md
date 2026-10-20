@@ -48,9 +48,9 @@ up to 10 s, closes the store, wipes the keys and exits 0.
 |---|---|---|---|---|
 | `--config-file` | none | none | unset | YAML file of flag values: bare flag names, with an optional consensus: section. Unknown keys are rejected. |
 | `--data-path` | `REMOTESIGNER_DATA_PATH` | `data-path` | unset | Directory for the generated token files, the slashing-protection store and the ports file |
-| `--key-config-path`, `--key-store-path` | `REMOTESIGNER_KEY_CONFIG_PATH`, `REMOTESIGNER_KEY_STORE_PATH` | `key-config-path` or `key-store-path` | unset | Directory of key-config files (\*.yaml or \*.yml; types file-raw and file-keystore); unset loads none |
+| `--key-config-path`, `--key-store-path` | `REMOTESIGNER_KEY_CONFIG_PATH`, `REMOTESIGNER_KEY_STORE_PATH` | `key-config-path` or `key-store-path` | unset | Directory of key-config files (\*.yaml or \*.yml; types file-raw, file-keystore, hashicorp, aws-secret, azure-secret and gcp-secret); unset loads none |
 | `--key-store-config-file-max-size` | `REMOTESIGNER_KEY_STORE_CONFIG_FILE_MAX_SIZE` | `key-store-config-file-max-size` | `104857600` | Largest key-config file loaded, in bytes (Web3Signer counts code points); a larger file fails to load. Must be above 0. |
-| `--strict-file-permissions` | `REMOTESIGNER_STRICT_FILE_PERMISSIONS` | `strict-file-permissions` | `true` | Refuse secret files (password files, key-config files with a seed) that their group or other users can read, and, with --key-manager-api-enabled, a --key-config-path directory they can access; false loads them with a warning |
+| `--strict-file-permissions` | `REMOTESIGNER_STRICT_FILE_PERMISSIONS` | `strict-file-permissions` | `true` | Refuse secret files (password files, key-config files with a seed or a secret-store credential) that their group or other users can read, and, with --key-manager-api-enabled, a --key-config-path directory they can access; false loads them with a warning |
 | `--reload-timeout` | `REMOTESIGNER_RELOAD_TIMEOUT` | `reload-timeout` | `60` | Minutes a POST /reload may load keys; the sources not loaded by then keep their previous keys. The startup load is not bounded. |
 | `--signer-load-parallelism` | `REMOTESIGNER_SIGNER_LOAD_PARALLELISM` | `signer-load-parallelism` | `0 (from the memory limit)` | Keystore decrypts with the standard KDF that may run at once; 0 sizes the Argon2id budget from GOMEMLIMIT, the cgroup limit or half the RAM |
 | `--logging`, `-l` | `REMOTESIGNER_LOGGING`, `REMOTESIGNER_L` | `logging` or `l` | `INFO` | Log level: OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE or ALL |
@@ -111,6 +111,26 @@ up to 10 s, closes the store, wipes the keys and exits 0.
 | `--keystores-path` | `REMOTESIGNER_CONSENSUS_KEYSTORES_PATH` | `keystores-path` or `consensus.keystores-path` | unset | Directory of keystores to load: every non-hidden \*.json file in it (deposit CLI or qrysm keystore v1) |
 | `--keystores-password-file` | `REMOTESIGNER_CONSENSUS_KEYSTORES_PASSWORD_FILE` | `keystores-password-file` or `consensus.keystores-password-file` | unset | File holding the password of every keystore in --keystores-path; not with --keystores-passwords-path |
 | `--keystores-passwords-path` | `REMOTESIGNER_CONSENSUS_KEYSTORES_PASSWORDS_PATH` | `keystores-passwords-path` or `consensus.keystores-passwords-path` | unset | Directory of password files, \<name>.txt for keystore \<name>.json; not with --keystores-password-file |
+| `--aws-secrets-enabled` | `REMOTESIGNER_CONSENSUS_AWS_SECRETS_ENABLED` | `aws-secrets-enabled` or `consensus.aws-secrets-enabled` | `false` | Bulk-load seeds from AWS Secrets Manager: every secret the prefix and tag filters select, one 48-byte seed (hex) per line. Default flavour only. |
+| `--aws-secrets-auth-mode` | `REMOTESIGNER_CONSENSUS_AWS_SECRETS_AUTH_MODE` | `aws-secrets-auth-mode` or `consensus.aws-secrets-auth-mode` | `SPECIFIED` | AWS authentication of the bulk loader: SPECIFIED (--aws-secrets-access-key-id and --aws-secrets-secret-access-key) or ENVIRONMENT (the SDK's default chain: environment, shared credentials and config files, web identity, ECS and EC2 roles) |
+| `--aws-secrets-access-key-id` | `REMOTESIGNER_CONSENSUS_AWS_SECRETS_ACCESS_KEY_ID` | `aws-secrets-access-key-id` or `consensus.aws-secrets-access-key-id` | unset | AWS access key id of SPECIFIED authentication |
+| `--aws-secrets-secret-access-key` | `REMOTESIGNER_CONSENSUS_AWS_SECRETS_SECRET_ACCESS_KEY` | `aws-secrets-secret-access-key` or `consensus.aws-secrets-secret-access-key` | unset | AWS secret access key of SPECIFIED authentication; prefer the environment variable, which other users cannot read in the process list |
+| `--aws-secrets-region` | `REMOTESIGNER_CONSENSUS_AWS_SECRETS_REGION` | `aws-secrets-region` or `consensus.aws-secrets-region` | unset | AWS region of Secrets Manager; required for SPECIFIED authentication, else the SDK's (AWS_REGION, the shared config file) |
+| `--aws-endpoint-override` | `REMOTESIGNER_CONSENSUS_AWS_ENDPOINT_OVERRIDE` | `aws-endpoint-override` or `consensus.aws-endpoint-override` | unset | Secrets Manager endpoint URL instead of AWS's, for the bulk loader (a VPC endpoint, LocalStack) |
+| `--aws-secrets-prefixes-filter` | `REMOTESIGNER_CONSENSUS_AWS_SECRETS_PREFIXES_FILTER` | `aws-secrets-prefixes-filter` or `consensus.aws-secrets-prefixes-filter` | unset | Load only the secrets whose names start with one of these prefixes (comma-separated) |
+| `--aws-secrets-tag` | `REMOTESIGNER_CONSENSUS_AWS_SECRETS_TAG` | `aws-secrets-tag` or `consensus.aws-secrets-tag` | unset | Load only the secrets with these tags: TAG_NAME=TAG_VALUE, repeated or separated by \|; a name given twice keeps its last value; AWS matches any of the names and any of the non-empty values |
+| `--aws-connection-cache-size` | `REMOTESIGNER_CONSENSUS_AWS_CONNECTION_CACHE_SIZE` | `aws-connection-cache-size` or `consensus.aws-connection-cache-size` | `1` | AWS Secrets Manager clients kept for aws-secret key-config documents during a load, by credentials and region |
+| `--gcp-secrets-enabled` | `REMOTESIGNER_CONSENSUS_GCP_SECRETS_ENABLED` | `gcp-secrets-enabled` or `consensus.gcp-secrets-enabled` | `false` | Bulk-load seeds from GCP Secret Manager: the latest version of every secret of --gcp-project-id that --gcp-secrets-filter selects, one 48-byte seed (hex) per line, with Application Default Credentials. Default flavour only. |
+| `--gcp-project-id` | `REMOTESIGNER_CONSENSUS_GCP_PROJECT_ID` | `gcp-project-id` or `consensus.gcp-project-id` | unset | GCP project of the bulk loader's secrets |
+| `--gcp-secrets-filter` | `REMOTESIGNER_CONSENSUS_GCP_SECRETS_FILTER` | `gcp-secrets-filter` or `consensus.gcp-secrets-filter` | unset | Secret Manager list filter (https://cloud.google.com/secret-manager/docs/filtering); empty loads every secret of the project |
+| `--azure-vault-enabled` | `REMOTESIGNER_CONSENSUS_AZURE_VAULT_ENABLED` | `azure-vault-enabled` or `consensus.azure-vault-enabled` | `false` | Bulk-load seeds from the Azure Key Vault --azure-vault-name: every secret with the --azure-tags, one 48-byte seed (hex) per line. Default flavour only. |
+| `--azure-vault-auth-mode` | `REMOTESIGNER_CONSENSUS_AZURE_VAULT_AUTH_MODE` | `azure-vault-auth-mode` or `consensus.azure-vault-auth-mode` | `CLIENT_SECRET` | Azure authentication: CLIENT_SECRET, USER_ASSIGNED_MANAGED_IDENTITY or SYSTEM_ASSIGNED_MANAGED_IDENTITY |
+| `--azure-vault-name` | `REMOTESIGNER_CONSENSUS_AZURE_VAULT_NAME` | `azure-vault-name` or `consensus.azure-vault-name` | unset | Name of the key vault, the subdomain of vault.azure.net |
+| `--azure-client-id` | `REMOTESIGNER_CONSENSUS_AZURE_CLIENT_ID` | `azure-client-id` or `consensus.azure-client-id` | unset | Client id of CLIENT_SECRET or USER_ASSIGNED_MANAGED_IDENTITY authentication; optional for SYSTEM_ASSIGNED_MANAGED_IDENTITY |
+| `--azure-tenant-id` | `REMOTESIGNER_CONSENSUS_AZURE_TENANT_ID` | `azure-tenant-id` or `consensus.azure-tenant-id` | unset | Microsoft Entra ID tenant of CLIENT_SECRET authentication |
+| `--azure-client-secret` | `REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET` | `azure-client-secret` or `consensus.azure-client-secret` | unset | Client secret of CLIENT_SECRET authentication; prefer the environment variable, which other users cannot read in the process list |
+| `--azure-response-timeout` | `REMOTESIGNER_CONSENSUS_AZURE_RESPONSE_TIMEOUT` | `azure-response-timeout` or `consensus.azure-response-timeout` | `60` | Seconds each Azure request and call may take |
+| `--azure-tags` | `REMOTESIGNER_CONSENSUS_AZURE_TAGS` | `azure-tags` or `consensus.azure-tags` | unset | Load only the secrets that carry all these tags: TAG_NAME=TAG_VALUE, repeated or separated by \|; a name given twice keeps its last value |
 
 ## Execution flags
 
@@ -241,11 +261,13 @@ variables, so that a signer's `REMOTESIGNER_CONSENSUS_KEYSTORES_*` settings do n
 
 ## Override flags
 
-These flags are hidden from `--help`. Each one lifts a startup refusal that protects a listener beyond loopback,
-and accepts the risk that refusal guards against; on a loopback listener none of them is needed. They are set like
-any other flag, on the command line, in the environment or in the config file. None of them can re-enable a
-disabled slashing protection on such a listener: that refusal has no override. The container image, its entrypoint
-and the examples in `deploy/` set none of them.
+These flags are hidden from `--help`. They are set like any other flag, on the command line, in the environment
+or in the config file. Each `--Xallow-*` flag lifts a startup refusal that protects a listener beyond loopback,
+and accepts the risk that refusal guards against; on a loopback listener none of them is needed. None of them can
+re-enable a disabled slashing protection on such a listener: that refusal has no override. The container image, its
+entrypoint and the examples in `deploy/` set none of them. The `--Xazure-*` and `--Xgcp-*` overrides
+point a secret store's client at another endpoint, authority or trust anchor, as Web3Signer's unstable Azure options
+do: for sovereign clouds, private endpoints and emulators.
 
 ### Global
 
@@ -259,6 +281,10 @@ and the examples in `deploy/` set none of them.
 |---|---|---|---|---|
 | `--Xallow-unknown-genesis-time` | `REMOTESIGNER_CONSENSUS_XALLOW_UNKNOWN_GENESIS_TIME` | `Xallow-unknown-genesis-time` or `consensus.Xallow-unknown-genesis-time` | `false` | Allow a non-loopback listener without a genesis time (wall-clock bounds off) |
 | `--Xallow-gvr-tofu` | `REMOTESIGNER_CONSENSUS_XALLOW_GVR_TOFU` | `Xallow-gvr-tofu` or `consensus.Xallow-gvr-tofu` | `false` | Allow a non-loopback listener to pin the genesis validators root on first use |
+| `--Xgcp-endpoint-override` | `REMOTESIGNER_CONSENSUS_XGCP_ENDPOINT_OVERRIDE` | `Xgcp-endpoint-override` or `consensus.Xgcp-endpoint-override` | unset | Secret Manager endpoint host:port instead of Google's; http://host:port is an emulator, reached without TLS and credentials |
+| `--Xazure-endpoint-override` | `REMOTESIGNER_CONSENSUS_XAZURE_ENDPOINT_OVERRIDE` | `Xazure-endpoint-override` or `consensus.Xazure-endpoint-override` | unset | Key Vault URL instead of https://\<vault>.vault.azure.net |
+| `--Xazure-authority-host-override` | `REMOTESIGNER_CONSENSUS_XAZURE_AUTHORITY_HOST_OVERRIDE` | `Xazure-authority-host-override` or `consensus.Xazure-authority-host-override` | unset | Microsoft Entra ID authority host URL instead of Azure's |
+| `--Xazure-trust-certificate-override` | `REMOTESIGNER_CONSENSUS_XAZURE_TRUST_CERTIFICATE_OVERRIDE` | `Xazure-trust-certificate-override` or `consensus.Xazure-trust-certificate-override` | unset | Certificate file (PEM or DER) trusted for the Key Vault and authority connections instead of the system roots |
 
 ### What each override accepts
 

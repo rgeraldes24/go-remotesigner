@@ -276,6 +276,9 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 	if err := checkKeystores(cfg.Consensus.Keystores); err != nil {
 		return nil, err
 	}
+	if cfg.Consensus.SecretStores, err = secretStores(c); err != nil {
+		return nil, err
+	}
 	if err := storeConfig(c, &cfg.Consensus); err != nil {
 		return nil, err
 	}

@@ -18,10 +18,16 @@ validator client is [`docs/contract.md`](docs/contract.md) and
 [`docs/spec/`](docs/spec/README.md). `remotesigner consensus` signs all nine artifact types behind slashing protection
 in a bbolt file or, for replicas serving the same keys, a shared Postgres database, releases RANDAO reveals under the
 frontier rule, and serves `publicKeys`, `capabilities`, `/upcheck`, `/healthcheck`, `/reload` and a Prometheus metrics
-listener, with token and client-certificate authentication over TLS, the request guards and limits, and key loading from `file-raw` and `file-keystore`
-key files and from keystore directories, with reloads that never disable a key
-([`docs/operations/reload.md`](docs/operations/reload.md)), and the keymanager API to list, import and delete keys
-while it runs ([`docs/operations/keymanager.md`](docs/operations/keymanager.md)). `remotesigner consensus keystore
+listener, with token and client-certificate authentication over TLS, the request guards and limits, and key loading
+from `file-raw` and `file-keystore` key files, from keystore directories and from secret stores, with reloads that
+never disable a key ([`docs/operations/reload.md`](docs/operations/reload.md)), and the keymanager API to list, import
+and delete keys while it runs ([`docs/operations/keymanager.md`](docs/operations/keymanager.md)). The secret stores
+hold seeds only: HashiCorp Vault's KV version 2 engine, read over plain HTTP in both flavours
+([`docs/operations/hashicorp-vault.md`](docs/operations/hashicorp-vault.md)), and, in the default flavour,
+AWS Secrets Manager, GCP Secret Manager and Azure Key Vault secrets, each one secret per key file or in bulk
+([`aws-secrets-manager.md`](docs/operations/aws-secrets-manager.md),
+[`gcp-secret-manager.md`](docs/operations/gcp-secret-manager.md),
+[`azure-key-vault.md`](docs/operations/azure-key-vault.md)). `remotesigner consensus keystore
 verify` checks qrysm and deposit CLI keystores and their password files offline
 ([`docs/operations/keystores.md`](docs/operations/keystores.md)). In the default flavour, `remotesigner execution`
 holds QRL account keys for JSON-RPC clients in front of a gqrl node: it answers `qrl_accounts` and `qrl_sign` and
@@ -47,6 +53,10 @@ unit, example configuration files, the Grafana dashboard and the Prometheus aler
 | [`docs/operations/keystores.md`](docs/operations/keystores.md) | keystore formats, the keystore policy, password files, `consensus keystore verify` |
 | [`docs/operations/reload.md`](docs/operations/reload.md) | key sources, loading and reloading, disabling and enabling a key, memory for keystore decryption |
 | [`docs/operations/keymanager.md`](docs/operations/keymanager.md) | the keymanager API: listing, importing and deleting keys while the signer runs |
+| [`docs/operations/hashicorp-vault.md`](docs/operations/hashicorp-vault.md) | seeds in HashiCorp Vault's KV version 2 engine: the `hashicorp` document, token and Kubernetes authentication, TLS and pinned servers |
+| [`docs/operations/aws-secrets-manager.md`](docs/operations/aws-secrets-manager.md) | seeds in AWS Secrets Manager (default flavour): the `aws-secret` document, the bulk loader, credentials |
+| [`docs/operations/gcp-secret-manager.md`](docs/operations/gcp-secret-manager.md) | seeds in GCP Secret Manager (default flavour): the bulk loader, the `gcp-secret` document, credentials |
+| [`docs/operations/azure-key-vault.md`](docs/operations/azure-key-vault.md) | seeds in Azure Key Vault secrets (default flavour): authentication, the `azure-secret` document, the bulk loader, the overrides |
 | [`docs/operations/migration.md`](docs/operations/migration.md) | moving validators to the signer: importing their slashing-protection history, the high watermark, exporting |
 | [`docs/operations/backup.md`](docs/operations/backup.md) | backing up and restoring the bbolt store |
 | [`docs/operations/randao.md`](docs/operations/randao.md) | RANDAO reveals: the frontier rule, gap advances, sizing the bucket, resetting a key, the alerts |
@@ -70,6 +80,7 @@ Go 1.26.5 or later is required (the module's toolchain line selects go1.26.9).
 make build             # bin/remotesigner, the default flavour
 make build-consensus   # bin/remotesigner-consensus, consensus only (-tags noexecution)
 make test              # go test -race, both flavours
+make test-cloud        # the secret-store tests against a Vault dev server and LocalStack (Docker)
 make contract          # OpenAPI lint, example validation, docs/contract.md consistency
 make lint              # go vet, golangci-lint, headercheck, LICENSE hash
 make docs              # regenerate docs/reference/flags.md from the flag definitions
@@ -78,7 +89,7 @@ make release-snapshot  # the release dry run (goreleaser); make release-check ch
 ```
 
 Both flavours are static (`CGO_ENABLED=0`). The consensus-only flavour, `remotesigner-consensus`, never links go-qrl
-or any other GPL or LGPL code.
+or any other GPL or LGPL code, nor the AWS, Azure and GCP SDKs of the cloud secret stores.
 
 ```
 $ bin/remotesigner --version
