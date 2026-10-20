@@ -57,6 +57,8 @@ var operatorPages = []struct {
 		"first reveal is a `first_use`, which raises no alert", "## 3. Sizing the bucket",
 		"## 6. Resetting a key's state", "## 7. Health and alerts"}},
 	{"docs/operations/metrics.md", []string{"## 2. Catalogue", "## 4. Alerts"}},
+	{"docs/operations/execution.md", []string{"## 3. Account keys", "## 4. The JSON-RPC endpoint", "## 6. The proxy",
+		"## 7. Guards, health and metrics"}},
 	{"docs/operations/upgrade.md", []string{"## 2. The schema-version rule", "## 4. Postgres replicas",
 		"## 5. Going back to an older release"}},
 	{"docs/operations/release.md", []string{"## 3. Verifying a release", "## 6. The v1.0 release checklist",
