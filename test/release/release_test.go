@@ -281,14 +281,16 @@ func checkImageFiles(t *testing.T, flavour, image string) {
 // TestReleaseImages checks every image of the dry run, which goreleaser
 // loads into the local image store with one tag per architecture: its user,
 // entrypoint and labels, its licence files and binary. The images of this
-// machine's architecture, one per flavour, also go through the smoke test
-// (TestDockerSmoke's checks): the release images themselves, not another
+// machine's architecture, one per flavour, also print the run's version and
+// go through the smoke test (TestDockerSmoke's checks): the release images
+// themselves, not another
 // build of the Dockerfile, run the signer as non-root with a read-only root
 // file system.
 func TestReleaseImages(t *testing.T) {
 	dist := distDir(t)
 	requireDocker(t)
 	images := ofType(readArtifacts(t, dist), "Docker Image")
+	md := readMetadata(t, dist)
 	hostArch := strings.TrimSpace(docker(t, "version", "--format", "{{.Server.Arch}}"))
 
 	for _, flavour := range flavours {
@@ -323,8 +325,8 @@ func TestReleaseImages(t *testing.T) {
 				return
 			}
 			out := docker(t, "run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", img.Name, "--version")
-			if !strings.HasPrefix(out, flavour+" version ") {
-				t.Errorf("--version printed %q, want the %s flavour's version", out, flavour)
+			if want := versionLine(flavour, md); !strings.HasPrefix(out, want) {
+				t.Errorf("--version printed %q, want it to start with %q", out, want)
 			}
 			smoke(t, img.Name)
 		})

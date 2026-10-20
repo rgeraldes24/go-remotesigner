@@ -462,6 +462,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/release/smokeclient/owner_other.go` | new | | | |
 | `test/release/smokeclient/owner_unix.go` | new | | | |
 | `test/release/systemd_test.go` | new | | | |
+| `test/release/version_test.go` | new | | | |
 | `test/repo/deploy_test.go` | new | | | |
 | `test/repo/docs_test.go` | new | | | |
 | `test/repo/links_test.go` | new | | | |

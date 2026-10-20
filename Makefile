@@ -9,7 +9,8 @@ GORELEASER    ?= goreleaser
 DOCKER        ?= docker
 BIN_DIR       ?= bin
 
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# The version without the tag's "v", as goreleaser's {{ .Version }} has it: a build of the tag v1.0.0 reports 1.0.0.
+VERSION ?= $(patsubst v%,%,$(shell git describe --tags --always --dirty 2>/dev/null || echo dev))
 COMMIT  ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
@@ -21,7 +22,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test test-postgres fuzz fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check image docker-smoke systemd-smoke clean
+.PHONY: all build build-consensus test test-postgres fuzz fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check release-version image docker-smoke systemd-smoke clean
 
 all: build build-consensus
 
@@ -175,12 +176,21 @@ release-snapshot:
 ## release-check: check the dry run's output (test/release): both flavours for every target, each archive and image
 ## with LICENSE, its flavour's NOTICE, LICENSES/, third_party_licenses/, the README without dead links, and the
 ## repository's deploy/config/ and deploy/systemd/; static binaries, the consensus ones built
-## with noexecution and linking no go-qrl module; checksums and SBOMs; the images' nonroot user, entrypoint, labels
-## and /data; and the docker-smoke checks on the images of this machine's architecture, one per flavour
+## with noexecution and linking no go-qrl module; the version this machine's binaries and images report; checksums and
+## SBOMs; the images' nonroot user, entrypoint, labels and /data; and the docker-smoke checks on the images of this
+## machine's architecture, one per flavour
 RELEASE_DIST ?= dist
 release-check:
 	REMOTESIGNER_RELEASE_DIST=$(abspath $(RELEASE_DIST)) $(if $(findstring sbom,$(RELEASE_SKIP)),,REMOTESIGNER_RELEASE_SBOM=1) \
 		$(GO) test -count=1 -run '^TestRelease' -v ./test/release/
+
+## release-version: build every binary as goreleaser builds them for the release of RELEASE_TAG, through a
+## GORELEASER_CURRENT_TAG that needs no git tag (nothing is tagged, archived or published), into RELEASE_DIST, and
+## check that each binary of this machine reports the tag's version: 1.0.0 for v1.0.0
+RELEASE_TAG ?= v1.0.0
+release-version:
+	GORELEASER_CURRENT_TAG=$(RELEASE_TAG) GO_LICENSES="$(GO_LICENSES)" $(GORELEASER) build --clean --skip=validate
+	REMOTESIGNER_RELEASE_DIST=$(abspath $(RELEASE_DIST)) $(GO) test -count=1 -run '^TestReleaseVersion$$' -v ./test/release/
 
 ## image: one image of FLAVOUR (remotesigner or remotesigner-consensus) for linux/IMAGE_ARCH (default: the Docker
 ## daemon's architecture), tagged IMAGE, built from deploy/docker/Dockerfile into the local image store
