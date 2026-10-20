@@ -548,6 +548,24 @@ func TestNoticeReproducesNoticeFiles(t *testing.T) {
 	}
 }
 
+// TestNoticeNamesShippedLicenceFiles checks that NOTICE says, in the
+// present tense, that the releases carry each component's own licence files:
+// it ships in every archive and image, which hold them (test/release).
+func TestNoticeNamesShippedLicenceFiles(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(root, noticePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join(strings.Fields(string(b)), " ")
+	if want := "release archives and images carry those files, and the components' NOTICE files, in " +
+		"third_party_licenses/."; !strings.Contains(text, want) {
+		t.Errorf("NOTICE does not say %q", want)
+	}
+	if strings.Contains(text, "will carry") {
+		t.Error("NOTICE says the releases will carry the licence files, which they already do")
+	}
+}
+
 // TestNoticePathsExist checks that every repository path NOTICE's prose
 // names exists, so NOTICE never describes code that is not in the tree.
 func TestNoticePathsExist(t *testing.T) {
