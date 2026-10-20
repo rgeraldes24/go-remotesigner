@@ -53,6 +53,10 @@ unit, example configuration files, the Grafana dashboard and the Prometheus aler
 | [`docs/operations/keystores.md`](docs/operations/keystores.md) | keystore formats, the keystore policy, password files, `consensus keystore verify` |
 | [`docs/operations/reload.md`](docs/operations/reload.md) | key sources, loading and reloading, disabling and enabling a key, memory for keystore decryption |
 | [`docs/operations/keymanager.md`](docs/operations/keymanager.md) | the keymanager API: listing, importing and deleting keys while the signer runs |
+| [`docs/operations/hashicorp-vault.md`](docs/operations/hashicorp-vault.md) | seeds in HashiCorp Vault's KV version 2 engine: the `hashicorp` document, token and Kubernetes authentication, TLS and pinned servers |
+| [`docs/operations/aws-secrets-manager.md`](docs/operations/aws-secrets-manager.md) | seeds in AWS Secrets Manager (default flavour): the `aws-secret` document, the bulk loader, credentials |
+| [`docs/operations/gcp-secret-manager.md`](docs/operations/gcp-secret-manager.md) | seeds in GCP Secret Manager (default flavour): the bulk loader, the `gcp-secret` document, credentials |
+| [`docs/operations/azure-key-vault.md`](docs/operations/azure-key-vault.md) | seeds in Azure Key Vault secrets (default flavour): authentication, the `azure-secret` document, the bulk loader, the overrides |
 | [`docs/operations/migration.md`](docs/operations/migration.md) | moving validators to the signer: importing their slashing-protection history, the high watermark, exporting |
 | [`docs/operations/backup.md`](docs/operations/backup.md) | backing up and restoring the bbolt store |
 | [`docs/operations/randao.md`](docs/operations/randao.md) | RANDAO reveals: the frontier rule, gap advances, sizing the bucket, resetting a key, the alerts |
