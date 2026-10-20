@@ -35,8 +35,9 @@ Web3Signer are rows X25, X26, X28 and X76-X106 of [`DEVIATIONS.md`](DEVIATIONS.m
   and answers gqrl's `{raw, tx}`; the signer compares that chain ID with the node's at startup and every 10 minutes,
   and refuses transactions while they differ. `qrl_sendTransaction` asks the node's `qrl_fillTransaction` for what a
   request lacks, takes only the nonce, gas and fees from its answer after checking that the rest is the request's,
-  refuses a filled nonce more than 64 above the account's pending one, then signs and sends, one transaction per
-  account at a time, and tries again up to 10 times when the node reports that another transaction took the nonce.
+  refuses a filled nonce more than 64 above the account's pending one (`--execution-nonce-crosscheck`, on by
+  default), then signs and sends, one transaction per account at a time, and tries again up to 10 times when the
+  node reports that another transaction took the nonce.
   Every transaction stays within a fee cap of 1 quanta, unless the policy sets another, and within the per-account
   policy of `--execution-policy-file` (recipients, value, fee, contract creation, input size, transactions per
   hour), which a listener beyond loopback requires. `--execution-audit-log-file` records every signature, every send
