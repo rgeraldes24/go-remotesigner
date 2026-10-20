@@ -702,3 +702,74 @@ func TestComposeMatchesGuide(t *testing.T) {
 		t.Errorf("read-only root file system: the guide %v, compose.yaml %v", ok, s.ReadOnly)
 	}
 }
+
+// guideBlocks returns the fenced code blocks of a Markdown text that
+// directly follow a line holding only marker, in order, at any indentation
+// (a block in a list item), with the fence's indentation removed.
+func guideBlocks(text, marker string) []string {
+	var blocks []string
+	lines := strings.Split(text, "\n")
+	for i := 0; i+1 < len(lines); i++ {
+		fence := lines[i+1]
+		if strings.TrimSpace(lines[i]) != marker || strings.TrimSpace(fence) != "```" {
+			continue
+		}
+		indent := fence[:len(fence)-len(strings.TrimLeft(fence, " "))]
+		var block []string
+		for j := i + 2; j < len(lines) && strings.TrimSpace(lines[j]) != "```"; j++ {
+			block = append(block, strings.TrimPrefix(lines[j], indent))
+		}
+		blocks = append(blocks, strings.Join(block, "\n"))
+	}
+	return blocks
+}
+
+// The Docker guide's commands beyond the `docker run` the smoke test runs:
+// the client container that checks and reloads the signer runs as the user
+// who copied the certificate out (docker cp writes it 0600, owned by that
+// user) and pins it; files copied into /data get the owner and mode the
+// signer's own files have; a backup is taken from the stopped signer; a
+// mounted certificate is readable by the image's user, its key by it alone;
+// and the compose walkthrough creates the directory it copies into.
+func TestDockerGuideCommands(t *testing.T) {
+	text := string(readRepo(t, "docs/operations/deploy-docker.md"))
+	const client = `docker run --rm --network signer-net --user "$(id -u):$(id -g)" -v "$PWD/validator:/v:ro" `
+	for _, tt := range []struct {
+		marker string
+		want   []string
+	}{
+		{"<!-- docker-guide:check -->", []string{client, "--cacert /v/signer-cert.pem", "https://signer:9000/upcheck",
+			`-H "Authorization: Bearer $(cat validator/signer-auth-token)"`, "https://signer:9000/api/v1/consensus/publicKeys"}},
+		{"<!-- docker-guide:reload -->", []string{client, "--cacert /v/signer-cert.pem", "-X POST",
+			"-H 'Content-Type: application/json'", `$(docker cp signer:/data/admin-token - | tar -xOf -)`,
+			"https://signer:9000/reload"}},
+		{"<!-- docker-guide:rotate-token -->", []string{"umask 077", "--owner=65532 --group=65532 --mode=0600",
+			"docker cp --archive - signer:/data", "docker kill --signal=HUP signer"}},
+		{"<!-- docker-guide:rotate-certificate -->", []string{"umask 077", "--owner=65532 --group=65532 --mode=0600",
+			"key.pem cert.pem | docker cp --archive - signer:/data/tls", "docker kill --signal=HUP signer",
+			"validator/signer-cert.pem"}},
+		{"<!-- docker-guide:backup -->", []string{"docker stop signer\n", "docker cp signer:/data - >", "docker start signer"}},
+		{"<!-- docker-guide:own-certificate -->", []string{"chmod 0600 tls/signer.key", "sudo chown -R 65532:65532 tls"}},
+		{"<!-- docker-guide:compose-copy -->", []string{"mkdir -p validator\ndocker compose cp"}},
+	} {
+		blocks := guideBlocks(text, tt.marker)
+		if len(blocks) != 1 {
+			t.Errorf("deploy-docker.md: want one block marked %s, got %d", tt.marker, len(blocks))
+			continue
+		}
+		for _, want := range tt.want {
+			if !strings.Contains(blocks[0], want) {
+				t.Errorf("%s lacks %q:\n%s", tt.marker, want, blocks[0])
+			}
+		}
+		// Every client container of a block runs as the user and pins
+		// the certificate.
+		if n := strings.Count(blocks[0], "curlimages/curl"); n != strings.Count(blocks[0], client) ||
+			n != strings.Count(blocks[0], "--cacert /v/signer-cert.pem") {
+			t.Errorf("%s: a client container that does not run as the user or pin the certificate:\n%s", tt.marker, blocks[0])
+		}
+	}
+	if got := guideBlocks("- step:\n\n  <!-- m -->\n  ```\n  a\n    b\n  ```\n", "<!-- m -->"); !slices.Equal(got, []string{"a\n  b"}) {
+		t.Errorf("guideBlocks of an indented block = %q", got)
+	}
+}

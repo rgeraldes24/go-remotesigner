@@ -86,7 +86,8 @@ answers on the signer's address.
 
 **Rotate it.** Delete both files, then restart the signer or send it SIGHUP (section 5): it generates a new pair and
 logs the new fingerprint. Pin the new certificate in every client; clients that still pin the old one fail to connect
-until they are updated.
+until they are updated. The container image has no shell to delete them with: copy a new pair into the volume
+instead ([`deploy-docker.md`](deploy-docker.md#6-running-it)).
 
 ## 3. Client certificates (mTLS)
 
@@ -182,7 +183,8 @@ works for the last client too, which leaves a trust that accepts nobody and logs
 To rotate a token, write a new one (`0x` and at least 64 hex characters) into its file, or delete the file, and send
 SIGHUP; then give the new sign token to the validator clients. The old token stops working at once, so update the
 clients right after the reload. To rotate a certificate, replace the files in place (write the new ones next to them
-and rename them over the old ones) and send SIGHUP.
+and rename them over the old ones) and send SIGHUP. With the container image, the files in `/data` are replaced with
+`docker cp`, owned by the image's user ([`deploy-docker.md`](deploy-docker.md#6-running-it)).
 
 ## 6. Listening beyond loopback
 

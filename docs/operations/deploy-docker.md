@@ -163,11 +163,35 @@ openssl x509 -in validator/signer-cert.pem -noout -fingerprint -sha256    # must
 
 The validator client then accepts only this certificate, for the names in the allowlist. Never give it the admin
 token, and never mount the signer's `/data` volume into another container: it holds the admin token and the TLS
-private key. [`tls.md`](tls.md#2-the-generated-certificate-and-pinning-it) has the details, including rotating
-the certificate.
+private key. [`tls.md`](tls.md#2-the-generated-certificate-and-pinning-it) has the details; section 6 rotates the
+certificate and the tokens.
 
-**Your own certificate.** Mount it read-only and name it; a configured certificate takes precedence and nothing is
-generated:
+Check the signer as a validator client reaches it: from a client container on the signer's network, by its name and
+with the copied certificate. `docker cp` wrote the two files with mode `0600`, owned by you, so the client runs as
+your user:
+
+<!-- docker-guide:check -->
+```
+docker run --rm --network signer-net --user "$(id -u):$(id -g)" -v "$PWD/validator:/v:ro" curlimages/curl:8.11.1 \
+  -sS --cacert /v/signer-cert.pem https://signer:9000/upcheck
+docker run --rm --network signer-net --user "$(id -u):$(id -g)" -v "$PWD/validator:/v:ro" curlimages/curl:8.11.1 \
+  -sS --cacert /v/signer-cert.pem -H "Authorization: Bearer $(cat validator/signer-auth-token)" \
+  https://signer:9000/api/v1/consensus/publicKeys
+```
+
+The first prints `OK` once the keys are loaded (`503` before), the second the loaded public keys.
+
+**Your own certificate.** Put the certificate and its key in a directory of their own that the container's user
+(65532) can read, the key readable by it alone, then mount the directory read-only and name the files; a configured
+certificate takes precedence and nothing is generated. A key file that 65532 cannot read refuses the start
+(`open /tls/signer.key: permission denied`). On Linux:
+
+<!-- docker-guide:own-certificate -->
+```
+mkdir -p tls && cp signer.crt signer.key tls/
+chmod 0700 tls && chmod 0644 tls/signer.crt && chmod 0600 tls/signer.key
+sudo chown -R 65532:65532 tls
+```
 
 ```
 -v "$PWD/tls:/tls:ro" … --tls-cert-file=/tls/signer.crt --tls-key-file=/tls/signer.key --http-host-allowlist=signer.example.org …
@@ -202,7 +226,9 @@ deploy/docker/
 2. Copy its certificate and sign token for the validator client, compare the fingerprint, and list the validator
    keys the client should use, one `0x` public key per line, for example from your deposit data:
 
+   <!-- docker-guide:compose-copy -->
    ```
+   mkdir -p validator
    docker compose cp signer:/data/tls/cert.pem validator/signer-cert.pem
    docker compose cp signer:/data/auth-token validator/signer-auth-token
    openssl x509 -in validator/signer-cert.pem -noout -fingerprint -sha256
@@ -226,13 +252,85 @@ validator client: two clients signing for the same validator can be slashed.
 |---|---|
 | Logs | `docker logs signer` (text; add `--logging-format=json` before `consensus` for JSON) |
 | Reload tokens, the certificate and client trust (SIGHUP) | `docker kill --signal=HUP signer` |
-| Reload the keys after adding or removing keystores | `POST /reload` with the admin token, from a client on the signer's network ([`reload.md`](reload.md#3-reload)) |
+| Reload the keys after adding or removing keystores | `POST /reload` with the admin token, from a client container (below) |
+| Rotate the sign or the admin token | copy the new token into `/data`, then SIGHUP (below) |
+| Rotate the generated certificate | copy a new pair into `/data/tls`, then SIGHUP, and pin it in every client (below) |
 | Stop | `docker stop signer`: SIGTERM; in-flight requests finish within 10 s, then the store is closed and the keys wiped. Allow 30 s (`--stop-timeout=30`, compose `stop_grace_period`). |
-| Back up the store | stop the signer, then copy the `/data` volume |
+| Back up the store | stop the signer, then copy `/data` out with `docker cp` (below) |
 | Upgrade | stop the old container, run the new image's `consensus migrate` on the `/data` volume, start the new image with the same volume and arguments ([`upgrade.md`](upgrade.md#3-one-signer)) |
 
 `/upcheck` answers `200 OK` once the keys are loaded and the store is open. The image has no shell, so it has no
-Docker `HEALTHCHECK`; probe `/upcheck` from outside (over TLS, pinning the certificate).
+Docker `HEALTHCHECK`; probe `/upcheck` from outside, over TLS and pinning the certificate, as section 4's check does.
+
+**Reloading the keys.** The admin token stays in the volume: the command reads it from the container for this one
+request (`docker cp … -` writes a tar stream, and `tar -xO` prints its file), and a client container on the signer's
+network sends the request with the certificate of section 4. The signer answers `{"code":202,"message":"reload
+started"}`, and `GET /reload` with the sign token reports the progress ([`reload.md`](reload.md#3-reload)):
+
+<!-- docker-guide:reload -->
+```
+docker run --rm --network signer-net --user "$(id -u):$(id -g)" -v "$PWD/validator:/v:ro" curlimages/curl:8.11.1 \
+  -sS -X POST --cacert /v/signer-cert.pem -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $(docker cp signer:/data/admin-token - | tar -xOf -)" https://signer:9000/reload
+```
+
+**Files in `/data`.** The image has no shell and `/data` is never mounted into another container, so `docker cp`
+moves files in and out of the volume. A file copied out keeps its mode, `0600`, and belongs to you. A file copied in
+must end up as the signer writes its own, owned by 65532 with mode `0600`: a plain `docker cp` of a file makes root
+its owner and keeps its mode on the host, so copy in a tar stream that sets both, with `docker cp --archive`. The
+commands use GNU tar, as on Linux:
+
+- **Rotate the sign token.** Write a new one (`0x` and 64 hex characters) as the validator clients' copy, copy it
+  into the volume as `auth-token`, and reload. The old token stops working at once, so give the clients the new copy
+  right away ([`tls.md`](tls.md#5-rotating-tokens-and-certificates-with-sighup)):
+
+  <!-- docker-guide:rotate-token -->
+  ```
+  (umask 077; printf '0x%s\n' "$(openssl rand -hex 32)" > validator/signer-auth-token)
+  tar -C validator -cf - --owner=65532 --group=65532 --mode=0600 --transform='s/.*/auth-token/' signer-auth-token \
+    | docker cp --archive - signer:/data
+  docker kill --signal=HUP signer
+  ```
+
+  The admin token works the same way, as `admin-token`; keep its copy away from the validator clients. The log line
+  `Token files reloaded` confirms the reload.
+
+- **Rotate the generated certificate.** Make a new pair valid for every allowlist name (`DNS:<name>`, or
+  `IP:<address>` for an address), copy it over `/data/tls/cert.pem` and `key.pem`, reload, and pin the new
+  certificate in every client; clients that still pin the old one fail to connect until they have it. The log line
+  `TLS files reloaded` gives the new fingerprint:
+
+  <!-- docker-guide:rotate-certificate -->
+  ```
+  mkdir -p newtls
+  (umask 077; openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 -subj /CN=remotesigner \
+    -addext subjectAltName=DNS:signer -keyout newtls/key.pem -out newtls/cert.pem)
+  tar -C newtls -cf - --owner=65532 --group=65532 --mode=0600 key.pem cert.pem | docker cp --archive - signer:/data/tls
+  docker kill --signal=HUP signer
+  cp newtls/cert.pem validator/signer-cert.pem && rm -r newtls
+  ```
+
+- **Back up the store.** Stop the signer, copy `/data` out as a tar stream, which keeps every file's owner and mode,
+  and start it again. The archive holds the admin token and the TLS key as well as the store: keep it as you keep the
+  keys.
+
+  <!-- docker-guide:backup -->
+  ```
+  docker stop signer
+  (umask 077; docker cp signer:/data - > signer-data-$(date +%Y%m%d).tar)
+  docker start signer
+  ```
+
+  To restore it into a new volume, copy it into a container that is created and never started, then start the
+  signer on that volume. Before it signs, close the gap since the backup
+  ([`backup.md`](backup.md#3-the-gap-after-an-old-backup)):
+
+  ```
+  docker volume create signer-data-restored
+  docker create --name signer-restore -v signer-data-restored:/data ghcr.io/rgeraldes24/remotesigner-consensus:<version>
+  docker cp --archive - signer-restore:/ < signer-data-<date>.tar
+  docker rm signer-restore
+  ```
 
 ## 7. Metrics and the dashboard
 
@@ -250,10 +348,18 @@ The metrics listener has no TLS: keep it on an internal network, and use the met
 
 ## 8. Building the image
 
+`make image` needs Go (the module's toolchain line selects the release), go-licenses v2.0.1, which writes the licence
+files the image ships (`go install github.com/google/go-licenses/v2@v2.0.1`, then pass
+`GO_LICENSES="$(go env GOPATH)/bin/go-licenses"` unless it is on `PATH`), and Docker with buildx:
+
 ```
 make image FLAVOUR=remotesigner-consensus      # local/remotesigner-consensus:dev, for this machine's Docker
 make docker-smoke FLAVOUR=remotesigner-consensus
 ```
+
+To run the image you built, use `local/remotesigner-consensus:dev` wherever this page names
+`ghcr.io/rgeraldes24/remotesigner-consensus:<version>`, and for the compose example set
+`REMOTESIGNER_IMAGE=local/remotesigner-consensus:dev` in `.env`.
 
 `make docker-smoke` builds the image and runs its real entrypoint in Docker, as section 3 does: `keystore verify` on the
 key volume, then the signer with a file network, its genesis time and validators root, and one keystore from a

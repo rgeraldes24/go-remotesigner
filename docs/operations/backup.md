@@ -27,7 +27,8 @@ of a file that is being written is not.
   ```
 
   The signer is down for as long as the copy takes (a 4,096-validator store with 512 epochs of history is about
-  400 MiB). Plan it between duties.
+  400 MiB). Plan it between duties. With the container image, copy `/data` out of the stopped container with
+  `docker cp` ([`deploy-docker.md`](deploy-docker.md#6-running-it)).
 - **Signer running.** Take an atomic file-system snapshot (LVM, ZFS, Btrfs, or a cloud volume snapshot) of the
   volume that holds the file, and copy the file out of the snapshot. The snapshot is the state a crash would have
   left, which bbolt recovers from. Do not `cp` or `rsync` the live file: a commit during the copy can mix pages of two
