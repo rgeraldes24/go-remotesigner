@@ -31,6 +31,12 @@
 //     a keystore and its password file, relative to the key-config
 //     directory unless absolute.
 //
+// In execution mode (Config.Execution) the same files hold account keys:
+// `privateKey` is the account's 51-byte extended seed (102 hex characters,
+// with or without 0x, descriptor 01 00 00 first) and `keystoreFile` a
+// go-qrl account keystore. Each mode refuses the other's keys, so one file
+// cannot serve both a validator and an account.
+//
 // `keyType` is ML_DSA_87, the default and only value. Unknown keys are
 // rejected. Each file is one source: either every document in it loads or
 // the file fails as a whole, keeping the keys it had, and the others still
@@ -100,6 +106,10 @@ type Config struct {
 	// (--key-store-config-file-max-size); 0 means DefaultMaxFileSize. A
 	// larger file fails to load, before any of it is read.
 	MaxFileSize int64
+	// Execution loads account keys: 51-byte extended seeds and go-qrl
+	// account keystores. Otherwise the keys are validator keys: 48-byte
+	// seeds and validator keystores.
+	Execution bool
 }
 
 // Source is the source name of the key-config file at path.
@@ -190,7 +200,7 @@ func (c Config) loadFile(ctx context.Context, start time.Time, path string, keep
 	if err != nil {
 		return nil, nil, "", err
 	}
-	docs, err := parse(data, c.Dir)
+	docs, err := parse(data, c.Dir, c.Execution)
 	mldsa87.Wipe(data)
 	if err != nil {
 		return nil, nil, "", err
@@ -198,7 +208,7 @@ func (c Config) loadFile(ctx context.Context, start time.Time, path string, keep
 	defer wipeDocs(docs)
 	keyFiles, passwords := []fs.FileInfo{fi}, []fs.FileInfo(nil)
 	for _, d := range docs {
-		if d.seed != nil {
+		if d.raw() {
 			if err := c.Policy.Check(path, fi); err != nil {
 				return nil, nil, "", err
 			}
@@ -206,7 +216,7 @@ func (c Config) loadFile(ctx context.Context, start time.Time, path string, keep
 		}
 	}
 	for _, d := range docs {
-		if d.seed != nil {
+		if d.raw() {
 			continue
 		}
 		ksInfo, err := os.Stat(d.keystoreFile)
@@ -251,6 +261,13 @@ func (c Config) build(ctx context.Context, d document) (*mldsa87.Key, provider.M
 		}
 		return k, provider.Meta{}, nil
 	}
+	if d.ext != nil {
+		k, err := mldsa87.FromExtendedSeed51(d.ext)
+		if err != nil {
+			return nil, provider.Meta{}, fmt.Errorf("%w: %v", ErrPrivateKey, err)
+		}
+		return k, provider.Meta{}, nil
+	}
 	if c.Decrypt == nil {
 		return nil, provider.Meta{}, fmt.Errorf("%w: type %s is not supported here", ErrUnsupported, TypeFileKeystore)
 	}
@@ -258,7 +275,11 @@ func (c Config) build(ctx context.Context, d document) (*mldsa87.Key, provider.M
 	if err != nil {
 		return nil, provider.Meta{}, fmt.Errorf("keystoreFile: %w", err)
 	}
-	ks, err := qrlv1.Parse(data)
+	parseKeystore := qrlv1.Parse
+	if c.Execution {
+		parseKeystore = qrlv1.ParseAccount
+	}
+	ks, err := parseKeystore(data)
 	if err != nil {
 		return nil, provider.Meta{}, fmt.Errorf("keystoreFile %s: %w", d.keystoreFile, err)
 	}
@@ -276,25 +297,33 @@ func (c Config) build(ctx context.Context, d document) (*mldsa87.Key, provider.M
 	return k, provider.Meta{DerivationPath: ks.Path, Keystore: true}, nil
 }
 
-// document is one parsed key document: a file-raw seed, or the absolute
+// document is one parsed key document: a file-raw seed (a validator's
+// seed, or in execution mode an account's extended seed), or the absolute
 // paths of a file-keystore's keystore and password file.
 type document struct {
 	index                      int // 1-based, among all documents of the file
 	seed                       *[mldsa87.SeedSize]byte
+	ext                        *[mldsa87.ExtendedSeedSize]byte
 	keystoreFile, passwordFile string
 }
+
+// raw reports whether the document is a file-raw seed.
+func (d document) raw() bool { return d.seed != nil || d.ext != nil }
 
 func wipeDocs(docs []document) {
 	for _, d := range docs {
 		if d.seed != nil {
 			mldsa87.Wipe(d.seed[:])
 		}
+		if d.ext != nil {
+			mldsa87.Wipe(d.ext[:])
+		}
 	}
 }
 
 // parse reads the documents of a key-config file's content; relative
 // keystore paths are resolved against dir.
-func parse(data []byte, dir string) ([]document, error) {
+func parse(data []byte, dir string, execution bool) ([]document, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	var docs []document
 	for i := 1; ; i++ {
@@ -310,7 +339,7 @@ func parse(data []byte, dir string) ([]document, error) {
 		if len(n.Content) == 0 || n.Content[0].ShortTag() == "!!null" {
 			continue // an empty document
 		}
-		d, err := parseDocument(n.Content[0], dir)
+		d, err := parseDocument(n.Content[0], dir, execution)
 		if err != nil {
 			wipeDocs(docs)
 			return nil, fmt.Errorf("document %d: %w", i, err)
@@ -331,7 +360,7 @@ var allowed = map[string][]string{
 }
 
 // parseDocument reads one mapping.
-func parseDocument(n *yaml.Node, dir string) (document, error) {
+func parseDocument(n *yaml.Node, dir string, execution bool) (document, error) {
 	if n.Kind != yaml.MappingNode {
 		return document{}, fmt.Errorf("%w: a document must be a mapping", ErrFormat)
 	}
@@ -394,6 +423,13 @@ func parseDocument(n *yaml.Node, dir string) (document, error) {
 	if !ok {
 		return document{}, fmt.Errorf("%w: missing privateKey", ErrFormat)
 	}
+	if execution {
+		ext, err := extendedSeedFromHex(v.Value)
+		if err != nil {
+			return document{}, err
+		}
+		return document{ext: ext}, nil
+	}
 	seed, err := seedFromHex(v.Value)
 	if err != nil {
 		return document{}, err
@@ -426,6 +462,29 @@ func seedFromHex(s string) (*[mldsa87.SeedSize]byte, error) {
 		return nil, fmt.Errorf("%w: not hex", ErrPrivateKey)
 	}
 	return seed, nil
+}
+
+// extendedSeedFromHex decodes an account's 51-byte extended seed, with or
+// without 0x (go-qrl's seed files have none). A validator's 48-byte seed is
+// refused with a hint.
+func extendedSeedFromHex(s string) (*[mldsa87.ExtendedSeedSize]byte, error) {
+	h := strings.TrimPrefix(s, "0x")
+	switch len(h) {
+	case 2 * mldsa87.ExtendedSeedSize:
+	case 2 * mldsa87.SeedSize:
+		return nil, fmt.Errorf("%w: a 48-byte seed is a consensus validator key; execution mode takes the "+
+			"account's 51-byte extended seed (descriptor 010000, then the seed)", ErrPrivateKey)
+	default:
+		return nil, fmt.Errorf("%w: want a 51-byte extended seed, 102 hex characters (0x optional)", ErrPrivateKey)
+	}
+	ext := new([mldsa87.ExtendedSeedSize]byte)
+	hb := []byte(h)
+	defer mldsa87.Wipe(hb)
+	if _, err := hex.Decode(ext[:], hb); err != nil {
+		mldsa87.Wipe(ext[:])
+		return nil, fmt.Errorf("%w: not hex", ErrPrivateKey)
+	}
+	return ext, nil
 }
 
 func zeroize(keys []*mldsa87.Key) {

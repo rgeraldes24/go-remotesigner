@@ -174,7 +174,7 @@ func TestDecryptRefusals(t *testing.T) {
 		password string
 		want     error
 	}{
-		{"GCM tag tampered", edit(t, base, "crypto.cipher.message", flip(messageSize-1)), password, ErrPassword},
+		{"GCM tag tampered", edit(t, base, "crypto.cipher.message", flip(48+tagSize-1)), password, ErrPassword},
 		{"ciphertext tampered", edit(t, base, "crypto.cipher.message", flip(0)), password, ErrPassword},
 		{"pubkey of another key", edit(t, base, "pubkey", strings.TrimPrefix(otherPK, "0x")), password, ErrPubkeyMismatch},
 		{"pubkey of another key with 0x", edit(t, base, "pubkey", otherPK), password, ErrPubkeyMismatch},

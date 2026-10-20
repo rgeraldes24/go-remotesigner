@@ -47,7 +47,8 @@ Not keystores in this sense:
 
 - qrysm's wallet file `direct/accounts/all-accounts.keystore.json` holds every key of a wallet in one encrypted blob.
   Export per-key keystores with `validator accounts backup` instead (section 5).
-- go-qrl execution keystores (an `address` field, a 51-byte extended seed) are execution-layer keys.
+- go-qrl account keystores (an `address` field, a 51-byte extended seed) are execution-layer keys, which only
+  `remotesigner execution` loads ([`execution.md`](execution.md#3-account-keys)).
 
 ## 2. What the signer refuses
 

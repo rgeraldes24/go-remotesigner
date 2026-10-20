@@ -5,6 +5,19 @@
 
 package main
 
+import (
+	"io"
+
+	"github.com/urfave/cli/v2"
+)
+
 // binaryName is the name of the consensus-only flavour, built with
 // -tags noexecution. It links permissively licensed code only.
 const binaryName = "remotesigner-consensus"
+
+// flavourCommands: this flavour has no execution mode.
+func flavourCommands(func(runFunc) runFunc, io.Writer, io.Writer) []*cli.Command { return nil }
+
+// flavourSections: an execution section of --config-file is an unknown key
+// here.
+func flavourSections() map[string][]cli.Flag { return nil }

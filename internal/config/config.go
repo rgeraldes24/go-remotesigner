@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package config holds the resolved configuration of a `remotesigner
-// consensus` run and the startup fail-safes that refuse unsafe combinations.
+// consensus` or `remotesigner execution` run and the startup fail-safes that
+// refuse unsafe combinations.
 // It also derives the environment variable names of the flags and reads the
 // --config-file YAML source (env.go, yaml.go).
 package config
@@ -66,6 +67,39 @@ type Config struct {
 	// Hygiene is --disable-core-dumps and --mlock-all.
 	Hygiene   hygiene.Config
 	Consensus Consensus
+	Execution Execution
+}
+
+// Execution holds the execution subcommand's settings.
+type Execution struct {
+	Downstream Downstream
+	// AllowedMethods is --execution-proxy-allowed-methods: the methods
+	// forwarded to the downstream node.
+	AllowedMethods []string
+	// Keystores is the go-qrl account keystore directory.
+	Keystores Keystores
+}
+
+// Downstream is the node execution mode forwards to (--downstream-http-*).
+type Downstream struct {
+	Host string
+	Port uint16
+	// Path is --downstream-http-path, the path requests are posted to.
+	Path string
+	// Timeout bounds the connection, the TLS handshake and the wait for the
+	// response headers.
+	Timeout time.Duration
+	// AuthHeaderFile holds the Authorization value sent downstream; empty
+	// sends none.
+	AuthHeaderFile string
+	// TLS connects with https, verifying the node's certificate against
+	// TLSCAFile, or the system roots when it is empty.
+	TLS       bool
+	TLSCAFile string
+	// ProxyHost and ProxyPort name an HTTP proxy to the node; an empty
+	// host connects directly.
+	ProxyHost string
+	ProxyPort uint16
 }
 
 // Metrics configures the metrics listener.
@@ -303,6 +337,31 @@ func CheckFailSafes(c *Config, n *network.Network) error {
 		refuse(loopbackOnly(c.HTTP.HostAllowlist), ErrLoopbackAllowlist)
 		refuse(n.TOFUAllowed() && !c.Consensus.AllowGVRTOFU, ErrGVRTOFUNonLoopback)
 		refuse(!n.GenesisTimeKnown() && !c.Consensus.AllowUnknownGenesisTime, ErrUnknownGenesisNonLoopback)
+	}
+	return errors.Join(errs...)
+}
+
+// CheckExecutionFailSafes applies the startup fail-safes of execution mode:
+// the listener and credential refusals that consensus mode applies too.
+func CheckExecutionFailSafes(c *Config) error {
+	var errs []error
+	refuse := func(cond bool, err error) {
+		if cond {
+			errs = append(errs, err)
+		}
+	}
+	refuse(c.HTTP.AuthMode.SignToken() && c.SignTokenFile() == "", ErrNoSignToken)
+	if err := c.TLS.Validate(c.HTTP.AuthMode.ClientCerts()); err != nil {
+		errs = append(errs, fmt.Errorf("%w: %w", ErrRefused, err))
+	}
+	refuse(c.TLS.GenerateSelfSigned && !c.TLS.HasCertificate() && c.DataPath == "", ErrSelfSignedNoDataPath)
+	if c.Metrics.Enabled && !IsLoopbackHost(c.Metrics.Host) {
+		refuse(loopbackOnly(c.Metrics.HostAllowlist), ErrMetricsLoopbackAllowlist)
+	}
+	if !IsLoopbackHost(c.HTTP.ListenHost) {
+		refuse(c.HTTP.AuthMode == auth.ModeNone, ErrAuthNoneNonLoopback)
+		refuse(c.HTTP.AuthMode == auth.ModeToken && !c.TLS.Enabled() && !c.AllowPlaintextTokenAuth, ErrPlaintextToken)
+		refuse(loopbackOnly(c.HTTP.HostAllowlist), ErrLoopbackAllowlist)
 	}
 	return errors.Join(errs...)
 }

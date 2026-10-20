@@ -13,6 +13,18 @@ own: a tag such as `v1.0.0-rc.1` publishes the notes of its version's entry, dat
 
 ## [Unreleased]
 
+### Added
+
+- **Execution mode.** `remotesigner execution`, in the default flavour only, holds QRL account keys (51-byte
+  extended seeds in `file-raw` key-config files, and go-qrl account keystores) for JSON-RPC clients in front of a gqrl
+  node, in a process of its own. At `POST /` it answers `qrl_accounts`, `qrl_sign` and `health_status`, splits
+  batches of up to 1,000 requests, and forwards the methods `--execution-proxy-allowed-methods` allows (`qrl_*`,
+  `net_*` and `web3_*` by default) to the node, without the client's credentials, cookies or forwarding headers and
+  without following redirects. `GET /api/v1/execution/publicKeys` lists the accounts with their public keys.
+  Transaction signing is not part of it yet: `qrl_signTransaction` and `qrl_sendTransaction` are refused.
+  `remotesigner-consensus` has no execution mode. See [`docs/operations/execution.md`](docs/operations/execution.md)
+  and rows X28 and X76-X87 of [`DEVIATIONS.md`](DEVIATIONS.md).
+
 ## [1.0.0] - Unreleased
 
 The first release: a remote signer for the ML-DSA-87 validator keys of qrysm validator clients on Testnet V3, ported

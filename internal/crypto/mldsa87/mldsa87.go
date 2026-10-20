@@ -1,7 +1,8 @@
 // Copyright 2026 The go-remotesigner Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package mldsa87 wraps the go-qrllib ML-DSA-87 wallet for consensus keys.
+// Package mldsa87 wraps the go-qrllib ML-DSA-87 wallet for consensus keys
+// and, through FromExtendedSeed51, execution-layer account keys.
 //
 // Every signature goes through the wallet API, which signs under the FIPS 204
 // context "ZOND" ‖ 0x01 ‖ descriptor (5a4f4e44 01 010000 for consensus keys).

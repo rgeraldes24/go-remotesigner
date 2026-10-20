@@ -36,8 +36,6 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/hygiene"
 	"github.com/rgeraldes24/go-remotesigner/internal/keymanager"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/argon"
-	"github.com/rgeraldes24/go-remotesigner/internal/keys/keyconfig"
-	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystores"
 	"github.com/rgeraldes24/go-remotesigner/internal/metrics"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/randao"
@@ -56,7 +54,7 @@ const ShutdownTimeout = 10 * time.Second
 // nil. A value on hup re-reads the token files and the TLS files. Any error
 // returned before the listeners are up is a startup refusal.
 func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan struct{}) error {
-	if err := applyHygiene(cfg.Hygiene, log); err != nil {
+	if err := ApplyHygiene(cfg.Hygiene, log); err != nil {
 		return err
 	}
 	n, err := network.Load(cfg.Consensus.Network)
@@ -105,7 +103,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 			closeStore()
 			return fmt.Errorf("refusing to start: TLS: %w", err)
 		}
-		logTLS(log, cfg, tlsSrv.Info(), false)
+		LogTLS(log, cfg, tlsSrv.Info(), false)
 		authCfg.VerifyClient = tlsSrv.VerifyClient
 	}
 	if cfg.Metrics.Enabled {
@@ -139,9 +137,9 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	})
 	reveals := newReveals(cfg, n, store, m, log)
 	sem, sizing := argon.Auto(cfg.SignerLoadParallelism)
-	logKeySources(log, cfg, sizing)
-	loads := &loadState{}
-	loader := newKeyLoader(cfg, sem, keys, engine, sig, reveals, loads, log)
+	LogKeySources(log, cfg, sizing)
+	loader := NewKeyLoader(cfg, KeySources{Keystores: cfg.Consensus.Keystores}, sem, keys,
+		consensusHooks(keys, engine, sig, reveals, log), log)
 	var manager *keymanager.Manager
 	if cfg.Consensus.KeyManagerAPIEnabled {
 		if manager, err = newKeyManager(cfg, keys, engine, store, pol, sem, loader, log); err != nil {
@@ -251,7 +249,7 @@ loop:
 			}
 			if tlsSrv != nil {
 				info, err := tlsSrv.Reload()
-				logTLSReload(log, cfg, info, err)
+				LogTLSReload(log, cfg, info, err)
 			}
 		case serveErr = <-served:
 			serving--
@@ -295,9 +293,9 @@ loop:
 	return serveErr
 }
 
-// applyHygiene applies --disable-core-dumps and --mlock-all before anything
+// ApplyHygiene applies --disable-core-dumps and --mlock-all before anything
 // secret is in memory.
-func applyHygiene(h hygiene.Config, log *logrus.Logger) error {
+func ApplyHygiene(h hygiene.Config, log *logrus.Logger) error {
 	if err := hygiene.Apply(h); err != nil {
 		return fmt.Errorf("refusing to start: %w", err)
 	}
@@ -330,12 +328,12 @@ func tlsFields(info tlsconf.Info) logrus.Fields {
 	return f
 }
 
-// logTLSReload records the outcome of a SIGHUP reload of the TLS files. A
+// LogTLSReload records the outcome of a SIGHUP reload of the TLS files. A
 // certificate that failed to load leaves the previous one in force; a
 // client trust that failed to load refuses every client (tlsconf.Reload).
-func logTLSReload(log *logrus.Logger, cfg *config.Config, info tlsconf.Info, err error) {
+func LogTLSReload(log *logrus.Logger, cfg *config.Config, info tlsconf.Info, err error) {
 	if err == nil {
-		logTLS(log, cfg, info, true)
+		LogTLS(log, cfg, info, true)
 		return
 	}
 	var re *tlsconf.ReloadError
@@ -365,10 +363,10 @@ func warnEmptyTrust(log *logrus.Logger, info tlsconf.Info) {
 	}
 }
 
-// logTLS records the TLS configuration at startup and after each reload:
+// LogTLS records the TLS configuration at startup and after each reload:
 // where the certificate comes from, its SHA-256 fingerprint (for pinning)
 // and how clients are checked.
-func logTLS(log *logrus.Logger, cfg *config.Config, info tlsconf.Info, reloaded bool) {
+func LogTLS(log *logrus.Logger, cfg *config.Config, info tlsconf.Info, reloaded bool) {
 	f := tlsFields(info)
 	switch {
 	case info.Generated:
@@ -449,7 +447,7 @@ func newReveals(cfg *config.Config, n *network.Network, store slashing.Store, m 
 
 func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *auth.Authenticator,
 	keys *provider.Provider, set *storeSet, sign *consensus.Sign, reveal *consensus.RandaoReveal,
-	loader *keyLoader, reloader *ops.Reloader, manager *keymanager.Manager, ready func() bool,
+	loader *KeyLoader, reloader *ops.Reloader, manager *keymanager.Manager, ready func() bool,
 	log *logrus.Logger) []server.Route {
 	store := set.store
 	protection := set.kind
@@ -469,15 +467,7 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 			return set.health(ctx), nil
 		}})
 	}
-	// As in Web3Signer, the key-config check is always there and the
-	// keystore check only with a keystore source.
-	st := loader.state
-	checks = append(checks, ops.Check{ID: checkConfigFiles,
-		Run: keysCheck(st, &st.keyConfig, func() int { return keys.Count(keyconfig.SourcePrefix) })})
-	if loader.keystores != nil {
-		checks = append(checks, ops.Check{ID: checkKeystores,
-			Run: keysCheck(st, &st.keystores, func() int { return keys.Count(keystores.SourcePrefix) })})
-	}
+	checks = append(checks, loader.Checks()...)
 	checks = append(checks, ops.Check{ID: ops.CheckRandao, Run: randaoCheck(n, reveal.Reveals)})
 
 	rs := []server.Route{
@@ -538,7 +528,7 @@ func keymanagerRoutes(manager *keymanager.Manager, log *logrus.Logger) []server.
 // group or other users can access is a startup refusal under
 // --strict-file-permissions.
 func newKeyManager(cfg *config.Config, keys *provider.Provider, engine *slashing.Engine, store slashing.Store,
-	pol *policy.Policy, sem *argon.Semaphore, loader *keyLoader, log *logrus.Logger) (*keymanager.Manager, error) {
+	pol *policy.Policy, sem *argon.Semaphore, loader *KeyLoader, log *logrus.Logger) (*keymanager.Manager, error) {
 	dir := cfg.KeyConfigPath
 	err := keymanager.PrepareDir(dir, cfg.StrictFilePermissions, func(mode os.FileMode) {
 		log.WithFields(logrus.Fields{"directory": dir, "mode": fmt.Sprintf("%04o", mode)}).Warn("The key-config " +

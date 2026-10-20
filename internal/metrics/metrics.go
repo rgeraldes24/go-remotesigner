@@ -146,6 +146,41 @@ type Metrics struct {
 	RandaoMinLayersRemaining prometheus.Gauge
 }
 
+// NewRegistry builds the registry every mode shares: the Go and process
+// collectors, process_release{version} and, when cfg.SignersLoaded is set,
+// signing_signers_loaded_count. Execution mode serves only these and the
+// HTTP metrics.
+func NewRegistry(cfg Config) (*prometheus.Registry, error) {
+	r := prometheus.NewRegistry()
+	for _, c := range baseCollectors(cfg) {
+		if err := r.Register(c); err != nil {
+			return nil, err
+		}
+	}
+	return r, nil
+}
+
+func baseCollectors(cfg Config) []prometheus.Collector {
+	release := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "process_release",
+		Help: "The running release; always 1.",
+	}, []string{"version"})
+	release.WithLabelValues(cfg.Version).Set(1)
+	cs := []prometheus.Collector{
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		release,
+	}
+	if cfg.SignersLoaded != nil {
+		loaded := cfg.SignersLoaded
+		cs = append(cs, prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "signing_signers_loaded_count",
+			Help: "Keys loaded.",
+		}, func() float64 { return float64(loaded()) }))
+	}
+	return cs
+}
+
 // New builds the registry with the Go and process collectors,
 // process_release{version} and the signer's metrics, every documented label
 // value created.
@@ -212,27 +247,11 @@ func New(cfg Config) (*Metrics, error) {
 			Help: "Fewest RANDAO layers any loaded key has left (its frontier index); NaN while no loaded key has a frontier.",
 		}),
 	}
-	release := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "process_release",
-		Help: "The running release; always 1.",
-	}, []string{"version"})
-	release.WithLabelValues(cfg.Version).Set(1)
-
-	cs := []prometheus.Collector{
-		collectors.NewGoCollector(),
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-		release,
+	cs := append(baseCollectors(cfg),
 		m.SigningRequests, m.SigningDuration, m.MalformedRequests, m.MissingIdentifier, m.KeysQuarantined,
 		m.VerifyFailures, m.SlashingPermitted, m.SlashingPrevented, m.SlashingDatabaseDuration, m.RandaoReveals,
 		m.RandaoNewLayerRateLimited, m.RandaoRevealDuration, m.RandaoSlowPathScans, m.RandaoMinLayersRemaining,
-	}
-	if cfg.SignersLoaded != nil {
-		loaded := cfg.SignersLoaded
-		cs = append(cs, prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-			Name: "signing_signers_loaded_count",
-			Help: "Keys loaded.",
-		}, func() float64 { return float64(loaded()) }))
-	}
+	)
 	for _, c := range cs {
 		if err := m.Registry.Register(c); err != nil {
 			return nil, err

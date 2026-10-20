@@ -51,9 +51,9 @@ func TestRun(t *testing.T) {
 		},
 		{
 			name:       "unknown command is a usage error",
-			args:       []string{"execution"},
+			args:       []string{"eth1"},
 			wantCode:   exitUsage,
-			wantStderr: []string{"usage error", `unknown command "execution"`},
+			wantStderr: []string{"usage error", `unknown command "eth1"`},
 		},
 		{
 			name:       "extra argument after help is a usage error",

@@ -15,7 +15,8 @@
 //
 // Modified by The go-remotesigner Authors, 2026: translated from Java to Go and adapted for QRL.
 // Derived from Web3Signer
-// signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsKeystoreBulkLoader.java and
+// signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsKeystoreBulkLoader.java,
+// signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/SecpV3KeystoresBulkLoader.java and
 // signing/src/main/java/tech/pegasys/web3signer/signing/secp256k1/util/JsonFilesUtil.java
 // at commit 30af06dc975ba5b8ed0e17e53cba8683ca50ec02.
 
@@ -25,6 +26,11 @@
 // keystore (--keystores-passwords-path: <stem>.txt for <stem>.json). This
 // is the layout the deposit CLI writes and qrysm's validator client uses: a
 // directory of keystore-*.json files and one password file.
+//
+// In execution mode (Config.Execution) the directory holds go-qrl account
+// keystores instead, the `<name>.json` and `<name>.txt` layout of
+// Web3Signer's eth1 keystore loader; validator keystores are then refused,
+// as account keystores are in consensus mode.
 //
 // Each keystore is one source, so a keystore that fails to load keeps the
 // key it had while the others load. A keystore whose files are unchanged
@@ -81,6 +87,9 @@ type Config struct {
 	// Policy is applied to every password file.
 	Policy  secretfile.Policy
 	Decrypt DecryptFunc
+	// Execution loads go-qrl account keystores instead of validator
+	// keystores.
+	Execution bool
 }
 
 // Source is the source name of the keystore at path.
@@ -202,7 +211,11 @@ func (c Config) load(ctx context.Context, start time.Time, path string, shared *
 	if err != nil {
 		return fail(err)
 	}
-	ks, err := qrlv1.Parse(data)
+	parse := qrlv1.Parse
+	if c.Execution {
+		parse = qrlv1.ParseAccount
+	}
+	ks, err := parse(data)
 	if err != nil {
 		return fail(err)
 	}

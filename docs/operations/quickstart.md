@@ -33,8 +33,8 @@ privateKey: "0x<96 hex characters>"
 ```
 
 - `keyType` may be left out; `ML_DSA_87` is the only value.
-- 32-byte keys, 51-byte extended seeds (execution mode) and 4,896-byte raw ML-DSA secret keys are refused with a
-  message that says which one was found.
+- 32-byte keys, 51-byte extended seeds (account keys, which [execution mode](execution.md) loads) and 4,896-byte
+  raw ML-DSA secret keys are refused with a message that says which one was found.
 - File names are free. Keys are identified by their public key, never by the file name.
 - Keep the directory readable by the signer's user only (`chmod 700`, files `0600`): the seed is the key. A key file
   that its group or other users can read is refused unless `--strict-file-permissions=false` is given.

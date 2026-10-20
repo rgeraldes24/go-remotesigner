@@ -18,9 +18,10 @@ import (
 const fuzzKDFWork = 8 * MinM
 
 // FuzzDecrypt checks that arbitrary keystore JSON never panics, that every
-// refusal is typed, that whatever Parse accepts is within the policy and
-// keeps only printable metadata, and that decrypting allocates no more than
-// the keystore's own Argon2id block.
+// refusal is typed, that whatever Parse or ParseAccount (go-qrl's account
+// keystore, execution mode) accepts is within the policy and keeps only
+// printable metadata, and that decrypting allocates no more than the
+// keystore's own Argon2id block.
 func FuzzDecrypt(f *testing.F) {
 	base, password := lightVector(f)
 	for _, c := range vectors.Keystores(f) {
@@ -54,56 +55,83 @@ func FuzzDecrypt(f *testing.F) {
 	}
 	f.Add([]byte(`{}`))
 	f.Add([]byte(`{"version":1,"crypto":{"kdf":null,"cipher":null}}`))
+	ext := testExtendedSeed(f, 0)
+	account := encode(f, sealAccount(f, lightKDF, []byte(password), ext[:], accountAddress(f, ext)))
+	f.Add(account)
+	for _, e := range []struct {
+		path string
+		v    any
+	}{
+		{"address", "Q00"},
+		{"address", deleteField},
+		{"crypto.kdfparams", nil},
+		{"crypto.kdfparams.m", 1<<32 - 1},
+		{"crypto.cipherparams", deleteField},
+		{"crypto.ciphertext", hexOf(64)},
+		{"version", 3},
+	} {
+		f.Add(edit(f, account, e.path, e.v))
+	}
 
 	pw := NewPassword([]byte(password))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		ks, err := Parse(data)
-		if err != nil {
-			if !errors.Is(err, ErrFormat) && !errors.Is(err, ErrPolicy) {
-				t.Fatalf("untyped or internal refusal: %v", err)
-			}
-			return
-		}
-		k := ks.KDF
-		if k.T < MinT || k.T > MaxT || k.M < MinM || k.M > MaxM || k.P < MinP || k.P > MaxP {
-			t.Fatalf("Parse accepted KDF %+v", k)
-		}
-		if len(ks.sealed.salt) < minSaltSize || len(ks.sealed.salt) > maxSaltSize {
-			t.Fatalf("Parse accepted a salt of %d bytes", len(ks.sealed.salt))
-		}
-		if ks.Path != "" && !derivationPathRE.MatchString(ks.Path) {
-			t.Fatalf("Parse kept path %q, which is not a derivation path", ks.Path)
-		}
-		for _, v := range []string{ks.UUID, ks.Description} {
-			if strings.IndexFunc(v, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
-				t.Fatalf("Parse kept %q, which holds a non-printable character", v)
-			}
-		}
-		if k.T*k.M > fuzzKDFWork {
-			return
-		}
-		var key interface{ Zeroize() }
-		n := allocated(func() {
-			got, e := ks.Decrypt(pw)
-			if got != nil {
-				key = got
-			}
-			err = e
-		})
-		if key != nil {
-			key.Zeroize()
-		}
-		switch {
-		case err == nil:
-		case errors.Is(err, ErrInternal):
-			t.Fatalf("decrypt panicked: %v", err)
-		case !errors.Is(err, ErrPassword) && !errors.Is(err, ErrPubkeyMismatch) && !errors.Is(err, ErrFormat):
-			t.Fatalf("untyped decrypt error: %v", err)
-		}
-		// One Argon2id block per candidate run, freed between runs, plus
-		// key derivation; a garbage collection may not have run in between.
-		if limit := uint64(len(pw.candidates(ks.Flavour)))*(uint64(k.M)<<10) + 2<<20; n > limit {
-			t.Fatalf("decrypt allocated %d bytes, limit %d", n, limit)
-		}
+		fuzzParsed(t, ks, err, pw)
+		ks, err = ParseAccount(data)
+		fuzzParsed(t, ks, err, pw)
 	})
+}
+
+// fuzzParsed checks one parser's outcome for FuzzDecrypt and decrypts what
+// it accepted.
+func fuzzParsed(t *testing.T, ks *Keystore, err error, pw *Password) {
+	t.Helper()
+	if err != nil {
+		if !errors.Is(err, ErrFormat) && !errors.Is(err, ErrPolicy) {
+			t.Fatalf("untyped or internal refusal: %v", err)
+		}
+		return
+	}
+	k := ks.KDF
+	if k.T < MinT || k.T > MaxT || k.M < MinM || k.M > MaxM || k.P < MinP || k.P > MaxP {
+		t.Fatalf("parse accepted KDF %+v", k)
+	}
+	if len(ks.sealed.salt) < minSaltSize || len(ks.sealed.salt) > maxSaltSize {
+		t.Fatalf("parse accepted a salt of %d bytes", len(ks.sealed.salt))
+	}
+	if ks.Path != "" && !derivationPathRE.MatchString(ks.Path) {
+		t.Fatalf("parse kept path %q, which is not a derivation path", ks.Path)
+	}
+	for _, v := range []string{ks.UUID, ks.Description} {
+		if strings.IndexFunc(v, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
+			t.Fatalf("parse kept %q, which holds a non-printable character", v)
+		}
+	}
+	if k.T*k.M > fuzzKDFWork {
+		return
+	}
+	var key interface{ Zeroize() }
+	n := allocated(func() {
+		got, e := ks.Decrypt(pw)
+		if got != nil {
+			key = got
+		}
+		err = e
+	})
+	if key != nil {
+		key.Zeroize()
+	}
+	switch {
+	case err == nil:
+	case errors.Is(err, ErrInternal):
+		t.Fatalf("decrypt panicked: %v", err)
+	case !errors.Is(err, ErrPassword) && !errors.Is(err, ErrPubkeyMismatch) &&
+		!errors.Is(err, ErrAddressMismatch) && !errors.Is(err, ErrFormat):
+		t.Fatalf("untyped decrypt error: %v", err)
+	}
+	// One Argon2id block per candidate run, freed between runs, plus
+	// key derivation; a garbage collection may not have run in between.
+	if limit := uint64(len(pw.candidates(ks.Flavour)))*(uint64(k.M)<<10) + 2<<20; n > limit {
+		t.Fatalf("decrypt allocated %d bytes, limit %d", n, limit)
+	}
 }
