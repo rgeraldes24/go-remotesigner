@@ -197,10 +197,11 @@ attribution line below our header.
 `headercheck` checks `.go`, `.sql`, `.yaml`/`.yml`, `.sh`, `.py`, `.service` (systemd units), `Dockerfile*` and
 `deploy/**/*.json` files (JSON files carry the notice in a top-level `description` field). Every such file needs a
 row, as does every file under `third_party/` and every derived file of any type. Markdown, the Makefile,
-`go.mod`/`go.sum`, `renovate.json`, `.gitignore`, the licence texts and `NOTICE` are project files that need no row
-unless they are derived from upstream or live under `third_party/`, and the generated files under `testdata/vectors/`
-are covered as a whole by "Golden vectors"; every other tracked file needs a row (`test/repo` checks this). For a row
-of a kind `headercheck` does not read (such as Markdown), the row records origin only and no header is required.
+`go.mod`/`go.sum`, `renovate.json`, `.gitignore`, the licence texts, `NOTICE` and `NOTICE.execution` are project
+files that need no row unless they are derived from upstream or live under `third_party/`, and the generated files
+under `testdata/vectors/` are covered as a whole by "Golden vectors"; every other tracked file needs a row
+(`test/repo` checks this). For a row of a kind `headercheck` does not read (such as Markdown), the row records origin
+only and no header is required.
 
 `headercheck` checks only that a `w3s-derived` header has a ConsenSys line, since CI has no Web3Signer checkout.
 That each one carries exactly the ConsenSys lines of the upstream files its row names is checked against a checkout
