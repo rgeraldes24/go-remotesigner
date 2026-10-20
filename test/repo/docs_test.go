@@ -110,6 +110,49 @@ func TestOperatorDocs(t *testing.T) {
 	}
 }
 
+// Every Markdown page of the repository can be reached from the README by
+// following relative links, directly (the operator pages, CHANGELOG.md, the
+// contract) or through an index such as docs/spec/README.md, so that no
+// page is left where a reader of the README cannot find it.
+func TestEveryPageReachableFromReadme(t *testing.T) {
+	md := map[string]string{}
+	for _, f := range repoFiles(t) {
+		if strings.HasSuffix(f.path, ".md") {
+			md[f.path] = f.text
+		}
+	}
+	reached := map[string]bool{"README.md": true}
+	queue := []string{"README.md"}
+	for len(queue) > 0 {
+		p := queue[0]
+		queue = queue[1:]
+		targets, _ := mdLinks(md[p])
+		for _, target := range targets {
+			file, _, _ := strings.Cut(target, "#")
+			if file == "" {
+				continue
+			}
+			dest := path.Clean(path.Join(path.Dir(p), file))
+			if _, ok := md[dest]; !ok {
+				// A directory link reaches its README.
+				dest = path.Join(dest, "README.md")
+			}
+			if _, ok := md[dest]; ok && !reached[dest] {
+				reached[dest] = true
+				queue = append(queue, dest)
+			}
+		}
+	}
+	if len(reached) < 2 {
+		t.Fatalf("the README reaches %d pages: the link parser is broken", len(reached))
+	}
+	for p := range md {
+		if !reached[p] {
+			t.Errorf("%s cannot be reached from the README by relative links", p)
+		}
+	}
+}
+
 // The upgrade notes name the schema version this release reads and writes,
 // and quote the startup refusals as the store reports them, so that a
 // release that changes the schema, or its messages, changes the notes too.
