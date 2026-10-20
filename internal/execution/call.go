@@ -95,7 +95,7 @@ func (p *proxy) call(ctx context.Context, id json.RawMessage, method string, par
 		return nodeAnswer{}, bad.with("not a JSON-RPC response to " + method)
 	}
 	switch {
-	case resp.JSONRPC != Version || !bytes.Equal(compactJSON(resp.ID), compactJSON(id)):
+	case resp.JSONRPC != Version || !sameID(resp.ID, id):
 		return nodeAnswer{}, bad.with("not the answer to the signer's " + method)
 	case resp.Error != nil:
 		ne := &Error{Code: resp.Error.Code, Message: resp.Error.Message, status: http.StatusOK}
@@ -109,13 +109,31 @@ func (p *proxy) call(ctx context.Context, id json.RawMessage, method string, par
 	return nodeAnswer{result: resp.Result}, nil
 }
 
-// compactJSON returns JSON without insignificant space, for comparing ids.
-func compactJSON(data []byte) []byte {
-	var b bytes.Buffer
-	if json.Compact(&b, data) != nil {
-		return data
+// sameID reports whether two JSON-RPC ids are the same id: two strings
+// that decode to the same text, two numbers written alike, or two nulls.
+// The bytes may differ: encoding/json, the signer's and gqrl's, writes <, >,
+// &, U+2028 and U+2029 in a string as \u escapes, so a client id "a&b"
+// comes back as "a\u0026b".
+func sameID(a, b json.RawMessage) bool {
+	x, okA := decodeID(a)
+	y, okB := decodeID(b)
+	return okA && okB && x == y
+}
+
+// decodeID decodes an id: a string, a json.Number or nil for null. Any
+// other JSON is no id.
+func decodeID(raw json.RawMessage) (any, bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if dec.Decode(&v) != nil || dec.More() {
+		return nil, false
 	}
-	return b.Bytes()
+	switch v.(type) {
+	case string, json.Number, nil:
+		return v, true
+	}
+	return nil, false
 }
 
 // quantity decodes a result that is a 0x hex quantity.

@@ -331,8 +331,9 @@ func (s *e2eSigner) auditOutcomes(t *testing.T) []string {
 }
 
 // TestGQRLDev runs the signer in front of gqrl --dev, the chain the node
-// builds at the go-qrl commit go.mod requires: a transfer is mined; a
-// taken nonce is filled, signed and sent again; a wrong chain ID is
+// builds at the go-qrl commit go.mod requires: a transfer is mined, also
+// under a client id that gqrl's answer escapes; a taken nonce is filled,
+// signed and sent again; a wrong chain ID is
 // refused, in the request and from the node; a node that changes to,
 // value, input, the access list or the chain ID in qrl_fillTransaction is
 // refused; so is a filled nonce far above the pending one; and the fee cap
@@ -390,6 +391,47 @@ func TestGQRLDev(t *testing.T) {
 		}
 		if status := s.waitMined(t, hash); status != "0x1" || hash != signed.Tx.Hash() {
 			t.Fatalf("status %s", status)
+		}
+	})
+
+	t.Run("an id the node escapes", func(t *testing.T) {
+		// gqrl writes <, > and & in the id it answers with as \u escapes;
+		// its answer to a transaction it took is still that answer.
+		before := s.pendingNonce(t)
+		params, _ := json.Marshal([]any{map[string]any{"from": s.from, "to": recipient, "value": "0x7"}})
+		req, err := http.NewRequest(http.MethodPost, s.base+"/", strings.NewReader(
+			`{"jsonrpc":"2.0","id":"<a&b>","method":"`+MethodSendTransaction+`","params":`+string(params)+`}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for k, v := range s.bearer() {
+			req.Header[k] = v
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		var r struct {
+			ID     json.RawMessage `json:"id"`
+			Result common.Hash     `json:"result"`
+			Error  *Error          `json:"error"`
+		}
+		if err := json.Unmarshal(data, &r); err != nil || resp.StatusCode != http.StatusOK || r.Error != nil ||
+			!sameID(r.ID, json.RawMessage(`"<a&b>"`)) {
+			t.Fatalf("%d %s", resp.StatusCode, data)
+		}
+		if status := s.waitMined(t, r.Result); status != "0x1" {
+			t.Fatalf("status %s", status)
+		}
+		if after := s.pendingNonce(t); after != before+1 {
+			t.Fatalf("nonce %d -> %d", before, after)
+		}
+		outcomes := s.auditOutcomes(t)
+		if last := outcomes[len(outcomes)-1]; last != "qrl_sendTransaction sent " {
+			t.Fatalf("last audit line %q", last)
 		}
 	})
 

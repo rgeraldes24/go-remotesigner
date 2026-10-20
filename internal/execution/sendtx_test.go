@@ -56,6 +56,49 @@ func TestSendTransactionComplete(t *testing.T) {
 	if raw := g.callsOf(MethodSendRawTransaction)[0]; string(raw.ID) != `"client-7"` {
 		t.Fatalf("qrl_sendRawTransaction id %s, want the client's", raw.ID)
 	}
+	// The node's encoder writes <, >, &, U+2028 and U+2029 in the id as \u
+	// escapes, and the client may have written them raw or escaped: the
+	// answer is still the node's answer to that id, and the client gets it.
+	params, _ := json.Marshal([]any{fullTx(addr, "nonce", "")})
+	for _, id := range []string{`"<a&b>"`, "\"\u2028\u2029\"", `"\u003ca\u0026b\u003e"`, `"a\/b"`, `-1.50`, `null`} {
+		sent := len(g.sentTxs())
+		w := f.post(`{"jsonrpc":"2.0","id":`+id+`,"method":"`+MethodSendTransaction+`","params":`+string(params)+`}`, nil)
+		r := decodeOne(t, w.Body.Bytes())
+		if w.Code != http.StatusOK || r.Error != nil || !sameID(r.ID, json.RawMessage(id)) {
+			t.Fatalf("id %s: %d %s", id, w.Code, w.Body)
+		}
+		if got := g.sentTxs(); len(got) != sent+1 || `"`+got[sent].Hash().Hex()+`"` != string(r.Result) {
+			t.Fatalf("id %s: result %s, %d sent", id, r.Result, len(got)-sent)
+		}
+	}
+}
+
+// Two ids are the same id when they decode alike, whatever escapes the
+// encoders chose; a string is never a number, and a number is compared as
+// written.
+func TestSameID(t *testing.T) {
+	for _, tt := range []struct {
+		a, b string
+		same bool
+	}{
+		{`"a&b"`, `"a\u0026b"`, true},
+		{`"<\u2028>"`, `"\u003c\u2028\u003e"`, true},
+		{`"\u00e9"`, `"é"`, true},
+		{`7`, `7`, true},
+		{`null`, ` null `, true},
+		{`"7"`, `7`, false},
+		{`7`, `7.0`, false},
+		{`"a"`, `"b"`, false},
+		{`null`, `"null"`, false},
+		{`{}`, `{}`, false},
+		{`[1]`, `[1]`, false},
+		{``, ``, false},
+		{`1 2`, `1 2`, false},
+	} {
+		if got := sameID(json.RawMessage(tt.a), json.RawMessage(tt.b)); got != tt.same {
+			t.Errorf("sameID(%s, %s) = %v", tt.a, tt.b, got)
+		}
+	}
 }
 
 // Without a nonce, gas, a fee cap or a chain ID the signer asks the node
