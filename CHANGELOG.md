@@ -64,8 +64,8 @@ Web3Signer are rows X25, X26, X28 and X76-X106 of [`DEVIATIONS.md`](DEVIATIONS.m
 - **The default flavour links LGPL code.** `remotesigner` now links the go-qrl library (LGPL-3.0-or-later),
   unmodified, for execution mode, which makes it a combined work: its archives and image append
   [`NOTICE.execution`](NOTICE.execution) to the NOTICE and add the LGPL and GPL texts to `LICENSES/`, its image's
-  licence label names `LGPL-3.0-or-later`, and `--version` prints go-qrl's notice. It also links the AWS, GCP and
-  Azure SDKs, which make it about 12 MB larger than `remotesigner-consensus`
+  licence label names `LGPL-3.0-or-later`, and `--version` prints go-qrl's notice. With go-qrl and the AWS, GCP and
+  Azure SDKs, which it links too, it is about 13 MB larger than `remotesigner-consensus`
   ([`docs/benchmarks.md`](docs/benchmarks.md#binary-size-with-the-secret-stores-no-benchmark-id)).
   `remotesigner-consensus` links none of them and stays under permissive licences only: run it to sign consensus
   duties without LGPL code ([`docs/operations/release.md`](docs/operations/release.md#2-notice-and-licence-texts-per-flavour)).

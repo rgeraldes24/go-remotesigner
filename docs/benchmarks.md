@@ -3,10 +3,53 @@
 Each benchmark is first run when its component lands, then re-run weekly and before every release. The thresholds
 were set for the reference hardware: a 4-vCPU x86-64 cloud VM and a 4-vCPU Graviton-class arm64 VM, reporting p50,
 p99 and p99.9 with `benchstat` over at least 10 runs. Rows measured elsewhere say so and must be re-run on the
-reference VMs before v1.0.
+reference VMs before a release.
 
-The first section is the run for the 1.0.0 release; the sections after it describe each benchmark and keep the runs
-made when its component landed.
+The first two sections are the runs for the 1.1.0 and the 1.0.0 releases; the sections after them describe each
+benchmark and keep the runs made when its component landed.
+
+## v1.1 release run (dev machine)
+
+**These are development-machine numbers, not the release gate.** Like v1.0, v1.1 needs every benchmark below within
+its threshold on the reference VMs, and B16; both are open items of the
+[v1.1 release checklist](operations/release.md#72-open-gates-this-repository-cannot-meet-today). Run W re-ran every
+benchmark that runs on this machine on the code of the 1.1.0 candidate, which adds execution mode and the secret
+stores to 1.0.0, with the commands of the sections below. No benchmark measures execution mode or the secret stores;
+the binary sizes they bring are [below](#binary-size-with-the-secret-stores-no-benchmark-id).
+
+Run W, 2026-10-20, Go 1.26.9, Apple M2 (4 performance and 4 efficiency cores, 16 GiB, darwin/arm64), PostgreSQL 17
+(`postgres:17-alpine`) in Docker Desktop for B13 and B14. The machine was shared with other work; the load average of
+each run is in the table. Most of it came from Run W itself: the Argon2id runs of B10, B11, B12 and B18 raised it
+from about 2 to 14.
+
+| ID | Threshold | Run W | Load average | Verdict (dev machine) |
+|---|---|---|---|---|
+| B1 | mean ≤ 2 ms; p99 ≤ 6 ms; p99.99 ≤ 12 ms (amd64) | 10 runs of 20,000: mean 0.428 ms ± 1 %, p50 0.350 ms, p99 1.33 ms, p99.99 7.5 ms ± 57 % (2.8-14.0 ms; above 12 ms in 1 of 10) | 1.8-2.2 | mean and p99 met; p99.99 not met in 1 of 10 |
+| B2 | as B1; identical bytes for repeated roots | mean 0.429 ms ± 2 %, p50 0.350 ms, p99 1.32 ms, p99.99 7.1 ms ± 58 % (4.0-12.0 ms; none above 12 ms); every repeated root gave identical bytes | 1.8-2.2 | met |
+| B3 | mean ≤ 1 ms | 0.134 ms ± 3 % | 1.8-2.2 | met |
+| B4 | ≥ 1,000 signatures/s on 4 vCPU; no data races | `-cpu 4`, 10 runs: distinct keys 8,541/s ± 6 %, shared key 2,291/s ± 2 %; no race under `-race` | 2.2-2.3 | met |
+| B5 | ≤ 10 ms / ≤ 3 ms / ≤ 50 µs | contribution (128 signatures) 1.61 ms, aggregate (32) 0.410 ms, attestation data 1.02 µs (10 runs each) | 2.1-2.3 | met |
+| B6 | ≤ 20 ms; ≤ 6 MB allocated | 3.36 ms ± 1 % (340 MiB/s), 592 KiB and 59 allocations | 2.1-2.3 | met |
+| B7 | last ≤ 1 s, p99 ≤ 500 ms, 0 errors | 9 runs: last 324-583 ms, p50 22-162 ms, p99 319-579 ms, 0 errors; p99 over 500 ms in one run (579 ms). Two more runs, which overlapped a build of the B19 test, missed (p99 568 and 613 ms) | 2.5-10 | met in 8 of 9 (8 of 11 with the overlapped runs) |
+| B8 | each ≤ 250 ms; RSS + ≤ 128 MiB | 11 runs: slowest 27.7-34.4 ms; RSS +29-37 MiB | 2.5-10 | met |
+| B9 | reveal p99 ≤ 0.5 s; unknown ≤ 0.6 s, cached on retry; signing p99 ≤ 500 ms alongside | 11 runs: 4 first reveals p99 203-243 ms; unknown 54-163 ms, retry 0.19-0.71 ms; signing p99 alongside 157-236 ms | 2.5-10 | met |
+| B10 | single ≤ 3 s (amd64) / ≤ 5 s (arm64); the knee; RSS ≤ base + P × 320 MiB | P = 1: 1.40-1.43 s; throughput P=1 0.70-0.71/s, P=2 1.32-1.35/s, P=4 2.17-2.25/s, P=8 2.88-2.94/s, P=16 1.99-2.93/s; peak RSS P=1 521, P=2 1,034, P=4 2,060, P=8 4,111, P=16 6,419 MiB | 2.3-15 | single met; knee at P = 4-8; RSS not met at any P (bound open, see [B10](#argon2id-keystore-decryption-b10-internalkeyskeystoreqrlv1)) |
+| B11 | 10k raw: ready ≤ 30 s, `publicKeys` ≤ 5 s | ready 1.43 s, `publicKeys` 556 ms, peak RSS 672 MiB | 12-14 | met |
+| B11 | keystores: ready ≤ 1.2 × N × t_B10 / P | 100: P = 8, t_B10 = 2.68 s: ready 34 s, bound 40 s, peak RSS 4,385 MiB. 1,000: t_B10 = 2.78 s before the load and 3.66 s after it: ready 6 min 59 s, bound 9 min 9 s, peak RSS 5,197 MiB | 10-14 | met |
+| B12 | B7 p99 during the reload ≤ 2 × without | 3 runs: B7 p99 129-181 ms without a reload, 205-337 ms during a reload of 100 standard-KDF keystores (1.23 ×, 1.44 × and 2.61 ×); the reload took 35-44 s at 2.4-3.0 s per decrypt | 5-11 | met in 2 of 3; the burst always met B7's own bound (p99 ≤ 500 ms) |
+| B13 | p50 ≤ 5 ms, p99 ≤ 20 ms; burst ≤ 100 ms; stalled DB fails in ≤ 5 s | attestation p50 1.46 ms, p99 3.28 ms; block p50 1.13 ms, p99 1.70 ms; burst of 33 wall p50 27.4 ms, p99 46.6 ms; stalled database 4.50 s | 5-8 | met |
+| B14 | run ≤ 5 min; signing p99 during ≤ 2 × baseline | bbolt: steady state 15.0 s, 0.75 ×; first run on twice the window 24.5 s, 0.50 ×. Postgres: 34.8 s, 0.50 ×; 43.2 s, 0.41 × | 2.3-2.9 (bbolt), 5-8 (Postgres) | met |
+| B15 | ≤ 2 s on a LAN; transient allocation ≤ 64 MB | plain 19.2 ms ± 7 %, 70 KiB; gzip 498 ms ± 1 %, 1.2 MiB (10 runs each) | 2.1-3.5 | met |
+| B16 | 24 h with 4,096 keys: 0 failed duties; RSS flat within ± 10 %; no goroutine growth | not run: it still needs a time-compressed driver of the mainnet duty schedule and a reference VM for 24 h | — | open (release checklist) |
+| B18 | ≤ 100 × t_B10 / P + 10 s; no write-deadline error | P = 8, t_B10 = 3.33 s: 44.4 s (27.6 s for 64, 16.8 s for 36) against 52 s; peak RSS 5,922 MiB | 10-12 | met |
+| B19 | 0 idle-connection errors over 1 h with `IdleTimeout` 120 s | 1 h run (`make b19 B19_DURATION=1h`, alongside the other runs): 158 POSTs, 0 connection errors | 2-15 over the hour | met |
+| B20 | p99 handshake ≤ 200 ms on 4 vCPU | 11 runs: P-256 p99 20.5-89.8 ms (max 89.8 ms), RSA-2048 p99 43.1-106.2 ms (max 106.7 ms). B7 over TLS on HTTP/1.1: P-256 p99 164-824 ms (over 500 ms in one run), RSA-2048 181-386 ms; on h2: P-256 132-846 ms (over 500 ms in two runs), RSA-2048 192-914 ms (in four); 0 errors | 2.5-10 | storm met; B7 over TLS met in 37 of the 44 measurements |
+
+Against Run V the results are the same within the noise of a shared machine, as expected: 1.1.0 changes neither the
+signing path nor the slashing-protection stores, and its secret-store loaders run only when configured. The B7 misses
+are again single runs next to passing ones, and B12 met its bound in two of three runs, where Run V met it in none;
+the reference VMs decide both. The raw logs of Run W are not kept in the repository.
+
 
 ## v1.0 release run (dev machine)
 
@@ -110,8 +153,8 @@ allocates only small bookkeeping, which is why B6 stays far under its memory bou
 
 ## Public keys and idle connections (B15, B19, the API server)
 
-**B15: met on the development machine.** **B19: met on the development machine** in its first 1 h run (Run V,
-2026-10-20: 162 POSTs, 0 errors); the nightly job runs it every night.
+**B15: met on the development machine.** **B19: met on the development machine** in its 1 h runs (Run V,
+2026-10-20: 162 POSTs, 0 errors; Run W, the same day: 158 POSTs, 0 errors); the nightly job runs it every night.
 
 ```
 go test -run '^$' -bench PublicKeys10k -benchtime 10x -count 10 ./internal/api/consensus/ | tee b15.txt && benchstat b15.txt
@@ -128,7 +171,7 @@ about 2:1 at any level. B19 runs the built binary and two clients with Go's defa
 |---|---|---|---|---|
 | B15 | `BenchmarkPublicKeys10k/plain` | ≤ 2 s on a LAN; transient allocation ≤ 64 MB | 20.7-21.0 ms, 71.6 KB and 12 allocations per request | met on dev machine |
 | B15 | `BenchmarkPublicKeys10k/gzip` | as above | 526-551 ms, 1.28 MB and 32 allocations per request | met on dev machine |
-| B19 | `TestB19IdleConnectionRace` (`make b19`) | 0 "server closed idle connection" or EOF errors over 1 h with `IdleTimeout` 120 s | 1 h run (Run V, 2026-10-20): 162 POSTs, 0 errors; earlier a 40 s smoke run (0 errors) and a 5 min run (2026-10-15: 14 POSTs, 0 errors) | met on dev machine |
+| B19 | `TestB19IdleConnectionRace` (`make b19`) | 0 "server closed idle connection" or EOF errors over 1 h with `IdleTimeout` 120 s | 1 h runs (Run V and Run W, 2026-10-20): 162 and 158 POSTs, 0 errors; earlier a 40 s smoke run (0 errors) and a 5 min run (2026-10-15: 14 POSTs, 0 errors) | met on dev machine |
 
 Run E, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), 10 runs of 10 requests each, load average 4-5 from
 other work.
@@ -417,6 +460,19 @@ No benchmark is assigned to the secret stores. Their SDKs are linked by the defa
 binaries were measured without them and with them, built as the release builds them (`CGO_ENABLED=0 -trimpath
 -ldflags '-s -w'`), on the development machine (Apple M2, Go 1.26.9). These are dev-machine numbers (MB is 10^6
 bytes); load does not change a size.
+
+Run W, on 2026-10-20, measured the binaries of the release dry run of the 1.1.0 candidate, which links everything
+1.1.0 adds, transaction signing with go-qrl's types included:
+
+| Target | `remotesigner` | `remotesigner-consensus` | Difference |
+|---|---|---|---|
+| linux/amd64 | 32.54 MB | 19.14 MB | 13.40 MB |
+| linux/arm64 | 30.41 MB | 17.89 MB | 12.52 MB |
+| darwin/amd64 | 33.43 MB | 19.56 MB | 13.87 MB |
+| darwin/arm64 | 31.43 MB | 18.41 MB | 13.02 MB |
+
+The consensus flavour is the size Run U measured after the secret stores (19.14 MB on linux/amd64); the default
+flavour grew by 1.33 MB since, with transaction signing.
 
 Run U, on 2026-10-20 at load average 2.2-5.8: "before" is the code without the secret stores but with the keymanager,
 the Postgres store and execution mode, and "after" adds the secret stores to it.

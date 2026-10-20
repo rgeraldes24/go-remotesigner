@@ -1,7 +1,8 @@
 # Releases
 
 This page lists what a release contains, how the licence files differ per flavour, how to verify a release, how
-maintainers run the release dry run and publish, and what still stands between the repository and `v1.0.0`. The
+maintainers run the release dry run and publish, and what still stands between the repository and `v1.0.0` and
+`v1.1.0`. The
 configuration is [`.goreleaser.yaml`](../../.goreleaser.yaml) (goreleaser v2) and the workflow
 [`.github/workflows/release.yml`](../../.github/workflows/release.yml).
 
@@ -157,13 +158,15 @@ The version comes from the ldflags of [`.goreleaser.yaml`](../../.goreleaser.yam
 which is the tag without its `v`. To see what a tag's release would report without creating the tag:
 
 ```
-make release-version RELEASE_TAG=v1.0.0 GO_LICENSES="$(go env GOPATH)/bin/go-licenses"
+make release-version RELEASE_TAG=v1.1.0 GO_LICENSES="$(go env GOPATH)/bin/go-licenses"
 ```
 
 It builds every binary as the release would (`goreleaser build` with `GORELEASER_CURRENT_TAG`, into `dist/`; nothing
 is tagged, archived or published) and checks that each one of this machine prints
-`remotesigner version 1.0.0 (commit …)`. `make build` on a checkout of the tag reports the same version: the
-Makefile drops the `v` of `git describe` too (`TestMakeBuildVersion` in `test/repo`).
+`remotesigner version 1.1.0 (commit …)`, followed in the default flavour by go-qrl's notice (section 2), which the
+consensus flavour never prints. `RELEASE_TAG` defaults to the tag of the newest version in `CHANGELOG.md`.
+`make build` on a checkout of the tag reports the same version: the Makefile drops the `v` of `git describe` too
+(`TestMakeBuildVersion` in `test/repo`).
 
 ## 5. Publishing
 
@@ -228,3 +231,44 @@ repository does not have; each is recorded where the table says once it is met.
 
 Cutting the release, once section 6.2 is met: a pull request to `main` dates the 1.0.0 entry of `CHANGELOG.md` (and
 moves anything listed under `Unreleased` into it); after it is merged, the tag is pushed as section 5 shows.
+
+## 7. The v1.1 release checklist
+
+`v1.1.0` adds execution mode and the secret stores to 1.0.0, and is tagged only after `v1.0.0` and when every item
+below holds. As for 1.0.0, CI checks the items of section 7.1 that a test or a make target checks on every pull
+request, and the others (the review of the register, the comparison of the ConsenSys lines with Web3Signer, the
+benchmark runs and `make release-version`) are done by hand before the tag. The gates of section 7.2 need
+infrastructure, decisions or a release this repository does not have; each is recorded where the table says once it
+is met. Section 6.2's gates that concern the qrysm validator client, the deployment guides and the repository's
+visibility are met once, for 1.0.0, and are not repeated here.
+
+### 7.1 Met in the repository
+
+| Item | Checked by |
+|---|---|
+| `CHANGELOG.md` has the 1.1.0 entry, newest first and in Keep a Changelog form: what execution mode, the secret stores and the release's source archive add, and what changes for the default flavour | `TestChangelog` (`tools/releasedocs`) |
+| `PROVENANCE.md` records every file that execution mode and the secret stores add or change, every header matches its class, and the ConsenSys lines of their Web3Signer-derived files, the ported tests included, are those of the upstream files their rows name | `make headercheck`; `TestProvenanceCoversEveryFile` (`test/repo`); by hand, `ConsenSysLinesMatchUpstream` against a Web3Signer checkout (`PROVENANCE.md`, "Header classes") |
+| `DEVIATIONS.md` rows X25, X26, X28 and X76-X106 are reviewed against the code, and the register says which release brought them | the review for 1.1.0; `make contract` |
+| The default flavour's archives and images carry the go-qrl paragraph of `NOTICE.execution` in their `NOTICE`, the LGPL and GPL texts in `LICENSES/` and go-qrl's licence files, and no go-qrl source; the consensus flavour's carry none of them, and `go version -m` lists no go-qrl module in its binaries | `make release-check` (section 4); `TestConsensusFlavourLinksNoGoQRL` and `TestNoticeSplitsFlavours` (`test/repo`) |
+| The source archive, `remotesigner-<version>-src-vendored.tar.gz`, holds both NOTICE files, the GNU texts and every linked module in `vendor/`, go-qrl at the version `go.mod` requires, is listed in `checksums.txt`, and rebuilds the default flavour offline | `make release-check` (`TestReleaseSource`) |
+| The binaries of the tag `v1.1.0` report `1.1.0`, the default flavour's followed by go-qrl's notice | `make release-version RELEASE_TAG=v1.1.0` (section 4) by hand; in CI, `TestReleaseVersion` on the dry run and `TestVersionNotice` (`cmd/remotesigner`) |
+| Execution mode in front of gqrl `--dev`: a transfer is mined, the nonce retry works, and a wrong chain ID, a fill that changes the request, a filled nonce far above the pending one and a fee over the cap are refused | `make gqrl-e2e` (`TestGQRLDev`), the `gqrl-e2e` job of CI |
+| Transaction hashes equal those of go-qrl's own `SignTx` in the golden vectors | `TestTransactionVectors` (`internal/execution`); `make vectors` leaves no difference |
+| The secret stores read seeds from a Vault dev server and LocalStack's Secrets Manager, and their GCP and Azure clients pass against in-process fakes of those services; the consensus flavour links no cloud SDK and neither flavour a Vault SDK | `make test-cloud`, the `cloud-secrets` job of CI; `TestCloudSDKsInDefaultFlavourOnly` and `TestNoVaultSDKLinked` (`test/repo`) |
+| [`execution.md`](execution.md) and the store pages ([`hashicorp-vault.md`](hashicorp-vault.md), [`aws-secrets-manager.md`](aws-secrets-manager.md), [`gcp-secret-manager.md`](gcp-secret-manager.md), [`azure-key-vault.md`](azure-key-vault.md)) exist and are linked from the README with every other operator page; the flag reference lists the execution and store flags | `TestOperatorDocs` (`test/repo`); `go run ./tools/flagdoc -check` |
+| The benchmarks that run on a development machine are re-run for the release | [`docs/benchmarks.md`](../benchmarks.md#v11-release-run-dev-machine), "v1.1 release run" |
+
+### 7.2 Open: gates this repository cannot meet today
+
+| Gate | What meets it | Recorded in |
+|---|---|---|
+| `v1.0.0` released first | Section 6 met and `v1.0.0` tagged on the commit of `main` that merges the pull request preparing it (#23), before the pull requests of execution mode and the secret stores merge, so that 1.0.0 holds neither; the `[1.1.0]` link of `CHANGELOG.md` compares with that tag | the GitHub release of `v1.0.0` |
+| The stacked pull requests merged into `main` | The pull requests of execution mode's JSON-RPC endpoint and proxy (#24), the secret stores (#25) and transaction signing (#26), and the one that prepares this release, reviewed and merged into `main` in order after `v1.0.0`, so that the commit to be tagged is on `main` and CI has passed it there (section 5). Before they merge, the pull request of transaction signing is squashed, or its licence-check commits reordered, so that every commit of `main` passes `make licenses` | the pull requests |
+| The gqrl end-to-end test on the reference VMs | `make gqrl-e2e` on the 4-vCPU amd64 and arm64 reference VMs, against gqrl built from the go-qrl commit `go.mod` requires, on the commit to be tagged; so far it has run on a development machine and in CI | the release pull request |
+| Both nightly end-to-end runs green for 7 consecutive nights on the 1.1.0 candidate | The two qrysm nightly runs of section 6.2, against the commit to be tagged: the secret stores changed how consensus mode loads keys, so the 1.0.0 nights do not carry over; and the signer's own nightly jobs (B19, the keystore and interchange fuzzers) green on the same nights | qrysm CI and the signer's nightly workflow, linked from the release pull request |
+| The secret stores against the real services | The store tests run once against real AWS Secrets Manager, GCP Secret Manager and Azure Key Vault accounts, with each authentication mode the store pages document, and against a Vault server with Kubernetes authentication; CI has no such accounts and runs them against a Vault dev server, LocalStack and in-process fakes only | the release pull request |
+| Reference-VM benchmark runs for the 1.1.0 candidate | B1-B16 and B18-B20 as section 6.2 describes them, on the commit to be tagged, with B10's memory bound decided | [`docs/benchmarks.md`](../benchmarks.md) |
+| The first tag run attaches the source archive | The Release workflow's run for `v1.1.0` attaches `remotesigner-1.1.0-src-vendored.tar.gz` to the GitHub release, with its checksum in the signed `checksums.txt`, and the default flavour's image on ghcr.io carries the `LGPL-3.0-or-later` licence label; the dry run builds and checks the same files but publishes nothing | the GitHub release |
+
+Cutting the release, once section 7.2 is met: a pull request to `main` dates the 1.1.0 entry of `CHANGELOG.md`
+(and moves anything listed under `Unreleased` into it); after it is merged, `v1.1.0` is pushed as section 5 shows.
