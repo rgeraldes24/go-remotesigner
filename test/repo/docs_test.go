@@ -82,7 +82,9 @@ var operatorPages = []struct {
 	{"CHANGELOG.md", []string{"## [1.0.0]", "listens, is not bounded", "Every global and `consensus` flag",
 		"hex of the wrong\n  length are refused", "## [1.1.0]", "- **Execution mode.**",
 		"- **Transaction signing and sending.**", "- **Proxy to the node.**", "- **Secret stores.**",
-		"- **The default flavour links LGPL code.**"}},
+		"- **The default flavour links LGPL code.**", "Basic authentication and a token in the URL are refused",
+		"When the request left the nonce to the\n  node", "`--downstream-http-proxy-host`",
+		"`qrl_signTypedData` is never\n  offered or forwarded"}},
 	{"docs/reference/flags.md", []string{"## Override flags", "### What each override accepts"}},
 	{"docs/reference/registration-fee-recipient-file.md", nil},
 }

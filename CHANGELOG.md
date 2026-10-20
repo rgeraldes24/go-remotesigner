@@ -30,23 +30,27 @@ Web3Signer are rows X25, X26, X28 and X76-X106 of [`DEVIATIONS.md`](DEVIATIONS.m
   `--keystores-path` directory. At `POST /` it answers `qrl_accounts`, `qrl_sign` (a hedged ML-DSA-87 signature of
   go-qrl's text hash, verified before it is returned) and `health_status`, and splits batches of up to 1,000
   requests. `GET /api/v1/execution/publicKeys` lists each account's address with its public key, which a verifier of
-  `qrl_sign` needs. See [`docs/operations/execution.md`](docs/operations/execution.md).
+  `qrl_sign` needs. Clients authenticate with the sign token in an `Authorization: Bearer` header, a client
+  certificate or both; Basic authentication and a token in the URL are refused. See
+  [`docs/operations/execution.md`](docs/operations/execution.md).
 - **Transaction signing and sending.** `qrl_signTransaction` signs go-qrl's type-0x2 transactions for `--chain-id`
   and answers gqrl's `{raw, tx}`; the signer compares that chain ID with the node's at startup and every 10 minutes,
   and refuses transactions while they differ. `qrl_sendTransaction` asks the node's `qrl_fillTransaction` for what a
   request lacks, takes only the nonce, gas and fees from its answer after checking that the rest is the request's,
   refuses a filled nonce more than 64 above the account's pending one (`--execution-nonce-crosscheck`, on by
-  default), then signs and sends, one transaction per account at a time, and tries again up to 10 times when the
-  node reports that another transaction took the nonce.
+  default), then signs and sends, one transaction per account at a time. When the request left the nonce to the
+  node, it tries again up to 10 times if the node reports that another transaction took the nonce.
   Every transaction stays within a fee cap of 1 quanta, unless the policy sets another, and within the per-account
   policy of `--execution-policy-file` (recipients, value, fee, contract creation, input size, transactions per
   hour), which a listener beyond loopback requires. `--execution-audit-log-file` records every signature, every send
   and every refusal.
 - **Proxy to the node.** Requests for the methods `--execution-proxy-allowed-methods` allows (`qrl_*`, `net_*` and
   `web3_*` by default) are re-encoded and forwarded to the node without the client's `Authorization`, cookies or
-  forwarding headers, with the node's own credential from `--downstream-http-auth-header-file` and, if asked, over
-  TLS; no redirect is followed, and responses stop at 25 MB. `admin_*`, `qrl_signTypedData` and every other method
-  outside the allowlist are refused.
+  forwarding headers, with the node's own credential from `--downstream-http-auth-header-file`, and, if asked, over
+  TLS (`--downstream-http-tls-enabled`) and through an HTTP proxy (`--downstream-http-proxy-host` and
+  `--downstream-http-proxy-port`); no redirect is followed, and responses stop at 25 MB. `qrl_signTypedData` is never
+  offered or forwarded, and methods outside the allowlist (by default `admin_*`, `debug_*`, `personal_*` and every
+  other namespace but those three) are refused.
 - **Secret stores.** `remotesigner consensus` reads validator seeds from HashiCorp Vault's KV version 2 engine
   (`hashicorp` key-config documents, through Vault's HTTP API with token or Kubernetes authentication, in both
   flavours) and, in the default flavour only, from AWS Secrets Manager, GCP Secret Manager and Azure Key Vault
