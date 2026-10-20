@@ -15,15 +15,21 @@ own: a tag such as `v1.0.0-rc.1` publishes the notes of its version's entry, dat
 
 ### Added
 
-- **Execution mode.** `remotesigner execution`, in the default flavour only, holds QRL account keys (51-byte
-  extended seeds in `file-raw` key-config files, and go-qrl account keystores) for JSON-RPC clients in front of a gqrl
-  node, in a process of its own. At `POST /` it answers `qrl_accounts`, `qrl_sign` and `health_status`, splits
-  batches of up to 1,000 requests, and forwards the methods `--execution-proxy-allowed-methods` allows (`qrl_*`,
-  `net_*` and `web3_*` by default) to the node, without the client's credentials, cookies or forwarding headers and
-  without following redirects. `GET /api/v1/execution/publicKeys` lists the accounts with their public keys.
-  Transaction signing is not part of it yet: `qrl_signTransaction` and `qrl_sendTransaction` are refused.
-  `remotesigner-consensus` has no execution mode. See [`docs/operations/execution.md`](docs/operations/execution.md)
-  and rows X28 and X76-X87 of [`DEVIATIONS.md`](DEVIATIONS.md).
+- **Execution mode.** `remotesigner execution`, in the default flavour only, holds QRL account keys (51-byte extended
+  seeds in `file-raw` key-config files, and go-qrl account keystores) for JSON-RPC clients in front of a gqrl node, in
+  a process of its own. At `POST /` it answers `qrl_accounts`, `qrl_sign`, `qrl_signTransaction`,
+  `qrl_sendTransaction` and `health_status`, splits batches of up to 1,000 requests, and forwards the methods
+  `--execution-proxy-allowed-methods` allows (`qrl_*`, `net_*` and `web3_*` by default) to the node, without the
+  client's credentials, cookies or forwarding headers and without following redirects.
+  `GET /api/v1/execution/publicKeys` lists the accounts with their public keys. Transactions are go-qrl's type-0x2
+  transactions, signed for `--chain-id`, which the signer compares with the node's chain ID, within the per-account
+  policy of `--execution-policy-file`, which a non-loopback listener requires, and a fee cap of 1 quanta unless that
+  policy sets another; `qrl_sendTransaction` asks the node's `qrl_fillTransaction` for what a request lacks and checks
+  its answer, and `--execution-audit-log-file` records every signature, send and refusal. Linking go-qrl
+  (LGPL-3.0-or-later) makes the default binary a combined work: its release appends `NOTICE.execution` to its NOTICE,
+  and every release attaches the source with every dependency vendored. `remotesigner-consensus` has no execution mode
+  and links no go-qrl. See [`docs/operations/execution.md`](docs/operations/execution.md) and rows X25, X26, X28,
+  X76-X87 and X103-X106 of [`DEVIATIONS.md`](DEVIATIONS.md).
 - **Secret stores.** `remotesigner consensus` reads validator seeds from HashiCorp Vault's KV version 2 engine
   (`hashicorp` key-config documents, over plain HTTP, in both flavours) and, in the default flavour only, from AWS
   Secrets Manager, GCP Secret Manager and Azure Key Vault secrets: one secret per `aws-secret`, `gcp-secret` or
