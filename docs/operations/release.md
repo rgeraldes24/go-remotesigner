@@ -19,7 +19,7 @@ Two flavours, built from the same commit with `CGO_ENABLED=0 -trimpath`:
 |---|---|
 | `<flavour>_<version>_<os>_<arch>.tar.gz` | for linux and darwin, amd64 and arm64: a directory with the binary, `LICENSE`, the flavour's `NOTICE`, `LICENSES/`, `third_party_licenses/`, `README.md`, and the release's systemd unit and example configuration files in `deploy/systemd/` and `deploy/config/` ([`deploy-systemd.md`](deploy-systemd.md) installs them from there) |
 | `<archive>.sbom.json` | the archive's SPDX SBOM (syft) |
-| `remotesigner-<version>-src-vendored.tar.gz` | the source of the release: the tagged tree with every module the binaries link in `vendor/` (`make release-src`), go-qrl included, which rebuilds the default flavour offline (`go build -mod=vendor ./cmd/remotesigner`) |
+| `remotesigner-<version>-src-vendored.tar.gz` | the source of the release: the tagged tree with every module the binaries link in `vendor/` (`make release-src`), go-qrl included, which rebuilds the default flavour offline with Go 1.26.5 or later (section 3) |
 | `checksums.txt` | SHA-256 of every archive, SBOM and the source archive |
 | `checksums.txt.sigstore.json` | the keyless cosign signature bundle of `checksums.txt` |
 | `ghcr.io/rgeraldes24/<flavour>:<version>` (and `:latest` unless a pre-release) | the multi-platform image ([`deploy-docker.md`](deploy-docker.md)), with an SBOM and a SLSA provenance attestation attached, signed with cosign |
@@ -110,13 +110,17 @@ go version -m remotesigner-consensus | grep -E 'dep\s+github.com/theQRL/go-qrl\s
 go version -m remotesigner | grep -E 'dep\s+github.com/theQRL/go-qrl\s'              # the go-qrl version
 ```
 
-**The source archive rebuilds the default flavour.**
+**The source archive rebuilds the default flavour.** Offline, with the Go installed, 1.26.5 or later (the `go` line
+of `go.mod`):
 
 ```
 tar -xzf remotesigner-<version>-src-vendored.tar.gz
 cd remotesigner-<version>-src-vendored
-CGO_ENABLED=0 GOPROXY=off go build -mod=vendor -trimpath -o remotesigner ./cmd/remotesigner
+GOTOOLCHAIN=local CGO_ENABLED=0 GOPROXY=off go build -mod=vendor -trimpath -o remotesigner ./cmd/remotesigner
 ```
+
+`GOTOOLCHAIN=local` keeps the go command on that Go: without it, a Go older than the `toolchain` line of `go.mod`
+(go1.26.9) tries to download that toolchain, which `GOPROXY=off` forbids, and the build fails.
 
 ## 4. The release dry run
 
