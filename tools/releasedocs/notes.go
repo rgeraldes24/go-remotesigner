@@ -28,11 +28,17 @@ var (
 // tag without an entry, an entry whose heading carries no date (still
 // "Unreleased"), and an empty entry, so that a release cannot be published
 // before its CHANGELOG.md entry is complete.
+//
+// CHANGELOG.md has entries for versions only (TestChangelog), so a
+// pre-release tag (v1.0.0-rc.1) publishes the notes of its version's entry
+// (1.0.0), which may still say "Unreleased": the version itself is not
+// released yet.
 func releaseNotes(changelog []byte, tag string) ([]byte, error) {
-	version, ok := strings.CutPrefix(tag, "v")
-	if !ok || version == "" {
+	full, ok := strings.CutPrefix(tag, "v")
+	if !ok || full == "" {
 		return nil, fmt.Errorf("tag %q is not a version tag v<major>.<minor>.<patch>", tag)
 	}
+	version, pre, _ := strings.Cut(full, "-")
 	var body []string
 	found, in := false, false
 	for _, line := range strings.Split(string(changelog), "\n") {
@@ -44,7 +50,7 @@ func releaseNotes(changelog []byte, tag string) ([]byte, error) {
 			if found {
 				return nil, fmt.Errorf("CHANGELOG.md has two entries for %s", version)
 			}
-			if !isoDate.MatchString(m[2]) {
+			if !isoDate.MatchString(m[2]) && (pre == "" || m[2] != "Unreleased") {
 				return nil, fmt.Errorf("CHANGELOG.md: the %s entry is dated %q; write the tag's date (YYYY-MM-DD) in its heading before tagging", version, m[2])
 			}
 			found, in = true, true
@@ -53,6 +59,9 @@ func releaseNotes(changelog []byte, tag string) ([]byte, error) {
 		if in && !linkReference.MatchString(line) {
 			body = append(body, line)
 		}
+	}
+	if !found && pre != "" {
+		return nil, fmt.Errorf("CHANGELOG.md has no entry for %s, the version of the pre-release %s", version, full)
 	}
 	if !found {
 		return nil, fmt.Errorf("CHANGELOG.md has no entry for %s", version)

@@ -8,7 +8,8 @@ changes only as [`docs/contract.md`](docs/contract.md#20-versioning-and-change-c
 
 A version's heading carries the date of its tag. Until the tag is pushed, the heading says `Unreleased`, and the
 release workflow refuses to publish a version whose entry is missing or undated
-([`docs/operations/release.md`](docs/operations/release.md#5-publishing)).
+([`docs/operations/release.md`](docs/operations/release.md#5-publishing)). Pre-releases have no entries of their
+own: a tag such as `v1.0.0-rc.1` publishes the notes of its version's entry, dated or not.
 
 ## [Unreleased]
 

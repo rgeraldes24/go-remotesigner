@@ -70,7 +70,7 @@ jobs:
           make license-hash headercheck nogpl licenses GO_LICENSES="$(go env GOPATH)/bin/go-licenses"
           go vet ./...
           go vet -tags noexecution ./...
-      - name: Release notes from the tag's dated CHANGELOG.md entry
+      - name: Release notes from the tag's CHANGELOG.md entry (dated, except for a pre-release)
         run: go run ./tools/releasedocs -notes "${GITHUB_REF_NAME}" > "${RUNNER_TEMP}/release-notes.md"
       - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:

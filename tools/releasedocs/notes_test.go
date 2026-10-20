@@ -67,6 +67,31 @@ func TestReleaseNotes(t *testing.T) {
 	}
 }
 
+// A pre-release tag publishes the notes of its version's entry, dated or
+// still Unreleased, with the links pointed at the pre-release tag.
+func TestReleaseNotesPreRelease(t *testing.T) {
+	got, err := releaseNotes([]byte(changelogFixture), "v1.1.0-rc.1")
+	if err != nil || string(got) != "### Added\n\n- Execution mode.\n" {
+		t.Errorf("v1.1.0-rc.1 notes %q, %v", got, err)
+	}
+	got, err = releaseNotes([]byte(changelogFixture), "v1.0.0-rc.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "](https://github.com/rgeraldes24/go-remotesigner/blob/v1.0.0-rc.2/DEVIATIONS.md)") {
+		t.Errorf("v1.0.0-rc.2 notes do not link at the tag:\n%s", got)
+	}
+	// The repository's own entry, still Unreleased, makes a pre-release's
+	// notes as it is.
+	data, err := os.ReadFile("../../CHANGELOG.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notes, err := releaseNotes(data, "v1.0.0-rc.1"); err != nil || !strings.Contains(string(notes), "### Added") {
+		t.Errorf("v1.0.0-rc.1 notes from CHANGELOG.md: %v\n%s", err, notes)
+	}
+}
+
 func TestReleaseNotesRefused(t *testing.T) {
 	tests := []struct {
 		name, changelog, tag, want string
@@ -77,6 +102,9 @@ func TestReleaseNotesRefused(t *testing.T) {
 		{"no date at all", "## [1.0.0]\n\n- x\n", "v1.0.0", `dated ""`},
 		{"empty", "## [1.0.0] - 2026-11-02\n\n[1.0.0]: https://example.org\n", "v1.0.0", "is empty"},
 		{"twice", "## [1.0.0] - 2026-11-02\n\n- a\n\n## [1.0.0] - 2026-11-03\n\n- b\n", "v1.0.0", "two entries"},
+		{"pre-release without its version's entry", changelogFixture, "v2.0.0-rc.1", "no entry for 2.0.0, the version of the pre-release 2.0.0-rc.1"},
+		{"pre-release of an entry without a date", "## [1.0.0]\n\n- x\n", "v1.0.0-rc.1", `dated ""`},
+		{"pre-release of an empty entry", "## [1.0.0] - Unreleased\n\n[1.0.0]: https://example.org\n", "v1.0.0-rc.1", "is empty"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

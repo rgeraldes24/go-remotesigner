@@ -30,8 +30,9 @@
 //
 // With -notes <tag> it instead prints the release notes of the tag: the
 // body of its CHANGELOG.md entry, which must be dated, with its relative
-// links pointed at the repository at the tag. The release workflow passes
-// them to goreleaser (--release-notes).
+// links pointed at the repository at the tag. A pre-release tag
+// (v1.0.0-rc.1) prints its version's entry, dated or still Unreleased. The
+// release workflow passes them to goreleaser (--release-notes).
 //
 // go-licenses runs for linux/amd64: the release images are linux, and the
 // linux builds link a superset of the darwin builds' modules

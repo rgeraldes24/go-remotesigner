@@ -142,7 +142,9 @@ The Release workflow then checks the tagged tree before it publishes anything:
 2. the compliance gates of CI: `make license-hash headercheck nogpl licenses` and `go vet` in both flavours;
 3. the release notes: `go run ./tools/releasedocs -notes <tag>` prints the body of the tag's `CHANGELOG.md` entry,
    with its relative links pointed at the repository at the tag, and fails when the entry is missing, empty or still
-   `Unreleased`; goreleaser publishes it as the release's description (`--release-notes`);
+   `Unreleased`; goreleaser publishes it as the release's description (`--release-notes`). `CHANGELOG.md` has entries
+   for versions only, so a pre-release tag publishes its version's entry, which may still be `Unreleased`:
+   `v1.0.0-rc.1` the 1.0.0 entry;
 4. the dry run and its checks (section 4).
 
 Only if they all pass does it run `goreleaser release`. It builds with a cold Go module and build cache, never one
