@@ -39,6 +39,7 @@ func TestRequestRefusals(t *testing.T) {
 	s.waitReady()
 	sign, admin, wrong := s.signToken(), s.adminToken(), "0x"+strings.Repeat("e", 64)
 	const pubkeys = "/api/v1/consensus/publicKeys"
+	randaoState := "/api/v1/consensus/randao_state/0x" + strings.Repeat("ab", 32)
 	tests := []struct {
 		name   string
 		req    request
@@ -53,6 +54,8 @@ func TestRequestRefusals(t *testing.T) {
 		{"no token on an admin route", request{method: "POST", path: "/reload", contentType: "application/json"}, 401, "UNAUTHENTICATED"},
 		{"non-JSON POST", request{method: "POST", path: "/reload", token: admin, contentType: "text/plain", body: strings.NewReader("x")}, 415, "UNSUPPORTED_MEDIA_TYPE"},
 		{"POST without content type", request{method: "POST", path: "/reload", token: admin}, 415, "UNSUPPORTED_MEDIA_TYPE"},
+		{"bodyless DELETE without content type", request{method: "DELETE", path: randaoState, token: admin}, 415, "UNSUPPORTED_MEDIA_TYPE"},
+		{"bodyless DELETE as text", request{method: "DELETE", path: randaoState, token: admin, contentType: "text/plain"}, 415, "UNSUPPORTED_MEDIA_TYPE"},
 		{"Origin", request{path: pubkeys, token: sign, origin: "https://evil.example"}, 403, "ORIGIN_NOT_ALLOWED"},
 		{"Origin null", request{path: "/upcheck", origin: "null"}, 403, "ORIGIN_NOT_ALLOWED"},
 		{"bad Host", request{path: "/upcheck", host: "evil.example:" + s.port}, 403, "HOST_NOT_ALLOWED"},

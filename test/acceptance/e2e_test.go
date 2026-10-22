@@ -168,10 +168,11 @@ func TestIntegrationEveryRequestType(t *testing.T) {
 	// Admin reset: the sign token is refused, the admin token clears the
 	// frontier, and the next reveal is a first use.
 	reset := "/api/v1/consensus/randao_state/" + k0.Pubkey
-	if code, body, _ := s.do(request{method: "DELETE", path: reset, token: tok}); code != 403 || reasonOf(t, body) != "FORBIDDEN_SCOPE" {
+	if code, body, _ := s.do(request{method: "DELETE", path: reset, token: tok, contentType: "application/json"}); code != 403 ||
+		reasonOf(t, body) != "FORBIDDEN_SCOPE" {
 		t.Fatalf("sign token on the reset: %d %s", code, body)
 	}
-	if code, body, _ := s.do(request{method: "DELETE", path: reset, token: s.adminToken()}); code != 200 {
+	if code, body, _ := s.do(request{method: "DELETE", path: reset, token: s.adminToken(), contentType: "application/json"}); code != 200 {
 		t.Fatalf("reset: %d %s", code, body)
 	}
 	if code, r := s.reveal(k0.Pubkey, slot+1, next, forkInfo); code != 200 {
