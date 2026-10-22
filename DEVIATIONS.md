@@ -16,7 +16,8 @@ behaviour. Rows X25, X26, X28, X76-X87 and X103-X106 describe execution mode (`r
 adds; [`docs/operations/execution.md`](docs/operations/execution.md) specifies them. Rows X88-X102 describe the secret
 stores, which 1.1.0 adds too: the store pages that [`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources)
 lists specify X88-X101, and `execution.md` specifies X102. The register was reviewed against the code for 1.0.0, and
-its rows X25, X26, X28 and X76-X106 again for 1.1.0.
+its rows X25, X26, X28 and X76-X106 again for 1.1.0. Rows X107-X114 came from a review of the 1.0.0 candidate made
+after the 1.1.0 rows were numbered: they describe consensus mode and belong to 1.0.0.
 
 | # | Area | Web3Signer | go-remotesigner | Class |
 |---|---|---|---|---|
