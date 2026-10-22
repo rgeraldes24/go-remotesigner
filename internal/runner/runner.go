@@ -470,12 +470,17 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 		SlashingProtection:    protection,
 	}
 	checks := []ops.Check{{ID: ops.CheckDefault, Run: func(context.Context) (bool, map[string]any) { return true, nil }}}
-	// Like Web3Signer, the store check exists only when there is a store:
-	// with protection disabled (loopback only) it is left out rather than
-	// reported DOWN, which would fail /healthcheck forever.
-	if set.health != nil {
+	// With protection disabled (loopback only) the store check is DOWN, so
+	// that /healthcheck never reports a signer without slashing protection
+	// as healthy; Web3Signer leaves the check out (DEVIATIONS X114).
+	switch {
+	case set.health != nil:
 		checks = append(checks, ops.Check{ID: ops.CheckSlashingProtection, Run: func(ctx context.Context) (bool, map[string]any) {
 			return set.health(ctx), nil
+		}})
+	case !cfg.Consensus.SlashingProtectionEnabled:
+		checks = append(checks, ops.Check{ID: ops.CheckSlashingProtection, Run: func(context.Context) (bool, map[string]any) {
+			return false, map[string]any{"slashing-protection": "disabled"}
 		}})
 	}
 	checks = append(checks, loader.Checks()...)

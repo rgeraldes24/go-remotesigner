@@ -576,8 +576,8 @@ golden fixture for each check.
   so two VCs must never share it. Use `--validators-external-signer-key-file` per VC instead.
 - **`/upcheck`**: plain `OK` (not JSON), or 503 `LOADING` before the first key load and store open finish.
 - **`/healthcheck`**: the Web3Signer shape `{status, outcome, checks[{id, status, data?}]}` with the check ids
-  `default-check`, `slashing-protection-db-health-check` (only when slashing protection is enabled, as in
-  Web3Signer), `keys-check/config-files-loading`, `keys-check/keystores-bulk-loading`,
+  `default-check`, `slashing-protection-db-health-check` (`DOWN` while slashing protection is disabled, where
+  Web3Signer leaves it out, so that such a signer never reports healthy), `keys-check/config-files-loading`, `keys-check/keystores-bulk-loading`,
   `keys-check/azure-bulk-loading`, `keys-check/aws-bulk-loading` and `keys-check/gcp-bulk-loading` (each only with its
   key source, as in Web3Signer) and `keys-check/randao` (degraded when keys cannot reveal or fewer than 1,024 layers
   remain). Unauthenticated callers see only `status` and `outcome`.
@@ -694,6 +694,9 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
     ([section 7](#7-request-envelope-and-validation-pipeline)).
   - A request that matches no route gets a 404 or 405 `{code, message}` body without a `reason`, and one that the
     HTTP server cannot parse gets Go's plain-text 400 or 431 ([section 11](#11-errors)).
+  - With `--slashing-protection-enabled=false` the `slashing-protection-db-health-check` check is listed and `DOWN`,
+    so `/healthcheck` answers 503 `DOWN` while the signer serves; `/upcheck` is unaffected
+    ([section 17](#17-supporting-endpoints); DEVIATIONS.md row X114).
   - Every slashing-protection store refuses a high watermark with an epoch or a slot alone, and the Postgres schema
     has a constraint to the same effect, so `GET …/highWatermark` serves both fields or `{}`, as the
     `HighWatermark` schema says; a store that holds one part anyway answers 500 `STORE_UNAVAILABLE`
@@ -747,7 +750,7 @@ show on this contract:
 | X24 (no `DEPOSIT`), X27 (no raw-signing endpoints) | [section 8](#8-artifact-types) |
 | X35 (registration `pubkey` must be the identified key; the fee-recipient pin refuses any other `fee_recipient` with 403 `ARTIFACT_TYPE_DISABLED`) | [sections 8](#8-artifact-types) and [11](#11-errors) |
 | X29 (reload never disables keys) | [section 17](#17-supporting-endpoints) |
-| X36 (`/upcheck` 503 while loading), X37 (healthcheck detail needs the sign scope), X44 (fixed reload messages) | [sections 5](#5-endpoints) and [17](#17-supporting-endpoints) |
+| X36 (`/upcheck` 503 while loading), X37 (healthcheck detail needs the sign scope), X44 (fixed reload messages), X114 (store check `DOWN` with protection disabled) | [sections 5](#5-endpoints) and [17](#17-supporting-endpoints) |
 | X45 (every POST and DELETE needs `application/json`) | [section 7](#7-request-envelope-and-validation-pipeline) |
 | X48 (client certificates grant the sign scope only), X50 (metrics token) | [section 6](#6-authentication-and-scopes) |
 | X49 (TLS 1.3 only) | [section 2](#2-transport) |

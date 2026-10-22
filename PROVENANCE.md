@@ -596,6 +596,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/files_test.go` | new | | | |
 | `test/acceptance/gate_test.go` | new | | | |
 | `test/acceptance/harness_test.go` | new | | | |
+| `test/acceptance/health_test.go` | new | | | |
 | `test/acceptance/hygiene_linux_test.go` | new | | | |
 | `test/acceptance/interchange_test.go` | new | | | |
 | `test/acceptance/keymanager_test.go` | new | | | |

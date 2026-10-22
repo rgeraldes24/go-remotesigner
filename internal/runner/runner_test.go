@@ -394,11 +394,15 @@ func TestRunProtectionDisabled(t *testing.T) {
 	if code != 200 || !strings.Contains(string(body), `"slashing_protection":"disabled"`) {
 		t.Fatalf("capabilities: %d %s", code, body)
 	}
-	// Like Web3Signer, there is no store check without a store, so the
-	// healthcheck stays UP.
+	// The store check is DOWN, so the healthcheck is DOWN too, while the
+	// signer serves (Web3Signer leaves the check out; DEVIATIONS X114).
 	code, body = r.do(t, http.MethodGet, "/healthcheck", "")
-	if code != 200 || !strings.Contains(string(body), `"status":"UP"`) || strings.Contains(string(body), "slashing-protection-db-health-check") {
+	if code != 503 || !strings.Contains(string(body), `"status":"DOWN"`) || !strings.Contains(string(body),
+		`{"id":"slashing-protection-db-health-check","status":"DOWN","data":{"slashing-protection":"disabled"}}`) {
 		t.Fatalf("healthcheck: %d %s", code, body)
+	}
+	if code, _ := r.do(t, http.MethodGet, "/upcheck", ""); code != 200 {
+		t.Fatalf("upcheck: %d", code)
 	}
 	if _, err := os.Stat(cfg.SlashingProtectionDB()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("a store file was created with protection disabled")
