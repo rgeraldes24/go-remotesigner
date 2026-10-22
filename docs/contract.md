@@ -504,9 +504,9 @@ returns 412 `RANDAO_SLOT_OUT_OF_WINDOW` for anything that would move the frontie
 - With slashing protection disabled (loopback only) the same rule runs in memory for the process lifetime, with a
   WARN; `--randao-protection-required` refuses to start instead.
 - The state is not exported in EIP-3076 in v1; first use on a new signer is safe.
-- Reset, for operational cleanup only: `DELETE /api/v1/consensus/randao_state/{identifier}` with the admin token
-  and `Content-Type: application/json` (online, both backends), or `remotesigner consensus randao-state reset --key <id>` (offline with bbolt, online with
-  Postgres). A reset key's next request is a first use, subject to conditions N.
+- Reset, for operational cleanup only: `DELETE /api/v1/consensus/randao_state/{identifier}` with the admin token and
+  `Content-Type: application/json` (online, both backends), or `remotesigner consensus randao-state reset --key <id>`
+  (offline with bbolt, online with Postgres). A reset key's next request is a first use, subject to conditions N.
 - No onions are built at startup, and `/upcheck` never waits for them. The first reveal per key per process is a scan
   from `x_0` (at most 2^20 SHA-256 calls, 0.04-0.26 s); the signer then precomputes `x_{m-1}` in the background. The
   slow path (a first use, a gap advance, or a commitment more than `W` above `R`) runs at most once per key per
@@ -576,11 +576,11 @@ golden fixture for each check.
   so two VCs must never share it. Use `--validators-external-signer-key-file` per VC instead.
 - **`/upcheck`**: plain `OK` (not JSON), or 503 `LOADING` before the first key load and store open finish.
 - **`/healthcheck`**: the Web3Signer shape `{status, outcome, checks[{id, status, data?}]}` with the check ids
-  `default-check`, `slashing-protection-db-health-check` (`DOWN` while slashing protection is disabled, where
-  Web3Signer leaves it out, so that such a signer never reports healthy), `keys-check/config-files-loading`, `keys-check/keystores-bulk-loading`,
-  `keys-check/azure-bulk-loading`, `keys-check/aws-bulk-loading` and `keys-check/gcp-bulk-loading` (each only with its
-  key source, as in Web3Signer) and `keys-check/randao` (degraded when keys cannot reveal or fewer than 1,024 layers
-  remain). Unauthenticated callers see only `status` and `outcome`.
+  `default-check`, `slashing-protection-db-health-check` (`DOWN` while slashing protection is disabled, where Web3Signer
+  leaves it out, so that such a signer never reports healthy), `keys-check/config-files-loading`,
+  `keys-check/keystores-bulk-loading`, `keys-check/azure-bulk-loading`, `keys-check/aws-bulk-loading` and
+  `keys-check/gcp-bulk-loading` (each only with its key source, as in Web3Signer) and `keys-check/randao` (degraded when
+  keys cannot reveal or fewer than 1,024 layers remain). Unauthenticated callers see only `status` and `outcome`.
 - **`/reload`**: `POST` (admin) starts an asynchronous reload and returns 202, or 409 while one runs; `GET` (sign)
   reports its status. Keys absent from the new load are evicted from memory only; their slashing-protection `enabled`
   flag is never changed by a reload. A source that fails to load keeps its previous signers.

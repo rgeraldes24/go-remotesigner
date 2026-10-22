@@ -20,12 +20,13 @@ The certificate comes from one of three sources:
 | PKCS#12 | `--tls-keystore-file`, `--tls-keystore-password-file` | Web3Signer's options. Only the first line of the password file is the password. Modern (AES, PBKDF2) and legacy (3DES, RC2) keystores load. |
 | Generated | `--tls-generate-self-signed` | Section 2. A PEM or PKCS#12 certificate, when configured, takes precedence, and nothing is generated. |
 
-Each flag of a pair needs the other, and PEM and PKCS#12 cannot both be given; these are usage errors (exit code 2).
-A file that cannot be read, a wrong password, or a key that does not match its certificate refuses the start
-(exit code 1). The private key, the PKCS#12 keystore and its password file are secret files, like the token files
-(section 5): with `--strict-file-permissions` (the default) one that its group or other users can read refuses the
-start, and the log names the file and its mode; with `--strict-file-permissions=false` it is loaded with a WARN. Keep
-them at `0600` or `0400`. The certificate file is public and is not checked. At startup the signer logs the certificate's source, path, SHA-256 fingerprint and expiry:
+Each flag of a pair needs the other, and PEM and PKCS#12 cannot both be given; these are usage errors (exit code 2). A
+file that cannot be read, a wrong password, or a key that does not match its certificate refuses the start (exit code
+1). The private key, the PKCS#12 keystore and its password file are secret files, like the token files (section 5): with
+`--strict-file-permissions` (the default) one that its group or other users can read refuses the start, and the log
+names the file and its mode; with `--strict-file-permissions=false` it is loaded with a WARN. Keep them at `0600` or
+`0400`. The certificate file is public and is not checked. At startup the signer logs the certificate's source, path,
+SHA-256 fingerprint and expiry:
 
 ```
 level=info msg="TLS enabled" certificate=/etc/remotesigner/tls/signer.crt client-auth=none
@@ -65,12 +66,12 @@ level=info msg="Generated a self-signed TLS certificate: give its file to the va
 ```
 
 Later starts reuse the two files; they are never regenerated while `cert.pem` exists. A reused `key.pem` is a secret
-file (section 1): one that its group or other users can read refuses the start under `--strict-file-permissions`. A `cert.pem` whose `key.pem` is
-gone refuses the start rather than being replaced, because clients have pinned it. If `<data-path>/tls/` already
-exists and its group or other users can write it (a volume mounted with loose permissions, say), the start is refused
-on Linux and macOS: they could replace the key the signer serves. `chmod 0700` the directory and check its files.
-Generation runs under a lock on the directory, so two signers started at once on the same data path end up with the
-same certificate.
+file (section 1): one that its group or other users can read refuses the start under `--strict-file-permissions`. A
+`cert.pem` whose `key.pem` is gone refuses the start rather than being replaced, because clients have pinned it. If
+`<data-path>/tls/` already exists and its group or other users can write it (a volume mounted with loose permissions,
+say), the start is refused on Linux and macOS: they could replace the key the signer serves. `chmod 0700` the directory
+and check its files. Generation runs under a lock on the directory, so two signers started at once on the same data path
+end up with the same certificate.
 
 The certificate's names come from `--http-host-allowlist`, so set the allowlist to the names validator clients
 connect with before the first start, for example `--http-host-allowlist=signer.internal,10.0.0.5`. A wildcard
