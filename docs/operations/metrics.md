@@ -95,7 +95,7 @@ startup, at 0, so a scrape shows it before it first occurs.
 | Metric and label | Values |
 |---|---|
 | `signing_requests_total{type}` | the nine artifact types: `BLOCK_V2`, `ATTESTATION`, `AGGREGATION_SLOT`, `AGGREGATE_AND_PROOF`, `VOLUNTARY_EXIT`, `SYNC_COMMITTEE_MESSAGE`, `SYNC_COMMITTEE_SELECTION_PROOF`, `SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF`, `VALIDATOR_REGISTRATION` |
-| `signing_requests_total{result}` | `ok` (signed); `refused` (403 policy, 412 clock bound or slashing protection); `bad_request` (any other 4xx, including 404 `UNKNOWN_KEY`); `error` (5xx, including 503 `KEY_QUARANTINED`) |
+| `signing_requests_total{result}` | `ok` (signed); `refused` (403 policy, 412 clock bound or slashing protection); `bad_request` (any other 4xx, including 404 `UNKNOWN_KEY`); `error` (5xx, including 503 `KEY_QUARANTINED` and 503 `OVERLOADED`) |
 | `consensus_slashingprotection_prevented_signings_total{reason}` | `slashing_double_proposal`, `slashing_double_vote`, `slashing_surrounding_vote`, `slashing_surrounded_vote`, `slashing_below_watermark`, `slashing_above_high_watermark`, `validator_disabled` |
 | `consensus_randao_reveals_total{result}` | `first_use`, `new_layer`, `gap_advanced`, `re_reveal`, `refused` (any 412, 422 or 429), `error` (5xx, including 503 `KEY_QUARANTINED`) |
 | `http_request_duration_seconds{route,code}` | `route` is the pattern, such as `/api/v1/consensus/sign/{identifier}`, or `-` for a request refused before routing (a foreign `Host` or an `Origin`); `code` is the numeric status |

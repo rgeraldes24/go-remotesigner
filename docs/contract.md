@@ -221,7 +221,10 @@ Server pipeline, in order:
 7. Wall-clock bound (412 `CLOCK_BOUND`, [section 12](#12-wall-clock-bounds)).
 8. Key lookup (404). A quarantined key returns 503 `KEY_QUARANTINED`.
 9. Response-cache lookup (repeats of the same request, [section 15](#15-selection-proofs-and-signing-modes)).
-10. Slashing check-and-record for `BLOCK_V2` and `ATTESTATION`, in one store transaction under the per-validator lock
+10. Take a slot of the signing gate, held until step 12 ends: at most `--max-concurrent-signing-requests` (32)
+    requests are in steps 10-12 at once, at most `--max-queued-signing-requests` (512) more wait, and a request beyond
+    them gets 503 `OVERLOADED` with `Retry-After` at once ([section 13](#13-size-limits-and-timeouts)). Then the
+    slashing check-and-record for `BLOCK_V2` and `ATTESTATION`, in one store transaction under the per-validator lock
     (412).
 11. Sign under the per-key mutex, deterministic or hedged by type.
 12. Verify before release. On failure: 500 `SIGNATURE_FAULT`, and the key is quarantined.
@@ -394,7 +397,7 @@ The qrysm client logs 412 refusals at WARN, never ERROR.
 | `MaxHeaderBytes` | 64 KiB |
 | `ReadHeaderTimeout` / `ReadTimeout` / `WriteTimeout` | 5 s / max(5 s, slot/4) / max(5 s, slot/3); `publicKeys` 120 s and the keymanager 10 min |
 | `IdleTimeout` | 120 s, above the Go client's 90 s `IdleConnTimeout` |
-| Signing concurrency | 32 in flight, queue 512, then 503 `OVERLOADED` |
+| Signing concurrency | 32 in flight, queue 512, then 503 `OVERLOADED` (`--max-concurrent-signing-requests`, `--max-queued-signing-requests`; a repeat answered by the response cache takes no slot) |
 | Large-body reads in flight | 8. A request is large when `Content-Length > 64 KiB` or the length is unknown (chunked, or h2 without `content-length`), or once more than 64 KiB of its body have been read. Routes that need no credential (`/upcheck`, `/healthcheck`) never take a slot; their 4 KiB limit bounds them. |
 | Open connections | `--http-max-connections` 1024 |
 | RANDAO reveal concurrency | `max(1, GOMAXPROCS/2)` |
@@ -730,7 +733,7 @@ show on this contract:
 | X6 (authentication and scopes) | [section 6](#6-authentication-and-scopes) |
 | X7 (`Origin` refused, non-JSON POST refused) | [sections 6](#6-authentication-and-scopes) and [7](#7-request-envelope-and-validation-pipeline) |
 | X8 (inclusive low watermark) | [section 11](#11-errors) |
-| X9 (per-route body limits), X10 (idle timeout), X32 (connection cap) | [section 13](#13-size-limits-and-timeouts) |
+| X9 (per-route body limits), X10 (idle timeout), X32 (connection cap), X107 (signing gate) | [section 13](#13-size-limits-and-timeouts) |
 | X11 (strict JSON) | [section 4](#4-encoding-rules) |
 | X12 (JSON unless `Accept` lists `text/plain` and not `application/json`) | [section 10](#10-responses-and-content-negotiation) |
 | X20 (exits off by default), X21 (clock bounds) | [sections 8](#8-artifact-types) and [12](#12-wall-clock-bounds) |

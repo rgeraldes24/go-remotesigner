@@ -137,9 +137,10 @@ section 5 names the qrysm build that has it.
   start (`--tls-generate-self-signed`), its fingerprint logged for pinning; client certificates in
   `--http-auth-mode=mtls` and `token+mtls`, trusted by fingerprint or by a client CA, never by the system roots.
 - **Request guards.** Host allowlist, refusal of any `Origin` header, `Content-Type` checks, per-route body limits,
-  timeouts and a connection cap, and startup refusals on a non-loopback listener for anything that would weaken them
-  unless an explicit `--X…` override says so (each override is explained in
-  [`docs/reference/flags.md`](docs/reference/flags.md#override-flags)).
+  timeouts, a connection cap, a signing gate that admits 32 sign requests at once, queues 512 more and answers the
+  rest 503 `OVERLOADED` (`--max-concurrent-signing-requests`, `--max-queued-signing-requests`), and startup refusals
+  on a non-loopback listener for anything that would weaken them unless an explicit `--X…` override says so (each
+  override is explained in [`docs/reference/flags.md`](docs/reference/flags.md#override-flags)).
 - **Process hygiene on Linux.** Core dumps off and the process not dumpable (`--disable-core-dumps`, on by default),
   and optional `--mlock-all`.
 - **Operations endpoints and metrics.** `GET /api/v1/consensus/publicKeys` (sorted, streamed, gzip on request),

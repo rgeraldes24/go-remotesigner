@@ -64,6 +64,8 @@ up to 10 s, closes the store, wipes the keys and exits 0.
 | `--http-admin-token-file` | `REMOTESIGNER_HTTP_ADMIN_TOKEN_FILE` | `http-admin-token-file` | unset | Admin-scope bearer token file (default \<data-path>/admin-token, generated 0600 when missing; re-read on SIGHUP). Admin routes exist only with an admin token. |
 | `--http-max-connections` | `REMOTESIGNER_HTTP_MAX_CONNECTIONS` | `http-max-connections` | `1024` | Maximum open API connections; further connections wait until one closes |
 | `--idle-connection-timeout-seconds` | `REMOTESIGNER_IDLE_CONNECTION_TIMEOUT_SECONDS` | `idle-connection-timeout-seconds` | `120` | Seconds a kept-alive API connection may stay idle |
+| `--max-concurrent-signing-requests` | `REMOTESIGNER_MAX_CONCURRENT_SIGNING_REQUESTS` | `max-concurrent-signing-requests` | `32` | Sign requests that may be in their slashing check, signature and verification at once; the others wait in the queue (replaces Web3Signer's --vertx-worker-pool-size). Must be at least 1. |
+| `--max-queued-signing-requests` | `REMOTESIGNER_MAX_QUEUED_SIGNING_REQUESTS` | `max-queued-signing-requests` | `512` | Sign requests that may wait for --max-concurrent-signing-requests; one more is refused at once with 503 OVERLOADED and Retry-After. 0 queues none. |
 | `--access-logs-enabled` | `REMOTESIGNER_ACCESS_LOGS_ENABLED` | `access-logs-enabled` | `false` | Log every API request at INFO (route, status, duration; never paths or bodies) |
 | `--tls-cert-file` | `REMOTESIGNER_TLS_CERT_FILE` | `tls-cert-file` | unset | PEM certificate chain the API serves over TLS 1.3, with --tls-key-file (re-read on SIGHUP) |
 | `--tls-key-file` | `REMOTESIGNER_TLS_KEY_FILE` | `tls-key-file` | unset | PEM private key of --tls-cert-file |

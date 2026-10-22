@@ -16,6 +16,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/admission"
 	"github.com/rgeraldes24/go-remotesigner/internal/api/apierr"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/policy"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
@@ -48,6 +49,8 @@ type GVRPinner interface {
 //   - the response cache: a repeat of a request whose signature was released
 //     within two epochs gets the same bytes, without signing or a slashing
 //     check (the repeat of a released signature adds nothing to sign);
+//   - the signing gate (503 OVERLOADED when its slots and its queue are
+//     full), held until the signature is verified;
 //   - slashing check-and-record for blocks and attestations (412), committed
 //     before anything is signed;
 //   - sign in the type's mode, verify before release (500 SIGNATURE_FAULT
@@ -62,7 +65,11 @@ type Sign struct {
 	// every listener is loopback; they are then signed unchecked.
 	Protector slashing.Protector
 	// Pinner pins a pending GVR before the first accepted request is signed.
-	Pinner  GVRPinner
+	Pinner GVRPinner
+	// Gate bounds the requests in the slashing check, the signature and its
+	// verification at once (--max-concurrent-signing-requests) and those
+	// waiting for it (--max-queued-signing-requests); nil admits all.
+	Gate    *admission.Gate
 	Metrics *metrics.Metrics
 	Log     logrus.FieldLogger
 }
@@ -136,6 +143,14 @@ func (x *exchange) serve() {
 		x.cached = true
 		x.respond(sig)
 		return
+	}
+	if x.h.Gate != nil {
+		release, err := x.h.Gate.Acquire(x.r.Context())
+		if err != nil {
+			x.fail(apierr.New(apierr.Overloaded, "signing gate: "+err.Error()))
+			return
+		}
+		defer release()
 	}
 	if x.h.Protector != nil && d.Protection != policy.ProtectionNone {
 		if e := x.protect(d, pk[:]); e != nil {

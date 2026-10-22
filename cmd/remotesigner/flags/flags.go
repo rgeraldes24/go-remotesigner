@@ -18,6 +18,7 @@ import (
 
 	"github.com/urfave/cli/v2"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/admission"
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
 )
@@ -59,6 +60,8 @@ const (
 	StrictFilePermissions   = "strict-file-permissions"
 	ReloadTimeout           = "reload-timeout"
 	SignerLoadParallelism   = "signer-load-parallelism"
+	MaxConcurrentSigning    = "max-concurrent-signing-requests"
+	MaxQueuedSigning        = "max-queued-signing-requests"
 )
 
 // Consensus flag names.
@@ -267,6 +270,8 @@ func Global() []cli.Flag {
 		&cli.StringFlag{Name: HTTPAdminTokenFile, Usage: "Admin-scope bearer token file (default <data-path>/admin-token, generated 0600 when missing; re-read on SIGHUP). Admin routes exist only with an admin token.", TakesFile: true},
 		&cli.IntFlag{Name: HTTPMaxConnections, Value: DefaultMaxConnections, Usage: "Maximum open API connections; further connections wait until one closes"},
 		&cli.UintFlag{Name: IdleConnectionTimeout, Value: DefaultIdleTimeout, Usage: "Seconds a kept-alive API connection may stay idle"},
+		&cli.IntFlag{Name: MaxConcurrentSigning, Value: admission.DefaultConcurrent, Usage: "Sign requests that may be in their slashing check, signature and verification at once; the others wait in the queue (replaces Web3Signer's --vertx-worker-pool-size). Must be at least 1."},
+		&cli.IntFlag{Name: MaxQueuedSigning, Value: admission.DefaultQueued, Usage: "Sign requests that may wait for --max-concurrent-signing-requests; one more is refused at once with 503 OVERLOADED and Retry-After. 0 queues none."},
 		&cli.BoolFlag{Name: AccessLogsEnabled, Usage: "Log every API request at INFO (route, status, duration; never paths or bodies)"},
 		&cli.BoolFlag{Name: AllowPlaintextTokenAuth, Hidden: true, Usage: "Allow bearer tokens over plaintext HTTP on a non-loopback listener"},
 		&cli.StringFlag{Name: TLSCertFile, Usage: "PEM certificate chain the API serves over TLS 1.3, with --tls-key-file (re-read on SIGHUP)", TakesFile: true},

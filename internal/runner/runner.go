@@ -26,6 +26,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/admission"
 	"github.com/rgeraldes24/go-remotesigner/internal/api/consensus"
 	kmapi "github.com/rgeraldes24/go-remotesigner/internal/api/keymanager"
 	"github.com/rgeraldes24/go-remotesigner/internal/api/ops"
@@ -151,7 +152,13 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	reloader := ops.NewReloader(loader.Load, log)
 	var ready atomic.Bool
 
-	sign := &consensus.Sign{Policy: pol, Signer: sig, Pinner: store, Metrics: m, Log: log}
+	gate, err := admission.New(cfg.Signing.Limits())
+	if err != nil {
+		reveals.Close()
+		closeStore()
+		return fmt.Errorf("refusing to start: %w", err)
+	}
+	sign := &consensus.Sign{Policy: pol, Signer: sig, Pinner: store, Gate: gate, Metrics: m, Log: log}
 	if cfg.Consensus.SlashingProtectionEnabled {
 		sign.Protector = engine
 	}

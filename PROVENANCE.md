@@ -249,6 +249,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/flavour_consensus.go` | new | | | |
 | `cmd/remotesigner/flavour_consensus_test.go` | new | | | |
 | `cmd/remotesigner/flavour_full.go` | new | | | |
+| `cmd/remotesigner/gate_test.go` | new | | | |
 | `cmd/remotesigner/interchange.go` | new | | | |
 | `cmd/remotesigner/interchange_test.go` | new | | | |
 | `cmd/remotesigner/keys_test.go` | new | | | |
@@ -269,6 +270,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `deploy/grafana/remotesigner.json` | w3s-derived | Web3Signer | `dashboard/web3signer-eth2-dashboard-grafana.json` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `deploy/prometheus/alerts.yml` | new | | | |
 | `deploy/systemd/remotesigner.service` | new | | | |
+| `internal/admission/admission.go` | new | | | |
+| `internal/admission/admission_test.go` | new | | | |
 | `internal/api/apierr/apierr.go` | new | | | |
 | `internal/api/apierr/apierr_test.go` | new | | | |
 | `internal/api/apierr/messages.go` | new | | | |
@@ -281,6 +284,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/api/consensus/randao.go` | new | | | |
 | `internal/api/consensus/randao_test.go` | new | | | |
 | `internal/api/consensus/sign.go` | new | | | |
+| `internal/api/consensus/sign_gate_test.go` | new | | | |
 | `internal/api/consensus/sign_test.go` | new | | | |
 | `internal/api/jsonutil/jsonutil_test.go` | new | | | |
 | `internal/api/jsonutil/object.go` | new | | | |
@@ -581,6 +585,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/e2e_test.go` | new | | | |
 | `test/acceptance/execution_test.go` | new | | | |
 | `test/acceptance/execution_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/eth1rpc/PassThroughAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/eth1rpc/AccountManagementAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/eth1rpc/Eth1RpcReloadKeysTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/bulkloading/SecpV3KeystoresBulkLoadAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `test/acceptance/gate_test.go` | new | | | |
 | `test/acceptance/harness_test.go` | new | | | |
 | `test/acceptance/hygiene_linux_test.go` | new | | | |
 | `test/acceptance/interchange_test.go` | new | | | |
