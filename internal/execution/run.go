@@ -98,12 +98,15 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	defer closeTxs()
 
 	var tlsSrv *tlsconf.Server
-	authCfg := auth.Config{Mode: cfg.HTTP.AuthMode, SignTokenFile: cfg.SignTokenFile(), AdminTokenFile: cfg.AdminTokenFile()}
+	files := runner.ServerFilePolicy(cfg, log)
+	authCfg := auth.Config{Mode: cfg.HTTP.AuthMode, SignTokenFile: cfg.SignTokenFile(), AdminTokenFile: cfg.AdminTokenFile(),
+		Files: files}
 	if cfg.TLS.Enabled() {
 		tlsSrv, err = tlsconf.New(cfg.TLS, tlsconf.Options{
 			SelfSignedDir:     cfg.SelfSignedTLSPath(),
 			SelfSignedHosts:   cfg.HTTP.HostAllowlist,
 			RequireClientCert: cfg.HTTP.AuthMode.ClientCerts(),
+			Files:             files,
 		})
 		if err != nil {
 			return fmt.Errorf("refusing to start: TLS: %w", err)
