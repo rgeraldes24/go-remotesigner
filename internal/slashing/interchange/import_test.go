@@ -386,12 +386,17 @@ func TestImportDisablesTheKeyTheElementNames(t *testing.T) {
 	})
 }
 
-// failingDisable is a store that cannot change an enabled flag.
+// failingDisable is a store that cannot change an enabled flag: the import disables a failed element's key in a
+// history transaction, and that fails.
 type failingDisable struct{ slashing.Store }
 
 var errDisable = errors.New("flag write failed")
 
 func (failingDisable) SetValidatorEnabled(context.Context, slashing.KeyID, bool) error {
+	return errDisable
+}
+
+func (failingDisable) UpdateHistory(context.Context, []slashing.KeyID, func(slashing.KeyID, slashing.HistoryTx) error) error {
 	return errDisable
 }
 

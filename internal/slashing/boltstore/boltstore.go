@@ -320,7 +320,11 @@ func createValidator(vs *bolt.Bucket, id slashing.KeyID, pk []byte, enabled bool
 	if err := b.Put(keyPublicKey, pk); err != nil {
 		return err
 	}
-	if err := b.Put(keyEnabled, encodeBool(enabled)); err != nil {
+	state := stateEnabled
+	if !enabled {
+		state = stateDisabledByImport // only the interchange import registers keys disabled
+	}
+	if err := b.Put(keyEnabled, encodeState(state)); err != nil {
 		return err
 	}
 	if _, err := b.CreateBucket(bucketBlocks); err != nil {
@@ -338,8 +342,9 @@ func (s *Store) ValidatorStatus(ctx context.Context, id slashing.KeyID) (slashin
 		if b == nil {
 			return nil
 		}
-		enabled, err := decodeBool("enabled", b.Get(keyEnabled))
-		st = slashing.ValidatorStatus{Registered: true, Enabled: enabled}
+		state, err := decodeState(b.Get(keyEnabled))
+		st = slashing.ValidatorStatus{Registered: true, Enabled: state == stateEnabled,
+			DisabledByImport: state == stateDisabledByImport}
 		return err
 	})
 	return st, err
@@ -357,7 +362,7 @@ func (s *Store) SetValidatorEnabled(ctx context.Context, id slashing.KeyID, enab
 		if err != nil {
 			return err
 		}
-		return b.Put(keyEnabled, encodeBool(enabled))
+		return b.Put(keyEnabled, encodeEnabled(enabled))
 	})
 }
 

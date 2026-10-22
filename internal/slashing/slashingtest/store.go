@@ -393,23 +393,79 @@ func runValidatorContract(t *testing.T, newStore Factory) {
 	t.Run("registration as disabled", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 2)
 		must(t, s.SetValidatorEnabled(bg, id(1), false))
-		// New keys are registered disabled; known keys keep their flag, whichever it is.
+		// New keys are registered disabled by import; known keys keep their flag, whichever it is.
 		must(t, s.RegisterValidatorsDisabled(bg, [][]byte{Key(0), Key(1), Key(2)}))
 		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true, Enabled: true})
 		wantStatus(t, s, 1, slashing.ValidatorStatus{Registered: true})
-		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true})
+		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true, DisabledByImport: true})
 		// A key registered disabled is a full registration: it has a history, and RegisterValidators keeps its flag.
 		must(t, s.UpdateHistory(bg, []slashing.KeyID{id(2)}, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
 			return tx.InsertBlock(slashing.SignedBlock{Slot: 1})
 		}))
 		register(t, s, 3)
-		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true})
+		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true, DisabledByImport: true})
 		for _, n := range []int{0, slashing.PublicKeyLength + 1} {
 			if err := s.RegisterValidatorsDisabled(bg, [][]byte{Key(3), make([]byte, n)}); !errors.Is(err, slashing.ErrInvalidPublicKey) {
 				t.Errorf("RegisterValidatorsDisabled(%d bytes): %v, want ErrInvalidPublicKey", n, err)
 			}
 		}
 		wantStatus(t, s, 3, slashing.ValidatorStatus{})
+	})
+	t.Run("disabled by import, or on purpose", func(t *testing.T) {
+		s := openWithKeys(t, newStore, 2)
+		must(t, s.RegisterValidatorsDisabled(bg, [][]byte{Key(2)}))
+		must(t, s.SetValidatorEnabled(bg, id(1), false))
+		inTx := func(n int, fn func(slashing.HistoryTx) error) error {
+			return s.UpdateHistory(bg, []slashing.KeyID{id(n)}, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
+				return fn(tx)
+			})
+		}
+		disable := func(tx slashing.HistoryTx) error { return tx.DisableForImport() }
+		for n := range 3 {
+			must(t, inTx(n, disable))
+		}
+		// An enabled key and one an import disabled are disabled by import; one disabled on purpose stays so.
+		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true, DisabledByImport: true})
+		wantStatus(t, s, 1, slashing.ValidatorStatus{Registered: true})
+		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true, DisabledByImport: true})
+		for n, want := range map[int]bool{0: true, 1: false, 2: true} {
+			must(t, inTx(n, func(tx slashing.HistoryTx) error {
+				if got, err := tx.DisabledByImport(); err != nil || got != want {
+					t.Errorf("key %d: HistoryTx.DisabledByImport = %v, %v; want %v", n, got, err, want)
+				}
+				return nil
+			}))
+		}
+		// A transaction that fails leaves the flag and the marker as they were.
+		errAbort := errors.New("abort")
+		if err := inTx(1, func(tx slashing.HistoryTx) error {
+			must(t, tx.SetEnabled(true))
+			return errAbort
+		}); !errors.Is(err, errAbort) {
+			t.Fatalf("UpdateHistory: %v, want the function's error", err)
+		}
+		if err := inTx(0, func(tx slashing.HistoryTx) error {
+			must(t, tx.SetEnabled(true))
+			return errAbort
+		}); !errors.Is(err, errAbort) {
+			t.Fatalf("UpdateHistory: %v, want the function's error", err)
+		}
+		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true, DisabledByImport: true})
+		wantStatus(t, s, 1, slashing.ValidatorStatus{Registered: true})
+		// SetEnabled(true) clears the marker, and SetEnabled(false) disables on purpose.
+		must(t, inTx(0, func(tx slashing.HistoryTx) error { return tx.SetEnabled(true) }))
+		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true, Enabled: true})
+		must(t, inTx(0, disable))
+		must(t, inTx(0, func(tx slashing.HistoryTx) error { return tx.SetEnabled(false) }))
+		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true})
+		must(t, inTx(0, disable))
+		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true})
+		// SetValidatorEnabled clears the marker either way.
+		must(t, s.SetValidatorEnabled(bg, id(2), false))
+		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true})
+		must(t, s.RegisterValidatorsDisabled(bg, [][]byte{Key(3)}))
+		must(t, s.SetValidatorEnabled(bg, id(3), true))
+		wantStatus(t, s, 3, slashing.ValidatorStatus{Registered: true, Enabled: true})
 	})
 	t.Run("unregistered keys", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 1)

@@ -443,10 +443,11 @@ func TestFinishImport(t *testing.T) {
 	}
 }
 
-// The offline way to enable a disabled key again (docs/operations/reload.md
-// section 5.1): export the key's own history and import that file. A key
-// without history is left out of the export, and an element with empty
-// lists enables it instead.
+// The offline way to enable a key disabled on purpose again
+// (docs/operations/reload.md section 5.1): export the key's own history and
+// import that file with --enable-keys. An import without it leaves such a key
+// disabled and says so. A key without history is left out of the export,
+// and an element with empty lists enables it instead.
 func TestEnableAgainByExportAndImport(t *testing.T) {
 	data := t.TempDir()
 	db := filepath.Join(data, "slashing-protection.db")
@@ -476,18 +477,39 @@ func TestEnableAgainByExportAndImport(t *testing.T) {
 		t.Fatalf("export: exit %d, stderr %q; want key 5 noted as without history", code, stderr)
 	}
 	if code, stdout, stderr := runCLI(t, "--data-path="+data, "consensus", "import", "--from="+own); code != exitOK ||
-		!strings.Contains(stdout, "imported 1 of 1 validator(s)") || !strings.Contains(stdout, "already covered") {
+		!strings.Contains(stdout, "imported 1 of 1 validator(s)") || !strings.Contains(stdout, "already covered") ||
+		!strings.Contains(stderr, "the key stays disabled") || !strings.Contains(stderr, "--enable-keys") {
 		t.Fatalf("import of the key's own history: exit %d %s %s", code, stdout, stderr)
 	}
+	if enabled(0) {
+		t.Fatal("an import without --enable-keys enabled a key that disable-validator disabled")
+	}
+	if code, stdout, stderr := runCLI(t, "--data-path="+data, "consensus", "import", "--from="+own,
+		"--enable-keys="+pkHex(0)); code != exitOK || strings.Contains(stderr, "stays disabled") {
+		t.Fatalf("import with --enable-keys: exit %d %s %s", code, stdout, stderr)
+	}
 	if !enabled(0) || enabled(5) {
-		t.Fatalf("after importing key 0's own history: key 0 enabled %v, key 5 enabled %v", enabled(0), enabled(5))
+		t.Fatalf("after importing key 0's own history with --enable-keys: key 0 enabled %v, key 5 enabled %v",
+			enabled(0), enabled(5))
 	}
 
 	empty := interchangeFile(t, gvrHex, entry(5, ``, ``))
-	if code, stdout, stderr := runCLI(t, "--data-path="+data, "consensus", "import", "--from="+empty); code != exitOK {
+	alias := slashing.KeyIDOf(slashingtest.Key(5))
+	if code, stdout, stderr := runCLI(t, "--data-path="+data, "consensus", "import", "--from="+empty,
+		"--enable-keys=0x"+hex.EncodeToString(alias[:])); code != exitOK {
 		t.Fatalf("import of an empty element: exit %d %s %s", code, stdout, stderr)
 	}
 	if !enabled(5) {
-		t.Fatal("an empty element did not enable key 5")
+		t.Fatal("an empty element with --enable-keys did not enable key 5")
+	}
+
+	// A key --enable-keys names without an element that imports fails the command.
+	code, _, stderr = runCLI(t, "--data-path="+data, "consensus", "import", "--from="+empty, "--enable-keys="+pkHex(7))
+	if code != exitStartup || !strings.Contains(stderr, "no element in the file that imported") {
+		t.Fatalf("--enable-keys of a key not in the file: exit %d %s", code, stderr)
+	}
+	if code, _, stderr := runCLI(t, "--data-path="+data, "consensus", "import", "--from="+empty,
+		"--enable-keys=0x12"); code != exitUsage || !strings.Contains(stderr, "--enable-keys") {
+		t.Fatalf("a malformed --enable-keys: exit %d %s", code, stderr)
 	}
 }

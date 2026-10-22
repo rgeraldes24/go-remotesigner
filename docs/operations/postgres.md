@@ -101,7 +101,9 @@ remotesigner consensus migrate \
   owner before the upgraded signers start.
 - The schema is one squashed QRL schema, not Web3Signer's twelve migrations: validators are keyed by the SHA-256 of
   their 2,592-byte public key (a raw key is too long for a B-tree index), slots and epochs are `BIGINT` with
-  `CHECK (>= 0)`, Web3Signer's high-watermark triggers are kept, and `randao_reveal_state` holds the RANDAO
+  `CHECK (>= 0)`, Web3Signer's high-watermark triggers are kept (with a constraint that a high watermark has both its
+  epoch and its slot, or neither), `validators.disabled_by_import` records that an import, not an operator, disabled
+  a key ([`reload.md`](reload.md#5-disabling-a-validator)), and `randao_reveal_state` holds the RANDAO
   frontiers. Slots and epochs above 2^63 − 1 do not fit a `BIGINT`: the store refuses them before they reach the
   database, and a signing request for one fails with 500 `STORE_UNAVAILABLE` (with bbolt it would be recorded).
 
