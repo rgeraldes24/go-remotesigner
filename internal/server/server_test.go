@@ -193,9 +193,10 @@ func TestMiddlewareOrder(t *testing.T) {
 	}
 }
 
-// A DELETE whose handler reads a JSON body (the keymanager's) needs
-// Content-Type application/json, as a POST does; a DELETE without a body
-// does not.
+// Every DELETE needs Content-Type application/json, as a POST does: one
+// whose handler reads a JSON body (the keymanager's), and one that takes no
+// body (the RANDAO state reset), with or without a body sent. A GET needs
+// none.
 func TestBodyRoutesNeedJSON(t *testing.T) {
 	read := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, e := ReadBody(r); e != nil {
@@ -208,19 +209,25 @@ func TestBodyRoutesNeedJSON(t *testing.T) {
 		c.Routes = []Route{
 			{Method: http.MethodDelete, Pattern: "/with-body", Scope: auth.ScopeAdmin, ReadsBody: true, Handler: read},
 			{Method: http.MethodDelete, Pattern: "/without-body", Scope: auth.ScopeAdmin, Handler: http.HandlerFunc(ok)},
+			{Method: http.MethodGet, Pattern: "/get", Scope: auth.ScopeAdmin, Handler: http.HandlerFunc(ok)},
 		}
 	})
 	for _, tt := range []struct {
-		path, ctype string
-		status      int
+		method, path, ctype, body string
+		status                    int
 	}{
-		{"/with-body", "", 415},
-		{"/with-body", "text/plain", 415},
-		{"/with-body", "application/json", 200},
-		{"/with-body", "application/json; charset=utf-8", 200},
-		{"/without-body", "", 200},
+		{http.MethodDelete, "/with-body", "", `{"pubkeys":[]}`, 415},
+		{http.MethodDelete, "/with-body", "text/plain", `{"pubkeys":[]}`, 415},
+		{http.MethodDelete, "/with-body", "application/json", `{"pubkeys":[]}`, 200},
+		{http.MethodDelete, "/with-body", "application/json; charset=utf-8", `{"pubkeys":[]}`, 200},
+		{http.MethodDelete, "/without-body", "", "", 415},
+		{http.MethodDelete, "/without-body", "", `{}`, 415},
+		{http.MethodDelete, "/without-body", "text/plain", "", 415},
+		{http.MethodDelete, "/without-body", "application/json", "", 200},
+		{http.MethodGet, "/get", "", "", 200},
+		{http.MethodHead, "/get", "", "", 200},
 	} {
-		r := httptest.NewRequest(http.MethodDelete, "http://localhost:9000"+tt.path, strings.NewReader(`{"pubkeys":[]}`))
+		r := httptest.NewRequest(tt.method, "http://localhost:9000"+tt.path, strings.NewReader(tt.body))
 		r.Header.Set("Authorization", "Bearer "+adminTok)
 		if tt.ctype != "" {
 			r.Header.Set("Content-Type", tt.ctype)
@@ -228,7 +235,7 @@ func TestBodyRoutesNeedJSON(t *testing.T) {
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, r)
 		if rec.Code != tt.status {
-			t.Fatalf("%s with %q: %d, want %d (%s)", tt.path, tt.ctype, rec.Code, tt.status, rec.Body)
+			t.Fatalf("%s %s with %q: %d, want %d (%s)", tt.method, tt.path, tt.ctype, rec.Code, tt.status, rec.Body)
 		}
 		if tt.status == 415 {
 			if e := decodeErr(t, rec); e.Reason != apierr.UnsupportedMediaType {

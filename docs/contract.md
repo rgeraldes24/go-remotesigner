@@ -355,7 +355,7 @@ server answers it with a `text/plain` 400 or 431 and closes the connection. 401 
 | `RANDAO_SLOT_OUT_OF_WINDOW` | 412 | A frontier-moving reveal outside `[now_slot - 1, now_slot + skew]`, or genesis time unknown | slashing-protection error, logged at WARN |
 | `RANDAO_NEW_LAYER_RATE_LIMITED` | 412 | The key's new-layer token bucket is empty | logged at WARN |
 | `BODY_TOO_LARGE` | 413 | The body exceeds the route's limit ([section 13](#13-size-limits-and-timeouts)) | error |
-| `UNSUPPORTED_MEDIA_TYPE` | 415 | A POST, or a `DELETE /qrl/v1/keystores`, without `Content-Type: application/json` | error |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | A POST or a DELETE, with a body or without one, that lacks `Content-Type: application/json` | error |
 | `RANDAO_UNKNOWN_COMMITMENT` | 422 | The commitment is not in this key's onion (within `--randao-max-layers`) | descriptive error |
 | `RANDAO_ONION_EXHAUSTED` | 422 | The commitment is `x_0`; no deeper layer exists | descriptive error |
 | `RANDAO_UNSUPPORTED_FOR_KEY` | 422 | The key holds no 48-byte seed (a future KMS key) | `keymanager.ErrRandaoRevealUnsupported` |
@@ -505,7 +505,7 @@ returns 412 `RANDAO_SLOT_OUT_OF_WINDOW` for anything that would move the frontie
   WARN; `--randao-protection-required` refuses to start instead.
 - The state is not exported in EIP-3076 in v1; first use on a new signer is safe.
 - Reset, for operational cleanup only: `DELETE /api/v1/consensus/randao_state/{identifier}` with the admin token
-  (online, both backends), or `remotesigner consensus randao-state reset --key <id>` (offline with bbolt, online with
+  and `Content-Type: application/json` (online, both backends), or `remotesigner consensus randao-state reset --key <id>` (offline with bbolt, online with
   Postgres). A reset key's next request is a first use, subject to conditions N.
 - No onions are built at startup, and `/upcheck` never waits for them. The first reveal per key per process is a scan
   from `x_0` (at most 2^20 SHA-256 calls, 0.04-0.26 s); the signer then precomputes `x_{m-1}` in the background. The
@@ -710,6 +710,9 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
   - `GET …/highWatermark` answers 500 `STORE_UNAVAILABLE` when the slashing-protection store cannot be read, a
     status its operation does not list. With the Postgres store that is any database outage, not only a damaged
     file. The next version adds it.
+  - `POST /reload` and `DELETE …/randao_state/{identifier}` need `Content-Type: application/json`, as every request
+    but a GET does, although neither takes a body, and answer 415 `UNSUPPORTED_MEDIA_TYPE` without it, a status
+    their operations do not list. The next version adds it. The qrysm client calls neither route.
   - `POST /qrl/v1/keystores` answers 500 `STORE_UNAVAILABLE` when the slashing-protection store cannot be read to
     check the request's `slashing_protection`, a status its operation does not list either. The next version adds
     it.
@@ -731,7 +734,7 @@ show on this contract:
 | X2 (deterministic selection proofs) | [section 15](#15-selection-proofs-and-signing-modes) |
 | X4 (missing `fork_info` is 400), X5 (`fork_info` validated for every type) | [section 7](#7-request-envelope-and-validation-pipeline) |
 | X6 (authentication and scopes) | [section 6](#6-authentication-and-scopes) |
-| X7 (`Origin` refused, non-JSON POST refused) | [sections 6](#6-authentication-and-scopes) and [7](#7-request-envelope-and-validation-pipeline) |
+| X7 (`Origin` refused, non-JSON POST and DELETE refused) | [sections 6](#6-authentication-and-scopes) and [7](#7-request-envelope-and-validation-pipeline) |
 | X8 (inclusive low watermark) | [section 11](#11-errors) |
 | X9 (per-route body limits), X10 (idle timeout), X32 (connection cap), X107 (signing gate) | [section 13](#13-size-limits-and-timeouts) |
 | X11 (strict JSON) | [section 4](#4-encoding-rules) |
@@ -743,7 +746,7 @@ show on this contract:
 | X35 (registration `pubkey` must be the identified key; the fee-recipient pin refuses any other `fee_recipient` with 403 `ARTIFACT_TYPE_DISABLED`) | [sections 8](#8-artifact-types) and [11](#11-errors) |
 | X29 (reload never disables keys) | [section 17](#17-supporting-endpoints) |
 | X36 (`/upcheck` 503 while loading), X37 (healthcheck detail needs the sign scope), X44 (fixed reload messages) | [sections 5](#5-endpoints) and [17](#17-supporting-endpoints) |
-| X45 (every POST needs `application/json`) | [section 7](#7-request-envelope-and-validation-pipeline) |
+| X45 (every POST and DELETE needs `application/json`) | [section 7](#7-request-envelope-and-validation-pipeline) |
 | X48 (client certificates grant the sign scope only), X50 (metrics token) | [section 6](#6-authentication-and-scopes) |
 | X49 (TLS 1.3 only) | [section 2](#2-transport) |
 | X52 (response cache) | [section 15](#15-selection-proofs-and-signing-modes) |

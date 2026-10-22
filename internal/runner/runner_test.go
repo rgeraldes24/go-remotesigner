@@ -200,7 +200,7 @@ func (r *running) do(t *testing.T, method, path, token string) (int, []byte) {
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	if method == http.MethodPost {
+	if method != http.MethodGet {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := http.DefaultClient.Do(req)
