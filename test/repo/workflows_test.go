@@ -165,3 +165,32 @@ func TestCIVerifiesBothFlavours(t *testing.T) {
 		}
 	}
 }
+
+// The benchmarks are re-run every week, and on demand, by the Benchmarks
+// workflow: every make target of a benchmark that fits a hosted runner. B19
+// runs nightly instead, and B16 for at most a few hours (a hosted job stops
+// at 6 h).
+func TestBenchmarkWorkflow(t *testing.T) {
+	w := readWorkflow(t, "bench.yml")
+	if len(w.On.Schedule) != 1 || len(strings.Fields(w.On.Schedule[0].Cron)) != 5 ||
+		strings.Fields(w.On.Schedule[0].Cron)[4] == "*" {
+		t.Errorf("schedule %+v, want one weekly cron", w.On.Schedule)
+	}
+	if w.On.Dispatch == nil {
+		t.Error("the Benchmarks workflow cannot be dispatched")
+	}
+	targets := map[string]bool{}
+	for _, job := range w.Jobs {
+		for _, s := range job.Steps {
+			if rest, ok := strings.CutPrefix(strings.TrimSpace(s.Run), "make "); ok {
+				targets[firstField(rest)] = true
+			}
+		}
+	}
+	for _, want := range []string{"bench-micro", "bench-e2e", "bench-loading", "bench-keymanager", "bench-b14",
+		"bench-postgres", "b16"} {
+		if !targets[want] {
+			t.Errorf("no job of bench.yml runs make %s", want)
+		}
+	}
+}

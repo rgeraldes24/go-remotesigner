@@ -227,6 +227,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 <!-- headercheck:begin -->
 | Path | Class | Upstream repository | Upstream path(s) | Revision |
 |---|---|---|---|---|
+| `.github/workflows/bench.yml` | new | | | |
 | `.github/workflows/ci.yml` | new | | | |
 | `.github/workflows/nightly.yml` | new | | | |
 | `.github/workflows/release.yml` | new | | | |
@@ -585,6 +586,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/ssz/types.go` | new | | | |
 | `internal/ssz/types_test.go` | new | | | |
 | `internal/vectors/vectors.go` | new | | | |
+| `test/acceptance/b16_test.go` | new | | | |
 | `test/acceptance/b18_test.go` | new | | | |
 | `test/acceptance/b19_test.go` | new | | | |
 | `test/acceptance/b20_test.go` | new | | | |
