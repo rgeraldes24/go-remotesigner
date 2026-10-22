@@ -203,7 +203,11 @@ func decodeHighWatermark(b []byte) (slashing.HighWatermark, error) {
 	if len(b) != 17 || b[0]&^knownFlagsMask != 0 {
 		return slashing.HighWatermark{}, corrupt("high watermark", b)
 	}
-	return slashing.HighWatermark{Epoch: field(b, b[0], flagHighEpoch, 1), Slot: field(b, b[0], flagHighSlot, 9)}, nil
+	h := slashing.HighWatermark{Epoch: field(b, b[0], flagHighEpoch, 1), Slot: field(b, b[0], flagHighSlot, 9)}
+	if err := h.Validate(); err != nil {
+		return slashing.HighWatermark{}, fmt.Errorf("%w: high watermark: %w", ErrCorrupt, err)
+	}
+	return h, nil
 }
 
 func encodeRandao(s slashing.RandaoState) []byte {

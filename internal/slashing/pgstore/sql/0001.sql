@@ -73,7 +73,8 @@ CREATE TABLE metadata (
     id                      INTEGER PRIMARY KEY CHECK (id = 1),
     genesis_validators_root BYTEA NOT NULL CHECK (octet_length(genesis_validators_root) = 32),
     high_watermark_epoch    BIGINT CHECK (high_watermark_epoch >= 0),
-    high_watermark_slot     BIGINT CHECK (high_watermark_slot >= 0)
+    high_watermark_slot     BIGINT CHECK (high_watermark_slot >= 0),
+    CONSTRAINT both_high_watermark_parts_set_or_null CHECK ((high_watermark_epoch IS NULL) = (high_watermark_slot IS NULL))
 );
 
 -- The high watermark must stay above every low watermark, and every low watermark at or below the high watermark

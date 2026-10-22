@@ -121,7 +121,7 @@ func (t *validatorTx) HighWatermark() (slashing.HighWatermark, error) {
 	if err != nil {
 		return slashing.HighWatermark{}, err
 	}
-	return h.high, nil
+	return h.high, h.high.Validate()
 }
 
 func (t *validatorTx) LowWatermark() (slashing.LowWatermark, error) {

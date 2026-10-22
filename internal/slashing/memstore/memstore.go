@@ -93,6 +93,9 @@ func (s *Store) HighWatermark(ctx context.Context) (slashing.HighWatermark, erro
 
 // SetHighWatermark replaces the global high watermark after checking it against every low watermark.
 func (s *Store) SetHighWatermark(ctx context.Context, h slashing.HighWatermark) error {
+	if err := h.Validate(); err != nil {
+		return err
+	}
 	if err := s.write(ctx); err != nil {
 		return err
 	}

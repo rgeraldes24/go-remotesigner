@@ -37,13 +37,21 @@ func TestLowWatermarkRoundTrip(t *testing.T) {
 func TestHighWatermarkRoundTrip(t *testing.T) {
 	for _, h := range []slashing.HighWatermark{
 		{},
-		{Epoch: p(0)},
-		{Slot: p(math.MaxUint64)},
+		{Epoch: p(0), Slot: p(0)},
 		{Epoch: p(10), Slot: p(1280)},
+		{Epoch: p(math.MaxUint64), Slot: p(math.MaxUint64)},
 	} {
 		got, err := decodeHighWatermark(encodeHighWatermark(h))
 		if err != nil || !reflect.DeepEqual(got, h) {
 			t.Errorf("round trip of %+v: %+v, %v", h, got, err)
+		}
+	}
+	// A file that holds one part alone was written around the store: it is
+	// reported as damaged.
+	for _, h := range []slashing.HighWatermark{{Epoch: p(0)}, {Slot: p(math.MaxUint64)}} {
+		if _, err := decodeHighWatermark(encodeHighWatermark(h)); !errors.Is(err, ErrCorrupt) ||
+			!errors.Is(err, slashing.ErrPartialHighWatermark) {
+			t.Errorf("decode of %+v: %v, want ErrCorrupt and ErrPartialHighWatermark", h, err)
 		}
 	}
 }
