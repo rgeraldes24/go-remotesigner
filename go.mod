@@ -2,7 +2,7 @@ module github.com/rgeraldes24/go-remotesigner
 
 go 1.26.5
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	cloud.google.com/go/secretmanager v1.22.0
