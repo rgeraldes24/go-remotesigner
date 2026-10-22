@@ -23,7 +23,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test test-postgres test-cloud fuzz gqrl-e2e release-src fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check release-version image docker-smoke systemd-smoke clean
+.PHONY: all build build-consensus test test-postgres test-cloud fuzz gqrl-e2e release-src fuzz-target fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check release-version image docker-smoke systemd-smoke clean
 
 all: build build-consensus
 
@@ -86,14 +86,24 @@ test-cloud:
 	$(CLOUD_TEST)
 
 ## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, the strict
-## request decoders, the JSON-RPC request and batch decoders against encoding/json, the keystore decoder and the
-## EIP-3076 interchange
+## request decoders, the JSON-RPC request and batch decoders against encoding/json, the network configuration
+## parser, the keystore decoder and the EIP-3076 interchange
 FUZZTIME ?= 10s
 fuzz: fuzz-keystore fuzz-interchange
+	$(GO) test -run '^$$' -fuzz '^FuzzParseConfig$$' -fuzztime $(FUZZTIME) ./internal/network/
 	$(GO) test -run '^$$' -fuzz '^FuzzHashTreeRootDifferential$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeSignRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRandaoRevealRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRequest$$' -fuzztime $(FUZZTIME) ./internal/execution/
+
+## fuzz-target: one fuzz target FUZZ of the package FUZZPKG, FUZZTIME long, for example
+## `make fuzz-target FUZZ=FuzzParseConfig FUZZPKG=./internal/network/ FUZZTIME=30m`; the nightly workflow runs the
+## sign-request and RANDAO decoders, the hash-tree-root differential and the network parser this way for 30 min each
+FUZZ    ?=
+FUZZPKG ?=
+fuzz-target:
+	@test -n "$(FUZZ)" && test -n "$(FUZZPKG)" || { echo "fuzz-target: set FUZZ and FUZZPKG" >&2; exit 2; }
+	$(GO) test -run '^$$' -fuzz '^$(FUZZ)$$' -fuzztime $(FUZZTIME) $(FUZZPKG)
 
 ## fuzz-keystore: the keystore decoder fuzz alone; the nightly workflow runs it with FUZZTIME=30m
 fuzz-keystore:

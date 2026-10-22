@@ -28,6 +28,78 @@ jobs:
       - name: B19 (0 connection errors over 1 h with IdleTimeout 120 s)
         run: make b19 B19_DURATION=1h
 
+  qrysm-e2e:
+    # qrysm's remote-signer end-to-end scenario against this repository's
+    # consensus flavour, built from the commit under test: two qrysm
+    # validator clients sign every duty through the signer on a minimal
+    # network until finality. The qrysm branch that holds the scenario is the
+    # repository variable QRYSM_E2E_REF (a branch, tag or commit of
+    # QRYSM_E2E_REPO, by default rgeraldes24/qrysm); until it is set, the job
+    # only says so.
+    name: qrysm end-to-end (TestEndToEnd_MinimalConfig_Web3Signer)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      QRYSM_E2E_REF: ${{ vars.QRYSM_E2E_REF }}
+      QRYSM_E2E_REPO: ${{ vars.QRYSM_E2E_REPO || 'rgeraldes24/qrysm' }}
+      E2E_OUT: ${{ github.workspace }}/e2e-out
+    steps:
+      - name: Skip while no qrysm branch is configured
+        if: env.QRYSM_E2E_REF == ''
+        run: |
+          echo "::notice title=qrysm end-to-end skipped::The repository variable QRYSM_E2E_REF is not set. Set it to the qrysm branch, tag or commit that holds TestEndToEnd_MinimalConfig_Web3Signer (the remote-signer e2e scenario), and QRYSM_E2E_REPO when it is not rgeraldes24/qrysm, to run this job."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.QRYSM_E2E_REF != ''
+        with:
+          path: signer
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.QRYSM_E2E_REF != ''
+        with:
+          repository: ${{ env.QRYSM_E2E_REPO }}
+          ref: ${{ env.QRYSM_E2E_REF }}
+          path: qrysm
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: env.QRYSM_E2E_REF != ''
+        with:
+          go-version: "1.26.x"
+          cache: false
+      - name: Build remotesigner-consensus from this commit
+        if: env.QRYSM_E2E_REF != ''
+        working-directory: signer
+        run: make build-consensus
+      - name: Run TestEndToEnd_MinimalConfig_Web3Signer
+        if: env.QRYSM_E2E_REF != ''
+        working-directory: qrysm
+        env:
+          # qrysm's e2e build copies the signer from REMOTESIGNER_BIN into dist/
+          # instead of building it, and writes its logs under the Bazel test
+          # directories.
+          REMOTESIGNER_BIN: ${{ github.workspace }}/signer/bin/remotesigner-consensus
+          TEST_UNDECLARED_OUTPUTS_DIR: ${{ github.workspace }}/e2e-out/logs
+          TEST_TMPDIR: ${{ github.workspace }}/e2e-out/tmp
+        run: |
+          mkdir -p "$E2E_OUT/logs" "$E2E_OUT/tmp"
+          # Keep the latest scrape of the signer's metrics listener (port 9001),
+          # which the scenario starts, for the failure artefacts.
+          ( while sleep 30; do
+              curl -fsS --max-time 5 http://localhost:9001/metrics -o "$E2E_OUT/signer-metrics.txt.new" &&
+                mv "$E2E_OUT/signer-metrics.txt.new" "$E2E_OUT/signer-metrics.txt"
+            done ) &
+          go run ./build/e2e web3signer
+      - name: Upload the signer log, the validator client logs and the metrics scrape
+        if: failure() && env.QRYSM_E2E_REF != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qrysm-e2e-${{ github.run_id }}
+          path: |
+            ${{ github.workspace }}/e2e-out/signer-metrics.txt
+            ${{ github.workspace }}/e2e-out/logs/**/*.log
+            ${{ github.workspace }}/e2e-out/tmp/**/*.log
+          if-no-files-found: warn
+          retention-days: 14
+
   fuzz-keystore:
     name: Keystore decoder fuzz (30 min)
     runs-on: ubuntu-24.04
@@ -43,6 +115,40 @@ jobs:
         if: failure()
         run: |
           dir=internal/keys/keystore/qrlv1/testdata/fuzz
+          if [ -d "$dir" ]; then find "$dir" -type f -print -exec cat {} \; ; fi
+
+  fuzz-decoders:
+    # The request decoders, the hash-tree-root differential against fastssz
+    # and the network configuration parser, 30 minutes each, as every pull
+    # request runs them for 10 s (make fuzz).
+    name: Fuzz ${{ matrix.target }} (30 min)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: FuzzDecodeSignRequest
+            package: ./internal/consensus/types/
+          - target: FuzzHashTreeRootDifferential
+            package: ./internal/consensus/types/
+          - target: FuzzDecodeRandaoRevealRequest
+            package: ./internal/consensus/types/
+          - target: FuzzParseConfig
+            package: ./internal/network/
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+      - name: Fuzz for 30 minutes
+        run: make fuzz-target FUZZ=${{ matrix.target }} FUZZPKG=${{ matrix.package }} FUZZTIME=30m
+      - name: Print the failing inputs
+        if: failure()
+        run: |
+          dir="${{ matrix.package }}testdata/fuzz/${{ matrix.target }}"
           if [ -d "$dir" ]; then find "$dir" -type f -print -exec cat {} \; ; fi
 
   fuzz-interchange:
