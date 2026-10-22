@@ -49,8 +49,8 @@ type LowWatermark struct {
 	TargetEpoch *uint64
 }
 
-// HighWatermark is the global high watermark, a fence used before migrations. Either field may be nil; the zero
-// value means no high watermark.
+// HighWatermark is the global high watermark, a fence used before migrations. Both fields are set, or neither: the
+// zero value means no high watermark, and one part alone is ErrPartialHighWatermark, which every store refuses.
 type HighWatermark struct {
 	Epoch *uint64
 	Slot  *uint64
@@ -58,6 +58,14 @@ type HighWatermark struct {
 
 // IsSet reports whether any part of the high watermark is set.
 func (h HighWatermark) IsSet() bool { return h.Epoch != nil || h.Slot != nil }
+
+// Validate returns ErrPartialHighWatermark when exactly one part of h is set.
+func (h HighWatermark) Validate() error {
+	if (h.Epoch == nil) != (h.Slot == nil) {
+		return ErrPartialHighWatermark
+	}
+	return nil
+}
 
 // ValidatorStatus is a key's registration state.
 type ValidatorStatus struct {

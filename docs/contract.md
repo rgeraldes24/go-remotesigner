@@ -694,6 +694,10 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
     ([section 7](#7-request-envelope-and-validation-pipeline)).
   - A request that matches no route gets a 404 or 405 `{code, message}` body without a `reason`, and one that the
     HTTP server cannot parse gets Go's plain-text 400 or 431 ([section 11](#11-errors)).
+  - Every slashing-protection store refuses a high watermark with an epoch or a slot alone, and the Postgres schema
+    has a constraint to the same effect, so `GET …/highWatermark` serves both fields or `{}`, as the
+    `HighWatermark` schema says; a store that holds one part anyway answers 500 `STORE_UNAVAILABLE`
+    ([section 5](#5-endpoints); DEVIATIONS.md row X113).
 
   The secret-store key sources added these:
   - `/healthcheck` lists `keys-check/azure-bulk-loading`, `keys-check/aws-bulk-loading` and
@@ -716,11 +720,9 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
   - `POST /qrl/v1/keystores` answers 500 `STORE_UNAVAILABLE` when the slashing-protection store cannot be read to
     check the request's `slashing_protection`, a status its operation does not list either. The next version adds
     it.
-  - A store that holds only one part of a high watermark is served with that field alone, which the `HighWatermark`
-    schema (both fields or none) does not allow. No command writes such a watermark: `set-high-watermark` takes both
-    `--epoch` and `--slot`; in a Postgres store only a direct SQL update could. The next version makes the store
-    refuse one. These gaps stay open at `1.0.0`: closing them changes the contract, which needs the matching qrysm
-    client change and fixture pin in the same change.
+  - These gaps stay open at `1.0.0`: closing them changes the contract, which needs the matching qrysm client change
+    and fixture pin in the same change. The release checklist accepts them for `1.0.0`
+    ([`operations/release.md`](operations/release.md#6-the-v10-release-checklist)).
 
 ## 21. Deviations from Web3Signer
 
@@ -751,6 +753,7 @@ show on this contract:
 | X49 (TLS 1.3 only) | [section 2](#2-transport) |
 | X52 (response cache) | [section 15](#15-selection-proofs-and-signing-modes) |
 | X68 (keymanager availability), X69 (keymanager import), X70 (keymanager delete) | [section 17](#17-supporting-endpoints) |
+| X113 (a high watermark has both parts or none) | [section 20](#20-versioning-and-change-control) |
 <!-- contract:deviations:end -->
 
 ## 22. Worked examples

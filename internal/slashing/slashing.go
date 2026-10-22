@@ -130,6 +130,9 @@ var (
 	ErrWatermarkConflict = errors.New("slashing: low watermarks must stay at or below the high watermark")
 	// ErrNoGenesisValidatorsRoot: a high watermark was set before the store was pinned to a network.
 	ErrNoGenesisValidatorsRoot = errors.New("slashing: the store has no genesis validators root yet")
+	// ErrPartialHighWatermark: a high watermark has an epoch or a slot but not both. Every store refuses to set one,
+	// and reports a store that holds one (written around it) as damaged.
+	ErrPartialHighWatermark = errors.New("slashing: a high watermark needs both an epoch and a slot")
 
 	// ErrGenesisValidatorsRootMismatch: the request's genesis validators root differs from the store's. The server
 	// rejects such a request earlier with 400 FORK_INFO_MISMATCH; if the engine sees one, it maps to the same 400.

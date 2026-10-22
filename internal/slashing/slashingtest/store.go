@@ -210,21 +210,20 @@ func runLowWatermarkContract(t *testing.T, newStore Factory) {
 		raiseEpochs(t, s, 0, 2, 3, slashing.ErrWatermarkConflict)
 		wantLow(t, s, 0, slashing.LowWatermark{})
 	})
-	t.Run("a slot-only high watermark leaves the epochs free", func(t *testing.T) {
+	t.Run("a high watermark of one part is refused", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 1)
 		pin(t, s)
-		must(t, s.SetHighWatermark(bg, slashing.HighWatermark{Slot: U64(5)}))
-		raiseEpochs(t, s, 0, 100, 200, nil)
-		raiseSlot(t, s, 0, 6, slashing.ErrWatermarkConflict)
-		wantLow(t, s, 0, slashing.LowWatermark{SourceEpoch: U64(100), TargetEpoch: U64(200)})
-	})
-	t.Run("an epoch-only high watermark leaves the slot free", func(t *testing.T) {
-		s := openWithKeys(t, newStore, 1)
-		pin(t, s)
-		must(t, s.SetHighWatermark(bg, slashing.HighWatermark{Epoch: U64(5)}))
-		raiseSlot(t, s, 0, 100, nil)
+		full := slashing.HighWatermark{Epoch: U64(5), Slot: U64(5)}
+		must(t, s.SetHighWatermark(bg, full))
+		for _, h := range []slashing.HighWatermark{{Slot: U64(7)}, {Epoch: U64(7)}} {
+			if err := s.SetHighWatermark(bg, h); !errors.Is(err, slashing.ErrPartialHighWatermark) {
+				t.Errorf("SetHighWatermark(%s): %v, want ErrPartialHighWatermark", fmtHigh(h), err)
+			}
+		}
+		wantHigh(t, s, full)
 		raiseEpochs(t, s, 0, 6, 6, slashing.ErrWatermarkConflict)
-		wantLow(t, s, 0, slashing.LowWatermark{Slot: U64(100)})
+		raiseSlot(t, s, 0, 6, slashing.ErrWatermarkConflict)
+		wantLow(t, s, 0, slashing.LowWatermark{})
 	})
 	t.Run("zero is a value, not unset", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 1)
@@ -236,7 +235,7 @@ func runLowWatermarkContract(t *testing.T, newStore Factory) {
 		raiseEpochs(t, s, 0, 0, 0, nil)
 		raiseSlot(t, s, 0, 1, slashing.ErrWatermarkConflict)
 		wantLow(t, s, 0, slashing.LowWatermark{Slot: U64(0), SourceEpoch: U64(0), TargetEpoch: U64(0)})
-		for _, h := range []slashing.HighWatermark{{Slot: U64(0)}, {Epoch: U64(0)}} {
+		for _, h := range []slashing.HighWatermark{{Slot: U64(0), Epoch: U64(1)}, {Slot: U64(1), Epoch: U64(0)}} {
 			if err := s.SetHighWatermark(bg, h); !errors.Is(err, slashing.ErrWatermarkConflict) {
 				t.Errorf("SetHighWatermark(%s) over zero low watermarks: %v, want ErrWatermarkConflict", fmtHigh(h), err)
 			}
@@ -269,12 +268,18 @@ func runMetadataContract(t *testing.T, newStore Factory) {
 		wantHigh(t, s, slashing.HighWatermark{})
 		for _, h := range []slashing.HighWatermark{
 			{Epoch: U64(1), Slot: U64(2)},
-			{Epoch: U64(1)},
-			{Slot: U64(2)},
 			{Epoch: U64(3), Slot: U64(4)},
 		} {
 			must(t, s.SetHighWatermark(bg, h))
 			wantHigh(t, s, h)
+		}
+		// Web3Signer's store also keeps an epoch or a slot alone; every store here refuses one (DEVIATIONS X113),
+		// and the watermark in force stays.
+		for _, h := range []slashing.HighWatermark{{Epoch: U64(1)}, {Slot: U64(2)}} {
+			if err := s.SetHighWatermark(bg, h); !errors.Is(err, slashing.ErrPartialHighWatermark) {
+				t.Errorf("SetHighWatermark(%s): %v, want ErrPartialHighWatermark", fmtHigh(h), err)
+			}
+			wantHigh(t, s, slashing.HighWatermark{Epoch: U64(3), Slot: U64(4)})
 		}
 		must(t, s.SetHighWatermark(bg, slashing.HighWatermark{}))
 		wantHigh(t, s, slashing.HighWatermark{})
@@ -328,11 +333,10 @@ func runMetadataContract(t *testing.T, newStore Factory) {
 		raiseSlot(t, s, 1, 6, nil)
 		raiseEpochs(t, s, 1, 7, 8, nil)
 		for _, h := range []slashing.HighWatermark{
-			{Slot: U64(6)},
-			{Slot: U64(5)},
-			{Epoch: U64(8)},
-			{Epoch: U64(7)},
 			{Epoch: U64(100), Slot: U64(6)},
+			{Epoch: U64(100), Slot: U64(5)},
+			{Epoch: U64(8), Slot: U64(100)},
+			{Epoch: U64(7), Slot: U64(100)},
 		} {
 			if err := s.SetHighWatermark(bg, h); !errors.Is(err, slashing.ErrWatermarkConflict) {
 				t.Fatalf("SetHighWatermark(%s): %v, want ErrWatermarkConflict", fmtHigh(h), err)
@@ -342,26 +346,6 @@ func runMetadataContract(t *testing.T, newStore Factory) {
 		h := slashing.HighWatermark{Epoch: U64(9), Slot: U64(7)}
 		must(t, s.SetHighWatermark(bg, h))
 		wantHigh(t, s, h)
-	})
-	t.Run("a partial high watermark is checked on its own field only", func(t *testing.T) {
-		for _, tc := range []struct {
-			name        string
-			slot        uint64
-			source, tgt uint64
-			high        slashing.HighWatermark
-		}{
-			{"slot only, below the epochs", 1, 9, 10, slashing.HighWatermark{Slot: U64(2)}},
-			{"epoch only, below the slot", 10, 1, 2, slashing.HighWatermark{Epoch: U64(3)}},
-		} {
-			t.Run(tc.name, func(t *testing.T) {
-				s := openWithKeys(t, newStore, 1)
-				pin(t, s)
-				raiseSlot(t, s, 0, tc.slot, nil)
-				raiseEpochs(t, s, 0, tc.source, tc.tgt, nil)
-				must(t, s.SetHighWatermark(bg, tc.high))
-				wantHigh(t, s, tc.high)
-			})
-		}
 	})
 	t.Run("transactions read the high watermark", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 1)

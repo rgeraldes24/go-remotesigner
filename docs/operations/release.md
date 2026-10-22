@@ -223,6 +223,7 @@ repository does not have; each is recorded where the table says once it is met.
 | The binaries of the tag `v1.0.0` report `1.0.0` | `make release-version` (section 4) by hand; in CI, `TestReleaseVersion` checks the dry run's `<version>-SNAPSHOT-<short commit>`, and `TestMakeBuildVersion` (`test/repo`) what `make build` passes for a tag |
 | Every operator page exists and is linked from the README; the flag reference is current | `TestOperatorDocs` (`test/repo`); `go run ./tools/flagdoc -check` |
 | The benchmarks that run on a development machine are re-run for the release | [`docs/benchmarks.md`](../benchmarks.md#v10-release-run-dev-machine), "v1.0 release run" |
+| The contract's known gaps are accepted for 1.0.0: `GET …/highWatermark` and `POST /qrl/v1/keystores` answer 500 `STORE_UNAVAILABLE` when the store cannot be read, and `POST /reload` and `DELETE …/randao_state/{identifier}` answer 415 `UNSUPPORTED_MEDIA_TYPE` without `Content-Type: application/json`, statuses the frozen `1.0.0` OpenAPI does not list for them. Listing them is a contract change, which the next contract version makes together with the matching qrysm client and fixture change ([`docs/contract.md`](../contract.md#20-versioning-and-change-control) section 20) | the maintainers' review for 1.0.0; `make contract` keeps `info.version` at `1.0.0` |
 
 ### 6.2 Open: gates this repository cannot meet today
 

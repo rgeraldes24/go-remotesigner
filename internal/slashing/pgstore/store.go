@@ -133,8 +133,10 @@ func highWatermark(ctx context.Context, q queryer) (slashing.HighWatermark, erro
 	if h.Epoch, err = u64p(epoch); err != nil {
 		return h, err
 	}
-	h.Slot, err = u64p(slot)
-	return h, err
+	if h.Slot, err = u64p(slot); err != nil {
+		return h, err
+	}
+	return h, h.Validate()
 }
 
 // SetHighWatermark replaces the global high watermark. It locks the metadata table first, in EXCLUSIVE mode, so it
@@ -145,6 +147,9 @@ func highWatermark(ctx context.Context, q queryer) (slashing.HighWatermark, erro
 // UPDATE alone on the row would wait behind a stream of overlapping FOR SHARE lockers that never ends under steady
 // signing.
 func (s *Store) SetHighWatermark(ctx context.Context, h slashing.HighWatermark) error {
+	if err := h.Validate(); err != nil {
+		return err
+	}
 	var epoch, slot *int64
 	for _, v := range []struct {
 		in  *uint64

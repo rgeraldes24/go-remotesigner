@@ -249,6 +249,9 @@ func (s *Store) HighWatermark(ctx context.Context) (slashing.HighWatermark, erro
 // SetHighWatermark replaces the global high watermark after checking it against every low watermark. bbolt runs
 // one write transaction at a time, so no low watermark moves while it checks.
 func (s *Store) SetHighWatermark(ctx context.Context, h slashing.HighWatermark) error {
+	if err := h.Validate(); err != nil {
+		return err
+	}
 	return s.update(ctx, func(tx *bolt.Tx) error {
 		meta := tx.Bucket(bucketMeta)
 		if !h.IsSet() {

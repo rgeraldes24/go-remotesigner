@@ -22,6 +22,7 @@ package slashing_test
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/slashing"
@@ -31,7 +32,8 @@ import (
 
 // These tests port Web3Signer's DbSlashingProtectionTest. Web3Signer mocks its DAOs; here the history is real
 // (seeded into a memory store) and a spy counts inserts and attestation queries. Where the QRL rules differ from
-// Web3Signer the test asserts deviation X8 (literal EIP-3076 conditions at the low watermark).
+// Web3Signer the test asserts deviation X8 (literal EIP-3076 conditions at the low watermark), and a high watermark
+// has both its parts (X113).
 
 const (
 	slot        = 2
@@ -103,8 +105,18 @@ func (f *fixture) epochWatermarks(source, target uint64) {
 	}
 }
 
+// highWatermark sets h. Web3Signer's tests set an epoch or a slot alone,
+// which the stores here refuse (DEVIATIONS X113): the part they leave unset
+// is set to math.MaxInt64, above every record the tests sign, so that only
+// the part they set can refuse.
 func (f *fixture) highWatermark(h slashing.HighWatermark) {
 	f.t.Helper()
+	if h.Epoch == nil {
+		h.Epoch = slashingtest.U64(math.MaxInt64)
+	}
+	if h.Slot == nil {
+		h.Slot = slashingtest.U64(math.MaxInt64)
+	}
 	if err := f.mem.SetHighWatermark(ctx, h); err != nil {
 		f.t.Fatal(err)
 	}
