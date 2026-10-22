@@ -82,7 +82,9 @@ The rules:
   password file is then `<name>.txt` with `--keystores-passwords-path`), or name it in a `file-keystore` document,
   which takes any file name.
 - Seed files and password files are secret files under `--strict-file-permissions`, and reloads work as in consensus
-  mode ([`reload.md`](reload.md)): `POST /reload` with the admin token, a failed source keeps its previous keys.
+  mode ([`reload.md`](reload.md)): `POST /reload` with the admin token, a failed source keeps its previous keys. The
+  token files and the TLS private key, keystore and its password file are secret files too, as in consensus mode
+  ([`tls.md`](tls.md#1-tls-on-the-api-listener)).
 - The secret-store documents (`hashicorp`, `aws-secret`, `azure-secret`, `gcp-secret`) hold validator seeds and are
   read in consensus mode only: in execution mode a key-config file with one of them fails to load, saying so, and
   nothing is fetched. Web3Signer's `eth1` mode reads `hashicorp` and `azure-secret` documents
