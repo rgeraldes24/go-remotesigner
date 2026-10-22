@@ -14,7 +14,8 @@ Rows that show on the HTTP API are specified in [`docs/contract.md`](docs/contra
 them to the contract section that states the behaviour. The "go-remotesigner" column links the page that specifies
 the behaviour. Rows X25, X26 and X28 describe execution mode (`remotesigner execution`), which is not part of 1.0.0;
 they record the design that release will follow and have no page yet. The register was reviewed against the code
-for 1.0.0.
+for 1.0.0. Rows X107-X114 came from a review of the 1.0.0 candidate made after the rows of execution mode and the
+secret stores, which a later release adds, were numbered X76-X106: they describe consensus mode and belong to 1.0.0.
 
 | # | Area | Web3Signer | go-remotesigner | Class |
 |---|---|---|---|---|
