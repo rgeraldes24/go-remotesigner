@@ -4,6 +4,7 @@
 package repo
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,10 +14,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// jobStep is a workflow step with its condition.
+// jobStep is a workflow step with its condition and environment.
 type jobStep struct {
 	workflowStep `yaml:",inline"`
-	If           string `yaml:"if"`
+	If           string            `yaml:"if"`
+	Env          map[string]string `yaml:"env"`
 }
 
 // workflowJob is the part of a workflow job these tests read.
@@ -132,5 +134,34 @@ func TestNightlyQrysmEndToEnd(t *testing.T) {
 	if !notice || !build || !run || !upload {
 		t.Errorf("qrysm-e2e: notice %v, consensus build %v, scenario run %v, failure artefacts %v", notice, build, run,
 			upload)
+	}
+}
+
+// CI checks both flavours against qrysm: vectorgen verify and the contract
+// mode run against the consensus flavour, which qrysm's end-to-end test
+// builds, as well as against the default one.
+func TestCIVerifiesBothFlavours(t *testing.T) {
+	w := readWorkflow(t, "ci.yml")
+	for name, target := range map[string]string{"vectors-verify": "make vectors-verify-binary",
+		"vectors-contract": "make vectors-contract"} {
+		job, ok := w.Jobs[name]
+		if !ok {
+			t.Errorf("ci.yml has no job %s", name)
+			continue
+		}
+		if !job.runs("build-consensus") {
+			t.Errorf("%s does not build the consensus flavour", name)
+		}
+		seen := map[string]bool{}
+		for _, s := range job.Steps {
+			if strings.Contains(s.Run, target) {
+				seen[s.Env["REMOTESIGNER_BINARY"]] = true
+			}
+		}
+		for _, bin := range []string{"/bin/remotesigner", "/bin/remotesigner-consensus"} {
+			if !slices.ContainsFunc(slices.Collect(maps.Keys(seen)), func(b string) bool { return strings.HasSuffix(b, bin) }) {
+				t.Errorf("%s does not run %s against %s", name, target, bin)
+			}
+		}
 	}
 }
