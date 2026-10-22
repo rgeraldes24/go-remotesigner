@@ -73,6 +73,7 @@ const (
 	NetworkGenesisState       = "network-genesis-state"
 	SlashingProtectionEnabled = "slashing-protection-enabled"
 	KeyManagerAPIEnabled      = "key-manager-api-enabled"
+	KeyManagerAPIAlias        = "enable-key-manager-api" // Web3Signer's alias of KeyManagerAPIEnabled
 	AllowUnknownGenesisTime   = "Xallow-unknown-genesis-time"
 	AllowGVRTOFU              = "Xallow-gvr-tofu"
 	VoluntaryExitSigning      = "voluntary-exit-signing-enabled"
@@ -299,7 +300,7 @@ func Consensus() []cli.Flag {
 		&cli.Uint64Flag{Name: NetworkGenesisTime, DefaultText: "unset", Usage: "Genesis time in Unix seconds; must agree with every other source"},
 		&cli.StringFlag{Name: NetworkGenesisState, Usage: "SSZ genesis state; its first 64 bytes give the genesis time, the genesis validators root and the fork", TakesFile: true},
 		&cli.BoolFlag{Name: SlashingProtectionEnabled, Value: true, Usage: "Slashing protection, in the store --slashing-protection-db-url names (default the bbolt file <data-path>/slashing-protection.db). false is allowed only when every listener is loopback."},
-		&cli.BoolFlag{Name: KeyManagerAPIEnabled, Usage: "Serve the keymanager API (GET, POST and DELETE /qrl/v1/keystores) with the admin token; imported keys are written to --key-config-path, which it requires (docs/operations/keymanager.md)."},
+		&cli.BoolFlag{Name: KeyManagerAPIEnabled, Aliases: []string{KeyManagerAPIAlias}, Usage: "Serve the keymanager API (GET, POST and DELETE /qrl/v1/keystores) with the admin token; imported keys are written to --key-config-path, which it requires (docs/operations/keymanager.md)."},
 		&cli.BoolFlag{Name: AllowUnknownGenesisTime, Hidden: true, Usage: "Allow a non-loopback listener without a genesis time (wall-clock bounds off)"},
 		&cli.BoolFlag{Name: AllowGVRTOFU, Hidden: true, Usage: "Allow a non-loopback listener to pin the genesis validators root on first use"},
 		&cli.BoolFlag{Name: VoluntaryExitSigning, Usage: "Sign VOLUNTARY_EXIT requests; refused with 403 ARTIFACT_TYPE_DISABLED otherwise"},
