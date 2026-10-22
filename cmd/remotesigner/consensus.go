@@ -133,6 +133,10 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 		StrictFilePermissions: c.Bool(flags.StrictFilePermissions),
 		ReloadTimeout:         time.Duration(c.Uint(flags.ReloadTimeout)) * time.Minute,
 		SignerLoadParallelism: c.Int(flags.SignerLoadParallelism),
+		Signing: config.Signing{
+			MaxConcurrent: c.Int(flags.MaxConcurrentSigning),
+			MaxQueued:     c.Int(flags.MaxQueuedSigning),
+		},
 		Logging: logging.Config{
 			Level:  c.String(flags.Logging),
 			Format: c.String(flags.LoggingFormat),
@@ -233,6 +237,12 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 	cfg.Metrics.Port = uint16(metricsPort)
 	if cfg.HTTP.MaxConnections < 1 {
 		return nil, fmt.Errorf("--%s must be at least 1", flags.HTTPMaxConnections)
+	}
+	if cfg.Signing.MaxConcurrent < 1 {
+		return nil, fmt.Errorf("--%s must be at least 1", flags.MaxConcurrentSigning)
+	}
+	if cfg.Signing.MaxQueued < 0 {
+		return nil, fmt.Errorf("--%s must be at least 0", flags.MaxQueuedSigning)
 	}
 	if cfg.HTTP.IdleTimeout < time.Second {
 		return nil, fmt.Errorf("--%s must be at least 1", flags.IdleConnectionTimeout)
