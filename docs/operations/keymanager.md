@@ -16,6 +16,10 @@ remotesigner --key-config-path=/var/lib/remotesigner/keys --data-path=/var/lib/r
   consensus --network=… --key-manager-api-enabled
 ```
 
+`--enable-key-manager-api`, Web3Signer's alias, does the same. Web3Signer's hidden
+`--Xkey-manager-skip-keystore-storage`, which keeps imported keys in memory only, is not accepted: imported keys are
+always written to the key-config directory (DEVIATIONS X112).
+
 - **Admin token.** Every route takes the admin token (`--http-admin-token-file`, default
   `<data-path>/admin-token`), in every `--http-auth-mode`; the sign token and a client certificate get `403
   FORBIDDEN_SCOPE`. Without an admin token the signer refuses to start.

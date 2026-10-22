@@ -13,7 +13,9 @@ metric, the label values that are fixed by the contract, and what to do when one
 | `--metrics-host-allowlist` | `localhost,127.0.0.1` | `Host` header names served; `*` or `all` accepts any, `none` refuses all |
 | `--metrics-auth-token-file` | unset | Bearer token a scrape must send; generated `0600` when missing, re-read on SIGHUP. Unset leaves `/metrics` open. |
 
-The names and defaults are Web3Signer's, except the token, which Web3Signer does not have. The listener serves
+The names and defaults are Web3Signer's, except the token, which Web3Signer does not have. Web3Signer's
+`--metrics-category` and `--metrics-push-*` options are not accepted: the listener serves every metric, and only to a
+scraper (DEVIATIONS X111). The listener serves
 `GET /metrics` in the Prometheus text format and answers 404 to every other path. A `Host` outside the allowlist gets
 403 `HOST_NOT_ALLOWED`, which keeps a browser page from reading the metrics through DNS rebinding. With
 `--metrics-auth-token-file`, a scrape without the metrics token gets 401 `UNAUTHENTICATED`; the sign and admin

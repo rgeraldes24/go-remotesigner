@@ -144,6 +144,13 @@ and the examples in ` + "`deploy/`" + ` set none of them.
 	section(&b, "### Global", "", flags.Global(), true)
 	section(&b, "### Consensus", flags.ConsensusCommand, flags.Consensus(), true)
 	overrides(&b)
+	b.WriteString(`
+### Listing them
+
+` + "`remotesigner Xhelp`" + `, Web3Signer's hidden help topic, prints the hidden ` + "`--X…`" + ` flags of every command with their
+environment variables, under a notice that they may change between releases without announcement. It is not listed by
+` + "`--help`" + `.
+`)
 	return b.Bytes()
 }
 
