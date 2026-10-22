@@ -449,6 +449,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/logging/secret.go` | new | | | |
 | `internal/metrics/dashboard_test.go` | new | | | |
 | `internal/metrics/listener.go` | new | | | |
+| `internal/metrics/listener_test.go` | new | | | |
 | `internal/metrics/metrics.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/service/http/metrics/HttpApiMetrics.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/metrics/SlashingProtectionMetrics.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/metrics/metrics_test.go` | new | | | |
 | `internal/network/config.go` | new | | | |

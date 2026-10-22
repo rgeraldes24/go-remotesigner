@@ -671,6 +671,11 @@ func TestMetricsTokenAndNoKeyLabels(t *testing.T) {
 	if fi, err := os.Stat(tokenFile); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("generated metrics token: %v %v", fi, err)
 	}
+	// The startup line says that the token is required; the field is not
+	// one the redaction hook hides.
+	if !strings.Contains(s.output.String(), "token-required=true") {
+		t.Fatalf("the metrics listener line does not say a token is required:\n%s", s.output.String())
+	}
 	data, _ := os.ReadFile(tokenFile)
 	token := strings.TrimSpace(string(data))
 	if code, body, _ := s.do(request{method: "POST", path: "/api/v1/consensus/sign/" + c.Pubkey, token: s.signToken(),
