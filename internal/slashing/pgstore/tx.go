@@ -466,7 +466,23 @@ func (t historyTx) LowWatermark() (slashing.LowWatermark, error) { return t.bloc
 
 func (t historyTx) SetEnabled(enabled bool) error {
 	v := t.blockTx.validatorTx
-	_, err := v.tx.Exec(v.ctx, `UPDATE validators SET enabled = $2 WHERE id = $1`, v.vid, enabled)
+	_, err := v.tx.Exec(v.ctx, `UPDATE validators SET enabled = $2, disabled_by_import = false WHERE id = $1`, v.vid,
+		enabled)
+	v.head = nil
+	return err
+}
+
+func (t historyTx) DisabledByImport() (bool, error) {
+	v := t.blockTx.validatorTx
+	var byImport bool
+	err := v.tx.QueryRow(v.ctx, `SELECT disabled_by_import FROM validators WHERE id = $1`, v.vid).Scan(&byImport)
+	return byImport, err
+}
+
+func (t historyTx) DisableForImport() error {
+	v := t.blockTx.validatorTx
+	_, err := v.tx.Exec(v.ctx, `UPDATE validators SET enabled = false, disabled_by_import = true
+		WHERE id = $1 AND (enabled OR disabled_by_import)`, v.vid)
 	v.head = nil
 	return err
 }

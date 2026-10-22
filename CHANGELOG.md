@@ -114,7 +114,8 @@ section 5 names the qrysm build that has it.
 - **Slashing-protection history commands.** `consensus import` and `consensus export` stream EIP-3076 v5 interchange
   files with 2,592-byte keys, `consensus watermark-repair` raises low watermarks, `consensus set-high-watermark` sets
   or removes the high-watermark fence (served at `GET /api/v1/consensus/highWatermark`), and
-  `consensus disable-validator` disables a key. With bbolt they run on a stopped signer, with Postgres online. The
+  `consensus disable-validator` disables a key, which an import enables again only when `--enable-keys` names it.
+  With bbolt they run on a stopped signer, with Postgres online. The
   history is pruned every `--slashing-protection-pruning-interval` (512 epochs kept by default): with bbolt also at
   startup; with Postgres, paced so that a run takes at most half of the database's time.
 - **RANDAO reveals.** `POST /api/v1/consensus/randao_reveal/{identifier}` releases hash-onion layers under the frontier

@@ -199,6 +199,7 @@ names it in the file of such a store. The history commands are described in
 | `--slashing-protection-db-username` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_USERNAME` | none | unset | User name for the Postgres store, instead of the URL's |
 | `--slashing-protection-db-password-file` | `REMOTESIGNER_CONSENSUS_SLASHING_PROTECTION_DB_PASSWORD_FILE` | none | unset | File whose first line is the Postgres store's password (owner-readable only, like other secret files); without it the password comes from PGPASSFILE (default ~/.pgpass), under the same rule. PGPASSWORD, a password in the URL and one in a pg_service.conf service are refused. |
 | `--from` | none | none | unset | Required. The EIP-3076 interchange file (format version 5) to import |
+| `--enable-keys` | none | none | unset | Keys disabled on purpose (keymanager DELETE, disable-validator) that their element in the file enables when it imports: 0x public keys or 0x sha256 identifiers, comma-separated or repeated. Without it such a key stays disabled; a key an earlier import disabled is enabled anyway. |
 
 ### consensus export
 

@@ -35,11 +35,16 @@
 
 -- A 2,592-byte key is too large for a B-tree entry with room to spare (the limit is 2,704 bytes), so validators are
 -- keyed by the SHA-256 of their public key (Web3Signer V00001 keys them by the raw key).
+-- disabled_by_import marks a key that an interchange import keeps disabled: one it registered before writing its
+-- history, or one whose element failed. A later clean import enables it; a key disabled on purpose (keymanager
+-- DELETE, disable-validator) has enabled = false and disabled_by_import = false, and imports leave it disabled.
 CREATE TABLE validators (
-    id          SERIAL PRIMARY KEY,
-    pubkey_hash BYTEA NOT NULL UNIQUE CHECK (octet_length(pubkey_hash) = 32),
-    public_key  BYTEA NOT NULL CHECK (octet_length(public_key) = 2592),
-    enabled     BOOLEAN NOT NULL DEFAULT true
+    id                 SERIAL PRIMARY KEY,
+    pubkey_hash        BYTEA NOT NULL UNIQUE CHECK (octet_length(pubkey_hash) = 32),
+    public_key         BYTEA NOT NULL CHECK (octet_length(public_key) = 2592),
+    enabled            BOOLEAN NOT NULL DEFAULT true,
+    disabled_by_import BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT enabled_or_disabled_by_import CHECK (NOT (enabled AND disabled_by_import))
 );
 
 -- Slots and epochs are uint64 in the protocol. BIGINT holds them up to 2^63 - 1; the store refuses larger values

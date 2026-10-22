@@ -143,6 +143,7 @@ const (
 	WatermarkRepairCommand  = "watermark-repair"
 	SetHighWatermarkCommand = "set-high-watermark"
 	From                    = "from"
+	EnableKeys              = "enable-keys"
 	To                      = "to"
 	Keys                    = "keys"
 	Epoch                   = "epoch"
@@ -390,7 +391,8 @@ func Migrate() []cli.Flag {
 // Import returns the flags of `consensus import`.
 func Import() []cli.Flag {
 	return append(storeFlags(),
-		&cli.StringFlag{Name: From, Usage: "Required. The EIP-3076 interchange file (format version 5) to import", TakesFile: true})
+		&cli.StringFlag{Name: From, Usage: "Required. The EIP-3076 interchange file (format version 5) to import", TakesFile: true},
+		&cli.StringSliceFlag{Name: EnableKeys, Usage: "Keys disabled on purpose (keymanager DELETE, disable-validator) that their element in the file enables when it imports: 0x public keys or 0x sha256 identifiers, comma-separated or repeated. Without it such a key stays disabled; a key an earlier import disabled is enabled anyway."})
 }
 
 // Export returns the flags of `consensus export`.

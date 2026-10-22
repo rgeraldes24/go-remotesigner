@@ -70,10 +70,13 @@ func TestRecordRoundTrip(t *testing.T) {
 	if got, err := decodeRandao(encodeRandao(s)); err != nil || got != s {
 		t.Errorf("RANDAO round trip of %+v: %+v, %v", s, got, err)
 	}
-	for _, v := range []bool{false, true} {
-		if got, err := decodeBool("enabled", encodeBool(v)); err != nil || got != v {
-			t.Errorf("bool round trip of %v: %v, %v", v, got, err)
+	for _, state := range []byte{stateDisabled, stateEnabled, stateDisabledByImport} {
+		if got, err := decodeState(encodeState(state)); err != nil || got != state {
+			t.Errorf("enabled state round trip of %d: %d, %v", state, got, err)
 		}
+	}
+	if encodeEnabled(true)[0] != stateEnabled || encodeEnabled(false)[0] != stateDisabled {
+		t.Error("encodeEnabled does not map true to enabled and false to disabled on purpose")
 	}
 }
 
@@ -84,7 +87,8 @@ func TestDecodeRejectsCorruptValues(t *testing.T) {
 		"root length":     errOf(decodeRoot("root", make([]byte, 32))),
 		"empty root":      errOf(decodeRoot("root", nil)),
 		"gvr":             errOf(decodeRoot32("gvr", make([]byte, 31))),
-		"bool":            errOf(decodeBool("enabled", []byte{2})),
+		"enabled state":   errOf(decodeState([]byte{3})),
+		"enabled length":  errOf(decodeState([]byte{1, 0})),
 		"attestation":     errOf(decodeAttestation(u64(1), []byte{0})),
 		"attestation key": errOf(decodeAttestation([]byte{1}, encodeAttestation(slashing.SignedAttestation{}))),
 		"low length":      errOf(decodeLowWatermark(make([]byte, 24))),
