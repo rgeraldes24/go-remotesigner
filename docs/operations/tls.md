@@ -22,7 +22,10 @@ The certificate comes from one of three sources:
 
 Each flag of a pair needs the other, and PEM and PKCS#12 cannot both be given; these are usage errors (exit code 2).
 A file that cannot be read, a wrong password, or a key that does not match its certificate refuses the start
-(exit code 1). At startup the signer logs the certificate's source, path, SHA-256 fingerprint and expiry:
+(exit code 1). The private key, the PKCS#12 keystore and its password file are secret files, like the token files
+(section 5): with `--strict-file-permissions` (the default) one that its group or other users can read refuses the
+start, and the log names the file and its mode; with `--strict-file-permissions=false` it is loaded with a WARN. Keep
+them at `0600` or `0400`. The certificate file is public and is not checked. At startup the signer logs the certificate's source, path, SHA-256 fingerprint and expiry:
 
 ```
 level=info msg="TLS enabled" certificate=/etc/remotesigner/tls/signer.crt client-auth=none
@@ -61,7 +64,8 @@ level=info msg="Generated a self-signed TLS certificate: give its file to the va
   sha256-fingerprint="3A:1F:…:C2" source=self-signed
 ```
 
-Later starts reuse the two files; they are never regenerated while `cert.pem` exists. A `cert.pem` whose `key.pem` is
+Later starts reuse the two files; they are never regenerated while `cert.pem` exists. A reused `key.pem` is a secret
+file (section 1): one that its group or other users can read refuses the start under `--strict-file-permissions`. A `cert.pem` whose `key.pem` is
 gone refuses the start rather than being replaced, because clients have pinned it. If `<data-path>/tls/` already
 exists and its group or other users can write it (a volume mounted with loose permissions, say), the start is refused
 on Linux and macOS: they could replace the key the signer serves. `chmod 0700` the directory and check its files.
@@ -158,9 +162,11 @@ missing. A validator client in `token+mtls` gets both the certificate flags and
 
 The tokens, the certificate and the client trust reload independently, and fail differently:
 
-- **Tokens and the certificate keep the previous set.** An invalid token, two equal tokens or a broken key is logged
-  as an ERROR, and the previous tokens or certificate stay in force, so a mistake never leaves the signer without
-  credentials.
+- **Tokens and the certificate keep the previous set.** An invalid token, two equal tokens, a broken key, or a token
+  or key file that its group or other users can read under `--strict-file-permissions` is logged as an ERROR, and the
+  previous tokens or certificate stay in force, so a mistake never leaves the signer without credentials. The token
+  files are secret files at startup too: under the strict policy one that others can read refuses the start, and
+  with `--strict-file-permissions=false` it is loaded with a WARN that names it.
 - **The client trust fails closed.** If the known-clients file or the client CA file cannot be read or does not parse
   (deleted, a line that is not `<label> <fingerprint>`, a broken certificate), the signer logs an ERROR and refuses
   every client certificate, on new handshakes and on open connections, until a reload succeeds. Keeping the previous
