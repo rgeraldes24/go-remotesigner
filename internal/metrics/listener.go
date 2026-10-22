@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/net/netutil"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/server"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
@@ -22,6 +23,12 @@ import (
 
 // Path is the one route of the metrics listener.
 const Path = "/metrics"
+
+// MaxConnections is the default cap on the metrics listener's open
+// connections. A scrape needs one, and Prometheus keeps one per target, so
+// the cap only bounds what an unauthenticated client can hold open (file
+// descriptors shared with the API listener).
+const MaxConnections = 32
 
 // Timeouts of the metrics listener. A scrape is small and quick.
 const (
@@ -45,16 +52,21 @@ type ListenerConfig struct {
 	Auth *auth.Authenticator
 	// Log receives refusals and listener errors.
 	Log *logrus.Logger
+	// MaxConnections caps the open connections, beyond which new ones wait
+	// until one closes; 0 means MaxConnections.
+	MaxConnections int
 }
 
 // Listener is the metrics listener: a separate http.Server, enabled by
 // --metrics-enabled, that serves GET /metrics behind the host allowlist and,
 // when a metrics token is configured, the bearer token (401 without it). It
-// answers 404 to every other path.
+// answers 404 to every other path, and holds at most MaxConnections open
+// connections.
 type Listener struct {
 	http     *http.Server
 	listener net.Listener
 	addr     string
+	maxConns int
 	errLog   interface{ Close() error }
 }
 
@@ -75,10 +87,14 @@ func NewListener(cfg ListenerConfig) *Listener {
 			mux.ServeHTTP(w, r)
 		})
 	}
+	if cfg.MaxConnections <= 0 {
+		cfg.MaxConnections = MaxConnections
+	}
 	errWriter := cfg.Log.WriterLevel(logrus.DebugLevel)
 	return &Listener{
-		addr:   cfg.Addr,
-		errLog: errWriter,
+		addr:     cfg.Addr,
+		maxConns: cfg.MaxConnections,
+		errLog:   errWriter,
 		http: &http.Server{
 			Handler:           server.RequireAllowedHost(cfg.HostAllowlist, cfg.Log, h),
 			ReadHeaderTimeout: listenerReadTimeout,
@@ -100,7 +116,7 @@ func (l *Listener) Listen() error {
 	if err != nil {
 		return fmt.Errorf("metrics: listen on %s: %w", l.addr, err)
 	}
-	l.listener = ln
+	l.listener = netutil.LimitListener(ln, l.maxConns)
 	return nil
 }
 
