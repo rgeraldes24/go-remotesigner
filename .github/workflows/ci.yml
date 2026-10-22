@@ -196,7 +196,8 @@ jobs:
     # Two passes per network: protection disabled and no genesis time (every
     # sign fixture), then protection on with genesis time (RANDAO). Then
     # qrysm's interchange export goes through the signer's import and export
-    # and back into qrysm (`vectorgen interchange-check`).
+    # and back into qrysm (`vectorgen interchange-check`). Both flavours: the
+    # consensus flavour is the one qrysm's end-to-end test builds.
     # tools/vectorgen links qrysm (GPL-3.0); it runs here and is never shipped.
     runs-on: ubuntu-24.04
     steps:
@@ -207,9 +208,13 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/vectorgen/go.sum
-      - name: Build the signer (static)
-        run: make build
-      - name: vectorgen verify and the interchange round trip against the built signer
+      - name: Build the signer, both flavours (static)
+        run: make build build-consensus
+      - name: vectorgen verify and the interchange round trip against the consensus flavour
+        env:
+          REMOTESIGNER_BINARY: ${{ github.workspace }}/bin/remotesigner-consensus
+        run: make vectors-verify-binary
+      - name: vectorgen verify and the interchange round trip against the default flavour
         env:
           REMOTESIGNER_BINARY: ${{ github.workspace }}/bin/remotesigner
         run: make vectors-verify-binary
@@ -220,8 +225,8 @@ jobs:
     # (interop keys, both end-to-end networks): capabilities, publicKeys, one
     # sign request per SignRequest oneof and one RANDAO reveal, each answer
     # checked with qrysm's verifiers. Then a DTO renamed on either side must
-    # fail it. tools/vectorgen/contract links qrysm (GPL-3.0); it runs here
-    # and is never shipped.
+    # fail it, against both flavours. tools/vectorgen/contract links qrysm
+    # (GPL-3.0); it runs here and is never shipped.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -231,9 +236,13 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/vectorgen/contract/go.sum
-      - name: Build the signer (static)
-        run: make build
-      - name: vectorgen contract against the built signer
+      - name: Build the signer, both flavours (static)
+        run: make build build-consensus
+      - name: vectorgen contract against the consensus flavour
+        env:
+          REMOTESIGNER_BINARY: ${{ github.workspace }}/bin/remotesigner-consensus
+        run: make vectors-contract
+      - name: vectorgen contract against the default flavour
         env:
           REMOTESIGNER_BINARY: ${{ github.workspace }}/bin/remotesigner
         run: make vectors-contract
