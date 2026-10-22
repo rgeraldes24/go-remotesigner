@@ -89,16 +89,19 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	// the self-signed one under a lock on its directory, which also holds
 	// when the store's lock does not (no store, or a store elsewhere).
 	var tlsSrv *tlsconf.Server
+	files := ServerFilePolicy(cfg, log)
 	authCfg := auth.Config{
 		Mode:           cfg.HTTP.AuthMode,
 		SignTokenFile:  cfg.SignTokenFile(),
 		AdminTokenFile: cfg.AdminTokenFile(),
+		Files:          files,
 	}
 	if cfg.TLS.Enabled() {
 		tlsSrv, err = tlsconf.New(cfg.TLS, tlsconf.Options{
 			SelfSignedDir:     cfg.SelfSignedTLSPath(),
 			SelfSignedHosts:   cfg.HTTP.HostAllowlist,
 			RequireClientCert: cfg.HTTP.AuthMode.ClientCerts(),
+			Files:             files,
 		})
 		if err != nil {
 			closeStore()

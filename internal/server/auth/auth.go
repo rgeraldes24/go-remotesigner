@@ -13,7 +13,9 @@
 //
 // A token is "0x" followed by at least 64 hex characters. Token files are
 // generated (mode 0600) when missing and re-read by Reload, which the
-// process calls on SIGHUP. Presented tokens are compared in constant time,
+// process calls on SIGHUP. They are secret files: one that its group or
+// other users can read is refused or warned about by Config.Files, the
+// --strict-file-permissions policy. Presented tokens are compared in constant time,
 // over SHA-256 digests so that the comparison does not depend on length.
 //
 // The auth mode decides what grants the sign scope (docs/contract.md
@@ -28,6 +30,7 @@
 package auth
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -43,6 +46,8 @@ import (
 	"sync"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/api/apierr"
+	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 	"github.com/rgeraldes24/go-remotesigner/internal/logging"
 )
 
@@ -106,6 +111,9 @@ const MinTokenHexLength = 64
 // fileMode is the permission of a generated token file.
 const fileMode fs.FileMode = 0o600
 
+// maxTokenFile bounds a token file.
+const maxTokenFile = 4 << 10
+
 // Errors returned by this package.
 var (
 	ErrInvalidToken     = errors.New("auth: token must be 0x followed by at least 64 hex characters")
@@ -130,6 +138,10 @@ type Config struct {
 	// VerifyClient checks a request's client certificate against the trust
 	// in force; required in the mtls modes.
 	VerifyClient func(*tls.ConnectionState) error
+	// Files is the policy for token files that their group or other users
+	// can read (--strict-file-permissions): refused under Strict, warned
+	// about otherwise, at startup and on every Reload.
+	Files secretfile.Policy
 }
 
 // Authenticator checks requests against the current tokens. It is safe for
@@ -180,7 +192,7 @@ func (a *Authenticator) Reload() error {
 		if path == "" {
 			continue
 		}
-		d, err := loadOrGenerate(path)
+		d, err := loadOrGenerate(path, a.cfg.Files)
 		if err != nil {
 			return err
 		}
@@ -310,17 +322,18 @@ func isHex(c byte) bool {
 	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
 }
 
-// loadOrGenerate returns the SHA-256 of the token in path, generating a new
-// token file when none exists.
-func loadOrGenerate(path string) ([sha256.Size]byte, error) {
-	data, err := os.ReadFile(path)
+// loadOrGenerate returns the SHA-256 of the token in path, read under the
+// file policy p, generating a new token file when none exists.
+func loadOrGenerate(path string, p secretfile.Policy) ([sha256.Size]byte, error) {
+	data, err := secretfile.Read(path, maxTokenFile, p)
 	if errors.Is(err, fs.ErrNotExist) {
-		data, err = generate(path)
+		data, err = generate(path, p)
 	}
 	if err != nil {
 		return [sha256.Size]byte{}, fmt.Errorf("auth: token file %s: %w", path, err)
 	}
-	tok := logging.Secret(strings.TrimSpace(string(data)))
+	defer mldsa87.Wipe(data)
+	tok := logging.Secret(bytes.TrimSpace(data))
 	if !ValidToken(tok) {
 		return [sha256.Size]byte{}, fmt.Errorf("auth: token file %s: %w", path, ErrInvalidToken)
 	}
@@ -328,8 +341,9 @@ func loadOrGenerate(path string) ([sha256.Size]byte, error) {
 }
 
 // generate writes a new random token to path (mode 0600, never replacing an
-// existing file) and returns the file content.
-func generate(path string) ([]byte, error) {
+// existing file) and returns the file content. When another process created
+// the file first, it reads that one under the file policy p.
+func generate(path string, p secretfile.Policy) ([]byte, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -341,7 +355,7 @@ func generate(path string) ([]byte, error) {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
 	if errors.Is(err, fs.ErrExist) {
 		// Another process created it first; use that one.
-		return os.ReadFile(path)
+		return secretfile.Read(path, maxTokenFile, p)
 	}
 	if err != nil {
 		return nil, err

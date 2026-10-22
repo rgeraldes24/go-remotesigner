@@ -126,7 +126,8 @@ section 5 names the qrysm build that has it.
   keystore v1 and the deposit CLI's keystores. Keystores are opened by a hardened decryptor that bounds the KDF
   parameters before any work, compares the derived key with the declared one, and runs Argon2id under one
   memory-sized semaphore (`--signer-load-parallelism`). Password and seed files that other users can read are
-  refused (`--strict-file-permissions`). `consensus keystore verify` checks keystores and password files offline.
+  refused (`--strict-file-permissions`), as are token files and TLS private keys. `consensus keystore verify` checks
+  keystores and password files offline.
 - **Reload.** `POST /reload` loads only the sources that changed, never disables a key, keeps the previous keys of a
   source that fails, and is bounded by `--reload-timeout`. The startup load, which runs while the API already
   listens, is not bounded. `GET /reload` reports the status of either.
