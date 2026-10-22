@@ -60,7 +60,7 @@ unit, example configuration files, the Grafana dashboard and the Prometheus aler
 
 ## Building
 
-Go 1.26.5 or later is required (the module's toolchain line selects go1.26.9).
+Go 1.26.5 or later is required (the module's toolchain line selects go1.26.10).
 
 ```
 make build             # bin/remotesigner, the default flavour
@@ -78,7 +78,7 @@ or any other GPL or LGPL code.
 
 ```
 $ bin/remotesigner --version
-remotesigner version 1.0.0 (commit ..., go1.26.9, linux/amd64)
+remotesigner version 1.0.0 (commit ..., go1.26.10, linux/amd64)
 ```
 
 The version is the tag's without its `v` (`1.0.0` for `v1.0.0`), as in the release binaries and in a binary that
