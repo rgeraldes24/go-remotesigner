@@ -214,7 +214,9 @@ Execution mode runs behind the same server as consensus mode ([`tls.md`](tls.md)
   `keys-check/config-files-loading` and, with a keystore directory, `keys-check/keystores-bulk-loading`.
   `GET /reload` reports the last load, `POST /reload` (admin token) starts one.
 - **Metrics.** With `--metrics-enabled`, the metrics listener serves the Go and process metrics, `process_release`,
-  `signing_signers_loaded_count` and the HTTP metrics of the API listener ([`metrics.md`](metrics.md)).
+  `signing_signers_loaded_count` and the HTTP metrics of the API listener ([`metrics.md`](metrics.md)). As in
+  consensus mode, a metrics token on a non-loopback `--metrics-host` brings a startup warning that scrapes send it in
+  clear ([`tls.md`](tls.md#7-the-metrics-token)).
 
 ## 8. Transactions
 
