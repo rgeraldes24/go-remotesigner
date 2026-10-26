@@ -600,3 +600,35 @@ func TestLogNetwork(t *testing.T) {
 		t.Errorf("startup log with a store-pinned GVR:\n%s", out)
 	}
 }
+
+// The metrics token is warned about when it crosses the network in clear:
+// the metrics listener enabled, with a token, on a non-loopback host.
+func TestWarnMetricsTokenInClear(t *testing.T) {
+	tests := []struct {
+		name    string
+		metrics config.Metrics
+		warns   bool
+	}{
+		{"token on 0.0.0.0", config.Metrics{Enabled: true, Host: "0.0.0.0", AuthTokenFile: "/m"}, true},
+		{"token on a LAN address", config.Metrics{Enabled: true, Host: "10.0.0.5", AuthTokenFile: "/m"}, true},
+		{"token on loopback", config.Metrics{Enabled: true, Host: "127.0.0.1", AuthTokenFile: "/m"}, false},
+		{"token on localhost", config.Metrics{Enabled: true, Host: "localhost", AuthTokenFile: "/m"}, false},
+		{"no token on 0.0.0.0", config.Metrics{Enabled: true, Host: "0.0.0.0"}, false},
+		{"listener disabled", config.Metrics{Host: "0.0.0.0", AuthTokenFile: "/m"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf strings.Builder
+			log := logrus.New()
+			log.SetOutput(&buf)
+			cfg := &config.Config{Metrics: tt.metrics}
+			if got := WarnMetricsTokenInClear(cfg, log); got != tt.warns {
+				t.Fatalf("warned %v, want %v", got, tt.warns)
+			}
+			const want = `level=warning msg="The metrics listener has no TLS, so every scrape sends the metrics token in clear`
+			if got := strings.Contains(buf.String(), want); got != tt.warns {
+				t.Fatalf("log %q, want the warning %v", buf.String(), tt.warns)
+			}
+		})
+	}
+}
