@@ -676,6 +676,11 @@ func TestMetricsTokenAndNoKeyLabels(t *testing.T) {
 	if !strings.Contains(s.output.String(), "token-required=true") {
 		t.Fatalf("the metrics listener line does not say a token is required:\n%s", s.output.String())
 	}
+	// On loopback the token never leaves the host, so there is no warning
+	// that it is sent in clear (runner.WarnMetricsTokenInClear).
+	if strings.Contains(s.output.String(), "metrics token in clear") {
+		t.Fatalf("a loopback metrics listener warned that the token is sent in clear:\n%s", s.output.String())
+	}
 	data, _ := os.ReadFile(tokenFile)
 	token := strings.TrimSpace(string(data))
 	if code, body, _ := s.do(request{method: "POST", path: "/api/v1/consensus/sign/" + c.Pubkey, token: s.signToken(),

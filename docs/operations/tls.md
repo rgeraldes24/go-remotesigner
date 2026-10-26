@@ -216,6 +216,13 @@ scrape without it, or with another token, gets 401 `UNAUTHENTICATED`. The file i
 re-read on SIGHUP, like the API tokens, and its token must differ from the sign and admin tokens, which never grant
 access to the metrics. Without the flag `/metrics` is open to any client that passes the host allowlist.
 
+The metrics listener has no TLS, so the token crosses the network in clear when `--metrics-host` is not loopback.
+The signer starts all the same, since the token grants nothing but `GET /metrics`, and logs a warning:
+
+```
+level=warning msg="The metrics listener has no TLS, so every scrape sends the metrics token in clear on a non-loopback --metrics-host; keep the listener on a network only Prometheus can reach" metrics-host=0.0.0.0
+```
+
 ```yaml
 # prometheus.yml
 scrape_configs:

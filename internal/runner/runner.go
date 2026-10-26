@@ -227,6 +227,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		log.WithFields(logrus.Fields{
 			"address": ml.Addr().String(), "token-required": cfg.Metrics.AuthTokenFile != "",
 		}).Info("Metrics listener is listening")
+		WarnMetricsTokenInClear(cfg, log)
 	}
 	tlsStatus := "disabled"
 	if tlsSrv != nil {
@@ -636,3 +637,19 @@ func logNetwork(log *logrus.Logger, n *network.Network, pol *policy.Policy) {
 }
 
 func hexRoot(r [32]byte) string { return "0x" + hex.EncodeToString(r[:]) }
+
+// WarnMetricsTokenInClear logs a WARN when the metrics token crosses the
+// network in clear: the metrics listener has no TLS, so with
+// --metrics-auth-token-file on a non-loopback --metrics-host every scrape
+// sends the token unencrypted, which the API listener would refuse without
+// --Xallow-plaintext-token-auth. The metrics token grants nothing but
+// GET /metrics, so this is a warning, not a refusal. It reports whether it
+// warned.
+func WarnMetricsTokenInClear(cfg *config.Config, log logrus.FieldLogger) bool {
+	if !cfg.Metrics.Enabled || cfg.Metrics.AuthTokenFile == "" || config.IsLoopbackHost(cfg.Metrics.Host) {
+		return false
+	}
+	log.WithField("metrics-host", cfg.Metrics.Host).Warn("The metrics listener has no TLS, so every scrape sends the " +
+		"metrics token in clear on a non-loopback --metrics-host; keep the listener on a network only Prometheus can reach")
+	return true
+}

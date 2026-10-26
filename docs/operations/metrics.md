@@ -20,7 +20,8 @@ scraper (DEVIATIONS X111). The listener serves
 403 `HOST_NOT_ALLOWED`, which keeps a browser page from reading the metrics through DNS rebinding. With
 `--metrics-auth-token-file`, a scrape without the metrics token gets 401 `UNAUTHENTICATED`; the sign and admin
 tokens never grant it, and it must differ from both ([`tls.md`](tls.md#7-the-metrics-token) has the Prometheus
-configuration). The listener has no TLS, so keep it on loopback, or on a network only Prometheus can reach. It holds
+configuration). The listener has no TLS, so keep it on loopback, or on a network only Prometheus can reach; with a
+token on a non-loopback `--metrics-host`, the signer warns at startup that scrapes send it in clear. It holds
 at most 32 open connections, whoever opens them; a further connection waits until one closes, so a client that holds
 connections open cannot use up the file descriptors the API listener needs. A scrape refused with 401 or 403 closes
 its connection, so refused scrapes do not hold any of the 32 (DEVIATIONS X115). The startup line `Metrics listener is
