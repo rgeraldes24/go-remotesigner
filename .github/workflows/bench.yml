@@ -26,6 +26,13 @@ permissions:
 env:
   GOTOOLCHAIN: local
 
+# Each step pipes its make target through tee. GitHub runs a step with no
+# shell as `bash -e`, whose pipeline status is tee's; `shell: bash` adds
+# pipefail, so a benchmark that fails fails its step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   micro:
     name: B1-B6, B10, B15 (Go benchmarks)

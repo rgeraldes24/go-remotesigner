@@ -128,6 +128,7 @@ jobs:
           cache: false
       - name: Install go-licenses and the Kurtosis CLI
         if: steps.refs.outputs.run == 'true'
+        shell: bash
         run: |
           go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"

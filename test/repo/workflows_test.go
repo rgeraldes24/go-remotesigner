@@ -16,19 +16,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// jobStep is a workflow step with its condition and environment.
+// jobStep is a workflow step with its condition, environment and shell.
 type jobStep struct {
 	workflowStep     `yaml:",inline"`
 	ID               string            `yaml:"id"`
 	If               string            `yaml:"if"`
 	WorkingDirectory string            `yaml:"working-directory"`
 	Env              map[string]string `yaml:"env"`
+	Shell            string            `yaml:"shell"`
+}
+
+// runDefaults is the defaults.run of a workflow or a job.
+type runDefaults struct {
+	Run struct {
+		Shell string `yaml:"shell"`
+	} `yaml:"run"`
 }
 
 // workflowJob is the part of a workflow job these tests read.
 type workflowJob struct {
 	RunsOn   string            `yaml:"runs-on"`
 	Env      map[string]string `yaml:"env"`
+	Defaults runDefaults       `yaml:"defaults"`
 	Strategy struct {
 		Matrix struct {
 			Include []map[string]string `yaml:"include"`
@@ -37,7 +46,7 @@ type workflowJob struct {
 	Steps []jobStep `yaml:"steps"`
 }
 
-// workflow is a workflow file's triggers and jobs.
+// workflow is a workflow file's triggers, defaults and jobs.
 type workflow struct {
 	On struct {
 		Schedule []struct {
@@ -45,7 +54,40 @@ type workflow struct {
 		} `yaml:"schedule"`
 		Dispatch *struct{} `yaml:"workflow_dispatch"`
 	} `yaml:"on"`
-	Jobs map[string]workflowJob `yaml:"jobs"`
+	Defaults runDefaults            `yaml:"defaults"`
+	Jobs     map[string]workflowJob `yaml:"jobs"`
+}
+
+// pipefail reports whether step s of job j runs with pipefail set, so that
+// a pipeline fails when any of its commands does. GitHub runs a step with
+// no shell as `bash -e {0}`, without pipefail; only `shell: bash` (the
+// step's own, or the job's or the workflow's default) runs
+// `bash --noprofile --norc -eo pipefail {0}`.
+func (w workflow) pipefail(j workflowJob, s jobStep) bool {
+	shell := cmp.Or(s.Shell, j.Defaults.Run.Shell, w.Defaults.Run.Shell)
+	return shell == "bash" || setPipefail.MatchString(s.Run)
+}
+
+// setPipefail is a `set` line of a script that turns pipefail on.
+var setPipefail = regexp.MustCompile(`(?m)^\s*set\s+(-\w*o\s+pipefail|-o\s+pipefail)`)
+
+// quoted is a single- or double-quoted shell word, whose `|` is no pipe.
+var quoted = regexp.MustCompile(`'[^']*'|"(?:[^"\\]|\\.)*"`)
+
+// pipes reports whether script has a pipeline: a `|` outside quotes that
+// is not part of `||` or a comment.
+func pipes(script string) bool {
+	for line := range strings.SplitSeq(script, "\n") {
+		line = quoted.ReplaceAllString(line, "")
+		if i := strings.Index(line, "#"); i >= 0 && (i == 0 || line[i-1] == ' ' || line[i-1] == '\t') {
+			line = line[:i]
+		}
+		line = strings.ReplaceAll(line, "||", "")
+		if strings.Contains(line, "|") {
+			return true
+		}
+	}
+	return false
 }
 
 func readWorkflow(t *testing.T, name string) workflow {
@@ -314,6 +356,80 @@ func TestBenchmarkWorkflow(t *testing.T) {
 		"bench-postgres", "b16"} {
 		if !targets[want] {
 			t.Errorf("no job of bench.yml runs make %s", want)
+		}
+	}
+	// Each step keeps its output with tee, and fails when its benchmark
+	// does, not with tee's status.
+	for name, job := range w.Jobs {
+		for _, s := range job.Steps {
+			if strings.HasPrefix(strings.TrimSpace(s.Run), "make ") && (!pipes(s.Run) || !w.pipefail(job, s)) {
+				t.Errorf("%s step %q: %q does not keep its output with tee under pipefail", name, s.Name, s.Run)
+			}
+		}
+	}
+}
+
+// A step that pipes a command into another runs with pipefail, so that
+// the step fails when the command does and not only when the last one of
+// the pipeline does: `make bench-micro | tee out.txt` would otherwise pass
+// whatever make's status.
+func TestPipedStepsRunWithPipefail(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join(root, ".github/workflows/*.yml"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no workflows: %v", err)
+	}
+	for _, f := range files {
+		name := filepath.Base(f)
+		w := readWorkflow(t, name)
+		for jobName, job := range w.Jobs {
+			for _, s := range job.Steps {
+				if pipes(s.Run) && !w.pipefail(job, s) {
+					t.Errorf("%s: job %s, step %q pipes without pipefail; give it `shell: bash`", name, jobName,
+						cmp.Or(s.Name, firstLine(s.Run)))
+				}
+			}
+		}
+	}
+}
+
+// pipes and pipefail tell a pipeline from a quoted `|` or `||`, and
+// GitHub's default shell from `shell: bash`.
+func TestPipesAndPipefail(t *testing.T) {
+	for script, want := range map[string]bool{
+		"make bench-micro 2>&1 | tee bench-micro.txt":                          true,
+		`echo "$SUM  f" | sha256sum -c -`:                                      true,
+		"if grep -nEi 'LGPL|Lesser General Public' NOTICE; then\n  exit 1\nfi": false,
+		"test -f x || exit 1":                                                  false,
+		`echo "a|b" # and | in a comment`:                                      false,
+		"make test":                                                            false,
+	} {
+		if got := pipes(script); got != want {
+			t.Errorf("pipes(%q) = %v, want %v", script, got, want)
+		}
+	}
+	step := func(shell, run string) jobStep { return jobStep{workflowStep: workflowStep{Run: run}, Shell: shell} }
+	var bashJob workflowJob
+	bashJob.Defaults.Run.Shell = "bash"
+	var bashWorkflow workflow
+	bashWorkflow.Defaults.Run.Shell = "bash"
+	for _, c := range []struct {
+		w    workflow
+		j    workflowJob
+		s    jobStep
+		want bool
+	}{
+		{workflow{}, workflowJob{}, step("", "make x | tee x.txt"), false},
+		{workflow{}, workflowJob{}, step("sh", "make x | tee x.txt"), false},
+		{workflow{}, workflowJob{}, step("bash", "make x | tee x.txt"), true},
+		{workflow{}, bashJob, step("", "make x | tee x.txt"), true},
+		{bashWorkflow, workflowJob{}, step("", "make x | tee x.txt"), true},
+		{bashWorkflow, workflowJob{}, step("sh", "make x | tee x.txt"), false},
+		{workflow{}, workflowJob{}, step("", "set -o pipefail\nmake x | tee x.txt"), true},
+		{workflow{}, workflowJob{}, step("", "set -euo pipefail\nmake x | tee x.txt"), true},
+	} {
+		if got := c.w.pipefail(c.j, c.s); got != c.want {
+			t.Errorf("pipefail(workflow %q, job %q, step %q, %q) = %v, want %v", c.w.Defaults.Run.Shell,
+				c.j.Defaults.Run.Shell, c.s.Shell, c.s.Run, got, c.want)
 		}
 	}
 }
