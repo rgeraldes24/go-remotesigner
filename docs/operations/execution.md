@@ -215,8 +215,10 @@ Execution mode runs behind the same server as consensus mode ([`tls.md`](tls.md)
   once and `--max-queued-signing-requests` (512) more wait; the next is refused at once with -32005 "Limit exceeded",
   503 for a single request. Each `qrl_sign`, `qrl_signTransaction` and `qrl_sendTransaction` call takes a slot, each
   element of a batch on its own: `qrl_sign` for its signature, `qrl_signTransaction` from its checks to its signature,
-  and `qrl_sendTransaction` from the moment the account's earlier transactions are done (section 8) to the node's
-  answer. Every other method takes none.
+  and `qrl_sendTransaction` for its policy checks and its signature, each time it signs (section 8). It holds none
+  while it waits for the account's earlier transactions or for the node's `qrl_fillTransaction` and
+  `qrl_sendRawTransaction`, so a slow node keeps no slot from `qrl_sign` and `qrl_signTransaction`. Every other method
+  takes none.
 - **Health.** `/upcheck` and `/healthcheck` as in consensus mode, with the checks `default-check`,
   `keys-check/config-files-loading` and, with a keystore directory, `keys-check/keystores-bulk-loading`.
   `GET /reload` reports the last load, `POST /reload` (admin token) starts one.
