@@ -173,7 +173,7 @@ func TestPlainSecretSources(t *testing.T) {
 			t.Fatalf("%v: exit %d %s", args, code, stderr)
 		}
 		out := map[string]config.PlainSecret{}
-		for _, p := range cfg.Consensus.SecretStores.Plain {
+		for _, p := range withoutInfo(t, cfg.Consensus.SecretStores.Plain) {
 			out[p.Flag] = p
 		}
 		return out
@@ -202,6 +202,47 @@ func TestPlainSecretSources(t *testing.T) {
 	}
 	if got = sources("--azure-client-secret", "x"); got["azure-client-secret"].Source != config.FromCommandLine {
 		t.Errorf("value as the next argument: %+v", got)
+	}
+}
+
+// withoutInfo returns plain without its config files' information, after
+// checking that each record of a config file carries the file's.
+func withoutInfo(t *testing.T, plain []config.PlainSecret) []config.PlainSecret {
+	t.Helper()
+	out := slices.Clone(plain)
+	for i, p := range out {
+		if (p.File != "") != (p.FileInfo != nil) {
+			t.Fatalf("%s: file %q with information %v", p.Flag, p.File, p.FileInfo)
+		}
+		out[i].FileInfo = nil
+	}
+	return out
+}
+
+// The config file is checked as it was read: one whose group could read it
+// when the signer read it refuses the start under --strict-file-permissions
+// even if its mode changed afterwards.
+func TestPlainSecretConfigFileAsRead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes")
+	}
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(file, []byte("consensus:\n  azure-client-secret: from-file-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(file, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, code, stderr := capture(t, "--config-file="+file, "consensus", "--network=e2e")
+	if code != exitOK {
+		t.Fatalf("exit %d %s", code, stderr)
+	}
+	if err := os.Chmod(file, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.StrictFilePermissions = true
+	if err := runner.StoreCredentials(cfg, logrus.New()); err == nil || !strings.Contains(err.Error(), "mode 0644") {
+		t.Fatalf("a config file its group could read when it was read: %v", err)
 	}
 }
 
@@ -242,7 +283,7 @@ func TestPlainSecretEmptyOverride(t *testing.T) {
 			if code != exitOK {
 				t.Fatalf("exit %d %s", code, stderr)
 			}
-			if p := cfg.Consensus.SecretStores.Plain; !slices.Equal(p, want) {
+			if p := withoutInfo(t, cfg.Consensus.SecretStores.Plain); !slices.Equal(p, want) {
 				t.Fatalf("plain secrets %+v, want %+v", p, want)
 			}
 			if runtime.GOOS == "windows" {

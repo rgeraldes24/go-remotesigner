@@ -53,8 +53,8 @@ type YAMLSource struct {
 }
 
 // LoadYAML reads and parses the config file at path. It keeps the type and
-// mode the opened file had (Info), so that the file is checked as the file
-// that was read, whatever the path names later.
+// mode the opened file had (Info), so that a file found to hold a secret is
+// checked as the file that was read, whatever the path names later.
 func LoadYAML(path string) (*YAMLSource, error) {
 	f, err := os.Open(path)
 	if err != nil {
