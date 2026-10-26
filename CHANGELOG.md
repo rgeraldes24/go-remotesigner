@@ -111,8 +111,8 @@ section 5 names the qrysm build that has it.
   the same keys, a shared PostgreSQL database (`postgres://` URLs) with a squashed schema that the signer creates and
   upgrades itself (`consensus migrate`, `--slashing-protection-db-migrate`), advisory locks, a fixed pool and timeout
   profile, and credentials only from a password file or `PGPASSFILE`. Disabling protection is allowed only when every
-  listener is on loopback. Both stores pass the store tests ported from Web3Signer's slashing-protection suite and
-  scenarios written from the conditions of EIP-3076.
+  listener is on loopback, and `/healthcheck` then reports the store check `DOWN`. Both stores pass the store tests
+  ported from Web3Signer's slashing-protection suite and scenarios written from the conditions of EIP-3076.
 - **Slashing-protection history commands.** `consensus import` and `consensus export` stream EIP-3076 v5 interchange
   files with 2,592-byte keys, `consensus watermark-repair` raises low watermarks, `consensus set-high-watermark` sets
   or removes the high-watermark fence (served at `GET /api/v1/consensus/highWatermark`), and
@@ -150,15 +150,17 @@ section 5 names the qrysm build that has it.
   and optional `--mlock-all`.
 - **Operations endpoints and metrics.** `GET /api/v1/consensus/publicKeys` (sorted, streamed, gzip on request),
   `GET /api/v1/consensus/capabilities` for the validator client's startup handshake, `/upcheck` and `/healthcheck`
-  in Web3Signer's shape. A separate Prometheus listener (`--metrics-enabled`) with its own host allowlist and an
-  optional token serves the signing, slashing-protection, RANDAO, loaded-key and HTTP metrics; no metric carries a
-  key as a label. Prometheus alert rules and a Grafana dashboard are in [`deploy/`](deploy).
+  in Web3Signer's shape. A separate Prometheus listener (`--metrics-enabled`) with its own host allowlist, a cap of
+  32 connections and an optional token, with a warning when that token would travel in clear, serves the signing,
+  slashing-protection, RANDAO, loaded-key and HTTP metrics; no metric carries a key as a label. Prometheus alert
+  rules and a Grafana dashboard are in [`deploy/`](deploy).
 - **Networks.** `--network` is required: the built-in `minimal`, `end-to-end` (alias `e2e`), `end-to-end-mainnet` and
   `interop`, or a qrysm configuration file with the genesis time and validators root from flags or a genesis state.
 - **Configuration.** Every global and `consensus` flag also reads a `REMOTESIGNER_` environment variable and a YAML
-  `--config-file`, while the subcommands' own flags read the environment at most; the flag reference, generated
-  from the flag definitions, lists what each flag reads. Booleans take `--flag=false`, never `--flag false`. Logs
-  are text or JSON (`--logging-format`), with Web3Signer's levels (`--logging`).
+  `--config-file`, while the subcommands' own flags read the environment at most; the flag reference, generated from
+  the flag definitions, lists what each flag reads. The hidden `remotesigner Xhelp` lists the `--X…` overrides, as
+  Web3Signer's does. Booleans take `--flag=false`, never `--flag false`. Logs are text or JSON (`--logging-format`),
+  with Web3Signer's levels (`--logging`).
 - **Container image and deployment examples.** A distroless, non-root image per flavour that runs with a read-only
   root file system and a TLS-first entrypoint, a docker-compose example with a validator client, a hardened systemd
   unit, and example configurations for a single host (bbolt) and Postgres replicas.
