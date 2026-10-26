@@ -191,7 +191,8 @@ jobs:
     # sign fixture), then protection on with genesis time (RANDAO). Then
     # qrysm's interchange export goes through the signer's import and export
     # and back into qrysm (`vectorgen interchange-check`). Both flavours: the
-    # consensus flavour is the one qrysm's end-to-end test builds.
+    # consensus flavour is the one qrl-tests' consensus-remote-signer lane
+    # builds.
     # tools/vectorgen links qrysm (GPL-3.0); it runs here and is never shipped.
     runs-on: ubuntu-24.04
     steps:

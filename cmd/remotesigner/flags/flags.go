@@ -238,8 +238,8 @@ func Overrides() map[string]Override {
 				"signs for that chain from then on and refuses every request for the intended one. Undoing a wrong " +
 				"pin needs a new store.",
 			Instead: "Pass --network-genesis-validators-root, or --network-genesis-state with the chain's genesis " +
-				"state. Trust on first use is meant for a test network on a loopback listener, as the qrysm " +
-				"end-to-end test runs it.",
+				"state. Trust on first use is meant for a test network on a loopback listener, such as a local " +
+				"devnet.",
 		},
 	}
 }

@@ -256,14 +256,15 @@ func TestNightlyRemoteSignerLane(t *testing.T) {
 }
 
 // No file still names the variable or the qrysm scenario of the end-to-end
-// job the lane replaced.
+// job the lane replaced, or says that qrysm's end-to-end test builds the
+// signer, reads its metrics or fetches it in qrysm CI.
 func TestNoQrysmScenarioJob(t *testing.T) {
 	for _, f := range repoFiles(t) {
 		if ownFile(f.path) {
 			continue
 		}
 		for _, old := range []string{"QRYSM_E2E_REF", "QRYSM_E2E_REPO", "TestEndToEnd_MinimalConfig_Web3Signer",
-			"`qrysm-e2e`"} {
+			"`qrysm-e2e`", "qrysm's end-to-end test", "qrysm end-to-end test", "qrysm CI", "qrysm's e2e build"} {
 			if strings.Contains(f.text, old) {
 				t.Errorf("%s names %s, which the end-to-end job no longer uses", f.path, old)
 			}
@@ -272,8 +273,8 @@ func TestNoQrysmScenarioJob(t *testing.T) {
 }
 
 // CI checks both flavours against qrysm: vectorgen verify and the contract
-// mode run against the consensus flavour, which qrysm's end-to-end test
-// builds, as well as against the default one.
+// mode run against the consensus flavour, which qrl-tests'
+// consensus-remote-signer lane builds, as well as against the default one.
 func TestCIVerifiesBothFlavours(t *testing.T) {
 	w := readWorkflow(t, "ci.yml")
 	for name, target := range map[string]string{"vectors-verify": "make vectors-verify-binary",

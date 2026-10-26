@@ -311,7 +311,7 @@ do: for sovereign clouds, private endpoints and emulators.
 
 - **Refused without it.** A non-loopback API listener for a file network when no source gives the genesis validators root: neither `--network-genesis-validators-root` nor `--network-genesis-state`. A built-in network never pins on first use: without one of those flags it refuses to start (exit code 1) on any listener, and the override does not change that.
 - **The risk it accepts.** The first request that carries the network's fork version pins its genesis validators root into the slashing-protection store for good, and every later request must match it. Networks built from one configuration share their fork version, so the first client to reach the signer decides which chain it signs for. When that is another chain that uses the same keys, the signer signs for that chain from then on and refuses every request for the intended one. Undoing a wrong pin needs a new store.
-- **Instead.** Pass `--network-genesis-validators-root`, or `--network-genesis-state` with the chain's genesis state. Trust on first use is meant for a test network on a loopback listener, as the qrysm end-to-end test runs it.
+- **Instead.** Pass `--network-genesis-validators-root`, or `--network-genesis-state` with the chain's genesis state. Trust on first use is meant for a test network on a loopback listener, such as a local devnet.
 
 ### Listing them
 
