@@ -239,9 +239,36 @@ func TestEnvVars(t *testing.T) {
 	if got := EnvVars("consensus", "network"); !slices.Equal(got, []string{"REMOTESIGNER_CONSENSUS_NETWORK"}) {
 		t.Errorf("consensus: %v", got)
 	}
-	if got := EnvVars("", "Xallow-plaintext-token-auth", "l"); !slices.Equal(got, []string{
-		"REMOTESIGNER_XALLOW_PLAINTEXT_TOKEN_AUTH", "REMOTESIGNER_L"}) {
-		t.Errorf("hidden and short: %v", got)
+	// A one-letter alias has no variable, as it has no config-file key.
+	if got := EnvVars("", "logging", "l"); !slices.Equal(got, []string{"REMOTESIGNER_LOGGING"}) {
+		t.Errorf("short alias: %v", got)
+	}
+	if got := EnvVars("", "Xallow-plaintext-token-auth"); !slices.Equal(got, []string{
+		"REMOTESIGNER_XALLOW_PLAINTEXT_TOKEN_AUTH"}) {
+		t.Errorf("hidden: %v", got)
+	}
+	// A name that begins with its command's name does not repeat it; one
+	// that only resembles it, or a global flag, keeps its name.
+	for _, tt := range []struct {
+		command, name, want string
+	}{
+		{"execution", "execution-policy-file", "REMOTESIGNER_EXECUTION_POLICY_FILE"},
+		{"execution", "execution-proxy-allowed-methods", "REMOTESIGNER_EXECUTION_PROXY_ALLOWED_METHODS"},
+		{"execution", "chain-id", "REMOTESIGNER_EXECUTION_CHAIN_ID"},
+		{"execution", "executions-x", "REMOTESIGNER_EXECUTION_EXECUTIONS_X"},
+		{"execution", "execution", "REMOTESIGNER_EXECUTION_EXECUTION"},
+		{"consensus", "consensus-x", "REMOTESIGNER_CONSENSUS_X"},
+		{"", "execution-policy-file", "REMOTESIGNER_EXECUTION_POLICY_FILE"},
+	} {
+		if got := EnvVars(tt.command, tt.name); !slices.Equal(got, []string{tt.want}) {
+			t.Errorf("%s --%s: %v, want %s", tt.command, tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestLongNames(t *testing.T) {
+	if got := LongNames([]string{"logging", "l", "-v", "log", "--x"}); !slices.Equal(got, []string{"logging", "log"}) {
+		t.Errorf("LongNames: %v", got)
 	}
 }
 
@@ -252,6 +279,7 @@ func yamlApp(t *testing.T, yaml string, args ...string) (map[string]any, error) 
 		&cli.UintFlag{Name: "http-listen-port", Value: 9000, EnvVars: EnvVars("", "http-listen-port")},
 		&cli.StringSliceFlag{Name: "http-host-allowlist", Value: cli.NewStringSlice("localhost")},
 		&cli.StringFlag{Name: "key-config-path", Aliases: []string{"key-store-path"}},
+		&cli.StringFlag{Name: "logging", Aliases: []string{"l"}, Value: "INFO", EnvVars: EnvVars("", "logging", "l")},
 	}
 	cons := []cli.Flag{
 		&cli.StringFlag{Name: "network", EnvVars: EnvVars("consensus", "network")},
@@ -278,6 +306,7 @@ func yamlApp(t *testing.T, yaml string, args ...string) (map[string]any, error) 
 				got["keys"] = c.String("key-config-path")
 				got["network"] = c.String("network")
 				got["protection"] = c.Bool("slashing-protection-enabled")
+				got["logging"] = c.String("logging")
 				return nil
 			},
 		}},
@@ -322,6 +351,18 @@ consensus:
 	if err != nil || got["network"] != "minimal" { // env still set
 		t.Errorf("top-level consensus flag with env: %v %v", got, err)
 	}
+
+	// The one-letter alias -l works on the command line only: neither
+	// REMOTESIGNER_L nor an l key (refused, TestYAMLSourceErrors) sets it.
+	t.Setenv("REMOTESIGNER_L", "TRACE")
+	got, err = yamlApp(t, "logging: WARN\n", "consensus")
+	if err != nil || got["logging"] != "WARN" {
+		t.Errorf("REMOTESIGNER_L: %v %v, want the config file's WARN", got, err)
+	}
+	got, err = yamlApp(t, "logging: WARN\n", "-l", "DEBUG", "consensus")
+	if err != nil || got["logging"] != "DEBUG" {
+		t.Errorf("-l: %v %v", got, err)
+	}
 }
 
 func TestYAMLSourceErrors(t *testing.T) {
@@ -331,6 +372,7 @@ func TestYAMLSourceErrors(t *testing.T) {
 		"unknown section key":   "consensus:\n  http-listen-port: 1\n",
 		"duplicate key":         "http-listen-port: 1\nhttp-listen-port: 2\n",
 		"name and alias":        "key-config-path: /a\nkey-store-path: /b\n",
+		"one-letter alias":      "l: DEBUG\n",
 		"top level and section": "network: a\nconsensus:\n  network: b\n",
 		"list for scalar":       "http-listen-port: [1, 2]\n",
 		"null value":            "http-listen-port:\n",

@@ -34,9 +34,10 @@ import (
 var ErrConfigFile = errors.New("config file")
 
 // YAMLSource is a parsed --config-file: a mapping of bare flag names (no
-// dashes) to values, with optional subcommand sections such as
-// `consensus:` holding that subcommand's flags. A subcommand's flags may
-// also be given at the top level. A list value sets a list flag. Keys that
+// dashes; a flag's name or a long alias, never a one-letter alias) to
+// values, with optional subcommand sections such as `consensus:` holding
+// that subcommand's flags. A subcommand's flags may also be given at the top
+// level. A list value sets a list flag. Keys that
 // name no flag are rejected.
 type YAMLSource struct {
 	path     string
@@ -169,7 +170,7 @@ func (s *YAMLSource) Apply(c *cli.Context, flags []cli.Flag, section string) err
 func (s *YAMLSource) lookup(f cli.Flag, section string) (*yaml.Node, string, error) {
 	var found *yaml.Node
 	var where string
-	for _, n := range f.Names() {
+	for _, n := range LongNames(f.Names()) {
 		if v, ok := s.top[n]; ok {
 			if found != nil {
 				return nil, "", fmt.Errorf("%w %s: %s and %s set the same option", ErrConfigFile, s.path, where, n)
@@ -216,10 +217,11 @@ func isList(f cli.Flag) bool {
 	return ok
 }
 
+// names returns the config-file keys of flags: their long names.
 func names(flags []cli.Flag) []string {
 	var out []string
 	for _, f := range flags {
-		out = append(out, f.Names()...)
+		out = append(out, LongNames(f.Names())...)
 	}
 	return out
 }

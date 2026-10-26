@@ -251,6 +251,33 @@ consensus:
 	}
 }
 
+// The one-letter alias -l of --logging is a command-line shorthand only:
+// REMOTESIGNER_L sets nothing, and an l key in the config file is an
+// unknown option.
+func TestShortAliasHasNoOtherSource(t *testing.T) {
+	cfg, code, stderr := capture(t, "-l", "DEBUG", "consensus", "--network=e2e")
+	if code != exitOK || cfg.Logging.Level != "DEBUG" {
+		t.Fatalf("-l: exit %d %s", code, stderr)
+	}
+	t.Setenv("REMOTESIGNER_L", "TRACE")
+	if cfg, code, stderr = capture(t, "consensus", "--network=e2e"); code != exitOK || cfg.Logging.Level != "INFO" {
+		t.Fatalf("REMOTESIGNER_L: exit %d %s, level %v", code, stderr, cfg)
+	}
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(file, []byte("l: DEBUG\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, code, stderr := capture(t, "--config-file="+file, "consensus", "--network=e2e"); code != exitUsage ||
+		!strings.Contains(stderr, "unknown option(s): l") {
+		t.Fatalf("an l key: exit %d %s", code, stderr)
+	}
+	var stdout, errOut bytes.Buffer
+	if code := runWith([]string{binaryName, "--help"}, &stdout, &errOut, noRun); code != exitOK ||
+		!strings.Contains(stdout.String(), "$REMOTESIGNER_LOGGING]") || strings.Contains(stdout.String(), "REMOTESIGNER_L]") {
+		t.Fatalf("--help: exit %d\n%s", code, stdout.String())
+	}
+}
+
 func TestUsageErrors(t *testing.T) {
 	dir := t.TempDir()
 	badYAML := filepath.Join(dir, "bad.yaml")
