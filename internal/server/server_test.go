@@ -1091,3 +1091,95 @@ func TestReadSecretBodyLeavesNoCopy(t *testing.T) {
 		t.Fatalf("over the limit: %v", e)
 	}
 }
+
+// A refusal of the caller itself (401, and 403 HOST_NOT_ALLOWED or
+// ORIGIN_NOT_ALLOWED) closes its HTTP/1.1 connection after the response, so
+// that a peer without a credential cannot keep a connection slot for the
+// idle timeout. A success, and a refusal of an authenticated request (403
+// FORBIDDEN_SCOPE, 415), keep the connection for the next request.
+func TestRefusalsCloseTheConnection(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	s := newTestServer(t, func(c *Config) { c.Registerer = reg })
+	addr := strings.TrimPrefix(serve(t, s), "http://")
+	const wrongTok = "0x3333333333333333333333333333333333333333333333333333333333333333"
+	req := func(method, path, host string, hdr ...string) string {
+		var b strings.Builder
+		fmt.Fprintf(&b, "%s %s HTTP/1.1\r\nHost: %s\r\n", method, path, host)
+		for _, h := range hdr {
+			b.WriteString(h + "\r\n")
+		}
+		if method == http.MethodPost {
+			b.WriteString("Content-Length: 0\r\n")
+		}
+		return b.String() + "\r\n"
+	}
+	tests := []struct {
+		name   string
+		req    string
+		status int
+		closes bool
+	}{
+		{"no token", req("GET", "/sign", "localhost"), 401, true},
+		{"wrong token", req("GET", "/sign", "localhost", "Authorization: Bearer "+wrongTok), 401, true},
+		{"admin token on a sign route", req("GET", "/sign", "localhost", "Authorization: Bearer "+adminTok), 401, true},
+		{"unknown path without a token", req("GET", "/nope", "localhost"), 401, true},
+		{"bad Host", req("GET", "/open", "evil.example"), 403, true},
+		{"Origin", req("GET", "/open", "localhost", "Origin: https://evil.example"), 403, true},
+		{"sign token on an admin route", req("POST", "/admin", "localhost", "Authorization: Bearer "+signTok,
+			"Content-Type: application/json"), 403, false},
+		{"admin token without a content type", req("POST", "/admin", "localhost", "Authorization: Bearer "+adminTok), 415, false},
+		{"success", req("GET", "/sign", "localhost", "Authorization: Bearer "+signTok), 200, false},
+		{"open route", req("GET", "/open", "localhost"), 200, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := net.Dial("tcp", addr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = c.Close() }()
+			if _, err := io.WriteString(c, tt.req); err != nil {
+				t.Fatal(err)
+			}
+			_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+			br := bufio.NewReader(c)
+			resp, err := http.ReadResponse(br, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			if resp.StatusCode != tt.status || resp.Close != tt.closes {
+				t.Fatalf("status %d, Connection: close %v; want %d, %v", resp.StatusCode, resp.Close, tt.status, tt.closes)
+			}
+			if tt.closes {
+				if _, err := br.ReadByte(); !errors.Is(err, io.EOF) {
+					t.Fatalf("the connection is still open after the refusal: %v", err)
+				}
+				return
+			}
+			if _, err := io.WriteString(c, req("GET", "/open", "localhost")); err != nil {
+				t.Fatal(err)
+			}
+			if resp, err := http.ReadResponse(br, nil); err != nil || resp.StatusCode != 200 {
+				t.Fatalf("next request on the connection: %v %v", resp, err)
+			}
+		})
+	}
+	waitFor(t, func() bool { return gather(t, reg, "http_connections_open") == 0 })
+}
+
+// ClosesConnection names exactly the refusals of a caller without a
+// credential the route takes, or of a request no client of the API sends.
+func TestClosesConnection(t *testing.T) {
+	closing := []apierr.Reason{apierr.Unauthenticated, apierr.HostNotAllowed, apierr.OriginNotAllowed}
+	for _, r := range []apierr.Reason{
+		apierr.Unauthenticated, apierr.HostNotAllowed, apierr.OriginNotAllowed, apierr.ForbiddenScope,
+		apierr.UnsupportedMediaType, apierr.BodyTooLarge, apierr.MalformedJSON, apierr.NotReady, apierr.Overloaded,
+		apierr.SlashingDoubleVote, apierr.Internal,
+	} {
+		if got, want := ClosesConnection(r), slices.Contains(closing, r); got != want {
+			t.Errorf("ClosesConnection(%s) = %v, want %v", r, got, want)
+		}
+	}
+}
