@@ -36,11 +36,11 @@ import (
 var ErrConfigFile = errors.New("config file")
 
 // YAMLSource is a parsed --config-file: a mapping of bare flag names (no
-// dashes; a flag's name or a long alias, never a one-letter alias) to
-// values, with optional subcommand sections such as `consensus:` holding
-// that subcommand's flags. A subcommand's flags may also be given at the top
-// level. A list value sets a list flag. Keys that
-// name no flag are rejected.
+// dashes; a flag's name or any alias, as Web3Signer reads every name of an
+// option, so `l` sets --logging) to values, with optional subcommand
+// sections such as `consensus:` holding that subcommand's flags. A
+// subcommand's flags may also be given at the top level. A list value sets a
+// list flag. Keys that name no flag are rejected.
 type YAMLSource struct {
 	path     string
 	top      map[string]*yaml.Node
@@ -215,7 +215,7 @@ func (s *YAMLSource) Gives(name string) bool { return s.given[name] }
 func (s *YAMLSource) lookup(f cli.Flag, section string) (*yaml.Node, string, error) {
 	var found *yaml.Node
 	var where string
-	for _, n := range LongNames(f.Names()) {
+	for _, n := range f.Names() {
 		if v, ok := s.top[n]; ok {
 			if found != nil {
 				return nil, "", fmt.Errorf("%w %s: %s and %s set the same option", ErrConfigFile, s.path, where, n)
@@ -262,11 +262,11 @@ func isList(f cli.Flag) bool {
 	return ok
 }
 
-// names returns the config-file keys of flags: their long names.
+// names returns the config-file keys of flags: all their names.
 func names(flags []cli.Flag) []string {
 	var out []string
 	for _, f := range flags {
-		out = append(out, LongNames(f.Names())...)
+		out = append(out, f.Names()...)
 	}
 	return out
 }

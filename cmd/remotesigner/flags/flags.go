@@ -3,9 +3,9 @@
 
 // Package flags defines the command-line flags of remotesigner. Every flag
 // also reads REMOTESIGNER_[<COMMAND>_]<NAME> from the environment (one
-// variable per name and long alias; a one-letter alias such as -l has none,
-// and a name that begins with its command's name does not repeat it) and its
-// bare name from --config-file (any long name).
+// variable per name and alias, -l's REMOTESIGNER_L included, and a name that
+// begins with its command's name does not repeat it) and its bare name from
+// --config-file (any of its names).
 // Precedence: command line, then environment, then config file, then
 // default. tools/flagdoc renders these definitions into
 // docs/reference/flags.md.

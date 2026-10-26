@@ -19,10 +19,8 @@ Execution mode, which holds QRL account keys in front of a gqrl node, and valida
 The HTTP contract with the qrysm validator client stays at 1.0.0: its one addition, the secret stores' health checks,
 is a clarification that [`docs/contract.md`](docs/contract.md#20-versioning-and-change-control) section 20 lists. The
 slashing-protection schema is unchanged and no flag was removed or renamed, so a 1.0.0 signer upgrades in place with
-its configuration ([`docs/operations/upgrade.md`](docs/operations/upgrade.md)), unless it sets `--logging` through
-`REMOTESIGNER_L` or an `l` config-file key, which 1.1.0 no longer reads (see Removed). The behaviours that differ from
-Web3Signer are rows X25, X26, X28, X76-X106, X116, X118 and X119 of [`DEVIATIONS.md`](DEVIATIONS.md), and row X117
-changes one of 1.0.0.
+its configuration ([`docs/operations/upgrade.md`](docs/operations/upgrade.md)). The behaviours that differ from
+Web3Signer are rows X25, X26, X28, X76-X106, X116, X118 and X119 of [`DEVIATIONS.md`](DEVIATIONS.md).
 
 ### Added
 
@@ -90,13 +88,6 @@ changes one of 1.0.0.
   duties without LGPL code ([`docs/operations/release.md`](docs/operations/release.md#2-notice-and-licence-texts-per-flavour)).
 - **`/healthcheck`** also lists `keys-check/aws-bulk-loading`, `keys-check/gcp-bulk-loading` and
   `keys-check/azure-bulk-loading`, each while its bulk loader is enabled, with the data of the other key checks.
-
-### Removed
-
-- **`REMOTESIGNER_L` and the `l` config-file key.** The one-letter alias `-l` of `--logging` is a command-line
-  shorthand only: 1.0.0 also read it from the environment and the config file, as Web3Signer does, and 1.1.0 reads
-  `--logging` from `REMOTESIGNER_LOGGING` and `logging` alone; an `l` key in the config file is refused as unknown
-  (exit 2). No other variable or key changes: every other alias is a long name and keeps its own (X117).
 
 ## [1.0.0] - Unreleased
 

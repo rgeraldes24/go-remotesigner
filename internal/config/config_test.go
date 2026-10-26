@@ -242,8 +242,8 @@ func TestEnvVars(t *testing.T) {
 	if got := EnvVars("consensus", "network"); !slices.Equal(got, []string{"REMOTESIGNER_CONSENSUS_NETWORK"}) {
 		t.Errorf("consensus: %v", got)
 	}
-	// A one-letter alias has no variable, as it has no config-file key.
-	if got := EnvVars("", "logging", "l"); !slices.Equal(got, []string{"REMOTESIGNER_LOGGING"}) {
+	// A one-letter alias has a variable, as in Web3Signer (WEB3SIGNER_L).
+	if got := EnvVars("", "logging", "l"); !slices.Equal(got, []string{"REMOTESIGNER_LOGGING", "REMOTESIGNER_L"}) {
 		t.Errorf("short alias: %v", got)
 	}
 	if got := EnvVars("", "Xallow-plaintext-token-auth"); !slices.Equal(got, []string{
@@ -266,12 +266,6 @@ func TestEnvVars(t *testing.T) {
 		if got := EnvVars(tt.command, tt.name); !slices.Equal(got, []string{tt.want}) {
 			t.Errorf("%s --%s: %v, want %s", tt.command, tt.name, got, tt.want)
 		}
-	}
-}
-
-func TestLongNames(t *testing.T) {
-	if got := LongNames([]string{"logging", "l", "-v", "log", "--x"}); !slices.Equal(got, []string{"logging", "log"}) {
-		t.Errorf("LongNames: %v", got)
 	}
 }
 
@@ -358,15 +352,17 @@ consensus:
 		t.Errorf("top-level consensus flag with env: %v %v", got, err)
 	}
 
-	// The one-letter alias -l works on the command line only: neither
-	// REMOTESIGNER_L nor an l key (refused, TestYAMLSourceErrors) sets it.
-	t.Setenv("REMOTESIGNER_L", "TRACE")
-	got, err = yamlApp(t, "logging: WARN\n", "consensus")
-	if err != nil || got["logging"] != "WARN" {
-		t.Errorf("REMOTESIGNER_L: %v %v, want the config file's WARN", got, err)
+	// The one-letter alias -l is read from an l key and from
+	// REMOTESIGNER_L, as Web3Signer reads l and WEB3SIGNER_L, with the usual
+	// precedence.
+	if got, err = yamlApp(t, "l: WARN\n", "consensus"); err != nil || got["logging"] != "WARN" {
+		t.Errorf("an l key: %v %v", got, err)
 	}
-	got, err = yamlApp(t, "logging: WARN\n", "-l", "DEBUG", "consensus")
-	if err != nil || got["logging"] != "DEBUG" {
+	t.Setenv("REMOTESIGNER_L", "TRACE")
+	if got, err = yamlApp(t, "logging: WARN\n", "consensus"); err != nil || got["logging"] != "TRACE" {
+		t.Errorf("REMOTESIGNER_L over the config file: %v %v", got, err)
+	}
+	if got, err = yamlApp(t, "logging: WARN\n", "-l", "DEBUG", "consensus"); err != nil || got["logging"] != "DEBUG" {
 		t.Errorf("-l: %v %v", got, err)
 	}
 }
@@ -427,7 +423,7 @@ func TestYAMLSourceErrors(t *testing.T) {
 		"unknown section key":   "consensus:\n  http-listen-port: 1\n",
 		"duplicate key":         "http-listen-port: 1\nhttp-listen-port: 2\n",
 		"name and alias":        "key-config-path: /a\nkey-store-path: /b\n",
-		"one-letter alias":      "l: DEBUG\n",
+		"name and short alias":  "logging: WARN\nl: DEBUG\n",
 		"top level and section": "network: a\nconsensus:\n  network: b\n",
 		"list for scalar":       "http-listen-port: [1, 2]\n",
 		"null value":            "http-listen-port:\n",

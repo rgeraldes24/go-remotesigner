@@ -31,7 +31,7 @@ func TestRender(t *testing.T) {
 	doc := string(render())
 	for _, want := range []string{
 		"| `--key-config-path`, `--key-store-path` | `REMOTESIGNER_KEY_CONFIG_PATH`, `REMOTESIGNER_KEY_STORE_PATH` | `key-config-path` or `key-store-path` | unset |",
-		"| `--logging`, `-l` | `REMOTESIGNER_LOGGING` | `logging` |",
+		"| `--logging`, `-l` | `REMOTESIGNER_LOGGING`, `REMOTESIGNER_L` | `logging` or `l` |",
 		"| `--logging-format`, `--log-format` | `REMOTESIGNER_LOGGING_FORMAT`, `REMOTESIGNER_LOG_FORMAT` | `logging-format` or `log-format` |",
 		"| `--network` | `REMOTESIGNER_CONSENSUS_NETWORK` | `network` or `consensus.network` | unset |",
 		"| `--http-host-allowlist` | `REMOTESIGNER_HTTP_HOST_ALLOWLIST` | `http-host-allowlist` | `localhost,127.0.0.1,::1` |",
@@ -48,9 +48,8 @@ func TestRender(t *testing.T) {
 			t.Errorf("rendered reference lacks %q", want)
 		}
 	}
-	// A one-letter alias has no variable or key, and no execution variable
-	// repeats the command.
-	for _, unwanted := range []string{"`REMOTESIGNER_L`", "`l`", "_EXECUTION_EXECUTION_"} {
+	// No execution variable repeats the command.
+	for _, unwanted := range []string{"_EXECUTION_EXECUTION_"} {
 		if strings.Contains(doc, unwanted) {
 			t.Errorf("rendered reference has %s", unwanted)
 		}
@@ -141,7 +140,7 @@ func TestConfigKeys(t *testing.T) {
 		{[]string{"key-config-path", "key-store-path"}, "", "`key-config-path` or `key-store-path`"},
 		{[]string{"network"}, "consensus", "`network` or `consensus.network`"},
 		{[]string{"aa", "bb"}, "consensus", "`aa`, `bb`, `consensus.aa` or `consensus.bb`"},
-		{[]string{"logging", "l"}, "", "`logging`"},
+		{[]string{"logging", "l"}, "", "`logging` or `l`"},
 	} {
 		if got := configKeys(tt.names, tt.command); got != tt.want {
 			t.Errorf("configKeys(%q, %q) = %s, want %s", tt.names, tt.command, got, tt.want)
