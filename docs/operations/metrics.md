@@ -22,7 +22,8 @@ scraper (DEVIATIONS X111). The listener serves
 tokens never grant it, and it must differ from both ([`tls.md`](tls.md#7-the-metrics-token) has the Prometheus
 configuration). The listener has no TLS, so keep it on loopback, or on a network only Prometheus can reach. It holds
 at most 32 open connections, whoever opens them; a further connection waits until one closes, so a client that holds
-connections open cannot use up the file descriptors the API listener needs. The startup line `Metrics listener is
+connections open cannot use up the file descriptors the API listener needs. A scrape refused with 401 or 403 closes
+its connection, so refused scrapes do not hold any of the 32 (DEVIATIONS X115). The startup line `Metrics listener is
 listening` gives its address and, as `token-required`, whether a scrape needs the metrics token.
 
 Startup is refused (exit code 1) when the listener is enabled on a non-loopback host and:

@@ -320,7 +320,10 @@ that matches no route ([section 6](#6-authentication-and-scopes)): Web3Signer's 
 or 405 `Method Not Allowed` and an `Allow` header, which no operation of the spec lists. A request the HTTP server
 cannot parse, such as a malformed header line or headers over the 64 KiB limit, never reaches the signer: Go's HTTP
 server answers it with a `text/plain` 400 or 431 and closes the connection. 401 responses carry
-`WWW-Authenticate: Bearer`, and 429 and 503 responses carry `Retry-After` where a retry makes sense.
+`WWW-Authenticate: Bearer`, and 429 and 503 responses carry `Retry-After` where a retry makes sense. A 401
+`UNAUTHENTICATED`, a 403 `HOST_NOT_ALLOWED` and a 403 `ORIGIN_NOT_ALLOWED` also close their connection: on HTTP/1.1
+the response carries `Connection: close`, and on h2 the signer sends `GOAWAY` and closes the connection once its open
+streams end ([section 13](#13-size-limits-and-timeouts)).
 
 <!-- contract:reasons:begin -->
 | Reason | Status | When | qrysm client |
@@ -399,7 +402,7 @@ The qrysm client logs 412 refusals at WARN, never ERROR.
 | `IdleTimeout` | 120 s, above the Go client's 90 s `IdleConnTimeout` |
 | Signing concurrency | 32 in flight, queue 512, then 503 `OVERLOADED` (`--max-concurrent-signing-requests`, `--max-queued-signing-requests`; a repeat answered by the response cache takes no slot) |
 | Large-body reads in flight | 8. A request is large when `Content-Length > 64 KiB` or the length is unknown (chunked, or h2 without `content-length`), or once more than 64 KiB of its body have been read. Routes that need no credential (`/upcheck`, `/healthcheck`) never take a slot; their 4 KiB limit bounds them. |
-| Open connections | `--http-max-connections` 1024 |
+| Open connections | `--http-max-connections` 1024. A refusal of the caller (401 `UNAUTHENTICATED`, 403 `HOST_NOT_ALLOWED` or `ORIGIN_NOT_ALLOWED`) closes its connection, so a peer without a credential cannot hold a connection for the idle timeout with refused requests; it can still hold one with the routes that need no credential (`/upcheck`, `/healthcheck`), and every caller shares the cap ([section 11](#11-errors)) |
 | RANDAO reveal concurrency | `max(1, GOMAXPROCS/2)` |
 
 ## 14. RANDAO reveal
@@ -697,6 +700,10 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
   - With `--slashing-protection-enabled=false` the `slashing-protection-db-health-check` check is listed and `DOWN`,
     so `/healthcheck` answers 503 `DOWN` while the signer serves; `/upcheck` is unaffected
     ([section 17](#17-supporting-endpoints); DEVIATIONS.md row X114).
+  - A 401 `UNAUTHENTICATED`, a 403 `HOST_NOT_ALLOWED` and a 403 `ORIGIN_NOT_ALLOWED` close their connection
+    (`Connection: close` on HTTP/1.1, `GOAWAY` on h2), so that refused requests cannot hold connection slots for the
+    idle timeout ([sections 11](#11-errors) and [13](#13-size-limits-and-timeouts); DEVIATIONS.md row X115). A client
+    that reuses connections opens a new one after such a refusal.
   - Every slashing-protection store refuses a high watermark with an epoch or a slot alone, and the Postgres schema
     has a constraint to the same effect, so `GET …/highWatermark` serves both fields or `{}`, as the
     `HighWatermark` schema says; a store that holds one part anyway answers 500 `STORE_UNAVAILABLE`
@@ -757,6 +764,7 @@ show on this contract:
 | X52 (response cache) | [section 15](#15-selection-proofs-and-signing-modes) |
 | X68 (keymanager availability), X69 (keymanager import), X70 (keymanager delete) | [section 17](#17-supporting-endpoints) |
 | X113 (a high watermark has both parts or none) | [section 20](#20-versioning-and-change-control) |
+| X115 (a refusal of the caller closes its connection) | [sections 11](#11-errors) and [13](#13-size-limits-and-timeouts) |
 <!-- contract:deviations:end -->
 
 ## 22. Worked examples

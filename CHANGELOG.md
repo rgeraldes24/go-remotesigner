@@ -82,7 +82,7 @@ Web3Signer are rows X25, X26, X28 and X76-X106 of [`DEVIATIONS.md`](DEVIATIONS.m
 The first release: a remote signer for the ML-DSA-87 validator keys of qrysm validator clients on Testnet V3, ported
 from Consensys Web3Signer and, like it, licensed under the Apache License 2.0 ([`LICENSE`](LICENSE),
 [`NOTICE`](NOTICE)). Every behaviour that differs from Web3Signer is listed in [`DEVIATIONS.md`](DEVIATIONS.md)
-(rows X1-X75 and X107-X114); the ones about execution mode (X25, X26, X28) describe what 1.1.0 adds. The
+(rows X1-X75 and X107-X115); the ones about execution mode (X25, X26, X28) describe what 1.1.0 adds. The
 validator client needs qrysm's remote-signer keymanager, and
 [`docs/operations/requirements.md`](docs/operations/requirements.md#5-a-qrysm-validator-client-with-the-remote-signer-keymanager)
 section 5 names the qrysm build that has it.
@@ -139,7 +139,8 @@ section 5 names the qrysm build that has it.
   start (`--tls-generate-self-signed`), its fingerprint logged for pinning; client certificates in
   `--http-auth-mode=mtls` and `token+mtls`, trusted by fingerprint or by a client CA, never by the system roots.
 - **Request guards.** Host allowlist, refusal of any `Origin` header, `Content-Type` checks, per-route body limits,
-  timeouts, a connection cap, a signing gate that admits 32 sign requests at once, queues 512 more and answers the
+  timeouts, a connection cap that a request refused for its credential, `Host` or `Origin` frees at once by closing
+  its connection, a signing gate that admits 32 sign requests at once, queues 512 more and answers the
   rest 503 `OVERLOADED` (`--max-concurrent-signing-requests`, `--max-queued-signing-requests`), and startup refusals
   on a non-loopback listener for anything that would weaken them unless an explicit `--X…` override says so (each
   override is explained in [`docs/reference/flags.md`](docs/reference/flags.md#override-flags)).

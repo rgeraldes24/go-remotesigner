@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/tlsconf"
 )
@@ -140,5 +142,62 @@ func TestServeMTLS(t *testing.T) {
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("plaintext request: %d", resp.StatusCode)
 		}
+	}
+}
+
+// Over h2 a refusal of the caller makes the server send GOAWAY and close the
+// connection once its streams end; a success keeps it open.
+func TestRefusalClosesH2Connection(t *testing.T) {
+	dir := t.TempDir()
+	tc, err := tlsconf.New(tlsconf.Config{GenerateSelfSigned: true}, tlsconf.Options{
+		SelfSignedDir: filepath.Join(dir, "tls"), SelfSignedHosts: []string{"localhost"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := prometheus.NewRegistry()
+	s := newTestServer(t, func(c *Config) { c.TLS, c.Registerer = tc.TLSConfig(), reg })
+	base := "https://localhost:" + strings.TrimPrefix(serve(t, s), "http://127.0.0.1:")
+	pemData, err := os.ReadFile(filepath.Join(dir, "tls", tlsconf.SelfSignedCertFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	roots.AppendCertsFromPEM(pemData)
+	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}, ForceAttemptHTTP2: true}
+	t.Cleanup(tr.CloseIdleConnections)
+	client := &http.Client{Transport: tr}
+	get := func(tok string) int {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, base+"/sign", nil)
+		if tok != "" {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		if resp.ProtoMajor != 2 {
+			t.Fatalf("served over %s, want h2", resp.Proto)
+		}
+		return resp.StatusCode
+	}
+	open := func() float64 { return gather(t, reg, "http_connections_open") }
+
+	if code := get(signTok); code != 200 {
+		t.Fatalf("sign token: %d", code)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := open(); n != 1 {
+		t.Fatalf("%v connections open after a success, want 1", n)
+	}
+	if code := get(""); code != 401 {
+		t.Fatalf("no token: %d", code)
+	}
+	waitFor(t, func() bool { return open() == 0 })
+	if code := get(signTok); code != 200 {
+		t.Fatalf("sign token on a new connection: %d", code)
 	}
 }
