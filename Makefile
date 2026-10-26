@@ -98,7 +98,8 @@ fuzz: fuzz-keystore fuzz-interchange
 
 ## fuzz-target: one fuzz target FUZZ of the package FUZZPKG, FUZZTIME long, for example
 ## `make fuzz-target FUZZ=FuzzParseConfig FUZZPKG=./internal/network/ FUZZTIME=30m`; the nightly workflow runs the
-## sign-request and RANDAO decoders, the hash-tree-root differential and the network parser this way for 30 min each
+## sign-request, RANDAO and JSON-RPC decoders, the hash-tree-root differential and the network parser this way for
+## 30 min each
 FUZZ    ?=
 FUZZPKG ?=
 fuzz-target:

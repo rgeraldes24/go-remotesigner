@@ -231,9 +231,10 @@ jobs:
           if [ -d "$dir" ]; then find "$dir" -type f -print -exec cat {} \; ; fi
 
   fuzz-decoders:
-    # The request decoders, the hash-tree-root differential against fastssz
-    # and the network configuration parser, 30 minutes each, as every pull
-    # request runs them for 10 s (make fuzz).
+    # The request decoders (execution mode's JSON-RPC decoder among them),
+    # the hash-tree-root differential against fastssz and the network
+    # configuration parser, 30 minutes each, as every pull request runs them
+    # for 10 s (make fuzz).
     name: Fuzz ${{ matrix.target }} (30 min)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -249,6 +250,8 @@ jobs:
             package: ./internal/consensus/types/
           - target: FuzzParseConfig
             package: ./internal/network/
+          - target: FuzzDecodeRequest
+            package: ./internal/execution/
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
