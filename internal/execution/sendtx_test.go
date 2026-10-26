@@ -20,6 +20,8 @@ import (
 	"github.com/theQRL/go-qrl/common"
 	"github.com/theQRL/go-qrl/common/hexutil"
 	"github.com/theQRL/go-qrl/core/types"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/admission"
 )
 
 // sendFixture is a Handler in front of the fake gqrl node.
@@ -534,4 +536,71 @@ func TestSendTransactionNodeDown(t *testing.T) {
 		t.Fatalf("%d %+v", code, r.Error)
 	}
 	_ = g
+}
+
+// qrl_sendTransaction holds a slot of the signing gate only while it checks
+// and signs, never while it waits for the node: with one slot and no queue,
+// a call waiting for qrl_fillTransaction and another waiting for
+// qrl_sendRawTransaction hold none, and qrl_sign is served meanwhile. Both
+// calls then complete.
+func TestSendTransactionHoldsNoSlotWhileTheNodeAnswers(t *testing.T) {
+	f, g := sendFixture(t, 2)
+	_, a0 := f.key(0)
+	_, a1 := f.key(1)
+	gate, err := admission.New(1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.handler.gate = gate
+	waiting := make(chan string, 2)
+	answer := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(answer) })
+	t.Cleanup(unblock)
+	f.node.setHandler(func(w http.ResponseWriter, r *http.Request) {
+		var c fakeCall
+		_ = json.NewDecoder(r.Body).Decode(&c)
+		if c.Method == MethodFillTransaction || c.Method == MethodSendRawTransaction {
+			waiting <- c.Method
+			<-answer
+		}
+		result, e := g.answer(c)
+		_, _ = w.Write(encodeResult(c.ID, result, e))
+	})
+	var wg sync.WaitGroup
+	results := make([]rpcResponse, 2)
+	for i, tx := range []map[string]any{txObject("from", a0, "to", recipient), fullTx(a1)} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, results[i] = f.sendTx(t, i, tx)
+		}()
+	}
+	got := map[string]bool{}
+	for range 2 {
+		select {
+		case m := <-waiting:
+			got[m] = true
+		case <-time.After(5 * time.Second):
+			t.Fatalf("the node got only %v", got)
+		}
+	}
+	if !got[MethodFillTransaction] || !got[MethodSendRawTransaction] {
+		t.Fatalf("the node is answering %v, want a fill and a send", got)
+	}
+	if n := gate.InFlight(); n != 0 {
+		t.Errorf("%d slots held while the node answers, want 0", n)
+	}
+	if r := decodeOne(t, f.post(call(9, MethodSign, a0, "0x00"), nil).Body.Bytes()); r.Error != nil {
+		t.Errorf("qrl_sign while qrl_sendTransaction waits for the node: %+v", r.Error)
+	}
+	unblock()
+	wg.Wait()
+	for i, r := range results {
+		if r.Error != nil {
+			t.Errorf("qrl_sendTransaction %d: %+v", i, r.Error)
+		}
+	}
+	if gate.InFlight() != 0 || gate.Queued() != 0 {
+		t.Errorf("%d slots taken and %d queued after every call returned", gate.InFlight(), gate.Queued())
+	}
 }
