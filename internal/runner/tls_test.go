@@ -47,7 +47,7 @@ func TestRunResponseCache(t *testing.T) {
 	if bodies[0] != bodies[1] || bodies[1] != bodies[2] {
 		t.Fatal("a repeated hedged attestation got a different signature")
 	}
-	_, text := r.scrape(t, "localhost")
+	text := r.scrapeUntil(t, "localhost", `signing_requests_total{result="ok",type="ATTESTATION"} 3`)
 	for _, want := range []string{
 		`signing_requests_total{result="ok",type="ATTESTATION"} 3`,
 		`consensus_slashingprotection_permitted_signings_total 1`,
