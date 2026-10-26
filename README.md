@@ -89,7 +89,7 @@ make build             # bin/remotesigner, the default flavour
 make build-consensus   # bin/remotesigner-consensus, consensus only (-tags noexecution)
 make test              # go test -race, both flavours
 make test-cloud        # the secret-store tests against Vault, LocalStack and the GCP and Azure emulators (Docker)
-make contract          # OpenAPI lint, example validation, docs/contract.md consistency
+make contract          # OpenAPI lint and examples of both modes, docs/contract.md and execution.md consistency
 make lint              # go vet, golangci-lint, headercheck, LICENSE hash
 make docs              # regenerate docs/reference/flags.md from the flag definitions
 make image             # the container image of FLAVOUR for this machine's Docker

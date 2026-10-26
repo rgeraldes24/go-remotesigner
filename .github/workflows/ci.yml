@@ -303,7 +303,7 @@ jobs:
           fi
       - name: headercheck
         run: make headercheck
-      - name: contract (OpenAPI spec, examples, docs/contract.md)
+      - name: contract (OpenAPI specs of both modes, examples, docs/contract.md and execution.md)
         run: make contract
       - name: docs/reference/flags.md is current (tools/flagdoc)
         run: go run ./tools/flagdoc -check
