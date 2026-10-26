@@ -10,6 +10,7 @@ import (
 	"errors"
 	"math/big"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -219,6 +220,24 @@ func TestParamError(t *testing.T) {
 		if got := paramError(json.RawMessage(tt.obj), err); !strings.HasPrefix(got, tt.want) {
 			t.Errorf("paramError(%s) = %q, want it to start with %q", tt.obj, got, tt.want)
 		}
+	}
+}
+
+// Storage keys decode in either case, as execution.yaml's RequestHash
+// says.
+func TestStorageKeysEitherCase(t *testing.T) {
+	keys := map[string]types.AccessList{}
+	for _, k := range []string{strings.Repeat("ab", 32), strings.Repeat("AB", 32)} {
+		var a txArgs
+		obj := `{"accessList":[{"address":"Q` + strings.Repeat("cd", 64) + `","storageKeys":["0x` + k + `"]}]}`
+		if err := json.Unmarshal([]byte(obj), &a); err != nil {
+			t.Fatalf("%s: %v", k, err)
+		}
+		keys[k] = a.accessList()
+	}
+	if lower, upper := keys[strings.Repeat("ab", 32)], keys[strings.Repeat("AB", 32)]; len(lower) != 1 ||
+		len(lower[0].StorageKeys) != 1 || !reflect.DeepEqual(lower, upper) {
+		t.Fatalf("lower case %v, upper case %v", lower, upper)
 	}
 }
 
