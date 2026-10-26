@@ -27,6 +27,7 @@ type jobStep struct {
 
 // workflowJob is the part of a workflow job these tests read.
 type workflowJob struct {
+	RunsOn   string            `yaml:"runs-on"`
 	Env      map[string]string `yaml:"env"`
 	Strategy struct {
 		Matrix struct {
@@ -253,6 +254,37 @@ func TestCIVerifiesBothFlavours(t *testing.T) {
 			if !slices.ContainsFunc(slices.Collect(maps.Keys(seen)), func(b string) bool { return strings.HasSuffix(b, bin) }) {
 				t.Errorf("%s does not run %s against %s", name, target, bin)
 			}
+		}
+	}
+}
+
+// Every leg of CI's test matrix runs on a runner of its own architecture,
+// so that the arm64 legs build, vet, run the race tests and fuzz on arm64,
+// and no step is skipped on any leg.
+func TestCITestLegsRunNatively(t *testing.T) {
+	w := readWorkflow(t, "ci.yml")
+	job, ok := w.Jobs["test"]
+	if !ok {
+		t.Fatal("ci.yml has no test job")
+	}
+	if job.RunsOn != "${{ matrix.runner }}" {
+		t.Errorf("the test job runs on %q, want each leg's own runner", job.RunsOn)
+	}
+	runners := map[string]string{}
+	for _, m := range job.Strategy.Matrix.Include {
+		runners[m["arch"]] = m["runner"]
+	}
+	if want := map[string]string{"amd64": "ubuntu-24.04", "arm64": "ubuntu-24.04-arm"}; !maps.Equal(runners, want) {
+		t.Errorf("the test legs run on %v, want %v", runners, want)
+	}
+	for _, s := range job.Steps {
+		if s.If != "" {
+			t.Errorf("step %q runs only if %s; every leg runs every step", cmp.Or(s.Name, s.Uses), s.If)
+		}
+	}
+	for _, want := range []string{"make test", "make fuzz"} {
+		if !job.runs(want) {
+			t.Errorf("the test job does not run %s", want)
 		}
 	}
 }
