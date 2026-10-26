@@ -7,6 +7,7 @@ package execution
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -30,11 +31,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/rgeraldes24/go-remotesigner/internal/api/ops"
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/argon"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/keystoretest"
+	"github.com/rgeraldes24/go-remotesigner/internal/logging"
 	"github.com/rgeraldes24/go-remotesigner/internal/runner"
 	"github.com/rgeraldes24/go-remotesigner/internal/server"
 	"github.com/rgeraldes24/go-remotesigner/internal/server/auth"
@@ -83,10 +87,16 @@ type running struct {
 
 func startExec(t *testing.T, cfg *config.Config) *running {
 	t.Helper()
+	return startExecLogging(t, cfg, quiet())
+}
+
+// startExecLogging is startExec with the signer logging to log.
+func startExecLogging(t *testing.T, cfg *config.Config, log *logrus.Logger) *running {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	hup := make(chan struct{})
 	done := make(chan error, 1)
-	go func() { done <- Run(ctx, cfg, quiet(), hup) }()
+	go func() { done <- Run(ctx, cfg, log, hup) }()
 	ports := filepath.Join(cfg.DataPath, server.PortsFileName)
 	var port string
 	for deadline := time.Now().Add(5 * time.Second); port == ""; time.Sleep(5 * time.Millisecond) {
@@ -557,5 +567,105 @@ func TestRunRefusals(t *testing.T) {
 				t.Fatalf("Run = %v, want a refusal mentioning %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// logBuffer collects a running signer's log output safely.
+type logBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// With --metrics-enabled and --metrics-auth-token-file, execution mode's
+// metrics listener line says that a scrape needs the token as
+// token-required=true, a field the redaction hook does not hide, and the
+// startup warns that every scrape sends the token in clear only on a
+// non-loopback --metrics-host, as in consensus mode
+// (runner.WarnMetricsTokenInClear). On loopback, a scrape without the
+// token gets 401 and one with it 200.
+func TestRunMetricsListenerToken(t *testing.T) {
+	const inClear = "metrics token in clear"
+	for _, tt := range []struct {
+		name, host string
+		allow      []string
+		warns      bool
+	}{
+		{"loopback", "127.0.0.1", []string{"localhost", "127.0.0.1"}, false},
+		{"non-loopback", "0.0.0.0", []string{"prometheus"}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := execConfig(t, newNode(t))
+			tokenFile := filepath.Join(t.TempDir(), "metrics-token")
+			cfg.Metrics = config.Metrics{Enabled: true, Host: tt.host, HostAllowlist: tt.allow, AuthTokenFile: tokenFile}
+			var out logBuffer
+			log := logrus.New()
+			log.SetOutput(&out)
+			log.AddHook(logging.RedactHook{})
+			r := startExecLogging(t, cfg, log)
+			r.waitReady(t)
+			var listening string
+			for line := range strings.SplitSeq(out.String(), "\n") {
+				if strings.Contains(line, "Metrics listener is listening") {
+					listening = line
+				}
+			}
+			if !strings.Contains(listening, "token-required=true") {
+				t.Errorf("the metrics listener line does not say a token is required: %q\n%s", listening, out.String())
+			}
+			if got := strings.Contains(out.String(), inClear); got != tt.warns {
+				t.Errorf("warned that the token is sent in clear: %v, want %v\n%s", got, tt.warns, out.String())
+			}
+			if tt.warns && !strings.Contains(out.String(), "level=warning") {
+				t.Errorf("the warning is not a WARN:\n%s", out.String())
+			}
+			if !tt.warns {
+				scrapeNeedsToken(t, cfg, readToken(t, tokenFile))
+			}
+		})
+	}
+}
+
+// scrapeNeedsToken checks that the loopback metrics listener of a running
+// signer answers 401 without the metrics token and 200 with it.
+func scrapeNeedsToken(t *testing.T, cfg *config.Config, token string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(cfg.DataPath, server.PortsFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var port string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if p, ok := strings.CutPrefix(line, "metrics-port="); ok {
+			port = p
+		}
+	}
+	for tok, want := range map[string]int{"": http.StatusUnauthorized, token: http.StatusOK} {
+		hr, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:"+port+"/metrics", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tok != "" {
+			hr.Header.Set("Authorization", "Bearer "+tok)
+		}
+		resp, err := http.DefaultClient.Do(hr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Errorf("scrape with token %v: %d, want %d", tok != "", resp.StatusCode, want)
+		}
 	}
 }
