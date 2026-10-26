@@ -56,7 +56,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 // runWith is run with the signer's run function injected, for tests: a
 // non-nil runSigner runs in place of every mode's own.
 func runWith(args []string, stdout, stderr io.Writer, runSigner runFunc) int {
-	err := newApp(stdout, stderr, runSigner).Run(args)
+	app := newApp(stdout, stderr, runSigner)
+	app.Metadata[metaArgs] = args
+	err := app.Run(args)
 	if err == nil {
 		return exitOK
 	}

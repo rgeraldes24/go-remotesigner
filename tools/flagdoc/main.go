@@ -77,7 +77,8 @@ Every global, consensus and execution flag can also be set (the subcommands' own
 
 - in the environment, as ` + "`REMOTESIGNER_<NAME>`" + ` for a global flag, ` + "`REMOTESIGNER_CONSENSUS_<NAME>`" + ` for a
   consensus flag and ` + "`REMOTESIGNER_EXECUTION_<NAME>`" + ` for an execution flag (the flag name or any alias in upper
-  case, dashes as underscores);
+  case, dashes as underscores, so ` + "`-l`" + ` is ` + "`REMOTESIGNER_L`" + `; an execution flag whose name begins with ` + "`execution-`" + `
+  drops it, so ` + "`--execution-policy-file`" + ` is ` + "`REMOTESIGNER_EXECUTION_POLICY_FILE`" + `);
 - in the YAML file given by ` + "`--config-file`" + `, under its bare name or any of its aliases (the Config file column lists
   them all). Consensus and execution flags may sit at the top level or in a ` + "`consensus:`" + ` or ` + "`execution:`" + `
   section. A list flag takes a YAML list. Unknown keys are rejected, and so is a flag set under two of its names.

@@ -22,6 +22,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -34,23 +36,45 @@ import (
 var ErrConfigFile = errors.New("config file")
 
 // YAMLSource is a parsed --config-file: a mapping of bare flag names (no
-// dashes) to values, with optional subcommand sections such as
-// `consensus:` holding that subcommand's flags. A subcommand's flags may
-// also be given at the top level. A list value sets a list flag. Keys that
-// name no flag are rejected.
+// dashes; a flag's name or any alias, as Web3Signer reads every name of an
+// option, so `l` sets --logging) to values, with optional subcommand
+// sections such as `consensus:` holding that subcommand's flags. A
+// subcommand's flags may also be given at the top level. A list value sets a
+// list flag. Keys that name no flag are rejected.
 type YAMLSource struct {
 	path     string
 	top      map[string]*yaml.Node
 	sections map[string]map[string]*yaml.Node
+	// given holds the names of the flags the file gives a value, and
+	// applied those of them that Apply set.
+	given, applied map[string]bool
+	// info is the file's type and mode as they were when it was read.
+	info fs.FileInfo
 }
 
-// LoadYAML reads and parses the config file at path.
+// LoadYAML reads and parses the config file at path. It keeps the type and
+// mode the opened file had (Info), so that a file found to hold a secret is
+// checked as the file that was read, whatever the path names later.
 func LoadYAML(path string) (*YAMLSource, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrConfigFile, err)
 	}
-	return ParseYAML(path, data)
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrConfigFile, err)
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrConfigFile, err)
+	}
+	s, err := ParseYAML(path, data)
+	if err != nil {
+		return nil, err
+	}
+	s.info = info
+	return s, nil
 }
 
 // ParseYAML parses config-file content; path is used in messages.
@@ -66,7 +90,8 @@ func ParseYAML(path string, data []byte) (*YAMLSource, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &YAMLSource{path: path, top: map[string]*yaml.Node{}, sections: map[string]map[string]*yaml.Node{}}
+	s := &YAMLSource{path: path, top: map[string]*yaml.Node{}, sections: map[string]map[string]*yaml.Node{},
+		given: map[string]bool{}, applied: map[string]bool{}}
 	for k, v := range top {
 		if v.Kind == yaml.MappingNode {
 			sec, err := mapping(path, k+".", v)
@@ -149,7 +174,11 @@ func (s *YAMLSource) Apply(c *cli.Context, flags []cli.Flag, section string) err
 		if err != nil {
 			return err
 		}
-		if v == nil || c.IsSet(f.Names()[0]) {
+		if v == nil {
+			continue
+		}
+		s.given[f.Names()[0]] = true
+		if c.IsSet(f.Names()[0]) {
 			continue
 		}
 		values, err := scalars(v, isList(f))
@@ -161,9 +190,26 @@ func (s *YAMLSource) Apply(c *cli.Context, flags []cli.Flag, section string) err
 				return fmt.Errorf("%w %s: %s: %v", ErrConfigFile, s.path, key, err)
 			}
 		}
+		s.applied[f.Names()[0]] = true
 	}
 	return nil
 }
+
+// Path is the config file's path.
+func (s *YAMLSource) Path() string { return s.path }
+
+// Info is the type and mode the config file had when LoadYAML read it; nil
+// for content that ParseYAML parsed.
+func (s *YAMLSource) Info() fs.FileInfo { return s.info }
+
+// Applied reports whether Apply set the flag named name (its first name)
+// from the file: neither the command line nor the environment had set it.
+func (s *YAMLSource) Applied(name string) bool { return s.applied[name] }
+
+// Gives reports whether the file gives a value to the flag named name (its
+// first name), whether or not Apply set it: the command line or the
+// environment may have set it first.
+func (s *YAMLSource) Gives(name string) bool { return s.given[name] }
 
 // lookup finds the value of f by any of its names.
 func (s *YAMLSource) lookup(f cli.Flag, section string) (*yaml.Node, string, error) {
@@ -216,6 +262,7 @@ func isList(f cli.Flag) bool {
 	return ok
 }
 
+// names returns the config-file keys of flags: all their names.
 func names(flags []cli.Flag) []string {
 	var out []string
 	for _, f := range flags {

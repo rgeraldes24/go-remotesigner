@@ -5,6 +5,9 @@ package config
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -239,9 +242,30 @@ func TestEnvVars(t *testing.T) {
 	if got := EnvVars("consensus", "network"); !slices.Equal(got, []string{"REMOTESIGNER_CONSENSUS_NETWORK"}) {
 		t.Errorf("consensus: %v", got)
 	}
-	if got := EnvVars("", "Xallow-plaintext-token-auth", "l"); !slices.Equal(got, []string{
-		"REMOTESIGNER_XALLOW_PLAINTEXT_TOKEN_AUTH", "REMOTESIGNER_L"}) {
-		t.Errorf("hidden and short: %v", got)
+	// A one-letter alias has a variable, as in Web3Signer (WEB3SIGNER_L).
+	if got := EnvVars("", "logging", "l"); !slices.Equal(got, []string{"REMOTESIGNER_LOGGING", "REMOTESIGNER_L"}) {
+		t.Errorf("short alias: %v", got)
+	}
+	if got := EnvVars("", "Xallow-plaintext-token-auth"); !slices.Equal(got, []string{
+		"REMOTESIGNER_XALLOW_PLAINTEXT_TOKEN_AUTH"}) {
+		t.Errorf("hidden: %v", got)
+	}
+	// A name that begins with its command's name does not repeat it; one
+	// that only resembles it, or a global flag, keeps its name.
+	for _, tt := range []struct {
+		command, name, want string
+	}{
+		{"execution", "execution-policy-file", "REMOTESIGNER_EXECUTION_POLICY_FILE"},
+		{"execution", "execution-proxy-allowed-methods", "REMOTESIGNER_EXECUTION_PROXY_ALLOWED_METHODS"},
+		{"execution", "chain-id", "REMOTESIGNER_EXECUTION_CHAIN_ID"},
+		{"execution", "executions-x", "REMOTESIGNER_EXECUTION_EXECUTIONS_X"},
+		{"execution", "execution", "REMOTESIGNER_EXECUTION_EXECUTION"},
+		{"consensus", "consensus-x", "REMOTESIGNER_CONSENSUS_X"},
+		{"", "execution-policy-file", "REMOTESIGNER_EXECUTION_POLICY_FILE"},
+	} {
+		if got := EnvVars(tt.command, tt.name); !slices.Equal(got, []string{tt.want}) {
+			t.Errorf("%s --%s: %v, want %s", tt.command, tt.name, got, tt.want)
+		}
 	}
 }
 
@@ -252,6 +276,7 @@ func yamlApp(t *testing.T, yaml string, args ...string) (map[string]any, error) 
 		&cli.UintFlag{Name: "http-listen-port", Value: 9000, EnvVars: EnvVars("", "http-listen-port")},
 		&cli.StringSliceFlag{Name: "http-host-allowlist", Value: cli.NewStringSlice("localhost")},
 		&cli.StringFlag{Name: "key-config-path", Aliases: []string{"key-store-path"}},
+		&cli.StringFlag{Name: "logging", Aliases: []string{"l"}, Value: "INFO", EnvVars: EnvVars("", "logging", "l")},
 	}
 	cons := []cli.Flag{
 		&cli.StringFlag{Name: "network", EnvVars: EnvVars("consensus", "network")},
@@ -278,6 +303,10 @@ func yamlApp(t *testing.T, yaml string, args ...string) (map[string]any, error) 
 				got["keys"] = c.String("key-config-path")
 				got["network"] = c.String("network")
 				got["protection"] = c.Bool("slashing-protection-enabled")
+				got["logging"] = c.String("logging")
+				for _, n := range []string{"http-listen-port", "key-config-path", "network"} {
+					got["applied "+n], got["gives "+n] = src.Applied(n), src.Gives(n)
+				}
 				return nil
 			},
 		}},
@@ -322,6 +351,69 @@ consensus:
 	if err != nil || got["network"] != "minimal" { // env still set
 		t.Errorf("top-level consensus flag with env: %v %v", got, err)
 	}
+
+	// The one-letter alias -l is read from an l key and from
+	// REMOTESIGNER_L, as Web3Signer reads l and WEB3SIGNER_L, with the usual
+	// precedence.
+	if got, err = yamlApp(t, "l: WARN\n", "consensus"); err != nil || got["logging"] != "WARN" {
+		t.Errorf("an l key: %v %v", got, err)
+	}
+	t.Setenv("REMOTESIGNER_L", "TRACE")
+	if got, err = yamlApp(t, "logging: WARN\n", "consensus"); err != nil || got["logging"] != "TRACE" {
+		t.Errorf("REMOTESIGNER_L over the config file: %v %v", got, err)
+	}
+	if got, err = yamlApp(t, "logging: WARN\n", "-l", "DEBUG", "consensus"); err != nil || got["logging"] != "DEBUG" {
+		t.Errorf("-l: %v %v", got, err)
+	}
+}
+
+// Applied names the flags the file set; Gives also those it gives a value
+// that the command line or the environment set first, by a flag's first
+// name whichever name the file uses.
+func TestYAMLSourceAppliedAndGives(t *testing.T) {
+	t.Setenv("REMOTESIGNER_CONSENSUS_NETWORK", "from-env")
+	got, err := yamlApp(t, "http-listen-port: 1\nkey-store-path: /keys\nconsensus:\n  network: n\n",
+		"--http-listen-port=2", "consensus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n, want := range map[string][2]bool{
+		"http-listen-port": {false, true}, // the command line won
+		"key-config-path":  {true, true},  // set by its alias
+		"network":          {false, true}, // the environment won
+	} {
+		if got["applied "+n] != want[0] || got["gives "+n] != want[1] {
+			t.Errorf("%s: applied %v, gives %v, want %v", n, got["applied "+n], got["gives "+n], want)
+		}
+	}
+	if got, err = yamlApp(t, "logging: WARN\n", "consensus"); err != nil || got["gives network"] != false {
+		t.Errorf("a flag the file does not give: %v %v", got, err)
+	}
+}
+
+// LoadYAML keeps the type and mode of the file it read, which a later
+// change of the file's mode does not alter; ParseYAML has no file.
+func TestLoadYAMLInfo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("logging: WARN\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src, err := LoadYAML(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if fi := src.Info(); fi == nil || !fi.Mode().IsRegular() || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
+		t.Fatalf("Info %v, want the regular 0600 file that was read", fi)
+	}
+	if src, err := ParseYAML("test.yaml", []byte("logging: WARN\n")); err != nil || src.Info() != nil {
+		t.Fatalf("ParseYAML: %v %v", src, err)
+	}
+	if _, err := LoadYAML(filepath.Join(t.TempDir(), "missing.yaml")); !errors.Is(err, ErrConfigFile) {
+		t.Fatalf("a missing file: %v", err)
+	}
 }
 
 func TestYAMLSourceErrors(t *testing.T) {
@@ -331,6 +423,7 @@ func TestYAMLSourceErrors(t *testing.T) {
 		"unknown section key":   "consensus:\n  http-listen-port: 1\n",
 		"duplicate key":         "http-listen-port: 1\nhttp-listen-port: 2\n",
 		"name and alias":        "key-config-path: /a\nkey-store-path: /b\n",
+		"name and short alias":  "logging: WARN\nl: DEBUG\n",
 		"top level and section": "network: a\nconsensus:\n  network: b\n",
 		"list for scalar":       "http-listen-port: [1, 2]\n",
 		"null value":            "http-listen-port:\n",

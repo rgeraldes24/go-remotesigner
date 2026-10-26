@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package openapi holds the contract tests for consensus.yaml, the frozen HTTP
-// contract between the qrysm validator client and the signer. The tests lint
-// the specification, validate every example against its schema, pin the
-// strict JSON encoding rules, and keep docs/contract.md in step with the spec.
+// contract between the qrysm validator client and the signer, and for
+// execution.yaml, the description of execution mode's JSON-RPC endpoint. The
+// tests lint the specifications, validate every example against its schema,
+// pin the strict JSON encoding rules, and keep docs/contract.md and
+// docs/operations/execution.md in step with them.
 package openapi
 
 import (

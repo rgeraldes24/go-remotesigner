@@ -11,6 +11,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/url"
 	"path/filepath"
@@ -209,7 +210,41 @@ type SecretStores struct {
 	AWS                *secrets.AWSBulk   // --aws-secrets-enabled
 	Azure              *secrets.AzureBulk // --azure-vault-enabled
 	GCP                *secrets.GCPBulk   // --gcp-secrets-enabled
+	// AWSSecretAccessKeyFile is --aws-secrets-secret-access-key-file and
+	// AzureClientSecretFile --azure-client-secret-file: secret files whose
+	// first line the run reads at startup into AWS.SecretAccessKey and
+	// Azure.ClientSecret. Each is set only with its bulk loader.
+	AWSSecretAccessKeyFile string
+	AzureClientSecretFile  string
+	// Plain lists the deprecated plain secret flags that are set, which the
+	// run warns about at startup.
+	Plain []PlainSecret
 }
+
+// PlainSecret is a deprecated plain secret flag that holds a secret: Flag
+// (such as aws-secrets-secret-access-key) took its value from Source instead
+// of from FileFlag, the -file flag that replaces it. File is the config file
+// when it gives the flag a value, whether or not that value was taken: the
+// file holds a secret either way. When an empty value on the command line or
+// in the environment overrode the file's, Source is the config file, which
+// holds the only secret. FileInfo is the type and mode the config file had
+// when it was read, which the secret-file policy checks.
+type PlainSecret struct {
+	Flag, FileFlag string
+	Source         SecretSource
+	File           string
+	FileInfo       fs.FileInfo
+}
+
+// SecretSource is where a flag's value came from.
+type SecretSource string
+
+// The sources of a flag's value, in order of precedence.
+const (
+	FromCommandLine SecretSource = "command line"
+	FromEnvironment SecretSource = "environment"
+	FromConfigFile  SecretSource = "config file"
+)
 
 // Postgres holds the Postgres store's settings.
 type Postgres struct {

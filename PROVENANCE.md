@@ -237,6 +237,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `api/openapi/docs_test.go` | new | | | |
 | `api/openapi/encoding_test.go` | new | | | |
 | `api/openapi/examples_test.go` | new | | | |
+| `api/openapi/execution.yaml` | new | | | |
+| `api/openapi/execution_test.go` | new | | | |
 | `api/openapi/golden_test.go` | new | | | |
 | `api/openapi/spec_test.go` | new | | | |
 | `cmd/remotesigner/consensus.go` | new | | | |
@@ -360,6 +362,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/execution/jsonrpc_test.go` | new | | | |
 | `internal/execution/methods.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/routes/eth1/JsonRpcRoute.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/Eth1AccountsHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/internalresponse/EthSignResultProvider.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/util/EthMessageUtil.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/methods_w3s_test.go` | w3s-derived | Web3Signer | `core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/EthAccountsIntegrationTest.java`<br>`core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/EthSignIntegrationTest.java`<br>`core/src/test/java/tech/pegasys/web3signer/core/service/jsonrpc/EthSignResultProviderTest.java`<br>`core/src/test/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/RequestMapperTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/openapi_test.go` | new | | | |
 | `internal/execution/payload.go` | new | | | |
 | `internal/execution/policy.go` | new | | | |
 | `internal/execution/policy_test.go` | new | | | |
@@ -422,8 +425,10 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/secrets/awssm/localstack_test.go` | new | | | |
 | `internal/keys/secrets/azurekv/azurekv.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/azure/AzureKeyVault.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/azure/AzureOverrides.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/AzureKeyVaultFactory.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/secrets/azurekv/azurekv_test.go` | new | | | |
+| `internal/keys/secrets/azurekv/emulator_test.go` | new | | | |
 | `internal/keys/secrets/bulk.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/common/SecretValueMapperUtil.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/common/MappedResults.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsAwsBulkLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsGcpBulkLoader.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/secrets/cache.go` | new | | | |
+| `internal/keys/secrets/gcpsm/emulator_test.go` | new | | | |
 | `internal/keys/secrets/gcpsm/gcpsm.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/gcp/GcpSecretManager.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/secrets/gcpsm/gcpsm_test.go` | new | | | |
 | `internal/keys/secrets/hashicorp/devserver_test.go` | new | | | |
@@ -436,6 +441,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/secrets/secretstest/aws.go` | new | | | |
 | `internal/keys/secrets/secretstest/azure.go` | new | | | |
 | `internal/keys/secrets/secretstest/cloud.go` | new | | | |
+| `internal/keys/secrets/secretstest/emulators.go` | new | | | |
 | `internal/keys/secrets/secretstest/gcp.go` | new | | | |
 | `internal/keys/secrets/secretstest/stderr.go` | new | | | |
 | `internal/keys/secrets/secretstest/vault.go` | new | | | |
@@ -472,6 +478,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/randao/onion/onion_test.go` | new | | | |
 | `internal/randao/service.go` | new | | | |
 | `internal/randao/service_test.go` | new | | | |
+| `internal/runner/credentials.go` | new | | | |
+| `internal/runner/credentials_test.go` | new | | | |
 | `internal/runner/files.go` | new | | | |
 | `internal/runner/keymanager_test.go` | new | | | |
 | `internal/runner/keys.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
