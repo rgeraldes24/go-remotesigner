@@ -77,7 +77,7 @@ var operatorPages = []struct {
 		"The stacked pull requests merged into `main`", "public ghcr.io packages", "Making the repository public",
 		"## 7. The v1.1 release checklist", "| `v1.0.0` released first |",
 		"| The gqrl end-to-end test on the reference VMs |",
-		"| Both nightly end-to-end runs green for 7 consecutive nights on the 1.1.0 candidate |",
+		"| The nightly end-to-end run green for 7 consecutive nights on the 1.1.0 candidate |",
 		"(B19, the gqrl end-to-end test, and the fuzzers of the keystore decoder",
 		"| An OpenAPI description of execution mode, or not |", "ships `api/openapi/execution.yaml`",
 		"| The secret stores against the real services |", "| The first tag run attaches the source archive |",

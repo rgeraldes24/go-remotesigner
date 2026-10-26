@@ -188,7 +188,8 @@ func TestNoQrysmScenarioJob(t *testing.T) {
 		if ownFile(f.path) {
 			continue
 		}
-		for _, old := range []string{"QRYSM_E2E_REF", "QRYSM_E2E_REPO", "TestEndToEnd_MinimalConfig_Web3Signer"} {
+		for _, old := range []string{"QRYSM_E2E_REF", "QRYSM_E2E_REPO", "TestEndToEnd_MinimalConfig_Web3Signer",
+			"`qrysm-e2e`"} {
 			if strings.Contains(f.text, old) {
 				t.Errorf("%s names %s, which the end-to-end job no longer uses", f.path, old)
 			}
