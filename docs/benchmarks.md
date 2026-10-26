@@ -1,6 +1,9 @@
 # Benchmarks
 
-Each benchmark is first run when its component lands, then re-run weekly and before every release. The thresholds
+Each benchmark is first run when its component lands, then re-run before every release, and every week by the
+Benchmarks workflow ([`bench.yml`](../.github/workflows/bench.yml)) on GitHub's hosted runners, which tracks trends
+but is not the release gate. GitHub runs scheduled and manually dispatched workflows only from the default branch,
+so the weekly runs, like the nightly ones, start once the workflows are on `main`. The thresholds
 were set for the reference hardware: a 4-vCPU x86-64 cloud VM and a 4-vCPU Graviton-class arm64 VM, reporting p50,
 p99 and p99.9 with `benchstat` over at least 10 runs. Rows measured elsewhere say so and must be re-run on the
 reference VMs before a release.
@@ -40,7 +43,7 @@ from about 2 to 14.
 | B13 | p50 ≤ 5 ms, p99 ≤ 20 ms; burst ≤ 100 ms; stalled DB fails in ≤ 5 s | attestation p50 1.46 ms, p99 3.28 ms; block p50 1.13 ms, p99 1.70 ms; burst of 33 wall p50 27.4 ms, p99 46.6 ms; stalled database 4.50 s | 5-8 | met |
 | B14 | run ≤ 5 min; signing p99 during ≤ 2 × baseline | bbolt: steady state 15.0 s, 0.75 ×; first run on twice the window 24.5 s, 0.50 ×. Postgres: 34.8 s, 0.50 ×; 43.2 s, 0.41 × | 2.3-2.9 (bbolt), 5-8 (Postgres) | met |
 | B15 | ≤ 2 s on a LAN; transient allocation ≤ 64 MB | plain 19.2 ms ± 7 %, 70 KiB; gzip 498 ms ± 1 %, 1.2 MiB (10 runs each) | 2.1-3.5 | met |
-| B16 | 24 h with 4,096 keys: 0 failed duties; RSS flat within ± 10 %; no goroutine growth | not run: it still needs a time-compressed driver of the mainnet duty schedule and a reference VM for 24 h | — | open (release checklist) |
+| B16 | 24 h with 4,096 keys: 0 failed duties; RSS flat within ± 10 %; no goroutine growth | not run for 24 h, which needs a reference VM. [Run X](#duty-soak-b16-the-built-binary) ran the driver for 1 h on this candidate with the fixes of the 1.0.0 review: 10,680 duties, 0 failed, goroutines flat; RSS not measurable on this machine | 1.5-10.4 (Run X) | open (release checklist) |
 | B18 | ≤ 100 × t_B10 / P + 10 s; no write-deadline error | P = 8, t_B10 = 3.33 s: 44.4 s (27.6 s for 64, 16.8 s for 36) against 52 s; peak RSS 5,922 MiB | 10-12 | met |
 | B19 | 0 idle-connection errors over 1 h with `IdleTimeout` 120 s | 1 h run (`make b19 B19_DURATION=1h`, alongside the other runs): 158 POSTs, 0 connection errors | 2-15 over the hour | met |
 | B20 | p99 handshake ≤ 200 ms on 4 vCPU | 11 runs: P-256 p99 20.5-89.8 ms (max 89.8 ms), RSA-2048 p99 43.1-106.2 ms (max 106.7 ms). B7 over TLS on HTTP/1.1: P-256 p99 164-824 ms (over 500 ms in one run), RSA-2048 181-386 ms; on h2: P-256 132-846 ms (over 500 ms in two runs), RSA-2048 192-914 ms (in four); 0 errors | 2.5-10 | storm met; B7 over TLS met in 37 of the 44 measurements |
@@ -53,7 +56,7 @@ the reference VMs decide both. The raw logs of Run W are not kept in the reposit
 ## v1.0 release run (dev machine)
 
 **These are development-machine numbers, not the release gate.** v1.0 needs every benchmark below within its threshold
-on the reference VMs, and B16, which no machine here can run; both are open items of the
+on the reference VMs, and B16 for 24 h on a reference VM; both are open items of the
 [release checklist](operations/release.md#62-open-gates-this-repository-cannot-meet-today). Run V re-ran every
 benchmark that runs on this machine, on the code of the 1.0.0 candidate, with the commands of the sections below.
 
@@ -80,7 +83,7 @@ between B10 and B11).
 | B13 | p50 ≤ 5 ms, p99 ≤ 20 ms; burst ≤ 100 ms; stalled DB fails in ≤ 5 s | attestation p50 1.37 ms, p99 1.81 ms; block p50 1.08 ms, p99 1.44 ms; burst of 33 wall p50 27.4 ms, p99 46.6 ms; stalled database 4.50 s | 8-12 | met |
 | B14 | run ≤ 5 min; signing p99 during ≤ 2 × baseline | bbolt: steady state 10.9 s, 1.64 ×; first run on twice the window 7.2 s, 0.52 ×. Postgres: 34.1 s, 0.90 ×; 44.4 s, 0.52 × | 3.9-5.0 (bbolt), 8-12 (Postgres) | met |
 | B15 | ≤ 2 s on a LAN; transient allocation ≤ 64 MB | plain 19.4 ms ± 1 %, 70 KiB; gzip 507 ms ± 6 %, 1.2 MiB (10 runs each) | 3.3-4.0 | met |
-| B16 | 24 h with 4,096 keys: 0 failed duties; RSS flat within ± 10 %; no goroutine growth | not run: it needs a time-compressed driver of the mainnet duty schedule, which does not exist yet, and a reference VM for 24 h | — | open (release checklist) |
+| B16 | 24 h with 4,096 keys: 0 failed duties; RSS flat within ± 10 %; no goroutine growth | not run: the driver came after Run V, and 24 h need a reference VM; [Run X](#duty-soak-b16-the-built-binary) ran it for 1 h on the 1.1.0 candidate with the fixes of the 1.0.0 review | — | open (release checklist) |
 | B18 | ≤ 100 × t_B10 / P + 10 s; no write-deadline error | P = 8, t_B10 = 3.06 s: 46.1 s (28.9 s for 64, 17.3 s for 36) against 48 s; peak RSS 4,891 MiB | 12-14 | met |
 | B19 | 0 idle-connection errors over 1 h with `IdleTimeout` 120 s | 1 h run (`make b19 B19_DURATION=1h`, alongside the other runs): 162 POSTs, 0 connection errors | 2-32 over the hour | met (the first 1 h run) |
 | B20 | p99 handshake ≤ 200 ms on 4 vCPU | 5 runs: P-256 p99 22.0-25.1 ms (max 25.4 ms), RSA-2048 p99 42.8-106.2 ms (max 106.2 ms). B7 over TLS on HTTP/1.1: P-256 p99 325-371 ms, RSA-2048 211-382 ms; on h2: P-256 200-645 ms (over 500 ms in one run), RSA-2048 165-433 ms; 0 errors | 5.7-8.1 | storm met; B7 over TLS met in 19 of the 20 measurements (and missed once more in the sixth run: RSA-2048 on HTTP/1.1, p99 792 ms) |
@@ -153,7 +156,9 @@ allocates only small bookkeeping, which is why B6 stays far under its memory bou
 ## Public keys and idle connections (B15, B19, the API server)
 
 **B15: met on the development machine.** **B19: met on the development machine** in its 1 h runs (Run V,
-2026-10-20: 162 POSTs, 0 errors; Run W, the same day: 158 POSTs, 0 errors); the nightly job runs it every night.
+2026-10-20: 162 POSTs, 0 errors; Run W, the same day: 158 POSTs, 0 errors). The nightly workflow runs it every night
+once the workflow is on `main`; it has not run in CI yet, since GitHub runs scheduled workflows only from the default
+branch.
 
 ```
 go test -run '^$' -bench PublicKeys10k -benchtime 10x -count 10 ./internal/api/consensus/ | tee b15.txt && benchstat b15.txt
@@ -452,6 +457,46 @@ the keys registered and enabled in one transaction each, which commits 64 keys i
 met the bound by only 0.2 s, at a higher load than run O. The 64 keystores of the first request take eight rounds of
 P = 8 decrypts and the 36 of the second five, thirteen rounds in all, as one request of 100 would; the bound allows
 12.5, so the 10 s also covers that last partial round.
+
+## Duty soak (B16, the built binary)
+
+**B16: open.** Its threshold is a 24 h run on a reference VM. The development machine ran the soak for an hour (Run
+X): no duty failed and the goroutines stayed flat, while its RSS could not be measured there (see below).
+
+```
+make b16                                         # 24 h at mainnet's 60 s slots: the release run
+make b16 B16_DURATION=1h B16_TIMEOUT=80m         # the hour the development machine and the weekly workflow run
+```
+
+`TestB16DutySoak` starts the built binary with 4,096 `file-raw` keys, bbolt slashing protection, token auth and the
+metrics listener, on a file network: the `end-to-end-mainnet` configuration (mainnet preset, 128 slots per epoch) with
+`SECONDS_PER_SLOT` set to the soak's slot length, `B16_SLOT` (60 by default; fewer seconds compress the schedule), and
+a genesis two epochs back so that attestations have a source epoch. It then replays, slot by slot at that cadence, the
+duties a signer that holds every key of a 4,096-validator network signs, 178 requests a slot: at the start of the slot
+the proposer's RANDAO reveal and then its block, the slot aggregator's `AGGREGATION_SLOT` selection proof and 8 sync
+aggregators' `SYNC_COMMITTEE_SELECTION_PROOF`; at a third of the slot 32 `ATTESTATION` and 126
+`SYNC_COMMITTEE_MESSAGE`; at two thirds an `AGGREGATE_AND_PROOF` of 32 signatures and 8
+`SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF` of 128 signatures (1.2 MB each). Every duty must be answered 200 before its
+slot ends. At the end of every slot the test reads the signer's RSS (`ps`) and `go_goroutines` from the metrics
+listener; the median of the run's second tenth (the first is warm-up) is the start and the median of its last tenth
+the end: the end's RSS must be within ± 10 % of the start's, and its goroutines at most 16 above them. Without
+`REMOTESIGNER_B16_DURATION` the test is a smoke of three 6 s slots, which every `go test` run makes, CI's included,
+asserting only that no duty fails.
+
+| ID | Test | Threshold | Development-machine results | Verdict |
+|---|---|---|---|---|
+| B16 | `TestB16DutySoak` | 24 h with 4,096 keys: 0 failed duties; RSS flat within ± 10 %; no goroutine growth | Run X, 1 h at 60 s slots (60 slots, 10,680 duties): 0 failed. p99 (max) by type: `ATTESTATION` 295 ms (380 ms), `SYNC_COMMITTEE_MESSAGE` 127 ms (166 ms), `RANDAO_REVEAL` 157 ms, `SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF` 62 ms (72 ms), `AGGREGATE_AND_PROOF` 51 ms, `BLOCK_V2` 41 ms, the selection proofs 20-28 ms. Goroutines 16 at the start and 16 at the end (14-17). RSS 9.5 MiB at the start and 217 MiB at the end (7.4-240 MiB), not a measure of the signer here (below) | duties and goroutines met for 1 h on the dev machine; RSS and the 24 h run open |
+
+Run X, 2026-10-26, Go 1.26.10, Apple M2 (4 performance and 4 efficiency cores, 16 GiB, darwin/arm64), on the code of
+the 1.1.0 candidate with the fixes of the review of the 1.0.0 candidate (the signing gate among them), on battery
+and under `caffeinate`, on a machine shared with other work: load average 1.5-10.4 over the hour. The RSS the test
+reads with `ps` swung between 7.4 and 240 MiB: the machine held 4 GiB in swap and about 13 GB in its memory
+compressor for other work, and macOS compresses and pages out a process that idles between the bursts of a slot, so
+the signer's resident size says little about its memory here; the Linux reference VMs measure it. A first attempt
+the same day does not count: the machine slept for 15 minutes with its lid closed, and on waking every overdue slot
+fired at once, so 890 duties were answered after their slot or refused with 503 `OVERLOADED` by the signing gate,
+which is the gate bounding a burst beyond its 32 slots and 512 queued places, as it should. The schedule follows the
+wall clock, so a run on a host that sleeps fails.
 
 ## Binary size with the secret stores (no benchmark ID)
 

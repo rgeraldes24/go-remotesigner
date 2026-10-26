@@ -23,7 +23,7 @@ ALLOWED_LICENSES := Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # sha256 of the verbatim Apache-2.0 text.
 LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 
-.PHONY: all build build-consensus test test-postgres test-cloud fuzz gqrl-e2e release-src fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager release-docs release-snapshot release-check release-version image docker-smoke systemd-smoke clean
+.PHONY: all build build-consensus test test-postgres test-cloud fuzz gqrl-e2e release-src fuzz-target fuzz-keystore fuzz-interchange bench-b14 bench-postgres contract lint headercheck licenses license-hash vuln nogpl vectors vectors-test vectors-verify vectors-verify-binary vectors-contract docs acceptance b19 bench-e2e bench-loading bench-keymanager bench-micro b16 release-docs release-snapshot release-check release-version image docker-smoke systemd-smoke clean
 
 all: build build-consensus
 
@@ -86,14 +86,25 @@ test-cloud:
 	$(CLOUD_TEST)
 
 ## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, the strict
-## request decoders, the JSON-RPC request and batch decoders against encoding/json, the keystore decoder and the
-## EIP-3076 interchange
+## request decoders, the JSON-RPC request and batch decoders against encoding/json, the network configuration
+## parser, the keystore decoder and the EIP-3076 interchange
 FUZZTIME ?= 10s
 fuzz: fuzz-keystore fuzz-interchange
+	$(GO) test -run '^$$' -fuzz '^FuzzParseConfig$$' -fuzztime $(FUZZTIME) ./internal/network/
 	$(GO) test -run '^$$' -fuzz '^FuzzHashTreeRootDifferential$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeSignRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRandaoRevealRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRequest$$' -fuzztime $(FUZZTIME) ./internal/execution/
+
+## fuzz-target: one fuzz target FUZZ of the package FUZZPKG, FUZZTIME long, for example
+## `make fuzz-target FUZZ=FuzzParseConfig FUZZPKG=./internal/network/ FUZZTIME=30m`; the nightly workflow runs the
+## sign-request, RANDAO and JSON-RPC decoders, the hash-tree-root differential and the network parser this way for
+## 30 min each
+FUZZ    ?=
+FUZZPKG ?=
+fuzz-target:
+	@test -n "$(FUZZ)" && test -n "$(FUZZPKG)" || { echo "fuzz-target: set FUZZ and FUZZPKG" >&2; exit 2; }
+	$(GO) test -run '^$$' -fuzz '^$(FUZZ)$$' -fuzztime $(FUZZTIME) $(FUZZPKG)
 
 ## fuzz-keystore: the keystore decoder fuzz alone; the nightly workflow runs it with FUZZTIME=30m
 fuzz-keystore:
@@ -329,6 +340,27 @@ bench-loading:
 ## bench-keymanager: B18, a keymanager import of 100 standard-KDF keystores (in two requests: at most 64 each)
 bench-keymanager:
 	REMOTESIGNER_BENCH=1 $(GO) test -count=1 -run '^TestB18' -timeout 1h -v ./test/acceptance/
+
+## bench-micro: the Go benchmarks B1-B4 (ML-DSA-87 signing, key derivation, parallel signing), B5 and B6
+## (hash-tree-root, strict decoding), B10 (Argon2id decryption at P = 1, 2 and 4) and B15 (publicKeys for 10,000
+## keys), BENCH_COUNT runs each, in benchstat's input format
+BENCH_COUNT ?= 10
+bench-micro:
+	$(GO) test -run '^$$' -bench 'SignHedged|SignDeterministic|KeyFromSeed' -benchtime 20000x -count $(BENCH_COUNT) -timeout 60m ./internal/crypto/mldsa87/
+	$(GO) test -run '^$$' -bench SignParallel -cpu 4 -benchtime 5000x -count $(BENCH_COUNT) -timeout 30m ./internal/crypto/mldsa87/
+	$(GO) test -run '^$$' -bench 'SigningRoot|DecodeContribution' -benchtime 2s -count $(BENCH_COUNT) -timeout 30m ./internal/consensus/types/
+	$(GO) test -run '^$$' -bench PublicKeys10k -benchtime 10x -count $(BENCH_COUNT) -timeout 30m ./internal/api/consensus/
+	$(GO) test -run '^$$' -bench 'B10Argon2idDecrypt/P=[124]$$' -benchtime 2x -count 3 -timeout 30m ./internal/keys/keystore/qrlv1/
+
+## b16: benchmark B16, the duty soak (TestB16DutySoak): 4,096 file-raw keys and the duty schedule of every slot of a
+## mainnet-sized network (178 requests a slot) replayed against the built binary for B16_DURATION, at B16_SLOT seconds
+## per slot (mainnet's 60 by default; fewer compress the run). B16_TIMEOUT must exceed B16_DURATION. Without
+## REMOTESIGNER_B16_DURATION the test is a smoke of 3 slots of 6 s, which make test and CI run.
+B16_DURATION ?= 24h
+B16_SLOT     ?= 60
+B16_TIMEOUT  ?= 26h
+b16:
+	REMOTESIGNER_B16_DURATION=$(B16_DURATION) REMOTESIGNER_B16_SLOT=$(B16_SLOT) $(GO) test -count=1 -run '^TestB16DutySoak$$' -timeout $(B16_TIMEOUT) -v ./test/acceptance/
 
 clean:
 	rm -rf $(BIN_DIR) build

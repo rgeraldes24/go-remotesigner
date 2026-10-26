@@ -35,6 +35,9 @@ import (
 	"strings"
 
 	"software.sslmate.com/src/go-pkcs12"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 )
 
 // Config holds the TLS flags of the API listener.
@@ -106,9 +109,27 @@ func (c *Config) Validate(requireClientCert bool) error {
 	return nil
 }
 
-// loadPEM loads a PEM certificate chain and its key.
-func loadPEM(certFile, keyFile string) (tls.Certificate, error) {
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+// maxFile bounds a certificate, key, keystore or password file.
+const maxFile = 1 << 20
+
+// loadKeyPair loads a PEM certificate chain and its private key. The key
+// is a secret file, read under p.
+func loadKeyPair(certFile, keyFile string, p secretfile.Policy) (tls.Certificate, error) {
+	certPEM, err := secretfile.ReadCapped(certFile, maxFile)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	keyPEM, err := secretfile.Read(keyFile, maxFile, p)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	defer mldsa87.Wipe(keyPEM)
+	return tls.X509KeyPair(certPEM, keyPEM)
+}
+
+// loadPEM loads a PEM certificate chain and its key, which is read under p.
+func loadPEM(certFile, keyFile string, p secretfile.Policy) (tls.Certificate, error) {
+	cert, err := loadKeyPair(certFile, keyFile, p)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("--tls-cert-file %s and --tls-key-file %s: %w", certFile, keyFile, err)
 	}
@@ -116,16 +137,18 @@ func loadPEM(certFile, keyFile string) (tls.Certificate, error) {
 }
 
 // loadPKCS12 loads a PKCS#12 keystore. Like Web3Signer, only the first line
-// of the password file is the password.
-func loadPKCS12(file, passwordFile string) (tls.Certificate, error) {
-	password, err := firstLine(passwordFile)
+// of the password file is the password. The keystore, which holds the
+// private key, and the password file are secret files, read under p.
+func loadPKCS12(file, passwordFile string, p secretfile.Policy) (tls.Certificate, error) {
+	password, err := firstLine(passwordFile, p)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("--tls-keystore-password-file %s: %w", passwordFile, err)
 	}
-	data, err := os.ReadFile(file)
+	data, err := secretfile.Read(file, maxFile, p)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("--tls-keystore-file: %w", err)
 	}
+	defer mldsa87.Wipe(data)
 	key, leaf, chain, err := pkcs12.DecodeChain(data, password)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("--tls-keystore-file %s: %w", file, err)
@@ -150,13 +173,14 @@ func samePublicKey(a, b crypto.PublicKey) bool {
 	return ok && k.Equal(b)
 }
 
-// firstLine returns the first line of a file, without its line ending. An
-// empty file is an error.
-func firstLine(path string) (string, error) {
-	data, err := os.ReadFile(path)
+// firstLine returns the first line of a secret file, read under p, without
+// its line ending. An empty file is an error.
+func firstLine(path string, p secretfile.Policy) (string, error) {
+	data, err := secretfile.Read(path, maxFile, p)
 	if err != nil {
 		return "", err
 	}
+	defer mldsa87.Wipe(data)
 	if len(data) == 0 {
 		return "", errors.New("empty file")
 	}

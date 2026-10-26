@@ -114,7 +114,8 @@ func TestPostgresOutOfRange(t *testing.T) {
 	refused("RaiseEpochLowWatermarks", s.UpdateAttestations(bg, key(0), func(tx slashing.AttestationTx) error {
 		return tx.RaiseEpochLowWatermarks(1, big)
 	}))
-	refused("SetHighWatermark", s.SetHighWatermark(bg, slashing.HighWatermark{Epoch: slashingtest.U64(big)}))
+	refused("SetHighWatermark", s.SetHighWatermark(bg, slashing.HighWatermark{Epoch: slashingtest.U64(big),
+		Slot: slashingtest.U64(1)}))
 	_, err := s.CompareAndSwapRandaoState(bg, key(0), nil, slashing.RandaoState{Index: big})
 	refused("CompareAndSwapRandaoState index", err)
 	_, err = s.CompareAndSwapRandaoState(bg, key(0), nil, slashing.RandaoState{Index: 1, LastSlot: big})

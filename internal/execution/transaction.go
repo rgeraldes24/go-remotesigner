@@ -279,7 +279,7 @@ type signTransactionResult struct {
 // maxFeePerGas and maxPriorityFeePerGas are required, the signer never asks
 // the node for anything, and the result is {raw, tx}. The chain ID, the
 // fee cap and the account's policy apply.
-func (h *Handler) qrlSignTransaction(_ context.Context, req *Request) (any, *Error) {
+func (h *Handler) qrlSignTransaction(ctx context.Context, req *Request) (any, *Error) {
 	t := h.txs
 	a, e := t.parseTxArgs(req, h.log)
 	if e != nil {
@@ -299,6 +299,11 @@ func (h *Handler) qrlSignTransaction(_ context.Context, req *Request) (any, *Err
 		t.auditRefusal(req.Method, a, ErrUnknownAccount.Message, h.log)
 		return nil, ErrUnknownAccount
 	}
+	release, e := h.admit(ctx)
+	if e != nil {
+		return nil, e
+	}
+	defer release()
 	if r := t.checkChain(a); r != nil {
 		return nil, t.refused(req.Method, a, r, h.log)
 	}

@@ -69,9 +69,12 @@ root that is not 32 bytes, an unknown field) or when its transaction fails. It i
 the file and its key's short id; the other validators are imported. A disabled key is refused with 412
 `VALIDATOR_DISABLED` for blocks, attestations and new RANDAO layers, so it cannot sign without the history the file
 meant to give it. Fix the element (or export it again from the client) and import that file: a
-clean import of the key enables it again. It enables a key that a keymanager `DELETE` or `disable-validator` disabled
-on purpose too, even when every record in the file is already covered: do not import the history of a key that has
-moved to another signer. An element without a valid public key cannot be tied to a key; it is
+clean import of the key enables it again. A key that a keymanager `DELETE` or `disable-validator` disabled on purpose
+is not enabled by an import, even a clean one that covers every record: the import writes its history, leaves it
+disabled and says so on stderr (`the key stays disabled`), and exits 0. Name the key in `--enable-keys` (a `0x`
+public key or sha256 identifier, comma-separated or repeated) to enable it with its history
+([`reload.md`](reload.md#51-enabling-a-key-again)); a key `--enable-keys` names without an element that imports
+makes the command exit 1. An element without a valid public key cannot be tied to a key; it is
 reported and nothing is written for it. A key that could not be disabled either (the store refused that write too)
 is reported as such: do not start the signer with it until an import of it succeeds.
 

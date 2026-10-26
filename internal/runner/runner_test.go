@@ -200,7 +200,7 @@ func (r *running) do(t *testing.T, method, path, token string) (int, []byte) {
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	if method == http.MethodPost {
+	if method != http.MethodGet {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := http.DefaultClient.Do(req)
@@ -394,11 +394,15 @@ func TestRunProtectionDisabled(t *testing.T) {
 	if code != 200 || !strings.Contains(string(body), `"slashing_protection":"disabled"`) {
 		t.Fatalf("capabilities: %d %s", code, body)
 	}
-	// Like Web3Signer, there is no store check without a store, so the
-	// healthcheck stays UP.
+	// The store check is DOWN, so the healthcheck is DOWN too, while the
+	// signer serves (Web3Signer leaves the check out; DEVIATIONS X114).
 	code, body = r.do(t, http.MethodGet, "/healthcheck", "")
-	if code != 200 || !strings.Contains(string(body), `"status":"UP"`) || strings.Contains(string(body), "slashing-protection-db-health-check") {
+	if code != 503 || !strings.Contains(string(body), `"status":"DOWN"`) || !strings.Contains(string(body),
+		`{"id":"slashing-protection-db-health-check","status":"DOWN","data":{"slashing-protection":"disabled"}}`) {
 		t.Fatalf("healthcheck: %d %s", code, body)
+	}
+	if code, _ := r.do(t, http.MethodGet, "/upcheck", ""); code != 200 {
+		t.Fatalf("upcheck: %d", code)
 	}
 	if _, err := os.Stat(cfg.SlashingProtectionDB()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("a store file was created with protection disabled")
@@ -594,5 +598,37 @@ func TestLogNetwork(t *testing.T) {
 	logNetwork(log, n, pol)
 	if out := buf.String(); strings.Contains(out, "trust on first use") || !strings.Contains(out, "genesis-validators-root=0x01") {
 		t.Errorf("startup log with a store-pinned GVR:\n%s", out)
+	}
+}
+
+// The metrics token is warned about when it crosses the network in clear:
+// the metrics listener enabled, with a token, on a non-loopback host.
+func TestWarnMetricsTokenInClear(t *testing.T) {
+	tests := []struct {
+		name    string
+		metrics config.Metrics
+		warns   bool
+	}{
+		{"token on 0.0.0.0", config.Metrics{Enabled: true, Host: "0.0.0.0", AuthTokenFile: "/m"}, true},
+		{"token on a LAN address", config.Metrics{Enabled: true, Host: "10.0.0.5", AuthTokenFile: "/m"}, true},
+		{"token on loopback", config.Metrics{Enabled: true, Host: "127.0.0.1", AuthTokenFile: "/m"}, false},
+		{"token on localhost", config.Metrics{Enabled: true, Host: "localhost", AuthTokenFile: "/m"}, false},
+		{"no token on 0.0.0.0", config.Metrics{Enabled: true, Host: "0.0.0.0"}, false},
+		{"listener disabled", config.Metrics{Host: "0.0.0.0", AuthTokenFile: "/m"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf strings.Builder
+			log := logrus.New()
+			log.SetOutput(&buf)
+			cfg := &config.Config{Metrics: tt.metrics}
+			if got := WarnMetricsTokenInClear(cfg, log); got != tt.warns {
+				t.Fatalf("warned %v, want %v", got, tt.warns)
+			}
+			const want = `level=warning msg="The metrics listener has no TLS, so every scrape sends the metrics token in clear`
+			if got := strings.Contains(buf.String(), want); got != tt.warns {
+				t.Fatalf("log %q, want the warning %v", buf.String(), tt.warns)
+			}
+		})
 	}
 }

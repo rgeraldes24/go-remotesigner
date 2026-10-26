@@ -4,7 +4,8 @@ The signer's state is the bbolt slashing-protection store, `<data-path>/slashing
 file `--slashing-protection-db-url=bolt:///…` names). It holds, under the network's pinned genesis validators root:
 
 - every validator's signed blocks and attestations and its low watermarks, which slashing protection checks;
-- each validator's enabled flag;
+- each validator's enabled flag, and whether an import or an operator disabled it
+  ([`reload.md`](reload.md#5-disabling-a-validator));
 - each validator's RANDAO frontier `(m, R, last)` ([`randao.md`](randao.md#5-persistence));
 - the global high watermark, and the schema version.
 

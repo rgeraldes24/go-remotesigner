@@ -121,12 +121,14 @@ Online, with the admin token (the sign token gets 403):
 
 ```
 ADMIN=$(cat /var/lib/remotesigner/admin-token)
-curl -s -X DELETE -H "Authorization: Bearer $ADMIN" localhost:9000/api/v1/consensus/randao_state/$ALIAS
+curl -s -X DELETE -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  localhost:9000/api/v1/consensus/randao_state/$ALIAS
 # {"code":200,"message":"randao state cleared"}
 ```
 
-The identifier is the public key or its sha256 alias. A key unknown to slashing protection gets 404 `UNKNOWN_KEY`;
-with protection disabled the route answers 404 `PROTECTION_DISABLED`.
+The request has no body, but like every request other than a GET it needs `Content-Type: application/json` (415
+`UNSUPPORTED_MEDIA_TYPE` otherwise). The identifier is the public key or its sha256 alias. A key unknown to slashing
+protection gets 404 `UNKNOWN_KEY`; with protection disabled the route answers 404 `PROTECTION_DISABLED`.
 
 Offline, with the signer stopped:
 

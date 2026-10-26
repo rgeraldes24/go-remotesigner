@@ -96,3 +96,17 @@ make licenses vuln           # go-licenses check, govulncheck
 ```
 
 Code must be `gofmt`-clean and idiomatic Go, with table-driven tests for new behaviour.
+
+The Postgres store's tests, every test with `Postgres` in its name, need a PostgreSQL server: they run against the
+server that `REMOTESIGNER_TEST_POSTGRES` names, the URL of a role that may create databases and roles, and each test
+creates and drops a database of its own on it. `make test` skips them; `make test-postgres` runs them, and CI's
+`test-postgres` job runs them against a `postgres:17-alpine` service container:
+
+```
+docker run -d --rm --name pg -e POSTGRES_PASSWORD=secret -p 127.0.0.1:5432:5432 postgres:17-alpine
+REMOTESIGNER_TEST_POSTGRES='postgres://postgres:secret@127.0.0.1:5432/postgres?sslmode=disable' make test-postgres
+```
+
+They do not start an embedded PostgreSQL inside `go test` (such as `fergusstrange/embedded-postgres`, which downloads
+and runs a PostgreSQL binary at test time): the module takes no such test dependency, and the tests run against the
+server image operators deploy.

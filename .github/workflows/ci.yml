@@ -32,7 +32,7 @@ env:
 
 jobs:
   test:
-    name: test (go ${{ matrix.go }}, ${{ matrix.arch }}${{ matrix.arch == 'arm64' && github.event.repository.private && ', cross' || '' }})
+    name: test (go ${{ matrix.go }}, ${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
@@ -43,14 +43,11 @@ jobs:
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
-    # The free ubuntu-24.04-arm runner may not be offered to private
-    # repositories. While the repository is private, the arm64 legs run on
-    # amd64: they cross-build and vet for arm64 and skip the native steps.
-    runs-on: ${{ matrix.arch == 'arm64' && github.event.repository.private && 'ubuntu-24.04' || matrix.runner }}
+    # Each leg runs natively, on GitHub's free runner of its architecture.
+    runs-on: ${{ matrix.runner }}
     env:
       CGO_ENABLED: "0"
       GOARCH: ${{ matrix.arch }}
-      CROSS: ${{ matrix.arch == 'arm64' && github.event.repository.private }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -59,7 +56,6 @@ jobs:
       - name: Build both flavours (static)
         run: make build build-consensus
       - name: Print version
-        if: env.CROSS != 'true'
         run: |
           ./bin/remotesigner --version
           ./bin/remotesigner-consensus --version
@@ -68,11 +64,9 @@ jobs:
           go vet ./...
           go vet -tags noexecution ./...
       - name: go test -race
-        if: env.CROSS != 'true'
         # The race detector needs cgo; everything else in this job builds with CGO_ENABLED=0.
         run: make test
       - name: Fuzz (differential hash-tree-root against fastssz, strict decoders, keystore decoder, interchange; 10 s each)
-        if: env.CROSS != 'true'
         run: make fuzz
 
   test-postgres:
@@ -196,7 +190,9 @@ jobs:
     # Two passes per network: protection disabled and no genesis time (every
     # sign fixture), then protection on with genesis time (RANDAO). Then
     # qrysm's interchange export goes through the signer's import and export
-    # and back into qrysm (`vectorgen interchange-check`).
+    # and back into qrysm (`vectorgen interchange-check`). Both flavours: the
+    # consensus flavour is the one qrl-tests' consensus-remote-signer lane
+    # builds.
     # tools/vectorgen links qrysm (GPL-3.0); it runs here and is never shipped.
     runs-on: ubuntu-24.04
     steps:
@@ -207,9 +203,13 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/vectorgen/go.sum
-      - name: Build the signer (static)
-        run: make build
-      - name: vectorgen verify and the interchange round trip against the built signer
+      - name: Build the signer, both flavours (static)
+        run: make build build-consensus
+      - name: vectorgen verify and the interchange round trip against the consensus flavour
+        env:
+          REMOTESIGNER_BINARY: ${{ github.workspace }}/bin/remotesigner-consensus
+        run: make vectors-verify-binary
+      - name: vectorgen verify and the interchange round trip against the default flavour
         env:
           REMOTESIGNER_BINARY: ${{ github.workspace }}/bin/remotesigner
         run: make vectors-verify-binary
@@ -220,8 +220,8 @@ jobs:
     # (interop keys, both end-to-end networks): capabilities, publicKeys, one
     # sign request per SignRequest oneof and one RANDAO reveal, each answer
     # checked with qrysm's verifiers. Then a DTO renamed on either side must
-    # fail it. tools/vectorgen/contract links qrysm (GPL-3.0); it runs here
-    # and is never shipped.
+    # fail it, against both flavours. tools/vectorgen/contract links qrysm
+    # (GPL-3.0); it runs here and is never shipped.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -231,9 +231,13 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/vectorgen/contract/go.sum
-      - name: Build the signer (static)
-        run: make build
-      - name: vectorgen contract against the built signer
+      - name: Build the signer, both flavours (static)
+        run: make build build-consensus
+      - name: vectorgen contract against the consensus flavour
+        env:
+          REMOTESIGNER_BINARY: ${{ github.workspace }}/bin/remotesigner-consensus
+        run: make vectors-contract
+      - name: vectorgen contract against the default flavour
         env:
           REMOTESIGNER_BINARY: ${{ github.workspace }}/bin/remotesigner
         run: make vectors-contract
@@ -261,8 +265,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        # As in release.yml: setup-go reads go.mod's toolchain line only when
+        # GOTOOLCHAIN is not local, so this step alone runs without it.
+        env:
+          GOTOOLCHAIN: auto
         with:
-          go-version: "1.26.x"
+          # govulncheck checks the Go the release builds with: go.mod's
+          # toolchain line, as in release.yml.
+          go-version-file: go.mod
       - name: LICENSE is the verbatim Apache-2.0 text
         run: make license-hash
       - name: NOTICE has no LGPL paragraph

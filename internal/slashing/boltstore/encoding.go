@@ -19,7 +19,7 @@ import (
 //	  high_watermark           flags(1) epoch(8) slot(8), absent when none is set
 //	v/<sha256(pk)>/
 //	  pk                       [2592]byte
-//	  enabled                  0 or 1
+//	  enabled                  0 disabled on purpose, 1 enabled, 2 disabled by an import
 //	  wm                       flags(1) slot(8) source(8) target(8), absent when none is set
 //	  randao                   m(8) R(32) last(8), absent when no frontier is stored
 //	  blocks/  slot(8)   → root
@@ -94,18 +94,27 @@ func decodeRoot(what string, b []byte) (*slashing.Root, error) {
 	return nil, corrupt(what, b)
 }
 
-func encodeBool(v bool) []byte {
-	if v {
-		return []byte{1}
+// The values of a validator's enabled key.
+const (
+	stateDisabled byte = iota // disabled on purpose: keymanager DELETE, disable-validator
+	stateEnabled
+	stateDisabledByImport // registered by an import before its history, or its element failed to import
+)
+
+func encodeState(state byte) []byte { return []byte{state} }
+
+func encodeEnabled(enabled bool) []byte {
+	if enabled {
+		return encodeState(stateEnabled)
 	}
-	return []byte{0}
+	return encodeState(stateDisabled)
 }
 
-func decodeBool(what string, b []byte) (bool, error) {
-	if len(b) != 1 || b[0] > 1 {
-		return false, corrupt(what, b)
+func decodeState(b []byte) (byte, error) {
+	if len(b) != 1 || b[0] > stateDisabledByImport {
+		return 0, corrupt("enabled", b)
 	}
-	return b[0] == 1, nil
+	return b[0], nil
 }
 
 func encodeAttestation(a slashing.SignedAttestation) []byte {
@@ -203,7 +212,11 @@ func decodeHighWatermark(b []byte) (slashing.HighWatermark, error) {
 	if len(b) != 17 || b[0]&^knownFlagsMask != 0 {
 		return slashing.HighWatermark{}, corrupt("high watermark", b)
 	}
-	return slashing.HighWatermark{Epoch: field(b, b[0], flagHighEpoch, 1), Slot: field(b, b[0], flagHighSlot, 9)}, nil
+	h := slashing.HighWatermark{Epoch: field(b, b[0], flagHighEpoch, 1), Slot: field(b, b[0], flagHighSlot, 9)}
+	if err := h.Validate(); err != nil {
+		return slashing.HighWatermark{}, fmt.Errorf("%w: high watermark: %w", ErrCorrupt, err)
+	}
+	return h, nil
 }
 
 func encodeRandao(s slashing.RandaoState) []byte {

@@ -97,13 +97,17 @@ func newApp(stdout, stderr io.Writer, runSigner runFunc) *cli.App {
 }
 
 // rootAction runs when no subcommand matches. It prints the help for a bare
-// invocation or "help", and reports anything else as a usage error instead
-// of urfave/cli's default "No help topic" exit 3.
+// invocation or "help", the unstable options for Web3Signer's hidden
+// "Xhelp", and reports anything else as a usage error instead of
+// urfave/cli's default "No help topic" exit 3.
 func rootAction(c *cli.Context) error {
 	first := c.Args().First()
 	switch {
 	case !c.Args().Present(), first == "help" && c.NArg() == 1:
 		return cli.ShowAppHelp(c)
+	case first == xhelpCommand && c.NArg() == 1:
+		printUnstableOptions(c.App.Writer, c.App)
+		return nil
 	case first == "help":
 		return cli.Exit(fmt.Sprintf("usage error: help takes no arguments; run '%s --help' for usage", c.App.Name), exitUsage)
 	default:

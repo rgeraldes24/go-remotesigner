@@ -82,6 +82,9 @@ var (
 	// ErrTxRejected is a transaction the signer refuses to sign: its chain,
 	// its fee or the account's policy.
 	ErrTxRejected = &Error{Code: -32003, Message: "Transaction rejected"}
+	// ErrLimitExceeded is a signing call refused because every slot of the
+	// signing gate is taken and its queue is full (EIP-1474's code).
+	ErrLimitExceeded = &Error{Code: -32005, Message: "Limit exceeded"}
 )
 
 // Request is one decoded JSON-RPC request. ID is the raw id: a string, a

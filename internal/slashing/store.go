@@ -49,8 +49,8 @@ type LowWatermark struct {
 	TargetEpoch *uint64
 }
 
-// HighWatermark is the global high watermark, a fence used before migrations. Either field may be nil; the zero
-// value means no high watermark.
+// HighWatermark is the global high watermark, a fence used before migrations. Both fields are set, or neither: the
+// zero value means no high watermark, and one part alone is ErrPartialHighWatermark, which every store refuses.
 type HighWatermark struct {
 	Epoch *uint64
 	Slot  *uint64
@@ -59,10 +59,23 @@ type HighWatermark struct {
 // IsSet reports whether any part of the high watermark is set.
 func (h HighWatermark) IsSet() bool { return h.Epoch != nil || h.Slot != nil }
 
+// Validate returns ErrPartialHighWatermark when exactly one part of h is set.
+func (h HighWatermark) Validate() error {
+	if (h.Epoch == nil) != (h.Slot == nil) {
+		return ErrPartialHighWatermark
+	}
+	return nil
+}
+
 // ValidatorStatus is a key's registration state.
 type ValidatorStatus struct {
 	Registered bool
 	Enabled    bool
+	// DisabledByImport reports that the key is disabled by an interchange import: registered by one before it wrote
+	// the key's history (RegisterValidatorsDisabled), or disabled because its element failed to import
+	// (HistoryTx.DisableForImport). A later clean import of the key enables it again. A key disabled on purpose
+	// (SetValidatorEnabled false: a keymanager DELETE or disable-validator) is not: imports leave it disabled.
+	DisabledByImport bool
 }
 
 // Store is a slashing-protection backend. A store holds the history of one network: its genesis validators root
@@ -95,13 +108,15 @@ type Store interface {
 	// RegisterValidators registers keys of PublicKeyLength bytes. New keys are enabled; registering a known key
 	// again leaves its enabled flag unchanged.
 	RegisterValidators(ctx context.Context, pubkeys [][]byte) error
-	// RegisterValidatorsDisabled registers keys like RegisterValidators, but new keys are disabled. The interchange
-	// import registers keys with it, so that a key it adds is enabled only by the transaction that writes its
-	// history, and never signs without it, whatever stops the import in between.
+	// RegisterValidatorsDisabled registers keys like RegisterValidators, but new keys are disabled by import
+	// (ValidatorStatus.DisabledByImport). The interchange import registers keys with it, so that a key it adds is
+	// enabled only by the transaction that writes its history, and never signs without it, whatever stops the import
+	// in between.
 	RegisterValidatorsDisabled(ctx context.Context, pubkeys [][]byte) error
 	// ValidatorStatus returns a key's registration state; an unknown key is neither registered nor enabled.
 	ValidatorStatus(ctx context.Context, id KeyID) (ValidatorStatus, error)
-	// SetValidatorEnabled sets a registered key's enabled flag. It is serialised with UpdateBlocks and
+	// SetValidatorEnabled sets a registered key's enabled flag. Disabling a key this way disables it on purpose (it
+	// is no longer DisabledByImport), so that an import leaves it disabled. It is serialised with UpdateBlocks and
 	// UpdateAttestations for the same validator: it takes the validator's block lock and then its attestation lock
 	// (the fixed order block, attestation, RANDAO that every multi-lock operation uses), so a check-and-record that
 	// read the old flag has committed before it returns, and one that starts afterwards reads the new flag.
@@ -193,8 +208,13 @@ type AttestationTx interface {
 type HistoryTx interface {
 	BlockTx
 	AttestationTx
-	// SetEnabled sets the validator's enabled flag.
+	// SetEnabled sets the validator's enabled flag; false disables it on purpose, as SetValidatorEnabled does.
 	SetEnabled(enabled bool) error
+	// DisabledByImport reports ValidatorStatus.DisabledByImport of the validator.
+	DisabledByImport() (bool, error)
+	// DisableForImport disables the validator for an element that failed to import: an enabled key, or one an
+	// import disabled before, is disabled by import; a key disabled on purpose stays disabled on purpose.
+	DisableForImport() error
 }
 
 // HistoryView is a read-only snapshot of a store (see Store.ViewHistory). Values it returns stay valid after the

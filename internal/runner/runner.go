@@ -26,6 +26,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/admission"
 	"github.com/rgeraldes24/go-remotesigner/internal/api/consensus"
 	kmapi "github.com/rgeraldes24/go-remotesigner/internal/api/keymanager"
 	"github.com/rgeraldes24/go-remotesigner/internal/api/ops"
@@ -88,16 +89,19 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	// the self-signed one under a lock on its directory, which also holds
 	// when the store's lock does not (no store, or a store elsewhere).
 	var tlsSrv *tlsconf.Server
+	files := ServerFilePolicy(cfg, log)
 	authCfg := auth.Config{
 		Mode:           cfg.HTTP.AuthMode,
 		SignTokenFile:  cfg.SignTokenFile(),
 		AdminTokenFile: cfg.AdminTokenFile(),
+		Files:          files,
 	}
 	if cfg.TLS.Enabled() {
 		tlsSrv, err = tlsconf.New(cfg.TLS, tlsconf.Options{
 			SelfSignedDir:     cfg.SelfSignedTLSPath(),
 			SelfSignedHosts:   cfg.HTTP.HostAllowlist,
 			RequireClientCert: cfg.HTTP.AuthMode.ClientCerts(),
+			Files:             files,
 		})
 		if err != nil {
 			closeStore()
@@ -151,7 +155,13 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	reloader := ops.NewReloader(loader.Load, log)
 	var ready atomic.Bool
 
-	sign := &consensus.Sign{Policy: pol, Signer: sig, Pinner: store, Metrics: m, Log: log}
+	gate, err := admission.New(cfg.Signing.Limits())
+	if err != nil {
+		reveals.Close()
+		closeStore()
+		return fmt.Errorf("refusing to start: %w", err)
+	}
+	sign := &consensus.Sign{Policy: pol, Signer: sig, Pinner: store, Gate: gate, Metrics: m, Log: log}
 	if cfg.Consensus.SlashingProtectionEnabled {
 		sign.Protector = engine
 	}
@@ -215,8 +225,9 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		serving++
 		go func() { served <- ml.Serve() }()
 		log.WithFields(logrus.Fields{
-			"address": ml.Addr().String(), "token": cfg.Metrics.AuthTokenFile != "",
+			"address": ml.Addr().String(), "token-required": cfg.Metrics.AuthTokenFile != "",
 		}).Info("Metrics listener is listening")
+		WarnMetricsTokenInClear(cfg, log)
 	}
 	tlsStatus := "disabled"
 	if tlsSrv != nil {
@@ -460,12 +471,17 @@ func routes(cfg *config.Config, n *network.Network, pol *policy.Policy, authn *a
 		SlashingProtection:    protection,
 	}
 	checks := []ops.Check{{ID: ops.CheckDefault, Run: func(context.Context) (bool, map[string]any) { return true, nil }}}
-	// Like Web3Signer, the store check exists only when there is a store:
-	// with protection disabled (loopback only) it is left out rather than
-	// reported DOWN, which would fail /healthcheck forever.
-	if set.health != nil {
+	// With protection disabled (loopback only) the store check is DOWN, so
+	// that /healthcheck never reports a signer without slashing protection
+	// as healthy; Web3Signer leaves the check out (DEVIATIONS X114).
+	switch {
+	case set.health != nil:
 		checks = append(checks, ops.Check{ID: ops.CheckSlashingProtection, Run: func(ctx context.Context) (bool, map[string]any) {
 			return set.health(ctx), nil
+		}})
+	case !cfg.Consensus.SlashingProtectionEnabled:
+		checks = append(checks, ops.Check{ID: ops.CheckSlashingProtection, Run: func(context.Context) (bool, map[string]any) {
+			return false, map[string]any{"slashing-protection": "disabled"}
 		}})
 	}
 	checks = append(checks, loader.Checks()...)
@@ -621,3 +637,19 @@ func logNetwork(log *logrus.Logger, n *network.Network, pol *policy.Policy) {
 }
 
 func hexRoot(r [32]byte) string { return "0x" + hex.EncodeToString(r[:]) }
+
+// WarnMetricsTokenInClear logs a WARN when the metrics token crosses the
+// network in clear: the metrics listener has no TLS, so with
+// --metrics-auth-token-file on a non-loopback --metrics-host every scrape
+// sends the token unencrypted, which the API listener would refuse without
+// --Xallow-plaintext-token-auth. The metrics token grants nothing but
+// GET /metrics, so this is a warning, not a refusal. It reports whether it
+// warned.
+func WarnMetricsTokenInClear(cfg *config.Config, log logrus.FieldLogger) bool {
+	if !cfg.Metrics.Enabled || cfg.Metrics.AuthTokenFile == "" || config.IsLoopbackHost(cfg.Metrics.Host) {
+		return false
+	}
+	log.WithField("metrics-host", cfg.Metrics.Host).Warn("The metrics listener has no TLS, so every scrape sends the " +
+		"metrics token in clear on a non-loopback --metrics-host; keep the listener on a network only Prometheus can reach")
+	return true
+}

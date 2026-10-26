@@ -345,7 +345,8 @@ The metrics listener is off by default. To let a Prometheus container on the sig
 ```
 
 The metrics listener has no TLS: keep it on an internal network, and use the metrics token
-([`tls.md`](tls.md#7-the-metrics-token)). The Grafana dashboard and the alert rules are in
+([`tls.md`](tls.md#7-the-metrics-token)). With these flags the signer logs at startup a warning that scrapes send the
+token in clear, which an internal network makes acceptable. The Grafana dashboard and the alert rules are in
 [`deploy/grafana/`](../../deploy/grafana/remotesigner.json) and [`deploy/prometheus/`](../../deploy/prometheus/alerts.yml);
 [`metrics.md`](metrics.md#5-the-grafana-dashboard) describes them.
 

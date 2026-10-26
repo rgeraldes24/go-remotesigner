@@ -36,10 +36,13 @@ type validator struct {
 	mu      sync.Mutex
 	pubkey  []byte
 	enabled bool
-	blocks  map[uint64]*slashing.Root
-	atts    map[uint64]slashing.SignedAttestation
-	low     slashing.LowWatermark
-	randao  *slashing.RandaoState
+	// byImport is set while an import keeps the key disabled
+	// (slashing.ValidatorStatus.DisabledByImport).
+	byImport bool
+	blocks   map[uint64]*slashing.Root
+	atts     map[uint64]slashing.SignedAttestation
+	low      slashing.LowWatermark
+	randao   *slashing.RandaoState
 }
 
 var _ slashing.Store = (*Store)(nil)
@@ -93,6 +96,9 @@ func (s *Store) HighWatermark(ctx context.Context) (slashing.HighWatermark, erro
 
 // SetHighWatermark replaces the global high watermark after checking it against every low watermark.
 func (s *Store) SetHighWatermark(ctx context.Context, h slashing.HighWatermark) error {
+	if err := h.Validate(); err != nil {
+		return err
+	}
 	if err := s.write(ctx); err != nil {
 		return err
 	}
@@ -137,10 +143,11 @@ func (s *Store) register(ctx context.Context, pubkeys [][]byte, enabled bool) er
 		id := slashing.KeyIDOf(pk)
 		if _, ok := s.validators[id]; !ok {
 			s.validators[id] = &validator{
-				pubkey:  slices.Clone(pk),
-				enabled: enabled,
-				blocks:  make(map[uint64]*slashing.Root),
-				atts:    make(map[uint64]slashing.SignedAttestation),
+				pubkey:   slices.Clone(pk),
+				enabled:  enabled,
+				byImport: !enabled,
+				blocks:   make(map[uint64]*slashing.Root),
+				atts:     make(map[uint64]slashing.SignedAttestation),
 			}
 		}
 	}
@@ -151,7 +158,7 @@ func (s *Store) register(ctx context.Context, pubkeys [][]byte, enabled bool) er
 func (s *Store) ValidatorStatus(ctx context.Context, id slashing.KeyID) (slashing.ValidatorStatus, error) {
 	var st slashing.ValidatorStatus
 	err := s.withValidator(ctx, id, func(v *validator) error {
-		st = slashing.ValidatorStatus{Registered: true, Enabled: v.enabled}
+		st = slashing.ValidatorStatus{Registered: true, Enabled: v.enabled, DisabledByImport: v.byImport}
 		return nil
 	})
 	if errors.Is(err, slashing.ErrValidatorNotRegistered) {
@@ -160,10 +167,10 @@ func (s *Store) ValidatorStatus(ctx context.Context, id slashing.KeyID) (slashin
 	return st, err
 }
 
-// SetValidatorEnabled sets a registered key's enabled flag.
+// SetValidatorEnabled sets a registered key's enabled flag; false disables it on purpose.
 func (s *Store) SetValidatorEnabled(ctx context.Context, id slashing.KeyID, enabled bool) error {
 	return s.withValidator(ctx, id, func(v *validator) error {
-		v.enabled = enabled
+		v.enabled, v.byImport = enabled, false
 		return nil
 	})
 }
@@ -507,10 +514,25 @@ func (t *tx) PruneAttestations() (int, error) {
 }
 
 func (t *tx) SetEnabled(enabled bool) error {
-	cur := t.v.enabled
-	t.v.enabled = enabled
-	t.j.add(func() { t.v.enabled = cur })
+	t.setState(enabled, false)
 	return nil
+}
+
+func (t *tx) DisabledByImport() (bool, error) { return t.v.byImport, nil }
+
+func (t *tx) DisableForImport() error {
+	if t.v.enabled || t.v.byImport {
+		t.setState(false, true)
+	}
+	return nil
+}
+
+// setState sets the enabled flag and the import marker, undone with the
+// transaction.
+func (t *tx) setState(enabled, byImport bool) {
+	cur, curByImport := t.v.enabled, t.v.byImport
+	t.v.enabled, t.v.byImport = enabled, byImport
+	t.j.add(func() { t.v.enabled, t.v.byImport = cur, curByImport })
 }
 
 // view reads the store for ViewHistory, with s.mu held for writing.

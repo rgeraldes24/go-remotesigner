@@ -390,3 +390,21 @@ func TestSlashingProtectionDB(t *testing.T) {
 		t.Fatalf("from the URL %s", got)
 	}
 }
+
+// The zero Signing is the gate's defaults; any other value is taken as it is,
+// a queue of 0 included.
+func TestSigningLimits(t *testing.T) {
+	tests := []struct {
+		in                 Signing
+		concurrent, queued int
+	}{
+		{Signing{}, 32, 512},
+		{Signing{MaxConcurrent: 1}, 1, 0},
+		{Signing{MaxConcurrent: 64, MaxQueued: 1024}, 64, 1024},
+	}
+	for _, tt := range tests {
+		if c, q := tt.in.Limits(); c != tt.concurrent || q != tt.queued {
+			t.Errorf("%+v.Limits() = %d, %d, want %d, %d", tt.in, c, q, tt.concurrent, tt.queued)
+		}
+	}
+}

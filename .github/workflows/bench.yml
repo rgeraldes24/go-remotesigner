@@ -1,0 +1,144 @@
+# Copyright 2026 The go-remotesigner Authors.
+# SPDX-License-Identifier: Apache-2.0
+
+# The benchmarks of docs/benchmarks.md, re-run every week and on demand, on
+# GitHub's hosted runners. These are not the reference VMs the thresholds
+# were set for, so a run tracks trends and catches regressions; the release
+# gate is the reference-VM run (docs/operations/release.md). B19 runs every
+# night (nightly.yml). B16's 24 h soak does not fit a hosted job (6 h at
+# most): this workflow runs it for B16_DURATION, 1 h unless the dispatch
+# asks for up to 5 h. Each job keeps its output as an artefact.
+name: Benchmarks
+
+on:
+  schedule:
+    - cron: "41 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      b16-duration:
+        description: B16 soak duration (a Go duration, at most 5h)
+        default: 1h
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
+# Each step pipes its make target through tee. GitHub runs a step with no
+# shell as `bash -e`, whose pipeline status is tee's; `shell: bash` adds
+# pipefail, so a benchmark that fails fails its step.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  micro:
+    name: B1-B6, B10, B15 (Go benchmarks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+      - name: Go benchmarks
+        run: make bench-micro 2>&1 | tee bench-micro.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: bench-micro-${{ github.run_id }}
+          path: bench-micro.txt
+
+  built-binary:
+    # The built binary's benchmarks, one at a time so that they do not
+    # disturb each other: the bursts and RANDAO reveals (B7-B9), the TLS
+    # handshake storm (B20), key loading and reload (B11, B12) and the
+    # keymanager import (B18).
+    name: B7-B9, B11, B12, B18, B20 (built binary)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+      - name: B7, B8, B9 and B20
+        run: make bench-e2e 2>&1 | tee bench-e2e.txt
+      - name: B11 and B12
+        if: always()
+        run: make bench-loading 2>&1 | tee bench-loading.txt
+      - name: B18
+        if: always()
+        run: make bench-keymanager 2>&1 | tee bench-keymanager.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: bench-built-binary-${{ github.run_id }}
+          path: bench-*.txt
+
+  slashing-protection:
+    # Pruning on bbolt (B14), and the Postgres store's transactions, stalled
+    # database and pruning (B13, B14) against a postgres service.
+    name: B13, B14 (slashing protection)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      REMOTESIGNER_TEST_POSTGRES: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+      - name: B14 on bbolt
+        run: make bench-b14 2>&1 | tee bench-b14.txt
+      - name: B13 and B14 on Postgres
+        if: always()
+        run: make bench-postgres 2>&1 | tee bench-postgres.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: bench-slashing-protection-${{ github.run_id }}
+          path: bench-*.txt
+
+  soak:
+    # B16 at mainnet cadence (60 s slots) for the dispatch's duration, 1 h on
+    # the schedule.
+    name: B16 duty soak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    env:
+      B16_DURATION: ${{ inputs.b16-duration || '1h' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+      - name: B16 for ${{ env.B16_DURATION }}
+        run: make b16 B16_DURATION="$B16_DURATION" B16_SLOT=60 B16_TIMEOUT=330m 2>&1 | tee bench-b16.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: bench-b16-${{ github.run_id }}
+          path: bench-b16.txt

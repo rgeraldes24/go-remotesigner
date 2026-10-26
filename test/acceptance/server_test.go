@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -39,6 +40,7 @@ func TestRequestRefusals(t *testing.T) {
 	s.waitReady()
 	sign, admin, wrong := s.signToken(), s.adminToken(), "0x"+strings.Repeat("e", 64)
 	const pubkeys = "/api/v1/consensus/publicKeys"
+	randaoState := "/api/v1/consensus/randao_state/0x" + strings.Repeat("ab", 32)
 	tests := []struct {
 		name   string
 		req    request
@@ -53,6 +55,8 @@ func TestRequestRefusals(t *testing.T) {
 		{"no token on an admin route", request{method: "POST", path: "/reload", contentType: "application/json"}, 401, "UNAUTHENTICATED"},
 		{"non-JSON POST", request{method: "POST", path: "/reload", token: admin, contentType: "text/plain", body: strings.NewReader("x")}, 415, "UNSUPPORTED_MEDIA_TYPE"},
 		{"POST without content type", request{method: "POST", path: "/reload", token: admin}, 415, "UNSUPPORTED_MEDIA_TYPE"},
+		{"bodyless DELETE without content type", request{method: "DELETE", path: randaoState, token: admin}, 415, "UNSUPPORTED_MEDIA_TYPE"},
+		{"bodyless DELETE as text", request{method: "DELETE", path: randaoState, token: admin, contentType: "text/plain"}, 415, "UNSUPPORTED_MEDIA_TYPE"},
 		{"Origin", request{path: pubkeys, token: sign, origin: "https://evil.example"}, 403, "ORIGIN_NOT_ALLOWED"},
 		{"Origin null", request{path: "/upcheck", origin: "null"}, 403, "ORIGIN_NOT_ALLOWED"},
 		{"bad Host", request{path: "/upcheck", host: "evil.example:" + s.port}, 403, "HOST_NOT_ALLOWED"},
@@ -326,6 +330,59 @@ func TestMaxConnections(t *testing.T) {
 	line, err := bufio.NewReader(fifth).ReadString('\n')
 	if err != nil || !strings.HasPrefix(line, "HTTP/1.1 200") {
 		t.Fatalf("5th connection after one closed: %q %v", line, err)
+	}
+}
+
+// A peer without a token cannot hold the connection slots: with
+// --http-max-connections=4, four connections that each send an
+// unauthenticated request are closed after their 401 (and a bad Host or an
+// Origin after its 403), so the validator client's next connection is served
+// at once rather than after the 120 s idle timeout.
+func TestRefusedConnectionsFreeTheirSlots(t *testing.T) {
+	s := start(t, options{global: []string{"--http-max-connections=4"}})
+	s.waitReady()
+	http.DefaultClient.CloseIdleConnections() // free the slot waitReady's connection holds
+	time.Sleep(100 * time.Millisecond)
+	addr := "127.0.0.1:" + s.port
+	refused := []string{
+		"GET /api/v1/consensus/publicKeys HTTP/1.1\r\nHost: localhost\r\n\r\n",
+		"GET /api/v1/consensus/publicKeys HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer 0x" + strings.Repeat("e", 64) + "\r\n\r\n",
+		"GET /upcheck HTTP/1.1\r\nHost: evil.example\r\n\r\n",
+		"GET /upcheck HTTP/1.1\r\nHost: localhost\r\nOrigin: https://evil.example\r\n\r\n",
+	}
+	for i, req := range refused {
+		c, err := net.Dial("tcp", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		if _, err := io.WriteString(c, req); err != nil {
+			t.Fatal(err)
+		}
+		_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+		br := bufio.NewReader(c)
+		resp, err := http.ReadResponse(br, nil)
+		if err != nil {
+			t.Fatalf("connection %d: %v", i, err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		if (resp.StatusCode != 401 && resp.StatusCode != 403) || !resp.Close {
+			t.Fatalf("connection %d: %d, Connection: close %v", i, resp.StatusCode, resp.Close)
+		}
+		if _, err := br.ReadByte(); !errors.Is(err, io.EOF) {
+			t.Fatalf("connection %d is still open after its refusal: %v", i, err)
+		}
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, _ := http.NewRequest(http.MethodGet, s.base+"/api/v1/consensus/publicKeys", nil)
+	req.Header.Set("Authorization", "Bearer "+s.signToken())
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("the sign token's request after four refused connections: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("the sign token's request after four refused connections: %d", resp.StatusCode)
 	}
 }
 

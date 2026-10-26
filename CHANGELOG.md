@@ -20,7 +20,7 @@ The HTTP contract with the qrysm validator client stays at 1.0.0: its one additi
 is a clarification that [`docs/contract.md`](docs/contract.md#20-versioning-and-change-control) section 20 lists. The
 slashing-protection schema is unchanged and no flag was removed or renamed, so a 1.0.0 signer upgrades in place with
 its configuration ([`docs/operations/upgrade.md`](docs/operations/upgrade.md)). The behaviours that differ from
-Web3Signer are rows X25, X26, X28 and X76-X106 of [`DEVIATIONS.md`](DEVIATIONS.md).
+Web3Signer are rows X25, X26, X28, X76-X106 and X116 of [`DEVIATIONS.md`](DEVIATIONS.md).
 
 ### Added
 
@@ -31,8 +31,10 @@ Web3Signer are rows X25, X26, X28 and X76-X106 of [`DEVIATIONS.md`](DEVIATIONS.m
   go-qrl's text hash, verified before it is returned) and `health_status`, and splits batches of up to 1,000
   requests. `GET /api/v1/execution/publicKeys` lists each account's address with its public key, which a verifier of
   `qrl_sign` needs. Clients authenticate with the sign token in an `Authorization: Bearer` header, a client
-  certificate or both; Basic authentication and a token in the URL are refused. See
-  [`docs/operations/execution.md`](docs/operations/execution.md).
+  certificate or both; Basic authentication and a token in the URL are refused. `qrl_sign` and the transaction
+  methods take slots of consensus mode's signing gate (`--max-concurrent-signing-requests`,
+  `--max-queued-signing-requests`), each element of a batch on its own, and get -32005 "Limit exceeded" when it is
+  full. See [`docs/operations/execution.md`](docs/operations/execution.md).
 - **Transaction signing and sending.** `qrl_signTransaction` signs go-qrl's type-0x2 transactions for `--chain-id`
   and answers gqrl's `{raw, tx}`; the signer compares that chain ID with the node's at startup and every 10 minutes,
   and refuses transactions while they differ. `qrl_sendTransaction` asks the node's `qrl_fillTransaction` for what a
@@ -82,8 +84,8 @@ Web3Signer are rows X25, X26, X28 and X76-X106 of [`DEVIATIONS.md`](DEVIATIONS.m
 The first release: a remote signer for the ML-DSA-87 validator keys of qrysm validator clients on Testnet V3, ported
 from Consensys Web3Signer and, like it, licensed under the Apache License 2.0 ([`LICENSE`](LICENSE),
 [`NOTICE`](NOTICE)). Every behaviour that differs from Web3Signer is listed in [`DEVIATIONS.md`](DEVIATIONS.md)
-(rows X1-X75); the ones about execution mode (X25, X26, X28) describe what 1.1.0 adds. The validator client needs
-qrysm's remote-signer keymanager, and
+(rows X1-X75 and X107-X115); the ones about execution mode (X25, X26, X28) describe what 1.1.0 adds. The
+validator client needs qrysm's remote-signer keymanager, and
 [`docs/operations/requirements.md`](docs/operations/requirements.md#5-a-qrysm-validator-client-with-the-remote-signer-keymanager)
 section 5 names the qrysm build that has it.
 
@@ -109,12 +111,13 @@ section 5 names the qrysm build that has it.
   the same keys, a shared PostgreSQL database (`postgres://` URLs) with a squashed schema that the signer creates and
   upgrades itself (`consensus migrate`, `--slashing-protection-db-migrate`), advisory locks, a fixed pool and timeout
   profile, and credentials only from a password file or `PGPASSFILE`. Disabling protection is allowed only when every
-  listener is on loopback. Both stores pass the store tests ported from Web3Signer's slashing-protection suite and
-  scenarios written from the conditions of EIP-3076.
+  listener is on loopback, and `/healthcheck` then reports the store check `DOWN`. Both stores pass the store tests
+  ported from Web3Signer's slashing-protection suite and scenarios written from the conditions of EIP-3076.
 - **Slashing-protection history commands.** `consensus import` and `consensus export` stream EIP-3076 v5 interchange
   files with 2,592-byte keys, `consensus watermark-repair` raises low watermarks, `consensus set-high-watermark` sets
   or removes the high-watermark fence (served at `GET /api/v1/consensus/highWatermark`), and
-  `consensus disable-validator` disables a key. With bbolt they run on a stopped signer, with Postgres online. The
+  `consensus disable-validator` disables a key, which an import enables again only when `--enable-keys` names it.
+  With bbolt they run on a stopped signer, with Postgres online. The
   history is pruned every `--slashing-protection-pruning-interval` (512 epochs kept by default): with bbolt also at
   startup; with Postgres, paced so that a run takes at most half of the database's time.
 - **RANDAO reveals.** `POST /api/v1/consensus/randao_reveal/{identifier}` releases hash-onion layers under the frontier
@@ -126,7 +129,8 @@ section 5 names the qrysm build that has it.
   keystore v1 and the deposit CLI's keystores. Keystores are opened by a hardened decryptor that bounds the KDF
   parameters before any work, compares the derived key with the declared one, and runs Argon2id under one
   memory-sized semaphore (`--signer-load-parallelism`). Password and seed files that other users can read are
-  refused (`--strict-file-permissions`). `consensus keystore verify` checks keystores and password files offline.
+  refused (`--strict-file-permissions`), as are token files and TLS private keys. `consensus keystore verify` checks
+  keystores and password files offline.
 - **Reload.** `POST /reload` loads only the sources that changed, never disables a key, keeps the previous keys of a
   source that fails, and is bounded by `--reload-timeout`. The startup load, which runs while the API already
   listens, is not bounded. `GET /reload` reports the status of either.
@@ -137,22 +141,26 @@ section 5 names the qrysm build that has it.
   start (`--tls-generate-self-signed`), its fingerprint logged for pinning; client certificates in
   `--http-auth-mode=mtls` and `token+mtls`, trusted by fingerprint or by a client CA, never by the system roots.
 - **Request guards.** Host allowlist, refusal of any `Origin` header, `Content-Type` checks, per-route body limits,
-  timeouts and a connection cap, and startup refusals on a non-loopback listener for anything that would weaken them
-  unless an explicit `--X…` override says so (each override is explained in
-  [`docs/reference/flags.md`](docs/reference/flags.md#override-flags)).
+  timeouts, a connection cap that a request refused for its credential, `Host` or `Origin` frees at once by closing
+  its connection, a signing gate that admits 32 sign requests at once, queues 512 more and answers the
+  rest 503 `OVERLOADED` (`--max-concurrent-signing-requests`, `--max-queued-signing-requests`), and startup refusals
+  on a non-loopback listener for anything that would weaken them unless an explicit `--X…` override says so (each
+  override is explained in [`docs/reference/flags.md`](docs/reference/flags.md#override-flags)).
 - **Process hygiene on Linux.** Core dumps off and the process not dumpable (`--disable-core-dumps`, on by default),
   and optional `--mlock-all`.
 - **Operations endpoints and metrics.** `GET /api/v1/consensus/publicKeys` (sorted, streamed, gzip on request),
   `GET /api/v1/consensus/capabilities` for the validator client's startup handshake, `/upcheck` and `/healthcheck`
-  in Web3Signer's shape. A separate Prometheus listener (`--metrics-enabled`) with its own host allowlist and an
-  optional token serves the signing, slashing-protection, RANDAO, loaded-key and HTTP metrics; no metric carries a
-  key as a label. Prometheus alert rules and a Grafana dashboard are in [`deploy/`](deploy).
+  in Web3Signer's shape. A separate Prometheus listener (`--metrics-enabled`) with its own host allowlist, a cap of
+  32 connections and an optional token, with a warning when that token would travel in clear, serves the signing,
+  slashing-protection, RANDAO, loaded-key and HTTP metrics; no metric carries a key as a label. Prometheus alert
+  rules and a Grafana dashboard are in [`deploy/`](deploy).
 - **Networks.** `--network` is required: the built-in `minimal`, `end-to-end` (alias `e2e`), `end-to-end-mainnet` and
   `interop`, or a qrysm configuration file with the genesis time and validators root from flags or a genesis state.
 - **Configuration.** Every global and `consensus` flag also reads a `REMOTESIGNER_` environment variable and a YAML
-  `--config-file`, while the subcommands' own flags read the environment at most; the flag reference, generated
-  from the flag definitions, lists what each flag reads. Booleans take `--flag=false`, never `--flag false`. Logs
-  are text or JSON (`--logging-format`), with Web3Signer's levels (`--logging`).
+  `--config-file`, while the subcommands' own flags read the environment at most; the flag reference, generated from
+  the flag definitions, lists what each flag reads. The hidden `remotesigner Xhelp` lists the `--X…` overrides, as
+  Web3Signer's does. Booleans take `--flag=false`, never `--flag false`. Logs are text or JSON (`--logging-format`),
+  with Web3Signer's levels (`--logging`).
 - **Container image and deployment examples.** A distroless, non-root image per flavour that runs with a read-only
   root file system and a TLS-first entrypoint, a docker-compose example with a validator client, a hardened systemd
   unit, and example configurations for a single host (bbolt) and Postgres replicas.

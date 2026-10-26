@@ -20,6 +20,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 )
 
 // The files of --tls-generate-self-signed, under Options.SelfSignedDir.
@@ -51,8 +53,10 @@ var ErrNoHostNames = errors.New("--tls-generate-self-signed needs the host names
 // On Linux and macOS a directory its group or other users can write is
 // refused, and the whole check-then-generate runs under a lock on the
 // directory, so that concurrent first starts on one data path agree on a
-// single certificate: the later one reuses the earlier one's files.
-func selfSigned(dir string, hosts []string, now time.Time) (cert tls.Certificate, generated bool, err error) {
+// single certificate: the later one reuses the earlier one's files. A
+// reused key is a secret file, read under p.
+func selfSigned(dir string, hosts []string, now time.Time, p secretfile.Policy) (cert tls.Certificate, generated bool,
+	err error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return cert, false, err
 	}
@@ -72,7 +76,7 @@ func selfSigned(dir string, hosts []string, now time.Time) (cert tls.Certificate
 			return cert, false, fmt.Errorf("%s exists without %s: restore the key, or delete both to generate a new "+
 				"certificate (and pin the new one in every client)", certPath, keyPath)
 		}
-		cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+		cert, err := loadKeyPair(certPath, keyPath, p)
 		if err != nil {
 			return cert, false, fmt.Errorf("the self-signed certificate in %s: %w", dir, err)
 		}

@@ -133,8 +133,10 @@ func highWatermark(ctx context.Context, q queryer) (slashing.HighWatermark, erro
 	if h.Epoch, err = u64p(epoch); err != nil {
 		return h, err
 	}
-	h.Slot, err = u64p(slot)
-	return h, err
+	if h.Slot, err = u64p(slot); err != nil {
+		return h, err
+	}
+	return h, h.Validate()
 }
 
 // SetHighWatermark replaces the global high watermark. It locks the metadata table first, in EXCLUSIVE mode, so it
@@ -145,6 +147,9 @@ func highWatermark(ctx context.Context, q queryer) (slashing.HighWatermark, erro
 // UPDATE alone on the row would wait behind a stream of overlapping FOR SHARE lockers that never ends under steady
 // signing.
 func (s *Store) SetHighWatermark(ctx context.Context, h slashing.HighWatermark) error {
+	if err := h.Validate(); err != nil {
+		return err
+	}
 	var epoch, slot *int64
 	for _, v := range []struct {
 		in  *uint64
@@ -228,8 +233,9 @@ func (s *Store) register(ctx context.Context, pubkeys [][]byte, enabled bool) er
 			if len(newKeys) == 0 {
 				return nil
 			}
-			_, err = tx.Exec(ctx, `INSERT INTO validators (pubkey_hash, public_key, enabled)
-				SELECT h, k, $3 FROM unnest($1::bytea[], $2::bytea[]) WITH ORDINALITY AS t(h, k, n) ORDER BY n
+			// Only the interchange import registers keys disabled, and those are disabled by import.
+			_, err = tx.Exec(ctx, `INSERT INTO validators (pubkey_hash, public_key, enabled, disabled_by_import)
+				SELECT h, k, $3, NOT $3 FROM unnest($1::bytea[], $2::bytea[]) WITH ORDINALITY AS t(h, k, n) ORDER BY n
 				ON CONFLICT (pubkey_hash) DO NOTHING`, newHashes, newKeys, enabled)
 			return err
 		})
@@ -244,7 +250,8 @@ func (s *Store) register(ctx context.Context, pubkeys [][]byte, enabled bool) er
 func (s *Store) ValidatorStatus(ctx context.Context, id slashing.KeyID) (slashing.ValidatorStatus, error) {
 	var st slashing.ValidatorStatus
 	err := s.call(ctx, "read a validator's status", func(ctx context.Context) error {
-		err := s.pool.QueryRow(ctx, `SELECT enabled FROM validators WHERE pubkey_hash = $1`, id[:]).Scan(&st.Enabled)
+		err := s.pool.QueryRow(ctx, `SELECT enabled, disabled_by_import FROM validators WHERE pubkey_hash = $1`, id[:]).
+			Scan(&st.Enabled, &st.DisabledByImport)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -266,7 +273,8 @@ func (s *Store) SetValidatorEnabled(ctx context.Context, id slashing.KeyID, enab
 		if err := lock(ctx, tx, vid, lockAttestation); err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `UPDATE validators SET enabled = $2 WHERE id = $1`, vid, enabled)
+		_, err = tx.Exec(ctx, `UPDATE validators SET enabled = $2, disabled_by_import = false WHERE id = $1`, vid,
+			enabled)
 		return err
 	})
 }

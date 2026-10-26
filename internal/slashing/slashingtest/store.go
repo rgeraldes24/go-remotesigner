@@ -210,21 +210,20 @@ func runLowWatermarkContract(t *testing.T, newStore Factory) {
 		raiseEpochs(t, s, 0, 2, 3, slashing.ErrWatermarkConflict)
 		wantLow(t, s, 0, slashing.LowWatermark{})
 	})
-	t.Run("a slot-only high watermark leaves the epochs free", func(t *testing.T) {
+	t.Run("a high watermark of one part is refused", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 1)
 		pin(t, s)
-		must(t, s.SetHighWatermark(bg, slashing.HighWatermark{Slot: U64(5)}))
-		raiseEpochs(t, s, 0, 100, 200, nil)
-		raiseSlot(t, s, 0, 6, slashing.ErrWatermarkConflict)
-		wantLow(t, s, 0, slashing.LowWatermark{SourceEpoch: U64(100), TargetEpoch: U64(200)})
-	})
-	t.Run("an epoch-only high watermark leaves the slot free", func(t *testing.T) {
-		s := openWithKeys(t, newStore, 1)
-		pin(t, s)
-		must(t, s.SetHighWatermark(bg, slashing.HighWatermark{Epoch: U64(5)}))
-		raiseSlot(t, s, 0, 100, nil)
+		full := slashing.HighWatermark{Epoch: U64(5), Slot: U64(5)}
+		must(t, s.SetHighWatermark(bg, full))
+		for _, h := range []slashing.HighWatermark{{Slot: U64(7)}, {Epoch: U64(7)}} {
+			if err := s.SetHighWatermark(bg, h); !errors.Is(err, slashing.ErrPartialHighWatermark) {
+				t.Errorf("SetHighWatermark(%s): %v, want ErrPartialHighWatermark", fmtHigh(h), err)
+			}
+		}
+		wantHigh(t, s, full)
 		raiseEpochs(t, s, 0, 6, 6, slashing.ErrWatermarkConflict)
-		wantLow(t, s, 0, slashing.LowWatermark{Slot: U64(100)})
+		raiseSlot(t, s, 0, 6, slashing.ErrWatermarkConflict)
+		wantLow(t, s, 0, slashing.LowWatermark{})
 	})
 	t.Run("zero is a value, not unset", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 1)
@@ -236,7 +235,7 @@ func runLowWatermarkContract(t *testing.T, newStore Factory) {
 		raiseEpochs(t, s, 0, 0, 0, nil)
 		raiseSlot(t, s, 0, 1, slashing.ErrWatermarkConflict)
 		wantLow(t, s, 0, slashing.LowWatermark{Slot: U64(0), SourceEpoch: U64(0), TargetEpoch: U64(0)})
-		for _, h := range []slashing.HighWatermark{{Slot: U64(0)}, {Epoch: U64(0)}} {
+		for _, h := range []slashing.HighWatermark{{Slot: U64(0), Epoch: U64(1)}, {Slot: U64(1), Epoch: U64(0)}} {
 			if err := s.SetHighWatermark(bg, h); !errors.Is(err, slashing.ErrWatermarkConflict) {
 				t.Errorf("SetHighWatermark(%s) over zero low watermarks: %v, want ErrWatermarkConflict", fmtHigh(h), err)
 			}
@@ -269,12 +268,18 @@ func runMetadataContract(t *testing.T, newStore Factory) {
 		wantHigh(t, s, slashing.HighWatermark{})
 		for _, h := range []slashing.HighWatermark{
 			{Epoch: U64(1), Slot: U64(2)},
-			{Epoch: U64(1)},
-			{Slot: U64(2)},
 			{Epoch: U64(3), Slot: U64(4)},
 		} {
 			must(t, s.SetHighWatermark(bg, h))
 			wantHigh(t, s, h)
+		}
+		// Web3Signer's store also keeps an epoch or a slot alone; every store here refuses one (DEVIATIONS X113),
+		// and the watermark in force stays.
+		for _, h := range []slashing.HighWatermark{{Epoch: U64(1)}, {Slot: U64(2)}} {
+			if err := s.SetHighWatermark(bg, h); !errors.Is(err, slashing.ErrPartialHighWatermark) {
+				t.Errorf("SetHighWatermark(%s): %v, want ErrPartialHighWatermark", fmtHigh(h), err)
+			}
+			wantHigh(t, s, slashing.HighWatermark{Epoch: U64(3), Slot: U64(4)})
 		}
 		must(t, s.SetHighWatermark(bg, slashing.HighWatermark{}))
 		wantHigh(t, s, slashing.HighWatermark{})
@@ -328,11 +333,10 @@ func runMetadataContract(t *testing.T, newStore Factory) {
 		raiseSlot(t, s, 1, 6, nil)
 		raiseEpochs(t, s, 1, 7, 8, nil)
 		for _, h := range []slashing.HighWatermark{
-			{Slot: U64(6)},
-			{Slot: U64(5)},
-			{Epoch: U64(8)},
-			{Epoch: U64(7)},
 			{Epoch: U64(100), Slot: U64(6)},
+			{Epoch: U64(100), Slot: U64(5)},
+			{Epoch: U64(8), Slot: U64(100)},
+			{Epoch: U64(7), Slot: U64(100)},
 		} {
 			if err := s.SetHighWatermark(bg, h); !errors.Is(err, slashing.ErrWatermarkConflict) {
 				t.Fatalf("SetHighWatermark(%s): %v, want ErrWatermarkConflict", fmtHigh(h), err)
@@ -342,26 +346,6 @@ func runMetadataContract(t *testing.T, newStore Factory) {
 		h := slashing.HighWatermark{Epoch: U64(9), Slot: U64(7)}
 		must(t, s.SetHighWatermark(bg, h))
 		wantHigh(t, s, h)
-	})
-	t.Run("a partial high watermark is checked on its own field only", func(t *testing.T) {
-		for _, tc := range []struct {
-			name        string
-			slot        uint64
-			source, tgt uint64
-			high        slashing.HighWatermark
-		}{
-			{"slot only, below the epochs", 1, 9, 10, slashing.HighWatermark{Slot: U64(2)}},
-			{"epoch only, below the slot", 10, 1, 2, slashing.HighWatermark{Epoch: U64(3)}},
-		} {
-			t.Run(tc.name, func(t *testing.T) {
-				s := openWithKeys(t, newStore, 1)
-				pin(t, s)
-				raiseSlot(t, s, 0, tc.slot, nil)
-				raiseEpochs(t, s, 0, tc.source, tc.tgt, nil)
-				must(t, s.SetHighWatermark(bg, tc.high))
-				wantHigh(t, s, tc.high)
-			})
-		}
 	})
 	t.Run("transactions read the high watermark", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 1)
@@ -409,23 +393,79 @@ func runValidatorContract(t *testing.T, newStore Factory) {
 	t.Run("registration as disabled", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 2)
 		must(t, s.SetValidatorEnabled(bg, id(1), false))
-		// New keys are registered disabled; known keys keep their flag, whichever it is.
+		// New keys are registered disabled by import; known keys keep their flag, whichever it is.
 		must(t, s.RegisterValidatorsDisabled(bg, [][]byte{Key(0), Key(1), Key(2)}))
 		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true, Enabled: true})
 		wantStatus(t, s, 1, slashing.ValidatorStatus{Registered: true})
-		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true})
+		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true, DisabledByImport: true})
 		// A key registered disabled is a full registration: it has a history, and RegisterValidators keeps its flag.
 		must(t, s.UpdateHistory(bg, []slashing.KeyID{id(2)}, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
 			return tx.InsertBlock(slashing.SignedBlock{Slot: 1})
 		}))
 		register(t, s, 3)
-		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true})
+		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true, DisabledByImport: true})
 		for _, n := range []int{0, slashing.PublicKeyLength + 1} {
 			if err := s.RegisterValidatorsDisabled(bg, [][]byte{Key(3), make([]byte, n)}); !errors.Is(err, slashing.ErrInvalidPublicKey) {
 				t.Errorf("RegisterValidatorsDisabled(%d bytes): %v, want ErrInvalidPublicKey", n, err)
 			}
 		}
 		wantStatus(t, s, 3, slashing.ValidatorStatus{})
+	})
+	t.Run("disabled by import, or on purpose", func(t *testing.T) {
+		s := openWithKeys(t, newStore, 2)
+		must(t, s.RegisterValidatorsDisabled(bg, [][]byte{Key(2)}))
+		must(t, s.SetValidatorEnabled(bg, id(1), false))
+		inTx := func(n int, fn func(slashing.HistoryTx) error) error {
+			return s.UpdateHistory(bg, []slashing.KeyID{id(n)}, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
+				return fn(tx)
+			})
+		}
+		disable := func(tx slashing.HistoryTx) error { return tx.DisableForImport() }
+		for n := range 3 {
+			must(t, inTx(n, disable))
+		}
+		// An enabled key and one an import disabled are disabled by import; one disabled on purpose stays so.
+		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true, DisabledByImport: true})
+		wantStatus(t, s, 1, slashing.ValidatorStatus{Registered: true})
+		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true, DisabledByImport: true})
+		for n, want := range map[int]bool{0: true, 1: false, 2: true} {
+			must(t, inTx(n, func(tx slashing.HistoryTx) error {
+				if got, err := tx.DisabledByImport(); err != nil || got != want {
+					t.Errorf("key %d: HistoryTx.DisabledByImport = %v, %v; want %v", n, got, err, want)
+				}
+				return nil
+			}))
+		}
+		// A transaction that fails leaves the flag and the marker as they were.
+		errAbort := errors.New("abort")
+		if err := inTx(1, func(tx slashing.HistoryTx) error {
+			must(t, tx.SetEnabled(true))
+			return errAbort
+		}); !errors.Is(err, errAbort) {
+			t.Fatalf("UpdateHistory: %v, want the function's error", err)
+		}
+		if err := inTx(0, func(tx slashing.HistoryTx) error {
+			must(t, tx.SetEnabled(true))
+			return errAbort
+		}); !errors.Is(err, errAbort) {
+			t.Fatalf("UpdateHistory: %v, want the function's error", err)
+		}
+		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true, DisabledByImport: true})
+		wantStatus(t, s, 1, slashing.ValidatorStatus{Registered: true})
+		// SetEnabled(true) clears the marker, and SetEnabled(false) disables on purpose.
+		must(t, inTx(0, func(tx slashing.HistoryTx) error { return tx.SetEnabled(true) }))
+		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true, Enabled: true})
+		must(t, inTx(0, disable))
+		must(t, inTx(0, func(tx slashing.HistoryTx) error { return tx.SetEnabled(false) }))
+		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true})
+		must(t, inTx(0, disable))
+		wantStatus(t, s, 0, slashing.ValidatorStatus{Registered: true})
+		// SetValidatorEnabled clears the marker either way.
+		must(t, s.SetValidatorEnabled(bg, id(2), false))
+		wantStatus(t, s, 2, slashing.ValidatorStatus{Registered: true})
+		must(t, s.RegisterValidatorsDisabled(bg, [][]byte{Key(3)}))
+		must(t, s.SetValidatorEnabled(bg, id(3), true))
+		wantStatus(t, s, 3, slashing.ValidatorStatus{Registered: true, Enabled: true})
 	})
 	t.Run("unregistered keys", func(t *testing.T) {
 		s := openWithKeys(t, newStore, 1)

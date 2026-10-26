@@ -205,8 +205,10 @@ The defaults bind `127.0.0.1`. A non-loopback `--http-listen-host` turns on fail
 Each `--X…` override, the risk it accepts and what to configure instead, is explained in
 [`../reference/flags.md`](../reference/flags.md#what-each-override-accepts). Requests are also refused whatever the
 listener: any `Origin` header (403), a `Host` outside the allowlist (403), a
-POST (or keymanager `DELETE`) that is not `application/json` (415), and bodies over the route limit (413). At most
-`--http-max-connections` (1,024) connections are open at once; further ones wait.
+POST or `DELETE` that is not `application/json` (415), and bodies over the route limit (413). At most
+`--http-max-connections` (1,024) connections are open at once; further ones wait. A request refused for its
+credential (401), its `Host` or its `Origin` (403) closes its connection, so that refused requests do not hold
+connections open.
 
 The container image and the example systemd configuration listen beyond loopback over TLS, with a generated
 certificate: see [`deploy-docker.md`](deploy-docker.md) and [`deploy-systemd.md`](deploy-systemd.md).

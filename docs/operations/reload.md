@@ -189,14 +189,14 @@ attestation again, for example one that has moved to another signer.
 - It exits 0 and says so when the key is already disabled.
 
 A keymanager `DELETE` disables a key the same way, with the signer running
-([`keymanager.md`](keymanager.md#4-deleting-keys)). These two write `enabled=false` on purpose. The only other write
-of it protects a key whose history fails to import: the keymanager `POST` and the offline `consensus import` disable
-a key whose element in the file fails, so that it cannot sign without the history the file meant to give it. A
-reload never writes it. Two things enable a key again: importing its keystore through the keymanager, whether the
-key is loaded or not ([`keymanager.md`](keymanager.md#3-importing-keys)), and an offline `consensus import` of a file
-whose element for the key imports cleanly ([`migration.md`](migration.md#2-import-the-history)), even when every
-record in it is already covered. So do not import the history of a key that has moved to another signer into this
-one.
+([`keymanager.md`](keymanager.md#4-deleting-keys)). These two write `enabled=false` on purpose, and the store
+remembers that they did. The only other write of it protects a key whose history fails to import: the keymanager
+`POST` and the offline `consensus import` disable a key whose element in the file fails, so that it cannot sign
+without the history the file meant to give it, and a key new to the store stays disabled until the import has
+written its history. A reload never writes it. A later import whose element for such a key imports cleanly enables
+it again. A key disabled on purpose stays disabled through `consensus import`, also when its element fails, unless
+`--enable-keys` names it (section 5.1), so a routine merge of histories never lifts a `disable-validator` or a
+`DELETE`; a keymanager `POST` of its keystore enables it, as section 5.1 says.
 
 Removing a key's files only evicts it (section 3.1); it does not disable it.
 
@@ -212,19 +212,21 @@ order of preference:
    whatever source loads the key: a loaded key is enabled where it is, without any file written, and a key that is
    not loaded is written to `--key-config-path` and loaded. There is no need to `DELETE` it first: a `DELETE`
    would only disable it again.
-2. **Import its history offline**, for a key without a keystore (a `file-raw` seed) or a signer without the
-   keymanager: `consensus import` of an EIP-3076 file whose element for the key imports cleanly enables it, even
-   when the store already holds every record in it ([`migration.md`](migration.md#2-import-the-history)). The key's
-   own history serves:
+2. **Import its history offline with `--enable-keys`**, for a key without a keystore (a `file-raw` seed) or a
+   signer without the keymanager: `consensus import --enable-keys=<id>` of an EIP-3076 file whose element for the key
+   imports cleanly enables it, even when the store already holds every record in it
+   ([`migration.md`](migration.md#2-import-the-history)). Without `--enable-keys` the import writes the history,
+   leaves the key disabled and says so. The key's own history serves:
 
    ```
    remotesigner --data-path=/var/lib/remotesigner consensus --network=<network> export --keys=<id> --to=key.json
-   remotesigner --data-path=/var/lib/remotesigner consensus --network=<network> import --from=key.json
+   remotesigner --data-path=/var/lib/remotesigner consensus --network=<network> import --from=key.json --enable-keys=<id>
    ```
 
    With bbolt the signer must be stopped for both; with Postgres both run online. A key that has no history in the
    store is left out of the export (the command says so on stderr); for it, an element with empty
-   `signed_blocks` and `signed_attestations` lists, under the store's genesis validators root, does the same.
+   `signed_blocks` and `signed_attestations` lists, under the store's genesis validators root, does the same. A key
+   that `--enable-keys` names without an element that imports makes the command exit 1, and is not enabled.
 
 The keymanager answers `imported` for the key, and the offline import counts it among the validators it imported;
 from then on its blocks, attestations and new RANDAO layers no longer get `412 VALIDATOR_DISABLED`.

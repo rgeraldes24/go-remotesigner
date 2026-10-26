@@ -48,10 +48,52 @@ func importCommand(stdout, stderr io.Writer) *cli.Command {
 			if err != nil {
 				return usageError(err)
 			}
-			res, err := importFile(c.Context, target, from, root)
-			return finishImport(stdout, stderr, target.String(), res, err)
+			enable, err := keyIDs(c, flags.EnableKeys)
+			if err != nil {
+				return usageError(err)
+			}
+			res, err := importFile(c.Context, target, from, root, enable)
+			if err := finishImport(stdout, stderr, target.String(), res, err); err != nil {
+				return err
+			}
+			return checkEnabled(res, enable)
 		},
 	}
+}
+
+// keyIDs parses a flag of keys: 0x public keys or 0x sha256 identifiers.
+func keyIDs(c *cli.Context, name string) ([]slashing.KeyID, error) {
+	var keys []slashing.KeyID
+	for _, k := range c.StringSlice(name) {
+		id, e := consensus.ParseIdentifier(k)
+		if e != nil {
+			return nil, fmt.Errorf("--%s: want 0x and a public key or its sha256 in hex", name)
+		}
+		keys = append(keys, slashing.KeyID(id))
+	}
+	return keys, nil
+}
+
+// checkEnabled fails the command when a key that --enable-keys names had no element in the file that imported, so
+// that it was not enabled.
+func checkEnabled(res interchange.ImportResult, enable []slashing.KeyID) error {
+	imported := map[slashing.KeyID]bool{}
+	for _, v := range res.Validators {
+		if v.Err == nil && v.PublicKey != nil {
+			imported[slashing.KeyIDOf(v.PublicKey)] = true
+		}
+	}
+	var missing []string
+	for _, id := range enable {
+		if !imported[id] {
+			missing = append(missing, id.String())
+		}
+	}
+	if len(missing) > 0 {
+		return cli.Exit(fmt.Sprintf("--%s names %d key(s) with no element in the file that imported, so they were not "+
+			"enabled: %s", flags.EnableKeys, len(missing), strings.Join(missing, ", ")), exitStartup)
+	}
+	return nil
 }
 
 // finishImport reports an import and returns the command's exit. An import that stopped with an error after
@@ -85,7 +127,8 @@ func finishImport(stdout, stderr io.Writer, path string, res interchange.ImportR
 // transaction, so that an import holds a validator's locks only while it writes that validator, and signing
 // replicas wait for it no longer; a long history is written in one call, under the store command's long bound
 // (commandConfig), and a signing request for that key that waits longer than lock_timeout meanwhile fails.
-func importFile(ctx context.Context, target storeTarget, from string, root *slashing.Root) (interchange.ImportResult, error) {
+func importFile(ctx context.Context, target storeTarget, from string, root *slashing.Root,
+	enable []slashing.KeyID) (interchange.ImportResult, error) {
 	f, err := os.Open(from)
 	if err != nil {
 		return interchange.ImportResult{}, err
@@ -104,7 +147,7 @@ func importFile(ctx context.Context, target storeTarget, from string, root *slas
 		return interchange.ImportResult{}, err
 	}
 	defer func() { _ = s.Close() }()
-	var opts interchange.ImportOptions
+	opts := interchange.ImportOptions{Enable: enable}
 	if target.postgres() {
 		opts.Batch = 1
 	}
@@ -130,6 +173,11 @@ func reportImport(stdout, stderr io.Writer, path string, res interchange.ImportR
 			_, _ = fmt.Fprintf(stderr, "warning: data[%d] (key %s): %d block(s) and %d attestation(s) differ from the "+
 				"store's record at the same slot or target epoch and were not imported\n",
 				v.Index, slashing.KeyIDOf(v.PublicKey), v.Blocks.Conflicts, v.Attestations.Conflicts)
+		}
+		if v.Err == nil && v.KeptDisabled {
+			_, _ = fmt.Fprintf(stderr, "notice: data[%d] (key %s): imported, but the key stays disabled: it was "+
+				"disabled on purpose (a keymanager DELETE or disable-validator); name it in --%s to enable it\n",
+				v.Index, slashing.KeyIDOf(v.PublicKey), flags.EnableKeys)
 		}
 		if v.Err == nil && v.Attestations.Slashable > 0 {
 			_, _ = fmt.Fprintf(stderr, "warning: data[%d] (key %s): %d imported attestation(s) have a source after their "+

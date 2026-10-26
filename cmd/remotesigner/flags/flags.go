@@ -18,6 +18,7 @@ import (
 
 	"github.com/urfave/cli/v2"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/admission"
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
 )
@@ -59,6 +60,8 @@ const (
 	StrictFilePermissions   = "strict-file-permissions"
 	ReloadTimeout           = "reload-timeout"
 	SignerLoadParallelism   = "signer-load-parallelism"
+	MaxConcurrentSigning    = "max-concurrent-signing-requests"
+	MaxQueuedSigning        = "max-queued-signing-requests"
 )
 
 // Consensus flag names.
@@ -70,6 +73,7 @@ const (
 	NetworkGenesisState       = "network-genesis-state"
 	SlashingProtectionEnabled = "slashing-protection-enabled"
 	KeyManagerAPIEnabled      = "key-manager-api-enabled"
+	KeyManagerAPIAlias        = "enable-key-manager-api" // Web3Signer's alias of KeyManagerAPIEnabled
 	AllowUnknownGenesisTime   = "Xallow-unknown-genesis-time"
 	AllowGVRTOFU              = "Xallow-gvr-tofu"
 	VoluntaryExitSigning      = "voluntary-exit-signing-enabled"
@@ -139,6 +143,7 @@ const (
 	WatermarkRepairCommand  = "watermark-repair"
 	SetHighWatermarkCommand = "set-high-watermark"
 	From                    = "from"
+	EnableKeys              = "enable-keys"
 	To                      = "to"
 	Keys                    = "keys"
 	Epoch                   = "epoch"
@@ -233,8 +238,8 @@ func Overrides() map[string]Override {
 				"signs for that chain from then on and refuses every request for the intended one. Undoing a wrong " +
 				"pin needs a new store.",
 			Instead: "Pass --network-genesis-validators-root, or --network-genesis-state with the chain's genesis " +
-				"state. Trust on first use is meant for a test network on a loopback listener, as the qrysm " +
-				"end-to-end test runs it.",
+				"state. Trust on first use is meant for a test network on a loopback listener, such as a local " +
+				"devnet.",
 		},
 	}
 }
@@ -253,7 +258,7 @@ func Global() []cli.Flag {
 		&cli.StringFlag{Name: DataPath, Usage: "Directory for the generated token files, the slashing-protection store and the ports file", TakesFile: true},
 		&cli.StringFlag{Name: KeyConfigPath, Aliases: []string{KeyStorePath}, Usage: "Directory of key-config files (*.yaml or *.yml; types file-raw, file-keystore, hashicorp, aws-secret, azure-secret and gcp-secret); unset loads none", TakesFile: true},
 		&cli.IntFlag{Name: KeyConfigFileMaxSize, Value: DefaultKeyConfigFileMaxSize, Usage: "Largest key-config file loaded, in bytes (Web3Signer counts code points); a larger file fails to load. Must be above 0."},
-		&cli.BoolFlag{Name: StrictFilePermissions, Value: true, Usage: "Refuse secret files (password files, key-config files with a seed or a secret-store credential) that their group or other users can read, and, with --key-manager-api-enabled, a --key-config-path directory they can access; false loads them with a warning"},
+		&cli.BoolFlag{Name: StrictFilePermissions, Value: true, Usage: "Refuse secret files (password files, key-config files with a seed or a secret-store credential, the token files, and the TLS private key, keystore and keystore password file) that their group or other users can read, and, with --key-manager-api-enabled, a --key-config-path directory they can access; false loads them with a warning"},
 		&cli.UintFlag{Name: ReloadTimeout, Value: DefaultReloadTimeout, Usage: "Minutes a POST /reload may load keys; the sources not loaded by then keep their previous keys. The startup load is not bounded."},
 		&cli.IntFlag{Name: SignerLoadParallelism, DefaultText: "0 (from the memory limit)", Usage: "Keystore decrypts with the standard KDF that may run at once; 0 sizes the Argon2id budget from GOMEMLIMIT, the cgroup limit or half the RAM"},
 		&cli.StringFlag{Name: Logging, Aliases: []string{"l"}, Value: "INFO", Usage: "Log level: OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE or ALL"},
@@ -267,6 +272,8 @@ func Global() []cli.Flag {
 		&cli.StringFlag{Name: HTTPAdminTokenFile, Usage: "Admin-scope bearer token file (default <data-path>/admin-token, generated 0600 when missing; re-read on SIGHUP). Admin routes exist only with an admin token.", TakesFile: true},
 		&cli.IntFlag{Name: HTTPMaxConnections, Value: DefaultMaxConnections, Usage: "Maximum open API connections; further connections wait until one closes"},
 		&cli.UintFlag{Name: IdleConnectionTimeout, Value: DefaultIdleTimeout, Usage: "Seconds a kept-alive API connection may stay idle"},
+		&cli.IntFlag{Name: MaxConcurrentSigning, Value: admission.DefaultConcurrent, Usage: "Sign requests that may be in their slashing check, signature and verification at once (in execution mode, qrl_sign, qrl_signTransaction and qrl_sendTransaction calls); the others wait in the queue (replaces Web3Signer's --vertx-worker-pool-size). Must be at least 1."},
+		&cli.IntFlag{Name: MaxQueuedSigning, Value: admission.DefaultQueued, Usage: "Sign requests that may wait for --max-concurrent-signing-requests; one more is refused at once with 503 OVERLOADED and Retry-After (in execution mode, JSON-RPC error -32005). 0 queues none."},
 		&cli.BoolFlag{Name: AccessLogsEnabled, Usage: "Log every API request at INFO (route, status, duration; never paths or bodies)"},
 		&cli.BoolFlag{Name: AllowPlaintextTokenAuth, Hidden: true, Usage: "Allow bearer tokens over plaintext HTTP on a non-loopback listener"},
 		&cli.StringFlag{Name: TLSCertFile, Usage: "PEM certificate chain the API serves over TLS 1.3, with --tls-key-file (re-read on SIGHUP)", TakesFile: true},
@@ -294,7 +301,7 @@ func Consensus() []cli.Flag {
 		&cli.Uint64Flag{Name: NetworkGenesisTime, DefaultText: "unset", Usage: "Genesis time in Unix seconds; must agree with every other source"},
 		&cli.StringFlag{Name: NetworkGenesisState, Usage: "SSZ genesis state; its first 64 bytes give the genesis time, the genesis validators root and the fork", TakesFile: true},
 		&cli.BoolFlag{Name: SlashingProtectionEnabled, Value: true, Usage: "Slashing protection, in the store --slashing-protection-db-url names (default the bbolt file <data-path>/slashing-protection.db). false is allowed only when every listener is loopback."},
-		&cli.BoolFlag{Name: KeyManagerAPIEnabled, Usage: "Serve the keymanager API (GET, POST and DELETE /qrl/v1/keystores) with the admin token; imported keys are written to --key-config-path, which it requires (docs/operations/keymanager.md)."},
+		&cli.BoolFlag{Name: KeyManagerAPIEnabled, Aliases: []string{KeyManagerAPIAlias}, Usage: "Serve the keymanager API (GET, POST and DELETE /qrl/v1/keystores) with the admin token; imported keys are written to --key-config-path, which it requires (docs/operations/keymanager.md)."},
 		&cli.BoolFlag{Name: AllowUnknownGenesisTime, Hidden: true, Usage: "Allow a non-loopback listener without a genesis time (wall-clock bounds off)"},
 		&cli.BoolFlag{Name: AllowGVRTOFU, Hidden: true, Usage: "Allow a non-loopback listener to pin the genesis validators root on first use"},
 		&cli.BoolFlag{Name: VoluntaryExitSigning, Usage: "Sign VOLUNTARY_EXIT requests; refused with 403 ARTIFACT_TYPE_DISABLED otherwise"},
@@ -384,7 +391,8 @@ func Migrate() []cli.Flag {
 // Import returns the flags of `consensus import`.
 func Import() []cli.Flag {
 	return append(storeFlags(),
-		&cli.StringFlag{Name: From, Usage: "Required. The EIP-3076 interchange file (format version 5) to import", TakesFile: true})
+		&cli.StringFlag{Name: From, Usage: "Required. The EIP-3076 interchange file (format version 5) to import", TakesFile: true},
+		&cli.StringSliceFlag{Name: EnableKeys, Usage: "Keys disabled on purpose (keymanager DELETE, disable-validator) that their element in the file enables when it imports: 0x public keys or 0x sha256 identifiers, comma-separated or repeated. Without it such a key stays disabled; a key an earlier import disabled is enabled anyway."})
 }
 
 // Export returns the flags of `consensus export`.

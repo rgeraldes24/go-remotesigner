@@ -45,7 +45,8 @@ type errorBody struct {
 // fixed message and the reason. The field path and detail are logged, never
 // sent: they are for operators, and the response must carry no internals.
 // 401 responses carry WWW-Authenticate: Bearer, and 503 responses
-// Retry-After: 1.
+// Retry-After: 1. A refusal of the caller itself rather than of its request
+// also closes the connection (ClosesConnection).
 func WriteError(w http.ResponseWriter, log logrus.FieldLogger, r *http.Request, e *apierr.Error) {
 	status := e.Status()
 	logFailure(log, r, status, e)
@@ -55,7 +56,27 @@ func WriteError(w http.ResponseWriter, log logrus.FieldLogger, r *http.Request, 
 	case http.StatusServiceUnavailable:
 		w.Header().Set("Retry-After", "1")
 	}
+	if ClosesConnection(e.Reason) {
+		// HTTP/1.1 closes the connection after this response; HTTP/2 sends
+		// GOAWAY and closes it once its open streams end.
+		w.Header().Set("Connection", "close")
+	}
 	writeErrorBody(w, errorBody{Code: status, Message: e.Reason.Message(), Reason: e.Reason})
+}
+
+// ClosesConnection reports whether a refusal closes the connection it came
+// on: 401 UNAUTHENTICATED (no credential, or one the route does not take),
+// and 403 HOST_NOT_ALLOWED and ORIGIN_NOT_ALLOWED, which no client of the
+// API sends. Kept open, such a connection would hold one of the listener's
+// connection slots (--http-max-connections, or the metrics listener's cap)
+// for the idle timeout, so a peer without a credential could hold them all
+// by sending one refused request per connection now and then.
+func ClosesConnection(r apierr.Reason) bool {
+	switch r {
+	case apierr.Unauthenticated, apierr.HostNotAllowed, apierr.OriginNotAllowed:
+		return true
+	}
+	return false
 }
 
 // writePlainError renders a status that has no catalogue reason (an unknown
