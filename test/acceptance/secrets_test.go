@@ -248,6 +248,17 @@ func TestPlainSecretFlags(t *testing.T) {
 		"refusing to start: --config-file holds --azure-client-secret, so it is a secret file") {
 		t.Fatalf("a group-readable config file with a secret: %v\n%s", err, got)
 	}
+	// The file holds the secret even when the environment gives the flag
+	// the value that is used. A signer that starts instead is stopped.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.Env = append(os.Environ(), "REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET="+az.ClientSecret)
+	got, err = cmd.CombinedOutput()
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 || !strings.Contains(string(got),
+		"refusing to start: --config-file holds --azure-client-secret, so it is a secret file") {
+		t.Fatalf("a group-readable config file with a secret the environment overrides: %v\n%s", err, got)
+	}
 }
 
 // The environment of the tests against a Vault dev server and LocalStack;

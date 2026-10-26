@@ -179,15 +179,22 @@ func TestPlainSecretSources(t *testing.T) {
 		Source: config.FromConfigFile, File: file}) || got["aws-secrets-secret-access-key"].Source != config.FromConfigFile {
 		t.Errorf("config file: %+v", got)
 	}
+	// The config file holds the secret, and so stays a secret file, when
+	// the environment or the command line wins.
 	t.Setenv("REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET", "from-env")
-	if got = sources(); got["azure-client-secret"].Source != config.FromEnvironment || got["azure-client-secret"].File != "" {
+	if got = sources(); got["azure-client-secret"].Source != config.FromEnvironment || got["azure-client-secret"].File != file {
 		t.Errorf("environment over the config file: %+v", got)
 	}
 	for _, arg := range []string{"--azure-client-secret=x", "-azure-client-secret=x"} {
 		if got = sources(arg); got["azure-client-secret"].Source != config.FromCommandLine ||
-			got["aws-secrets-secret-access-key"].Source != config.FromConfigFile {
+			got["azure-client-secret"].File != file || got["aws-secrets-secret-access-key"].Source != config.FromConfigFile {
 			t.Errorf("%s: %+v", arg, got)
 		}
+	}
+	// Without the file, no file is named.
+	cfg, code, stderr := capture(t, "consensus", "--network=e2e", "--azure-client-secret=x")
+	if p := cfg.Consensus.SecretStores.Plain; code != exitOK || len(p) != 1 || p[0].File != "" || p[0].Source != config.FromCommandLine {
+		t.Errorf("no config file: exit %d %s, %+v", code, stderr, p)
 	}
 	if got = sources("--azure-client-secret", "x"); got["azure-client-secret"].Source != config.FromCommandLine {
 		t.Errorf("value as the next argument: %+v", got)

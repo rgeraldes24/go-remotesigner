@@ -167,7 +167,9 @@ func azureBulk(c *cli.Context) (*secrets.AzureBulk, error) {
 }
 
 // plainSecrets returns the plain secret flags that are set, each with the
-// source of its value, in name order. A plain flag and its -file flag
+// source of its value and the config file when that file gives it one
+// (which makes the file a secret file even when the command line or the
+// environment wins), in name order. A plain flag and its -file flag
 // together are a usage error.
 func plainSecrets(c *cli.Context) ([]config.PlainSecret, error) {
 	pairs := flags.PlainSecrets()
@@ -182,11 +184,14 @@ func plainSecrets(c *cli.Context) ([]config.PlainSecret, error) {
 		}
 		p := config.PlainSecret{Flag: plain, FileFlag: file, Source: config.FromEnvironment}
 		src, _ := c.App.Metadata[metaConfigFile].(*config.YAMLSource)
+		if src != nil && src.Gives(plain) {
+			p.File = src.Path()
+		}
 		switch args, _ := c.App.Metadata[metaArgs].([]string); {
 		case onCommandLine(args, plain):
 			p.Source = config.FromCommandLine
 		case src != nil && src.Applied(plain):
-			p.Source, p.File = config.FromConfigFile, src.Path()
+			p.Source = config.FromConfigFile
 		}
 		out = append(out, p)
 	}

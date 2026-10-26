@@ -307,6 +307,9 @@ func yamlApp(t *testing.T, yaml string, args ...string) (map[string]any, error) 
 				got["network"] = c.String("network")
 				got["protection"] = c.Bool("slashing-protection-enabled")
 				got["logging"] = c.String("logging")
+				for _, n := range []string{"http-listen-port", "key-config-path", "network"} {
+					got["applied "+n], got["gives "+n] = src.Applied(n), src.Gives(n)
+				}
 				return nil
 			},
 		}},
@@ -362,6 +365,30 @@ consensus:
 	got, err = yamlApp(t, "logging: WARN\n", "-l", "DEBUG", "consensus")
 	if err != nil || got["logging"] != "DEBUG" {
 		t.Errorf("-l: %v %v", got, err)
+	}
+}
+
+// Applied names the flags the file set; Gives also those it gives a value
+// that the command line or the environment set first, by a flag's first
+// name whichever name the file uses.
+func TestYAMLSourceAppliedAndGives(t *testing.T) {
+	t.Setenv("REMOTESIGNER_CONSENSUS_NETWORK", "from-env")
+	got, err := yamlApp(t, "http-listen-port: 1\nkey-store-path: /keys\nconsensus:\n  network: n\n",
+		"--http-listen-port=2", "consensus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n, want := range map[string][2]bool{
+		"http-listen-port": {false, true}, // the command line won
+		"key-config-path":  {true, true},  // set by its alias
+		"network":          {false, true}, // the environment won
+	} {
+		if got["applied "+n] != want[0] || got["gives "+n] != want[1] {
+			t.Errorf("%s: applied %v, gives %v, want %v", n, got["applied "+n], got["gives "+n], want)
+		}
+	}
+	if got, err = yamlApp(t, "logging: WARN\n", "consensus"); err != nil || got["gives network"] != false {
+		t.Errorf("a flag the file does not give: %v %v", got, err)
 	}
 }
 

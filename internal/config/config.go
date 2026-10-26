@@ -223,7 +223,8 @@ type SecretStores struct {
 // PlainSecret is a deprecated plain secret flag that is set: Flag (such as
 // aws-secrets-secret-access-key) took its value from Source instead of
 // from FileFlag, the -file flag that replaces it. File is the config file
-// when the value came from one.
+// when it gives the flag a value, whether or not that value was taken: the
+// file holds a secret either way.
 type PlainSecret struct {
 	Flag, FileFlag string
 	Source         SecretSource

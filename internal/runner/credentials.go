@@ -24,9 +24,10 @@ const maxCredentialFile = 64 << 10
 // StoreCredentials prepares the bulk loaders' credentials at startup. It
 // warns about each deprecated plain secret flag that is set, and once more
 // when its value is on the command line, where other local users can read
-// it in the process list. A config file that holds one is a secret file:
-// under --strict-file-permissions one that its group or other users can
-// read refuses the start. It then reads the first line of
+// it in the process list. A config file that holds one is a secret file,
+// whichever source the value was taken from: under
+// --strict-file-permissions one that its group or other users can read
+// refuses the start. It then reads the first line of
 // --aws-secrets-secret-access-key-file and --azure-client-secret-file
 // under the secret-file policy. Its errors refuse the start.
 func StoreCredentials(cfg *config.Config, log logrus.FieldLogger) error {
@@ -36,11 +37,11 @@ func StoreCredentials(cfg *config.Config, log logrus.FieldLogger) error {
 		fields := logrus.Fields{"flag": "--" + p.Flag, "instead": "--" + p.FileFlag, "source": string(p.Source)}
 		log.WithFields(fields).Warn("A deprecated plain secret flag is set; put the secret in a file owned by the " +
 			"signer's user and name it with the -file flag instead")
-		switch p.Source {
-		case config.FromCommandLine:
+		if p.Source == config.FromCommandLine {
 			log.WithFields(fields).Warn("A secret is on the command line, where other local users can read it in " +
 				"the process list")
-		case config.FromConfigFile:
+		}
+		if p.File != "" {
 			fi, err := os.Stat(p.File)
 			if err == nil {
 				err = policy.Check(p.File, fi)

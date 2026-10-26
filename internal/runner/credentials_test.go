@@ -99,7 +99,8 @@ func TestStoreCredentialFiles(t *testing.T) {
 
 // Every plain secret flag in use brings a deprecation warning naming its
 // -file flag, one on the command line a second warning, and one in a config
-// file the secret-file rule for that file. No line carries the secret.
+// file the secret-file rule for that file, whichever source won. No line
+// carries the secret.
 func TestPlainSecretWarnings(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("file modes")
@@ -132,6 +133,14 @@ func TestPlainSecretWarnings(t *testing.T) {
 				": mode 0644: readable by group or other users"},
 		{name: "open config file, not strict", plain: plain(config.FromConfigFile, open),
 			want: []string{"A deprecated plain secret flag is set", "A secret file is readable by its group", "file=" + open}},
+		// The command line or the environment won, but the file holds the
+		// secret all the same.
+		{name: "open config file overridden on the command line, strict", plain: plain(config.FromCommandLine, open),
+			strict: true, err: "refusing to start: --config-file holds --azure-client-secret, so it is a secret file: " +
+				open + ": mode 0644: readable by group or other users"},
+		{name: "owner-only config file overridden by the environment", plain: plain(config.FromEnvironment, closed),
+			strict: true, want: []string{"A deprecated plain secret flag is set", "source=environment"},
+			unwanted: []string{"process list", "readable by its group"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.Config{StrictFilePermissions: tt.strict}
