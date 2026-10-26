@@ -14,12 +14,15 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -121,10 +124,13 @@ func TestSecretStoreSources(t *testing.T) {
 	writeDoc(t, keys, "aws.yaml", "type: aws-secret\nregion: us-east-1\nsecretName: single/four\naccessKeyId: AKIDDOC\n"+
 		"secretAccessKey: aws-doc-secret\nendpointOverride: "+a.URL+"\n")
 
-	// The credentials of the bulk loaders come from the environment.
-	env := append(awsIsolation(t), "REMOTESIGNER_CONSENSUS_AWS_SECRETS_SECRET_ACCESS_KEY=aws-bulk-secret",
-		"REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET="+az.ClientSecret)
-	s := start(t, options{keys: keys, env: env, consensus: []string{
+	// The credentials of the bulk loaders come from their -file flags.
+	creds := t.TempDir()
+	writeDoc(t, creds, "aws-key", "aws-bulk-secret\n")
+	writeDoc(t, creds, "azure-secret", az.ClientSecret+"\n")
+	s := start(t, options{keys: keys, env: awsIsolation(t), consensus: []string{
+		"--aws-secrets-secret-access-key-file=" + filepath.Join(creds, "aws-key"),
+		"--azure-client-secret-file=" + filepath.Join(creds, "azure-secret"),
 		"--aws-secrets-enabled", "--aws-secrets-access-key-id=AKIDBULK", "--aws-secrets-region=us-east-1",
 		"--aws-endpoint-override=" + a.URL, "--aws-secrets-prefixes-filter=validators/",
 		"--gcp-secrets-enabled", "--gcp-project-id=p", "--gcp-secrets-filter=labels.role=validator",
@@ -174,6 +180,73 @@ func TestSecretStoreSources(t *testing.T) {
 		if strings.Contains(out, secret) {
 			t.Errorf("the log carries a credential or a seed: %q", secret)
 		}
+	}
+	if strings.Contains(out, "deprecated plain secret flag") {
+		t.Errorf("the -file flags brought a deprecation warning")
+	}
+	// The process's command line, which every local user can read, names
+	// the credential files only.
+	cmdline := commandLine(t, s.cmd.Process.Pid)
+	if !strings.Contains(cmdline, "--azure-client-secret-file=") ||
+		strings.Contains(cmdline, az.ClientSecret) || strings.Contains(cmdline, "aws-bulk-secret") {
+		t.Errorf("the command line carries a credential: %s", cmdline)
+	}
+}
+
+// commandLine returns the command line of process pid as ps shows it to any
+// local user.
+func commandLine(t *testing.T, pid int) string {
+	t.Helper()
+	out, err := exec.Command("ps", "-ww", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		t.Fatalf("ps: %v", err)
+	}
+	return string(out)
+}
+
+// The plain credential flags, kept because Web3Signer has them, still work,
+// and the signer warns at startup: each is deprecated in favour of its
+// -file flag, and a value on the command line can be read by every local
+// user. A config file that sets one is a secret file: readable by its group
+// or other users, it refuses the start under --strict-file-permissions.
+func TestPlainSecretFlags(t *testing.T) {
+	seed, pubkey := seedKey(t, 9)
+	az := secretstest.NewAzure(t)
+	az.Put("bulk-9", seed, map[string]string{"role": "validator"})
+	azure := []string{"--azure-vault-enabled", "--azure-vault-name=fake", "--azure-client-id=" + az.ClientID,
+		"--azure-tenant-id=" + secretstest.AzureTenant, "--Xazure-endpoint-override=" + az.URL,
+		"--Xazure-authority-host-override=" + az.URL, "--Xazure-trust-certificate-override=" + az.CertFile}
+
+	s := start(t, options{consensus: append([]string{"--azure-client-secret=" + az.ClientSecret}, azure...)})
+	s.waitReadyWithin(time.Minute)
+	s.waitReloadStatus("completed", time.Minute)
+	if got := s.publicKeys(); !slices.Equal(got, []string{pubkey}) {
+		t.Fatalf("keys %v, want the Azure key", got)
+	}
+	out := s.output.String()
+	for _, want := range []string{"A deprecated plain secret flag is set", "flag=--azure-client-secret",
+		"instead=--azure-client-secret-file", "A secret is on the command line"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the log lacks %q", want)
+		}
+	}
+	if strings.Contains(out, az.ClientSecret) {
+		t.Errorf("the log carries the client secret")
+	}
+
+	config := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(config, []byte("consensus:\n  azure-client-secret: "+az.ClientSecret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(config, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args := append([]string{"--config-file=" + config}, defaultArgs(t, t.TempDir(), t.TempDir(), options{consensus: azure})...)
+	got, err := exec.Command(binary, args...).CombinedOutput()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 || !strings.Contains(string(got),
+		"refusing to start: --config-file holds --azure-client-secret, so it is a secret file") {
+		t.Fatalf("a group-readable config file with a secret: %v\n%s", err, got)
 	}
 }
 

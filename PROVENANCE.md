@@ -476,6 +476,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/randao/onion/onion_test.go` | new | | | |
 | `internal/randao/service.go` | new | | | |
 | `internal/randao/service_test.go` | new | | | |
+| `internal/runner/credentials.go` | new | | | |
+| `internal/runner/credentials_test.go` | new | | | |
 | `internal/runner/files.go` | new | | | |
 | `internal/runner/files_test.go` | new | | | |
 | `internal/runner/keymanager_test.go` | new | | | |

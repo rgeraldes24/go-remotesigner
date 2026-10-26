@@ -4,6 +4,7 @@
 package flags
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -80,5 +81,36 @@ func TestFlags(t *testing.T) {
 	}
 	if !slices.Contains(Global()[2].Names(), KeyStorePath) {
 		t.Error("--key-store-path is not an alias of --key-config-path")
+	}
+}
+
+// Every secret has a -file flag. A flag that takes a secret itself exists
+// only where Web3Signer has it, and is listed in PlainSecrets with the
+// -file flag that replaces it, which the signer's startup warning names.
+func TestSecretsHaveFileFlags(t *testing.T) {
+	secret := regexp.MustCompile(`(secret|password|token|access-key|credentials?)$`)
+	byName := map[string]cli.Flag{}
+	for _, fs := range [][]cli.Flag{Global(), Consensus(), Execution(), Import(), KeystoreVerify()} {
+		for _, f := range fs {
+			byName[f.Names()[0]] = f
+		}
+	}
+	pairs := PlainSecrets()
+	for name := range byName {
+		if _, plain := pairs[name]; secret.MatchString(name) && !plain {
+			t.Errorf("--%s takes a secret on the command line and has no -file flag", name)
+		}
+	}
+	for plain, file := range pairs {
+		p, f := byName[plain], byName[file]
+		if p == nil || f == nil {
+			t.Fatalf("--%s or --%s is not a flag", plain, file)
+		}
+		if file != plain+"-file" || !f.(*cli.StringFlag).TakesFile {
+			t.Errorf("--%s is not the file flag of --%s", file, plain)
+		}
+		if usage := p.(*cli.StringFlag).Usage; !strings.HasPrefix(usage, "Deprecated: use --"+file+".") {
+			t.Errorf("--%s: usage %q does not say it is deprecated", plain, usage)
+		}
 	}
 }
