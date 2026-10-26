@@ -75,7 +75,7 @@ read at startup, and one that is refused stops the start (exit 1) rather than fa
 [`azure-key-vault.md`](azure-key-vault.md#4-the-bulk-loader)). With `--strict-file-permissions` (the default) a secret file that its group or other users can read is
 refused: it fails to load like any other error (section 3), and the log names the file and its mode. With
 `--strict-file-permissions=false` it is loaded with a WARN. The mode is checked on the opened file, so the file read
-is the file checked. Keystores themselves are encrypted and are not checked. Keep secret files at `0600` or `0400`
+is the file checked (for a `--config-file`, the mode it had when the signer read it at startup). Keystores themselves are encrypted and are not checked. Keep secret files at `0600` or `0400`
 in `0700` directories. On Windows, whose files have no owner, group and other mode bits, the check is not made
 (only a path that is not a regular file is refused): restrict secret files there with their ACLs.
 

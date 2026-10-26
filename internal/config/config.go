@@ -11,6 +11,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/url"
 	"path/filepath"
@@ -226,11 +227,13 @@ type SecretStores struct {
 // when it gives the flag a value, whether or not that value was taken: the
 // file holds a secret either way. When an empty value on the command line or
 // in the environment overrode the file's, Source is the config file, which
-// holds the only secret.
+// holds the only secret. FileInfo is the type and mode the config file had
+// when it was read, which the secret-file policy checks.
 type PlainSecret struct {
 	Flag, FileFlag string
 	Source         SecretSource
 	File           string
+	FileInfo       fs.FileInfo
 }
 
 // SecretSource is where a flag's value came from.

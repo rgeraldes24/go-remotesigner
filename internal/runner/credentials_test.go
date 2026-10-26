@@ -108,9 +108,27 @@ func TestPlainSecretWarnings(t *testing.T) {
 	open := writeCredential(t, "consensus:\n  azure-client-secret: from-file\n", 0o644)
 	closed := writeCredential(t, "consensus:\n  azure-client-secret: from-file\n", 0o600)
 	plain := func(source config.SecretSource, file string) []config.PlainSecret {
-		return []config.PlainSecret{{Flag: "azure-client-secret", FileFlag: "azure-client-secret-file", Source: source,
-			File: file}}
+		p := config.PlainSecret{Flag: "azure-client-secret", FileFlag: "azure-client-secret-file", Source: source,
+			File: file}
+		if file != "" {
+			fi, err := os.Stat(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.FileInfo = fi
+		}
+		return []config.PlainSecret{p}
 	}
+	// The file was read while its group could read it, and its mode was
+	// changed (or the file swapped) afterwards: the file read is checked.
+	changed := writeCredential(t, "consensus:\n  azure-client-secret: from-file\n", 0o644)
+	readOpen := plain(config.FromConfigFile, changed)
+	if err := os.Chmod(changed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A record without the file's information is refused.
+	unread := plain(config.FromConfigFile, closed)
+	unread[0].FileInfo = nil
 	for _, tt := range []struct {
 		name     string
 		plain    []config.PlainSecret
@@ -141,6 +159,12 @@ func TestPlainSecretWarnings(t *testing.T) {
 		{name: "owner-only config file overridden by the environment", plain: plain(config.FromEnvironment, closed),
 			strict: true, want: []string{"A deprecated plain secret flag is set", "source=environment"},
 			unwanted: []string{"process list", "readable by its group"}},
+		{name: "config file open when it was read, strict", plain: readOpen, strict: true,
+			err: "refusing to start: --config-file holds --azure-client-secret, so it is a secret file: " + changed +
+				": mode 0644: readable by group or other users"},
+		{name: "config file not read", plain: unread,
+			err: "refusing to start: --config-file holds --azure-client-secret, so it is a secret file: " + closed +
+				": no record of the file that was read"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.Config{StrictFilePermissions: tt.strict}

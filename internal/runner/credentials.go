@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/sirupsen/logrus"
 
@@ -21,13 +20,17 @@ import (
 // access keys and Azure client secrets are about 40 characters.
 const maxCredentialFile = 64 << 10
 
+// errNotRead refuses a config file that holds a plain secret but carries no
+// record of the file that was read.
+var errNotRead = errors.New("no record of the file that was read")
+
 // StoreCredentials prepares the bulk loaders' credentials at startup. It
 // warns about each deprecated plain secret flag that is set, and once more
 // when its value is on the command line, where other local users can read
 // it in the process list. A config file that holds one is a secret file,
 // whichever source the value was taken from: under
-// --strict-file-permissions one that its group or other users can read
-// refuses the start. It then reads the first line of
+// --strict-file-permissions one that its group or other users could read
+// when it was read refuses the start. It then reads the first line of
 // --aws-secrets-secret-access-key-file and --azure-client-secret-file
 // under the secret-file policy. Its errors refuse the start.
 func StoreCredentials(cfg *config.Config, log logrus.FieldLogger) error {
@@ -42,9 +45,9 @@ func StoreCredentials(cfg *config.Config, log logrus.FieldLogger) error {
 				"the process list")
 		}
 		if p.File != "" {
-			fi, err := os.Stat(p.File)
-			if err == nil {
-				err = policy.Check(p.File, fi)
+			err := fmt.Errorf("%s: %w", p.File, errNotRead)
+			if p.FileInfo != nil {
+				err = policy.Check(p.File, p.FileInfo) // the file as it was read
 			}
 			if err != nil {
 				return fmt.Errorf("refusing to start: --config-file holds --%s, so it is a secret file: %w", p.Flag, err)

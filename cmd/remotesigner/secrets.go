@@ -190,7 +190,7 @@ func plainSecrets(c *cli.Context) ([]config.PlainSecret, error) {
 		}
 		p := config.PlainSecret{Flag: plain, FileFlag: file, Source: config.FromEnvironment}
 		if inFile {
-			p.File = src.Path()
+			p.File, p.FileInfo = src.Path(), src.Info()
 		}
 		switch {
 		case c.String(plain) == "": // the file's secret, overridden
