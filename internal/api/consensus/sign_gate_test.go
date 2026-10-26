@@ -4,7 +4,9 @@
 package consensus
 
 import (
+	"bytes"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"sync"
 	"sync/atomic"
@@ -128,4 +130,64 @@ func TestSignGateSaturated(t *testing.T) {
 	if gate.InFlight() != 0 || gate.Queued() != 0 {
 		t.Errorf("%d in flight and %d queued at the end", gate.InFlight(), gate.Queued())
 	}
+}
+
+// stalledWriter is a response writer whose Write blocks, once writing is
+// closed, until resume is closed: a client that does not read its response.
+type stalledWriter struct {
+	*httptest.ResponseRecorder
+	writing chan<- struct{}
+	resume  <-chan struct{}
+	once    sync.Once
+}
+
+func (w *stalledWriter) Write(b []byte) (int, error) {
+	w.once.Do(func() { close(w.writing) })
+	<-w.resume
+	return w.ResponseRecorder.Write(b)
+}
+
+// A request whose response cannot be written holds no slot of the signing
+// gate (docs/contract.md section 7, step 10: the slot is held until the
+// signature is verified, not while the response is written), so that a
+// client slow to read its responses cannot keep others from signing.
+func TestSignGateReleasedBeforeTheResponse(t *testing.T) {
+	c := goldenCase(t, signingroot.SyncCommitteeMessage, "typical")
+	f := newSignFixture(t, signOptions{network: goldenSources(t, c.Network)})
+	gate, err := admission.New(1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.h.Gate = gate
+	ident := f.ident(c.KeyIndex)
+
+	writing, resume := make(chan struct{}), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(resume) })
+	t.Cleanup(unblock)
+	stalled := &stalledWriter{ResponseRecorder: httptest.NewRecorder(), writing: writing, resume: resume}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/consensus/sign/"+ident, bytes.NewReader(c.RequestJSON))
+		r.SetPathValue("identifier", ident)
+		r.Header.Set("Content-Type", "application/json")
+		f.h.ServeHTTP(stalled, r)
+	}()
+	select {
+	case <-writing:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first response was never written")
+	}
+	if n := gate.InFlight(); n != 0 {
+		t.Errorf("%d slots held while the response is written, want 0", n)
+	}
+	other := edit(t, c.RequestJSON, func(m map[string]any) {
+		delete(m, "signing_root")
+		m["sync_committee_message"].(map[string]any)["beacon_block_root"] = fmt.Sprintf("0x%064x", 7)
+	})
+	signature(t, f.post(ident, other))
+
+	unblock()
+	<-done
+	signature(t, stalled.ResponseRecorder)
 }

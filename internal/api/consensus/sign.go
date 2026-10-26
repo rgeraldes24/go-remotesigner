@@ -50,7 +50,8 @@ type GVRPinner interface {
 //     within two epochs gets the same bytes, without signing or a slashing
 //     check (the repeat of a released signature adds nothing to sign);
 //   - the signing gate (503 OVERLOADED when its slots and its queue are
-//     full), held until the signature is verified;
+//     full), held until the signature is verified and released before the
+//     response is written;
 //   - slashing check-and-record for blocks and attestations (412), committed
 //     before anything is signed;
 //   - sign in the type's mode, verify before release (500 SIGNATURE_FAULT
@@ -144,27 +145,37 @@ func (x *exchange) serve() {
 		x.respond(sig)
 		return
 	}
+	sig, e := x.sign(d, id, key, pk[:])
+	if e != nil {
+		x.fail(e)
+		return
+	}
+	x.respond(sig)
+}
+
+// sign runs the slashing check-and-record, the signature and its
+// verification in a slot of the signing gate (steps 10 to 12 of the
+// pipeline). The slot is released before the response is written, so that
+// a client slow to read its response holds none.
+func (x *exchange) sign(d *policy.Decision, id signer.ID, key signer.Key,
+	pubkey []byte) (signer.Signature, *apierr.Error) {
 	if x.h.Gate != nil {
 		release, err := x.h.Gate.Acquire(x.r.Context())
 		if err != nil {
-			x.fail(apierr.New(apierr.Overloaded, "signing gate: "+err.Error()))
-			return
+			return signer.Signature{}, apierr.New(apierr.Overloaded, "signing gate: "+err.Error())
 		}
 		defer release()
 	}
 	if x.h.Protector != nil && d.Protection != policy.ProtectionNone {
-		if e := x.protect(d, pk[:]); e != nil {
-			x.fail(e)
-			return
+		if e := x.protect(d, pubkey); e != nil {
+			return signer.Signature{}, e
 		}
 	}
-
 	sig, err := x.h.Signer.Sign(id, key, x.typ, d.SigningRoot)
 	if err != nil {
-		x.fail(x.signerError(err))
-		return
+		return signer.Signature{}, x.signerError(err)
 	}
-	x.respond(sig)
+	return sig, nil
 }
 
 // pinGVR binds a pending trust-on-first-use GVR: the store first, so that
