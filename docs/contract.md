@@ -732,8 +732,9 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
     check the request's `slashing_protection`, a status its operation does not list either. The next version adds
     it.
   - These gaps stay open at `1.0.0`: closing them changes the contract, which needs the matching qrysm client change
-    and fixture pin in the same change. The release checklist accepts them for `1.0.0`
-    ([`operations/release.md`](operations/release.md#6-the-v10-release-checklist)).
+    and fixture pin in the same change. Whether `1.0.0` ships with them is a maintainers' decision that the release
+    checklist leaves open ([`operations/release.md`](operations/release.md#6-the-v10-release-checklist), section
+    6.2).
 
 ## 21. Deviations from Web3Signer
 
