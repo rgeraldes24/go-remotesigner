@@ -28,8 +28,11 @@ info:
     a verifier takes the public key (2,592 bytes) from `GET /api/v1/execution/publicKeys`.
 
     Errors: a JSON-RPC error object (`code`, `message`, optional `data`) under the request's id, with the HTTP
-    status that `docs/operations/execution.md` section 4 lists for a single request; a batch is always answered
-    with 200. The server's own refusals (authentication, Host, Origin, content type, body size, startup) are the
+    status that `docs/operations/execution.md` section 4 lists for a single request. The signer's own errors have
+    fixed codes and messages (`SignerRpcError`); the node's errors, which a forwarded request and the node's refusal
+    of a `qrl_sendTransaction` get, are passed back as the node sent them (`NodeRpcError`). A batch of 1 to 1,000
+    requests is answered with 200, each element on its own; a body that is not JSON, and an empty or oversized
+    batch, get one error object and 400. The server's own refusals (authentication, Host, Origin, content type, body size, startup) are the
     JSON error body of consensus mode, `{code, message, reason}`, as `api/openapi/consensus.yaml` describes it.
     `/upcheck`, `/healthcheck` and `/reload` are consensus mode's (`consensus.yaml`), with execution mode's checks
     (`execution.md` section 7).
@@ -100,6 +103,9 @@ paths:
               forwarded:
                 summary: forwarded to the node, which the default allowlist allows
                 value: {jsonrpc: "2.0", id: "net", method: net_version, params: []}
+              forwardedError:
+                summary: a forwarded call that the node answers with its own error
+                value: {"jsonrpc": "2.0", "id": 14, "method": "qrl_call", "params": [{"to": "Qd11F9D9523607B62d35d3062e1B0c746Df8837E52B93082d4d1dEDd13f4846244c802ab327365899d2902B042a5CDe9BDFdDd5b2fc59E1608772A821Ac68824E", "input": "0x3ccfd60b"}, "latest"]}
               refused:
                 summary: refused with -32601 under the default allowlist
                 value: {jsonrpc: "2.0", id: 7, method: admin_peers}
@@ -115,9 +121,10 @@ paths:
         '200':
           description: |
             A result or a JSON-RPC error of a single request, the node's answer to a forwarded one, or the answers of
-            a batch in request order. A notification gets an empty body. The errors with 200 are -32601 (method not
-            found), -32000 (unknown account) and -32003 (transaction rejected); a forwarded request also gets the
-            node's own errors.
+            a batch in request order. A notification gets an empty body. The signer's own errors with 200 are -32601
+            (method not found), -32000 (unknown account) and -32003 (transaction rejected). The node's own errors
+            (`NodeRpcError`) also come with 200: a forwarded request gets them as the node sent them, and a
+            `qrl_sendTransaction` gets the node's refusal of its `qrl_fillTransaction` or `qrl_sendRawTransaction`.
           content:
             application/json:
               schema:
@@ -137,6 +144,14 @@ paths:
                   value: {jsonrpc: "2.0", id: 11, result: OK}
                 forwarded:
                   value: {jsonrpc: "2.0", id: "net", result: "1337"}
+                forwardedError:
+                  summary: the node's own error, a reverted call, passed back as the node sent it
+                  x-node-error: true
+                  value: {"jsonrpc": "2.0", "id": 14, "error": {"code": 3, "message": "execution reverted: not the owner", "data": "0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000d6e6f7420746865206f776e657200000000000000000000000000000000000000"}}
+                nodeRefused:
+                  summary: the node refuses the qrl_sendTransaction example's transaction, from an account it holds no funds for
+                  x-node-error: true
+                  value: {"jsonrpc": "2.0", "id": 4, "error": {"code": -32000, "message": "insufficient funds for gas * price + value: balance 0, tx cost 1004200000000021000, overshot 1004200000000021000"}}
                 methodNotFound:
                   value: {jsonrpc: "2.0", id: 7, error: {code: -32601, message: Method not found}}
                 typedData:
@@ -400,7 +415,9 @@ components:
       description: |
         Completes the transaction with the node's `qrl_fillTransaction` when it lacks a nonce, gas, a fee cap or a
         chain ID, checks the node's answer, signs it and sends it with `qrl_sendRawTransaction` under the request's id.
-        When the node filled the nonce and reports it taken, the signer fills and signs again, up to 10 times.
+        The result is the node's answer to the send, the transaction hash; when the node refuses the fill or the
+        send, its own error (`NodeRpcError`) comes back with HTTP 200. When the node filled the nonce and reports it
+        taken, the signer fills and signs again, up to 10 times.
       x-result-schema: SendTransactionResult
       type: object
       required: [jsonrpc, method, params]
@@ -573,12 +590,14 @@ components:
           allOf: [{$ref: '#/components/schemas/Id'}]
           description: The request's id, or null when the body was not a request with a valid id.
         error:
-          $ref: '#/components/schemas/RpcError'
-    RpcError:
+          description: The signer's own error, or the node's.
+          anyOf:
+            - $ref: '#/components/schemas/SignerRpcError'
+            - $ref: '#/components/schemas/NodeRpcError'
+    SignerRpcError:
       type: object
       description: |
-        The errors the signer itself returns, with fixed messages; `data`, when present, says more. A forwarded
-        request may also carry the node's own errors.
+        The errors the signer itself returns, with fixed codes and messages; `data`, when present, says more.
       additionalProperties: false
       required: [code, message]
       properties:
@@ -601,6 +620,21 @@ components:
             - Limit exceeded
         data:
           type: string
+    NodeRpcError:
+      type: object
+      description: |
+        The node's own error, passed back as the node sent it: the answer to a forwarded request, and the node's
+        refusal of a `qrl_sendTransaction`'s `qrl_fillTransaction` or `qrl_sendRawTransaction`, which comes with
+        HTTP 200. Its code, message and data are the node's: gqrl refuses most requests with -32000 and a message
+        of its own, and answers a reverted call with 3 "execution reverted" and the revert data.
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        data:
+          description: Any JSON value the node sent.
 
     AccountPublicKey:
       type: object

@@ -199,6 +199,10 @@ type rpcErrorExample struct {
 	status  int
 	code    int
 	message string
+	object  map[string]any
+	// node marks an example of the node's own error (x-node-error), which
+	// the signer passes back as the node sent it.
+	node bool
 }
 
 // rpcErrorExamples returns the JSON-RPC error examples of POST /, single
@@ -206,7 +210,7 @@ type rpcErrorExample struct {
 func rpcErrorExamples(t *testing.T) []rpcErrorExample {
 	t.Helper()
 	var out []rpcErrorExample
-	add := func(name string, status int, v any) {
+	add := func(name string, status int, v any, node bool) {
 		m, ok := v.(map[string]any)
 		if !ok {
 			return
@@ -216,7 +220,7 @@ func rpcErrorExamples(t *testing.T) []rpcErrorExample {
 			return
 		}
 		out = append(out, rpcErrorExample{name: name, status: status, code: int(e["code"].(float64)),
-			message: e["message"].(string)})
+			message: e["message"].(string), object: e, node: node})
 	}
 	for code, resp := range loadExecutionSpec(t).Paths.Value("/").Post.Responses.Map() {
 		mt := resp.Value.Content.Get("application/json")
@@ -224,29 +228,75 @@ func rpcErrorExamples(t *testing.T) []rpcErrorExample {
 			continue
 		}
 		status, _ := strconv.Atoi(code)
-		values := map[string]any{"example": mt.Example}
+		type value struct {
+			v    any
+			node bool
+		}
+		values := map[string]value{"example": {v: mt.Example}}
 		for name, ex := range mt.Examples {
-			values[name] = ex.Value.Value
+			node, _ := ex.Value.Extensions["x-node-error"].(bool)
+			values[name] = value{ex.Value.Value, node}
 		}
 		for name, v := range values {
-			if list, ok := v.([]any); ok { // a batch: always 200
+			if list, ok := v.v.([]any); ok { // a batch: always 200
 				for _, e := range list {
-					add(name, status, e)
+					add(name, status, e, v.node)
 				}
 				continue
 			}
-			add(name, status, v)
+			add(name, status, v.v, v.node)
 		}
 	}
 	return out
+}
+
+// The error examples are the signer's own errors, which match the closed
+// SignerRpcError, or are marked x-node-error: the node's, which come with
+// 200 and match only the open NodeRpcError. Both a forwarded request's and
+// a qrl_sendTransaction's node error have an example.
+func TestExecutionErrorExamplesAreSignersOrNodes(t *testing.T) {
+	signer, node := executionSchema(t, "SignerRpcError"), executionSchema(t, "NodeRpcError")
+	nodeExamples := map[string]bool{}
+	for _, ex := range rpcErrorExamples(t) {
+		if !ex.node {
+			if err := signer.VisitJSON(ex.object, openapi3.VisitAsResponse()); err != nil {
+				t.Errorf("example %s is not a SignerRpcError and not marked x-node-error: %v", ex.name, err)
+			}
+			continue
+		}
+		nodeExamples[ex.name] = true
+		if ex.status != 200 {
+			t.Errorf("node error example %s is listed under HTTP %d, want 200", ex.name, ex.status)
+		}
+		if signer.VisitJSON(ex.object, openapi3.VisitAsResponse()) == nil {
+			t.Errorf("node error example %s is one of the signer's own errors", ex.name)
+		}
+		if err := node.VisitJSON(ex.object, openapi3.VisitAsResponse()); err != nil {
+			t.Errorf("node error example %s: %v", ex.name, err)
+		}
+	}
+	if want := map[string]bool{"forwardedError": true, "nodeRefused": true}; !maps.Equal(nodeExamples, want) {
+		t.Errorf("node error examples %v, want %v", slices.Sorted(maps.Keys(nodeExamples)), slices.Sorted(maps.Keys(want)))
+	}
+	// The open schema takes any code, message and data, as gqrl sends them.
+	for _, e := range []map[string]any{
+		{"code": -32000.0, "message": "nonce too low: next nonce 2, tx nonce 1"},
+		{"code": 3.0, "message": "execution reverted", "data": "0x"},
+		{"code": -32001.0, "message": "x", "data": map[string]any{"any": []any{1.0}}},
+	} {
+		if err := executionSchema(t, "ErrorRpcResponse").VisitJSON(map[string]any{"jsonrpc": "2.0", "id": 1.0, "error": e},
+			openapi3.VisitAsResponse()); err != nil {
+			t.Errorf("node error %v: %v", e, err)
+		}
+	}
 }
 
 // execution.md section 4 documents the methods and the errors that
 // execution.yaml describes: the methods table names each answered method,
 // the refused typed-data method and "anything else"; every row of the
 // errors table has an example under each HTTP status it lists, every error
-// example is a row of the table, and RpcError's enums hold exactly the
-// table's codes and messages.
+// example of the signer's own is a row of the table, and SignerRpcError's
+// enums hold exactly the table's codes and messages.
 func TestExecutionSpecMatchesDocs(t *testing.T) {
 	raw, err := os.ReadFile(executionDocPath)
 	if err != nil {
@@ -290,6 +340,9 @@ func TestExecutionSpecMatchesDocs(t *testing.T) {
 	}
 	examples := map[key]bool{}
 	for _, ex := range rpcErrorExamples(t) {
+		if ex.node {
+			continue // the node's errors are not the table's
+		}
 		k := key{ex.code, ex.status}
 		examples[k] = true
 		if !documentedErrors[k] {
@@ -302,18 +355,18 @@ func TestExecutionSpecMatchesDocs(t *testing.T) {
 		}
 	}
 
-	rpcError := executionSchema(t, "RpcError")
+	rpcError := executionSchema(t, "SignerRpcError")
 	var enumCodes []int
 	for _, c := range rpcError.Properties["code"].Value.Enum {
 		enumCodes = append(enumCodes, int(c.(float64)))
 	}
 	slices.Sort(enumCodes)
 	if want := slices.Sorted(maps.Keys(codes)); !slices.Equal(enumCodes, want) {
-		t.Errorf("RpcError codes %v, execution.md's %v", enumCodes, want)
+		t.Errorf("SignerRpcError codes %v, execution.md's %v", enumCodes, want)
 	}
 	for _, m := range rpcError.Properties["message"].Value.Enum {
 		if !strings.Contains(tableText, m.(string)) {
-			t.Errorf("RpcError message %q is not in execution.md's errors table", m)
+			t.Errorf("SignerRpcError message %q is not in execution.md's errors table", m)
 		}
 	}
 

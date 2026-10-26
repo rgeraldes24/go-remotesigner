@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"math/big"
@@ -87,7 +88,7 @@ func TestOpenAPIMethodsAndErrorsAreTheHandlers(t *testing.T) {
 		t.Errorf("execution.yaml describes the methods %v, the handler answers %v", described, table)
 	}
 
-	rpcError := doc.Components.Schemas["RpcError"].Value
+	rpcError := doc.Components.Schemas["SignerRpcError"].Value
 	var codes, messages []string
 	for _, c := range rpcError.Properties["code"].Value.Enum {
 		codes = append(codes, strconv.Itoa(int(c.(float64))))
@@ -106,15 +107,16 @@ func TestOpenAPIMethodsAndErrorsAreTheHandlers(t *testing.T) {
 		slices.Sort(l)
 	}
 	if !slices.Equal(codes, wantCodes) || !slices.Equal(messages, wantMessages) {
-		t.Errorf("RpcError: codes %v and messages %v, the handler's %v and %v", codes, messages, wantCodes, wantMessages)
+		t.Errorf("SignerRpcError: codes %v and messages %v, the handler's %v and %v", codes, messages, wantCodes, wantMessages)
 	}
 }
 
 // openAPIFixture is the fixture the examples were made with: the two test
 // accounts, the default allowlist, and a node that answers net_version
-// with "1337" and qrl_sendRawTransaction with the hash of the
-// qrl_sendTransaction example.
-func openAPIFixture(t *testing.T, doc *openapi3.T) *fixture {
+// with "1337", qrl_call with gqrl's error for a call that reverted with
+// "not the owner", and qrl_sendRawTransaction with the hash of the
+// qrl_sendTransaction example, or with sendErr when it is set.
+func openAPIFixture(t *testing.T, doc *openapi3.T, sendErr *Error) *fixture {
 	t.Helper()
 	f := newFixture(t, 2, defaultAllow)
 	hash := openAPIExample(t, doc, 200, MethodSendTransaction).(map[string]any)["result"]
@@ -126,16 +128,32 @@ func openAPIFixture(t *testing.T, doc *openapi3.T) *fixture {
 		}
 		_ = json.Unmarshal(body, &req)
 		var result any = "node:" + req.Method
+		var e *Error
 		switch req.Method {
 		case "net_version":
 			result = "1337"
-		case "qrl_sendRawTransaction":
-			result = hash
+		case "qrl_call":
+			e = revertError("not the owner")
+		case MethodSendRawTransaction:
+			result, e = hash, sendErr
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(encodeResult(req.ID, result, nil))
+		_, _ = w.Write(encodeResult(req.ID, result, e))
 	})
 	return f
+}
+
+// revertError is gqrl's error for a call that reverted with
+// Error(reason): code 3, the reason in the message, and the revert data,
+// the ABI encoding of Error(string), in data.
+func revertError(reason string) *Error {
+	word := func(n int) []byte { return new(big.Int).SetInt64(int64(n)).FillBytes(make([]byte, 32)) }
+	data := []byte{0x08, 0xc3, 0x79, 0xa0} // the selector of Error(string)
+	data = append(data, word(32)...)
+	data = append(data, word(len(reason))...)
+	data = append(data, reason...)
+	data = append(data, make([]byte, (32-len(reason)%32)%32)...)
+	return &Error{Code: 3, Message: "execution reverted: " + reason, Data: "0x" + hex.EncodeToString(data)}
 }
 
 // post sends a decoded example to the handler.
@@ -191,7 +209,7 @@ func validateResponse(t *testing.T, doc *openapi3.T, w *httptest.ResponseRecorde
 // notification gets an empty body.
 func TestOpenAPIExamplesAreTheHandlersAnswers(t *testing.T) {
 	doc := loadOpenAPI(t)
-	f := openAPIFixture(t, doc)
+	f := openAPIFixture(t, doc, nil)
 	requests := doc.Paths.Value("/").Post.RequestBody.Value.Content.Get("application/json").Examples
 	responseOf := map[string]string{"refused": "methodNotFound"}
 	for name, ex := range requests {
@@ -226,10 +244,11 @@ func TestOpenAPIExamplesAreTheHandlersAnswers(t *testing.T) {
 }
 
 // The error examples are the handler's answers, status, message and data
-// included, to the requests that cause them.
+// included, to the requests that cause them, and each answer matches the
+// schema of its status.
 func TestOpenAPIErrorExamplesAreTheHandlersAnswers(t *testing.T) {
 	doc := loadOpenAPI(t)
-	f := openAPIFixture(t, doc)
+	f := openAPIFixture(t, doc, nil)
 	_, a0 := f.key(0)
 	_, a1 := f.key(1)
 	tx := func(gas, chainID string) map[string]any {
@@ -254,14 +273,38 @@ func TestOpenAPIErrorExamplesAreTheHandlersAnswers(t *testing.T) {
 		if want := openAPIExample(t, doc, tt.status, tt.name); w.Code != tt.status || !jsonEqual(t, w.Body.Bytes(), want) {
 			t.Errorf("%s: %d %s, want %d and the example", tt.name, w.Code, w.Body, tt.status)
 		}
+		validateResponse(t, doc, w, tt.name)
+	}
+
+	// The node refuses the send, as gqrl refuses a transaction whose cost,
+	// gas × maxFeePerGas + value, its sender's balance of 0 does not cover:
+	// its own error comes back with 200.
+	send := openAPIExample(t, doc, 0, MethodSendTransaction)
+	sent := send.(map[string]any)["params"].([]any)[0].(map[string]any)
+	quantity := func(m string) *big.Int {
+		n, ok := new(big.Int).SetString(strings.TrimPrefix(sent[m].(string), "0x"), 16)
+		if !ok {
+			t.Fatalf("the qrl_sendTransaction example's %s: %v", m, sent[m])
+		}
+		return n
+	}
+	cost := new(big.Int).Add(new(big.Int).Mul(quantity("gas"), quantity("maxFeePerGas")), quantity("value"))
+	refused := openAPIFixture(t, doc, &Error{Code: -32000, Message: fmt.Sprintf(
+		"insufficient funds for gas * price + value: balance 0, tx cost %v, overshot %v", cost, cost)})
+	if w, want := postExample(t, refused, send), openAPIExample(t, doc, 200, "nodeRefused"); w.Code != http.StatusOK ||
+		!jsonEqual(t, w.Body.Bytes(), want) {
+		t.Errorf("nodeRefused: %d %s", w.Code, w.Body)
+	} else {
+		validateResponse(t, doc, w, "nodeRefused")
 	}
 
 	// The node answers a send with HTTP 500.
-	send := openAPIExample(t, doc, 0, MethodSendTransaction)
 	f.node.setHandler(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) })
 	if w, want := postExample(t, f, send), openAPIExample(t, doc, 502, "invalidResponse"); w.Code != 502 ||
 		!jsonEqual(t, w.Body.Bytes(), want) {
 		t.Errorf("invalidResponse: %d %s", w.Code, w.Body)
+	} else {
+		validateResponse(t, doc, w, "invalidResponse")
 	}
 	// A node that is not listening, never reached before.
 	gone := newNode(t)
@@ -271,6 +314,8 @@ func TestOpenAPIErrorExamplesAreTheHandlersAnswers(t *testing.T) {
 	if w, want := postExample(t, f, openAPIExample(t, doc, 0, "forwarded")), openAPIExample(t, doc, 504, "connect"); w.Code != 504 ||
 		!jsonEqual(t, w.Body.Bytes(), want) {
 		t.Errorf("connect: %d %s", w.Code, w.Body)
+	} else {
+		validateResponse(t, doc, w, "connect")
 	}
 }
 
@@ -280,7 +325,7 @@ func TestOpenAPIErrorExamplesAreTheHandlersAnswers(t *testing.T) {
 // go-qrl, to its tx member, signed by its from account for chain 1337.
 func TestOpenAPIExampleSignatures(t *testing.T) {
 	doc := loadOpenAPI(t)
-	f := openAPIFixture(t, doc)
+	f := openAPIFixture(t, doc, nil)
 	w := httptest.NewRecorder()
 	publicKeys(f.accounts).ServeHTTP(w, httptest.NewRequest(http.MethodGet, PublicKeysPath, nil))
 	listing := doc.Paths.Value(PublicKeysPath).Get.Responses.Status(200).Value.Content.Get("application/json").Example
