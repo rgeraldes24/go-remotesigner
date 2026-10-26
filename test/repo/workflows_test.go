@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -64,11 +65,11 @@ func (j workflowJob) runs(want string) bool {
 	return slices.ContainsFunc(j.Steps, func(s jobStep) bool { return strings.Contains(s.Run, want) })
 }
 
-// The nightly workflow fuzzes the request decoders, the hash-tree-root
-// differential and the network parser for 30 minutes each, every target of
-// `make fuzz` but the keystore and interchange ones, which have jobs of their
-// own.
-func TestNightlyFuzzesTheDecodersAndTheNetworkParser(t *testing.T) {
+// The nightly workflow fuzzes every target of `make fuzz` for 30 minutes:
+// the keystore and interchange ones in jobs of their own, every other one
+// (the request decoders, the hash-tree-root differential and the network
+// parser) in the fuzz-decoders matrix.
+func TestNightlyFuzzesEveryTargetOfMakeFuzz(t *testing.T) {
 	w := readWorkflow(t, "nightly.yml")
 	job, ok := w.Jobs["fuzz-decoders"]
 	if !ok {
@@ -78,17 +79,6 @@ func TestNightlyFuzzesTheDecodersAndTheNetworkParser(t *testing.T) {
 	for _, m := range job.Strategy.Matrix.Include {
 		got[m["target"]] = m["package"]
 	}
-	want := map[string]string{
-		"FuzzDecodeSignRequest":         "./internal/consensus/types/",
-		"FuzzHashTreeRootDifferential":  "./internal/consensus/types/",
-		"FuzzDecodeRandaoRevealRequest": "./internal/consensus/types/",
-		"FuzzParseConfig":               "./internal/network/",
-	}
-	for target, pkg := range want {
-		if got[target] != pkg {
-			t.Errorf("fuzz-decoders runs %s in %q, want %q", target, got[target], pkg)
-		}
-	}
 	if !job.runs("make fuzz-target") || !job.runs("FUZZTIME=30m") {
 		t.Error("fuzz-decoders does not run make fuzz-target with FUZZTIME=30m")
 	}
@@ -96,11 +86,52 @@ func TestNightlyFuzzesTheDecodersAndTheNetworkParser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for target, pkg := range want {
-		if !strings.Contains(string(makefile), "-fuzz '^"+target+"$$' -fuzztime $(FUZZTIME) "+pkg) {
-			t.Errorf("make fuzz does not run %s on %s", target, pkg)
+	recipe := makeRecipe(string(makefile), "fuzz")
+	want := map[string]string{}
+	for _, m := range fuzzLine.FindAllStringSubmatch(recipe, -1) {
+		want[m[1]] = m[2]
+	}
+	for _, target := range []string{"FuzzDecodeSignRequest", "FuzzHashTreeRootDifferential",
+		"FuzzDecodeRandaoRevealRequest", "FuzzParseConfig"} {
+		if _, ok := want[target]; !ok {
+			t.Errorf("make fuzz does not run %s", target)
 		}
 	}
+	for target, pkg := range want {
+		if got[target] != pkg {
+			t.Errorf("fuzz-decoders runs %s in %q, want %q, as make fuzz does", target, got[target], pkg)
+		}
+	}
+	for _, own := range []string{"fuzz-keystore", "fuzz-interchange"} {
+		if !strings.Contains(firstLine(recipe), " "+own) {
+			t.Errorf("make fuzz does not run make %s", own)
+		}
+		j, ok := w.Jobs[own]
+		if !ok || !j.runs("make "+own+" FUZZTIME=30m") {
+			t.Errorf("no nightly job runs make %s FUZZTIME=30m", own)
+		}
+	}
+}
+
+// fuzzLine is a `go test -fuzz` line of a make recipe: its target and package.
+var fuzzLine = regexp.MustCompile(`-fuzz '\^(Fuzz\w+)\$\$' -fuzztime \$\(FUZZTIME\) (\./\S+/)`)
+
+// makeRecipe returns target's rule in a Makefile: its line and its recipe.
+func makeRecipe(makefile, target string) string {
+	i := strings.Index(makefile, "\n"+target+":")
+	if i < 0 {
+		return ""
+	}
+	rule := makefile[i+1:]
+	if end := strings.Index(rule, "\n\n"); end >= 0 {
+		rule = rule[:end]
+	}
+	return rule
+}
+
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
 }
 
 // The nightly lane job runs qrl-tests' consensus-remote-signer lane: it
