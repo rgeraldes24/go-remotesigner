@@ -604,8 +604,8 @@ golden fixture for each check.
 
 ## 18. Metric label values
 
-The qrysm e2e evaluator (`RemoteSignerHealthy`) scrapes the metrics listener, so these names and label values are
-part of the contract. A change needs the evaluator changed in lockstep.
+The end-to-end test, qrl-tests' lane `consensus-remote-signer`, scrapes the metrics listener and checks these names
+and label values, so they are part of the contract. A change needs the lane changed in lockstep.
 
 | Metric | Labels and values |
 |---|---|
@@ -655,8 +655,8 @@ RANDAO path in the VC: propose for a slot → read the head commitment → `Rand
   `tools/vectorgen/contract` pins, so a field renamed or added on one side alone fails the PR. A contract change
   moves that pin to the matching qrysm commit in the same PR
   ([`tools/vectorgen/README.md`](../tools/vectorgen/README.md#contract-pin)).
-- Metric names and label values in [section 18](#18-metric-label-values) change only together with the qrysm e2e
-  evaluator.
+- Metric names and label values in [section 18](#18-metric-label-values) change only together with the end-to-end
+  test that reads them, qrl-tests' lane `consensus-remote-signer`.
 - A clarification of `1.0.0` is prose that changes no path, field, status code, reason code or encoding. It keeps
   `info.version`, is listed here for the qrysm side to review, and is folded into the notes of the next version.
   TLS, mTLS and the response cache added these:

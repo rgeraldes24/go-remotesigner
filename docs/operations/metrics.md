@@ -95,9 +95,9 @@ are not counted in `consensus_randao_reveals_total`.
 
 ## 3. Label values fixed by the contract
 
-The qrysm e2e evaluator reads these values, so they are part of the HTTP contract
-([`../contract.md`](../contract.md#18-metric-label-values)) and change only together with it. Every value exists from
-startup, at 0, so a scrape shows it before it first occurs.
+The end-to-end test, qrl-tests' lane `consensus-remote-signer`, reads these values, so they are part of the HTTP
+contract ([`../contract.md`](../contract.md#18-metric-label-values)) and change only together with it. Every value
+exists from startup, at 0, so a scrape shows it before it first occurs.
 
 | Metric and label | Values |
 |---|---|
