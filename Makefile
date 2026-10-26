@@ -116,9 +116,11 @@ fuzz-keystore:
 fuzz-interchange:
 	$(GO) test -run '^$$' -fuzz '^FuzzInterchange$$' -fuzztime $(FUZZTIME) -fuzzminimizetime 5s ./internal/slashing/interchange/
 
-## contract: lint api/openapi/consensus.yaml (kin-openapi), validate its examples, check docs/contract.md against it
+## contract: lint api/openapi/consensus.yaml and execution.yaml (kin-openapi), validate their examples, check
+## docs/contract.md and docs/operations/execution.md against them, and execution mode's handler against execution.yaml
 contract:
 	$(GO) test ./api/openapi/...
+	$(GO) test -run '^TestOpenAPI' ./internal/execution/
 
 ## lint: go vet, golangci-lint (incl. depguard), headercheck and licence checks
 lint: headercheck license-hash

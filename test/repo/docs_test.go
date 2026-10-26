@@ -79,7 +79,7 @@ var operatorPages = []struct {
 		"| The gqrl end-to-end test on the reference VMs |",
 		"| The nightly end-to-end run green for 7 consecutive nights on the 1.1.0 candidate |",
 		"(B19, the gqrl end-to-end test, and the fuzzers of the keystore decoder",
-		"| An OpenAPI description of execution mode, or not |", "ships `api/openapi/execution.yaml`",
+		"describes execution mode's JSON-RPC endpoint", "`make contract` (`api/openapi`, and `TestOpenAPI*` in `internal/execution`)",
 		"| The secret stores against the real services |", "| The first tag run attaches the source archive |",
 		"\nGOTOOLCHAIN=local CGO_ENABLED=0 GOPROXY=off go build -mod=vendor -trimpath -o remotesigner ./cmd/remotesigner\n"}},
 	{"CHANGELOG.md", []string{"## [1.0.0]", "listens, is not bounded", "Every global and `consensus` flag",

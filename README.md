@@ -35,7 +35,8 @@ verify` checks qrysm and deposit CLI keystores and their password files offline
 holds QRL account keys for JSON-RPC clients in front of a gqrl node: it answers `qrl_accounts`, `qrl_sign`,
 `qrl_signTransaction` and `qrl_sendTransaction` under a chain ID, a fee cap, a per-account policy and an audit log,
 and forwards an allowlist of methods to the node, without the client's credentials
-([`docs/operations/execution.md`](docs/operations/execution.md)). To try the signer, see
+([`docs/operations/execution.md`](docs/operations/execution.md), described in OpenAPI by
+[`api/openapi/execution.yaml`](api/openapi/execution.yaml)). To try the signer, see
 [`docs/operations/quickstart.md`](docs/operations/quickstart.md); every flag is in
 [`docs/reference/flags.md`](docs/reference/flags.md).
 
