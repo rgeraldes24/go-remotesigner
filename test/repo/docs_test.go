@@ -71,7 +71,7 @@ var operatorPages = []struct {
 		"## 5. Going back to an older release"}},
 	{"docs/operations/release.md", []string{"## 3. Verifying a release", "## 6. The v1.0 release checklist",
 		"qrysm's remote-signer client merged", "the pin of `tools/vectorgen/contract` moved to the merged commit",
-		"Both nightly end-to-end runs green for 7 consecutive nights", "Benchmark B16",
+		"The nightly end-to-end run green for 7 consecutive nights", "Benchmark B16",
 		"time-compressed replay of the mainnet duty schedule, which does not exist yet",
 		"Reference-VM runs of B1-B15 and B18-B20", "The deployment guides brought up by an independent reviewer",
 		"The stacked pull requests merged into `main`", "public ghcr.io packages", "Making the repository public",

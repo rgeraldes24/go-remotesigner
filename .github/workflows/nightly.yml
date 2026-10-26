@@ -28,75 +28,188 @@ jobs:
       - name: B19 (0 connection errors over 1 h with IdleTimeout 120 s)
         run: make b19 B19_DURATION=1h
 
-  qrysm-e2e:
-    # qrysm's remote-signer end-to-end scenario against this repository's
-    # consensus flavour, built from the commit under test: two qrysm
-    # validator clients sign every duty through the signer on a minimal
-    # network until finality. The qrysm branch that holds the scenario is the
-    # repository variable QRYSM_E2E_REF (a branch, tag or commit of
-    # QRYSM_E2E_REPO, by default rgeraldes24/qrysm); until it is set, the job
-    # only says so.
-    name: qrysm end-to-end (TestEndToEnd_MinimalConfig_Web3Signer)
+  remote-signer-lane:
+    # qrl-tests' consensus-remote-signer lane against this repository's
+    # consensus flavour, built from the commit under test: a devnet whose
+    # qrysm validator client holds no keys and signs every duty through the
+    # signer, over TLS with a bearer token, while the lane checks the
+    # signer's keys and chain, finality, the signer's metrics and its refusal
+    # of a double vote and a double proposal. The lane is qrl-tests', the
+    # network qrl-package's and the validator client qrysm's remote-signer
+    # client; each comes from the branch, tag or commit that a repository
+    # variable names (E2E_QRL_TESTS_REF, E2E_QRL_PACKAGE_REF, E2E_QRYSM_REF),
+    # in the repository its _REPO variable names (by default the ones below).
+    # Until all three refs are set, the job only says so. The images are
+    # built as qrl-tests builds them: the signer's and qrysm's with its
+    # scripts, the execution client's and the genesis generator's as its
+    # nightly does, from go-qrl and qrl-genesis-generator (main unless
+    # E2E_GO_QRL_REF or E2E_GENESIS_GENERATOR_REF says otherwise), the
+    # generator with the same qrysm commit.
+    name: qrl-tests lane consensus-remote-signer
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 150
     env:
-      QRYSM_E2E_REF: ${{ vars.QRYSM_E2E_REF }}
-      QRYSM_E2E_REPO: ${{ vars.QRYSM_E2E_REPO || 'rgeraldes24/qrysm' }}
+      E2E_QRL_TESTS_REPO: ${{ vars.E2E_QRL_TESTS_REPO || 'cyyber/qrl-tests' }}
+      E2E_QRL_TESTS_REF: ${{ vars.E2E_QRL_TESTS_REF }}
+      E2E_QRL_PACKAGE_REPO: ${{ vars.E2E_QRL_PACKAGE_REPO || 'cyyber/qrl-package' }}
+      E2E_QRL_PACKAGE_REF: ${{ vars.E2E_QRL_PACKAGE_REF }}
+      E2E_QRYSM_REPO: ${{ vars.E2E_QRYSM_REPO || 'rgeraldes24/qrysm' }}
+      E2E_QRYSM_REF: ${{ vars.E2E_QRYSM_REF }}
+      E2E_GO_QRL_REPO: ${{ vars.E2E_GO_QRL_REPO || 'cyyber/go-qrl' }}
+      E2E_GO_QRL_REF: ${{ vars.E2E_GO_QRL_REF || 'main' }}
+      E2E_GENESIS_GENERATOR_REPO: ${{ vars.E2E_GENESIS_GENERATOR_REPO || 'cyyber/qrl-genesis-generator' }}
+      E2E_GENESIS_GENERATOR_REF: ${{ vars.E2E_GENESIS_GENERATOR_REF || 'main' }}
+      # renovate: datasource=go depName=github.com/google/go-licenses/v2
+      GO_LICENSES_VERSION: v2.0.1
+      # The Kurtosis CLI the lane's network-preflight asks for (1.20.x); its
+      # checksum changes with the version.
+      KURTOSIS_VERSION: 1.20.0
+      KURTOSIS_SHA256: 3866e805a83a63d3d0b177f54c3fb556066b8c0e12f6442a0579bb7deaa1d5ae
+      ENCLAVE: remote-signer-${{ github.run_id }}-${{ github.run_attempt }}
       E2E_OUT: ${{ github.workspace }}/e2e-out
     steps:
-      - name: Skip while no qrysm branch is configured
-        if: env.QRYSM_E2E_REF == ''
+      - name: Skip while the lane's refs are not configured
+        id: refs
         run: |
-          echo "::notice title=qrysm end-to-end skipped::The repository variable QRYSM_E2E_REF is not set. Set it to the qrysm branch, tag or commit that holds TestEndToEnd_MinimalConfig_Web3Signer (the remote-signer e2e scenario), and QRYSM_E2E_REPO when it is not rgeraldes24/qrysm, to run this job."
+          missing=
+          for v in E2E_QRL_TESTS_REF E2E_QRL_PACKAGE_REF E2E_QRYSM_REF; do
+            if [ -z "${!v}" ]; then missing="${missing:+${missing}, }${v}"; fi
+          done
+          if [ -n "${missing}" ]; then
+            echo "::notice title=qrl-tests lane skipped::The repository variables ${missing} are not set. Set E2E_QRL_TESTS_REF to the qrl-tests branch, tag or commit with the consensus-remote-signer lane, E2E_QRL_PACKAGE_REF to the qrl-package one that runs go-remotesigner, and E2E_QRYSM_REF to the qrysm one with the remote-signer client (and E2E_QRL_TESTS_REPO, E2E_QRL_PACKAGE_REPO or E2E_QRYSM_REPO where the repository is not ${E2E_QRL_TESTS_REPO}, ${E2E_QRL_PACKAGE_REPO} or ${E2E_QRYSM_REPO}) to run this job."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: env.QRYSM_E2E_REF != ''
+        if: steps.refs.outputs.run == 'true'
         with:
           path: signer
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: env.QRYSM_E2E_REF != ''
+        if: steps.refs.outputs.run == 'true'
         with:
-          repository: ${{ env.QRYSM_E2E_REPO }}
-          ref: ${{ env.QRYSM_E2E_REF }}
+          repository: ${{ env.E2E_QRL_TESTS_REPO }}
+          ref: ${{ env.E2E_QRL_TESTS_REF }}
+          path: qrl-tests
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.refs.outputs.run == 'true'
+        with:
+          repository: ${{ env.E2E_QRL_PACKAGE_REPO }}
+          ref: ${{ env.E2E_QRL_PACKAGE_REF }}
+          path: qrl-package
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.refs.outputs.run == 'true'
+        with:
+          repository: ${{ env.E2E_QRYSM_REPO }}
+          ref: ${{ env.E2E_QRYSM_REF }}
           path: qrysm
           persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.refs.outputs.run == 'true'
+        with:
+          repository: ${{ env.E2E_GO_QRL_REPO }}
+          ref: ${{ env.E2E_GO_QRL_REF }}
+          path: go-qrl
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.refs.outputs.run == 'true'
+        with:
+          repository: ${{ env.E2E_GENESIS_GENERATOR_REPO }}
+          ref: ${{ env.E2E_GENESIS_GENERATOR_REF }}
+          path: qrl-genesis-generator
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: env.QRYSM_E2E_REF != ''
+        if: steps.refs.outputs.run == 'true'
         with:
           go-version: "1.26.x"
           cache: false
-      - name: Build remotesigner-consensus from this commit
-        if: env.QRYSM_E2E_REF != ''
-        working-directory: signer
-        run: make build-consensus
-      - name: Run TestEndToEnd_MinimalConfig_Web3Signer
-        if: env.QRYSM_E2E_REF != ''
-        working-directory: qrysm
-        env:
-          # qrysm's e2e build copies the signer from REMOTESIGNER_BIN into dist/
-          # instead of building it, and writes its logs under the Bazel test
-          # directories.
-          REMOTESIGNER_BIN: ${{ github.workspace }}/signer/bin/remotesigner-consensus
-          TEST_UNDECLARED_OUTPUTS_DIR: ${{ github.workspace }}/e2e-out/logs
-          TEST_TMPDIR: ${{ github.workspace }}/e2e-out/tmp
+      - name: Install go-licenses and the Kurtosis CLI
+        if: steps.refs.outputs.run == 'true'
         run: |
-          mkdir -p "$E2E_OUT/logs" "$E2E_OUT/tmp"
-          # Keep the latest scrape of the signer's metrics listener (port 9001),
-          # which the scenario starts, for the failure artefacts.
-          ( while sleep 30; do
-              curl -fsS --max-time 5 http://localhost:9001/metrics -o "$E2E_OUT/signer-metrics.txt.new" &&
-                mv "$E2E_OUT/signer-metrics.txt.new" "$E2E_OUT/signer-metrics.txt"
-            done ) &
-          go run ./build/e2e web3signer
-      - name: Upload the signer log, the validator client logs and the metrics scrape
-        if: failure() && env.QRYSM_E2E_REF != ''
+          go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          curl -fsSL --retry 3 --retry-connrefused -o "${RUNNER_TEMP}/kurtosis.tar.gz" \
+            "https://github.com/kurtosis-tech/kurtosis-cli-release-artifacts/releases/download/${KURTOSIS_VERSION}/kurtosis-cli_${KURTOSIS_VERSION}_linux_amd64.tar.gz"
+          echo "${KURTOSIS_SHA256}  ${RUNNER_TEMP}/kurtosis.tar.gz" | sha256sum -c -
+          sudo tar -xzf "${RUNNER_TEMP}/kurtosis.tar.gz" -C /usr/local/bin kurtosis
+          kurtosis analytics disable
+      - name: Record the commits under test
+        id: sources
+        if: steps.refs.outputs.run == 'true'
+        run: |
+          for repo in qrysm go-qrl qrl-genesis-generator qrl-tests qrl-package; do
+            echo "${repo}=$(git -C "${repo}" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          done
+      - name: Build the signer's image (remotesigner-consensus) from this commit
+        if: steps.refs.outputs.run == 'true'
+        working-directory: qrl-tests
+        env:
+          REMOTESIGNER_SOURCE_DIR: ${{ github.workspace }}/signer
+        run: make remote-signer-image
+      - name: Build the qrysm beacon-chain and validator images
+        if: steps.refs.outputs.run == 'true'
+        working-directory: qrl-tests
+        env:
+          QRYSM_SOURCE_DIR: ${{ github.workspace }}/qrysm
+        run: make qrysm-images
+      - name: Build the execution client and genesis generator images
+        if: steps.refs.outputs.run == 'true'
+        env:
+          GO_QRL_COMMIT: ${{ steps.sources.outputs.go-qrl }}
+          QRYSM_COMMIT: ${{ steps.sources.outputs.qrysm }}
+        run: |
+          docker build -t local/go-qrl:devnet --build-arg COMMIT="${GO_QRL_COMMIT}" go-qrl
+          docker build -t local/qrl-genesis-generator:devnet \
+            --build-arg QRYSM_GIT_REPO="https://github.com/${E2E_QRYSM_REPO}.git" \
+            --build-arg QRYSM_GIT_REF="${QRYSM_COMMIT}" qrl-genesis-generator
+      - name: Start the devnet from the qrl-package checkout
+        if: steps.refs.outputs.run == 'true'
+        working-directory: qrl-tests
+        run: |
+          make network-preflight
+          mkdir -p reports
+          go run ./cmd/qrltest network params --profile remote-signer \
+            --consensus-image local/qrysm:remote-signer-beacon-chain \
+            --validator-image local/qrysm:remote-signer-validator > reports/remote-signer.json
+          kurtosis enclave add --name "${ENCLAVE}"
+          kurtosis run --enclave "${ENCLAVE}" ../qrl-package --args-file reports/remote-signer.json
+      - name: Run the consensus-remote-signer lane
+        if: steps.refs.outputs.run == 'true'
+        working-directory: qrl-tests
+        env:
+          DEVNET_ENCLAVE_NAME: ${{ env.ENCLAVE }}
+          E2E_LANE: consensus-remote-signer
+          E2E_SOURCE_REMOTESIGNER: ${{ github.sha }}
+          E2E_SOURCE_QRYSM: ${{ steps.sources.outputs.qrysm }}
+          E2E_SOURCE_GO_QRL: ${{ steps.sources.outputs.go-qrl }}
+          E2E_SOURCE_GENERATOR: ${{ steps.sources.outputs.qrl-genesis-generator }}
+        run: make e2e
+      - name: Publish the lane's summary
+        if: always() && steps.refs.outputs.run == 'true'
+        run: |
+          if [ -f qrl-tests/reports/summary.md ]; then
+            cat qrl-tests/reports/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Dump the devnet's service logs
+        if: failure() && steps.refs.outputs.run == 'true'
+        run: |
+          if kurtosis enclave inspect "${ENCLAVE}" >/dev/null 2>&1; then
+            kurtosis enclave dump "${ENCLAVE}" "${E2E_OUT}/enclave"
+          fi
+      - name: Upload the lane's reports, the signer's and the validator client's logs and the signer's metrics
+        # The reports hold, for each failed spec, the signer's metrics,
+        # healthcheck and capabilities and the validator client's remote
+        # signer metrics; the dump holds every service's log.
+        if: failure() && steps.refs.outputs.run == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: qrysm-e2e-${{ github.run_id }}
+          name: remote-signer-lane-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ github.workspace }}/e2e-out/signer-metrics.txt
-            ${{ github.workspace }}/e2e-out/logs/**/*.log
-            ${{ github.workspace }}/e2e-out/tmp/**/*.log
+            ${{ github.workspace }}/qrl-tests/reports/
+            ${{ github.workspace }}/e2e-out/
           if-no-files-found: warn
           retention-days: 14
 

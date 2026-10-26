@@ -4,6 +4,7 @@
 package repo
 
 import (
+	"cmp"
 	"maps"
 	"os"
 	"path/filepath"
@@ -16,9 +17,11 @@ import (
 
 // jobStep is a workflow step with its condition and environment.
 type jobStep struct {
-	workflowStep `yaml:",inline"`
-	If           string            `yaml:"if"`
-	Env          map[string]string `yaml:"env"`
+	workflowStep     `yaml:",inline"`
+	ID               string            `yaml:"id"`
+	If               string            `yaml:"if"`
+	WorkingDirectory string            `yaml:"working-directory"`
+	Env              map[string]string `yaml:"env"`
 }
 
 // workflowJob is the part of a workflow job these tests read.
@@ -100,40 +103,96 @@ func TestNightlyFuzzesTheDecodersAndTheNetworkParser(t *testing.T) {
 	}
 }
 
-// The nightly qrysm end-to-end job runs qrysm's remote-signer scenario
-// against the consensus flavour built from the commit under test, from the
-// qrysm ref a repository variable names, says so when the variable is unset,
-// and keeps the signer's and the validator clients' logs and a metrics scrape
-// of a failed run.
-func TestNightlyQrysmEndToEnd(t *testing.T) {
+// The nightly lane job runs qrl-tests' consensus-remote-signer lane: it
+// builds the consensus flavour's image from the commit under test with
+// qrl-tests' script, the qrysm images from the qrysm ref a repository
+// variable names, starts the devnet from the qrl-package ref another names
+// and runs the lane from the qrl-tests ref a third names. It says so, and
+// does nothing else, while any of the three is unset, and keeps the lane's
+// reports and the devnet's service logs of a failed run.
+func TestNightlyRemoteSignerLane(t *testing.T) {
 	w := readWorkflow(t, "nightly.yml")
-	job, ok := w.Jobs["qrysm-e2e"]
+	if _, ok := w.Jobs["qrysm-e2e"]; ok {
+		t.Error("nightly.yml still has the qrysm-e2e job, whose scenario is no longer the end-to-end test")
+	}
+	job, ok := w.Jobs["remote-signer-lane"]
 	if !ok {
-		t.Fatal("no qrysm-e2e job")
+		t.Fatal("no remote-signer-lane job")
 	}
-	if !strings.Contains(job.Env["QRYSM_E2E_REF"], "vars.QRYSM_E2E_REF") {
-		t.Errorf("QRYSM_E2E_REF is %q, want the repository variable", job.Env["QRYSM_E2E_REF"])
-	}
-	var notice, build, run, upload bool
-	for _, s := range job.Steps {
-		switch {
-		case s.If == "env.QRYSM_E2E_REF == ''" && strings.Contains(s.Run, "::notice"):
-			notice = true
-		case s.If == "env.QRYSM_E2E_REF == ''":
-			t.Errorf("step %q runs only without a qrysm ref", s.Name)
-		case !strings.Contains(s.If, "env.QRYSM_E2E_REF != ''"):
-			t.Errorf("step %q runs without a qrysm ref", s.Name)
+	refs := map[string]string{"E2E_QRL_TESTS_REF": "qrl-tests", "E2E_QRL_PACKAGE_REF": "qrl-package",
+		"E2E_QRYSM_REF": "qrysm"}
+	for v := range refs {
+		if job.Env[v] != "${{ vars."+v+" }}" {
+			t.Errorf("%s is %q, want the repository variable with no default", v, job.Env[v])
 		}
-		build = build || strings.Contains(s.Run, "make build-consensus")
-		run = run || strings.Contains(s.Run, "go run ./build/e2e web3signer")
-		if strings.HasPrefix(s.Uses, "actions/upload-artifact@") && strings.Contains(s.If, "failure()") {
+	}
+	const configured = "steps.refs.outputs.run == 'true'"
+	var notice, signer, signerImage, qrysmImages, network, lane, upload bool
+	checkouts := map[string]string{} // path → ref
+	signerPath := ""
+	for i, s := range job.Steps {
+		if i == 0 {
+			notice = s.ID == "refs" && s.If == "" && strings.Contains(s.Run, "::notice") &&
+				strings.Contains(s.Run, "run=false") && strings.Contains(s.Run, "run=true") &&
+				!slices.ContainsFunc(slices.Collect(maps.Keys(refs)), func(v string) bool { return !strings.Contains(s.Run, v) })
+			continue
+		}
+		if !strings.Contains(s.If, configured) {
+			t.Errorf("step %q runs while the lane's refs are not configured", cmp.Or(s.Name, s.Uses))
+		}
+		if strings.HasPrefix(s.Uses, "actions/checkout@") {
 			path, _ := s.With["path"].(string)
-			upload = strings.Contains(path, "signer-metrics.txt") && strings.Contains(path, "*.log")
+			repo, _ := s.With["repository"].(string)
+			ref, _ := s.With["ref"].(string)
+			if repo == "" && ref == "" {
+				signer, signerPath = true, path
+				continue
+			}
+			checkouts[path] = ref
+		}
+		switch {
+		case strings.TrimSpace(s.Run) == "make remote-signer-image":
+			signerImage = s.WorkingDirectory == "qrl-tests" && signerPath != "" &&
+				strings.HasSuffix(s.Env["REMOTESIGNER_SOURCE_DIR"], "/"+signerPath)
+		case strings.TrimSpace(s.Run) == "make qrysm-images":
+			qrysmImages = s.WorkingDirectory == "qrl-tests" && strings.HasSuffix(s.Env["QRYSM_SOURCE_DIR"], "/qrysm")
+		case strings.Contains(s.Run, "kurtosis run"):
+			network = s.WorkingDirectory == "qrl-tests" && strings.Contains(s.Run, "--profile remote-signer") &&
+				strings.Contains(s.Run, "../qrl-package")
+		case strings.TrimSpace(s.Run) == "make e2e":
+			lane = s.WorkingDirectory == "qrl-tests" && s.Env["E2E_LANE"] == "consensus-remote-signer" &&
+				s.Env["E2E_SOURCE_REMOTESIGNER"] == "${{ github.sha }}"
+		case strings.HasPrefix(s.Uses, "actions/upload-artifact@") && strings.Contains(s.If, "failure()"):
+			path, _ := s.With["path"].(string)
+			upload = strings.Contains(path, "qrl-tests/reports/") && strings.Contains(path, "e2e-out")
 		}
 	}
-	if !notice || !build || !run || !upload {
-		t.Errorf("qrysm-e2e: notice %v, consensus build %v, scenario run %v, failure artefacts %v", notice, build, run,
-			upload)
+	for v, path := range refs {
+		if want := "${{ env." + v + " }}"; checkouts[path] != want {
+			t.Errorf("the %s checkout is at ref %q, want %q", path, checkouts[path], want)
+		}
+	}
+	if !job.runs("kurtosis enclave dump") {
+		t.Error("remote-signer-lane does not dump the devnet's service logs")
+	}
+	if !notice || !signer || !signerImage || !qrysmImages || !network || !lane || !upload {
+		t.Errorf("remote-signer-lane: notice %v, signer checkout %v, signer image %v, qrysm images %v, network %v, "+
+			"lane %v, failure artefacts %v", notice, signer, signerImage, qrysmImages, network, lane, upload)
+	}
+}
+
+// No file still names the variable or the qrysm scenario of the end-to-end
+// job the lane replaced.
+func TestNoQrysmScenarioJob(t *testing.T) {
+	for _, f := range repoFiles(t) {
+		if ownFile(f.path) {
+			continue
+		}
+		for _, old := range []string{"QRYSM_E2E_REF", "QRYSM_E2E_REPO", "TestEndToEnd_MinimalConfig_Web3Signer"} {
+			if strings.Contains(f.text, old) {
+				t.Errorf("%s names %s, which the end-to-end job no longer uses", f.path, old)
+			}
+		}
 	}
 }
 
