@@ -62,7 +62,8 @@ VAULT_IMAGE ?= hashicorp/vault:2.1.2@sha256:c2f666266f383d2cf424d86b8bb8ce7d0655
 LOCALSTACK_IMAGE ?= localstack/localstack:4.14.0@sha256:3ebc37595918b8accb852f8048fef2aff047d465167edd655528065b07bc364a
 # renovate: datasource=docker
 FLOCI_GCP_IMAGE ?= floci/floci-gcp:0.11.0@sha256:eae9683d806ceb643bcb36aee97cdb8cad13c3e2959cd053bf40e481994fde12
-# Lowkey Vault is published for linux/amd64 only; Docker emulates it elsewhere.
+# The plain 7.3.127 tag is published for linux/amd64 only (its 7.3.127-ubi10-minimal variant is multi-arch), so
+# test-cloud runs it as linux/amd64: emulated on arm64, which on Linux needs binfmt (qemu-user-static).
 # renovate: datasource=docker
 LOWKEY_VAULT_IMAGE ?= nagyesta/lowkey-vault:7.3.127@sha256:d92adc63759571b2ef68e84f4fad94e6d9603c1faf9d338a2d90c2302303c952
 LOWKEY_ARGS := --server.port=8443 --app.token.port=8080 --LOWKEY_VAULT_RELAXED_PORTS=true
