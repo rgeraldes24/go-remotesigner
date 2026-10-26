@@ -209,7 +209,36 @@ type SecretStores struct {
 	AWS                *secrets.AWSBulk   // --aws-secrets-enabled
 	Azure              *secrets.AzureBulk // --azure-vault-enabled
 	GCP                *secrets.GCPBulk   // --gcp-secrets-enabled
+	// AWSSecretAccessKeyFile is --aws-secrets-secret-access-key-file and
+	// AzureClientSecretFile --azure-client-secret-file: secret files whose
+	// first line the run reads at startup into AWS.SecretAccessKey and
+	// Azure.ClientSecret. Each is set only with its bulk loader.
+	AWSSecretAccessKeyFile string
+	AzureClientSecretFile  string
+	// Plain lists the deprecated plain secret flags that are set, which the
+	// run warns about at startup.
+	Plain []PlainSecret
 }
+
+// PlainSecret is a deprecated plain secret flag that is set: Flag (such as
+// aws-secrets-secret-access-key) took its value from Source instead of
+// from FileFlag, the -file flag that replaces it. File is the config file
+// when the value came from one.
+type PlainSecret struct {
+	Flag, FileFlag string
+	Source         SecretSource
+	File           string
+}
+
+// SecretSource is where a flag's value came from.
+type SecretSource string
+
+// The sources of a flag's value, in order of precedence.
+const (
+	FromCommandLine SecretSource = "command line"
+	FromEnvironment SecretSource = "environment"
+	FromConfigFile  SecretSource = "config file"
+)
 
 // Postgres holds the Postgres store's settings.
 type Postgres struct {

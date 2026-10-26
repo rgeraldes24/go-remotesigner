@@ -43,6 +43,8 @@ type YAMLSource struct {
 	path     string
 	top      map[string]*yaml.Node
 	sections map[string]map[string]*yaml.Node
+	// applied holds the names of the flags Apply set.
+	applied map[string]bool
 }
 
 // LoadYAML reads and parses the config file at path.
@@ -67,7 +69,8 @@ func ParseYAML(path string, data []byte) (*YAMLSource, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &YAMLSource{path: path, top: map[string]*yaml.Node{}, sections: map[string]map[string]*yaml.Node{}}
+	s := &YAMLSource{path: path, top: map[string]*yaml.Node{}, sections: map[string]map[string]*yaml.Node{},
+		applied: map[string]bool{}}
 	for k, v := range top {
 		if v.Kind == yaml.MappingNode {
 			sec, err := mapping(path, k+".", v)
@@ -162,9 +165,17 @@ func (s *YAMLSource) Apply(c *cli.Context, flags []cli.Flag, section string) err
 				return fmt.Errorf("%w %s: %s: %v", ErrConfigFile, s.path, key, err)
 			}
 		}
+		s.applied[f.Names()[0]] = true
 	}
 	return nil
 }
+
+// Path is the config file's path.
+func (s *YAMLSource) Path() string { return s.path }
+
+// Applied reports whether Apply set the flag named name (its first name)
+// from the file: neither the command line nor the environment had set it.
+func (s *YAMLSource) Applied(name string) bool { return s.applied[name] }
 
 // lookup finds the value of f by any of its names.
 func (s *YAMLSource) lookup(f cli.Flag, section string) (*yaml.Node, string, error) {

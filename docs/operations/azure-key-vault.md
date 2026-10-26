@@ -82,14 +82,23 @@ remotesigner consensus --network=… \
 | `--azure-vault-enabled` | `false` | Turn the loader on. |
 | `--azure-vault-name` | unset | Required. |
 | `--azure-vault-auth-mode` | `CLIENT_SECRET` | As in section 2. |
-| `--azure-client-id`, `--azure-tenant-id`, `--azure-client-secret` | unset | As the mode needs; `CLIENT_SECRET` needs all three (Web3Signer does not check the client id at startup, X94). |
+| `--azure-client-id`, `--azure-tenant-id`, `--azure-client-secret-file` | unset | As the mode needs; `CLIENT_SECRET` needs all three (Web3Signer does not check the client id at startup, X94). The file's first line is the client secret. |
+| `--azure-client-secret` | unset | Deprecated: the client secret itself, instead of the file (Web3Signer's flag). Not with `--azure-client-secret-file`. |
 | `--azure-response-timeout` | `60` | Seconds, as the document's `timeout`. |
 | `--azure-tags` | none | `TAG_NAME=TAG_VALUE`, repeated or separated by `\|`: a secret must carry every one with that exact value (an empty value matches an empty tag value). A name given twice keeps its last value, as in Web3Signer; a value cannot contain a comma (X95). |
 
-Every selected secret is one source, `azure-bulk:<name>`. Keep the client secret off the command line: set
-`REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET`. The `--config-file` is not a secret file: its permissions are not
-checked, even under `--strict-file-permissions`, so a secret put there is only as private as the mode you give the
-file.
+Every selected secret is one source, `azure-bulk:<name>`.
+
+**Give the client secret in a file.** `--azure-client-secret-file` names a secret file, read once at startup: its
+first line is the secret (a trailing `\r` is dropped), and under `--strict-file-permissions` (the default) the signer
+refuses to start (exit 1) when its group or other users can read it, as for every secret file
+([`reload.md`](reload.md#secret-files)). Keep it at `0600`, owned by the signer's user; a new secret needs a restart.
+Web3Signer's plain `--azure-client-secret` is still accepted, from the command line, the environment
+(`REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET`) or the config file, but it is deprecated, and the signer logs a WARN at
+startup that names the `-file` flag to use instead. On the command line the secret can be read by every local user in
+the process list, which a second WARN says. A `--config-file` that sets it is a secret file: under
+`--strict-file-permissions` one that its group or other users can read refuses the start. Setting both flags is a
+usage error (exit 2). The managed-identity modes need neither.
 
 ## 5. Overrides
 

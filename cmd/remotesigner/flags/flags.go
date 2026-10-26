@@ -101,34 +101,49 @@ const (
 	KeystoresPasswordsPath    = "keystores-passwords-path"
 )
 
-// Secret-store flag names of the consensus command, Web3Signer's, and the
-// hidden --Xgcp-endpoint-override, which Web3Signer lacks.
+// Secret-store flag names of the consensus command: Web3Signer's, the -file
+// variants of its two plain credential flags, and the hidden
+// --Xgcp-endpoint-override, which Web3Signer lacks.
 const (
-	AWSSecretsEnabled         = "aws-secrets-enabled"
-	AWSSecretsAuthMode        = "aws-secrets-auth-mode"
-	AWSSecretsAccessKeyID     = "aws-secrets-access-key-id"
-	AWSSecretsSecretAccessKey = "aws-secrets-secret-access-key"
-	AWSSecretsRegion          = "aws-secrets-region"
-	AWSEndpointOverride       = "aws-endpoint-override"
-	AWSSecretsPrefixesFilter  = "aws-secrets-prefixes-filter"
-	AWSSecretsTag             = "aws-secrets-tag"
-	AWSConnectionCacheSize    = "aws-connection-cache-size"
-	GCPSecretsEnabled         = "gcp-secrets-enabled"
-	GCPProjectID              = "gcp-project-id"
-	GCPSecretsFilter          = "gcp-secrets-filter"
-	GCPEndpointOverride       = "Xgcp-endpoint-override"
-	AzureVaultEnabled         = "azure-vault-enabled"
-	AzureVaultAuthMode        = "azure-vault-auth-mode"
-	AzureVaultName            = "azure-vault-name"
-	AzureClientID             = "azure-client-id"
-	AzureTenantID             = "azure-tenant-id"
-	AzureClientSecret         = "azure-client-secret"
-	AzureResponseTimeout      = "azure-response-timeout"
-	AzureTags                 = "azure-tags"
-	AzureEndpointOverride     = "Xazure-endpoint-override"
-	AzureAuthorityOverride    = "Xazure-authority-host-override"
-	AzureTrustCertOverride    = "Xazure-trust-certificate-override"
+	AWSSecretsEnabled             = "aws-secrets-enabled"
+	AWSSecretsAuthMode            = "aws-secrets-auth-mode"
+	AWSSecretsAccessKeyID         = "aws-secrets-access-key-id"
+	AWSSecretsSecretAccessKey     = "aws-secrets-secret-access-key"
+	AWSSecretsSecretAccessKeyFile = "aws-secrets-secret-access-key-file"
+	AWSSecretsRegion              = "aws-secrets-region"
+	AWSEndpointOverride           = "aws-endpoint-override"
+	AWSSecretsPrefixesFilter      = "aws-secrets-prefixes-filter"
+	AWSSecretsTag                 = "aws-secrets-tag"
+	AWSConnectionCacheSize        = "aws-connection-cache-size"
+	GCPSecretsEnabled             = "gcp-secrets-enabled"
+	GCPProjectID                  = "gcp-project-id"
+	GCPSecretsFilter              = "gcp-secrets-filter"
+	GCPEndpointOverride           = "Xgcp-endpoint-override"
+	AzureVaultEnabled             = "azure-vault-enabled"
+	AzureVaultAuthMode            = "azure-vault-auth-mode"
+	AzureVaultName                = "azure-vault-name"
+	AzureClientID                 = "azure-client-id"
+	AzureTenantID                 = "azure-tenant-id"
+	AzureClientSecret             = "azure-client-secret"
+	AzureClientSecretFile         = "azure-client-secret-file"
+	AzureResponseTimeout          = "azure-response-timeout"
+	AzureTags                     = "azure-tags"
+	AzureEndpointOverride         = "Xazure-endpoint-override"
+	AzureAuthorityOverride        = "Xazure-authority-host-override"
+	AzureTrustCertOverride        = "Xazure-trust-certificate-override"
 )
+
+// PlainSecrets maps each plain secret flag to the -file flag that replaces
+// it. The plain flags are kept because Web3Signer has them; they are
+// deprecated, and the signer warns at startup when one is used, and again
+// when its value is on the command line, where other local users can read
+// it in the process list.
+func PlainSecrets() map[string]string {
+	return map[string]string{
+		AWSSecretsSecretAccessKey: AWSSecretsSecretAccessKeyFile,
+		AzureClientSecret:         AzureClientSecretFile,
+	}
+}
 
 // Subcommands of consensus and their flags.
 const (
@@ -260,7 +275,7 @@ func Global() []cli.Flag {
 		&cli.StringFlag{Name: DataPath, Usage: "Directory for the generated token files, the slashing-protection store and the ports file", TakesFile: true},
 		&cli.StringFlag{Name: KeyConfigPath, Aliases: []string{KeyStorePath}, Usage: "Directory of key-config files (*.yaml or *.yml; types file-raw, file-keystore, hashicorp, aws-secret, azure-secret and gcp-secret); unset loads none", TakesFile: true},
 		&cli.IntFlag{Name: KeyConfigFileMaxSize, Value: DefaultKeyConfigFileMaxSize, Usage: "Largest key-config file loaded, in bytes (Web3Signer counts code points); a larger file fails to load. Must be above 0."},
-		&cli.BoolFlag{Name: StrictFilePermissions, Value: true, Usage: "Refuse secret files (password files, key-config files with a seed or a secret-store credential, the token files, and the TLS private key, keystore and keystore password file) that their group or other users can read, and, with --key-manager-api-enabled, a --key-config-path directory they can access; false loads them with a warning"},
+		&cli.BoolFlag{Name: StrictFilePermissions, Value: true, Usage: "Refuse secret files (password files, key-config files with a seed or a secret-store credential, the secret-store credential files, a --config-file that holds a plain secret flag, the token files, and the TLS private key, keystore and keystore password file) that their group or other users can read, and, with --key-manager-api-enabled, a --key-config-path directory they can access; false loads them with a warning"},
 		&cli.UintFlag{Name: ReloadTimeout, Value: DefaultReloadTimeout, Usage: "Minutes a POST /reload may load keys; the sources not loaded by then keep their previous keys. The startup load is not bounded."},
 		&cli.IntFlag{Name: SignerLoadParallelism, DefaultText: "0 (from the memory limit)", Usage: "Keystore decrypts with the standard KDF that may run at once; 0 sizes the Argon2id budget from GOMEMLIMIT, the cgroup limit or half the RAM"},
 		&cli.StringFlag{Name: Logging, Aliases: []string{"l"}, Value: "INFO", Usage: "Log level: OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE or ALL"},
@@ -324,9 +339,10 @@ func Consensus() []cli.Flag {
 		&cli.BoolFlag{Name: RandaoProtectionRequired, Usage: "Refuse to start when RANDAO frontiers would be kept in memory only (--slashing-protection-enabled=false)"},
 		keystoresPath(), keystoresPasswordFile(), keystoresPasswordsPath(),
 		&cli.BoolFlag{Name: AWSSecretsEnabled, Usage: "Bulk-load seeds from AWS Secrets Manager: every secret the prefix and tag filters select, one 48-byte seed (hex) per line. Default flavour only."},
-		&cli.StringFlag{Name: AWSSecretsAuthMode, Value: secrets.AWSSpecified, Usage: "AWS authentication of the bulk loader: SPECIFIED (--aws-secrets-access-key-id and --aws-secrets-secret-access-key) or ENVIRONMENT (the SDK's default chain: environment, shared credentials and config files, web identity, ECS and EC2 roles)"},
+		&cli.StringFlag{Name: AWSSecretsAuthMode, Value: secrets.AWSSpecified, Usage: "AWS authentication of the bulk loader: SPECIFIED (--aws-secrets-access-key-id and --aws-secrets-secret-access-key-file) or ENVIRONMENT (the SDK's default chain: environment, shared credentials and config files, web identity, ECS and EC2 roles)"},
 		&cli.StringFlag{Name: AWSSecretsAccessKeyID, Usage: "AWS access key id of SPECIFIED authentication"},
-		&cli.StringFlag{Name: AWSSecretsSecretAccessKey, Usage: "AWS secret access key of SPECIFIED authentication; prefer the environment variable, which other users cannot read in the process list"},
+		&cli.StringFlag{Name: AWSSecretsSecretAccessKeyFile, Usage: "File whose first line is the AWS secret access key of SPECIFIED authentication; a secret file, read at startup; not with --aws-secrets-secret-access-key", TakesFile: true},
+		&cli.StringFlag{Name: AWSSecretsSecretAccessKey, Usage: "Deprecated: use --aws-secrets-secret-access-key-file. The AWS secret access key of SPECIFIED authentication itself; its use is logged as a warning at startup, and so is a value on the command line, where other local users can read it in the process list"},
 		&cli.StringFlag{Name: AWSSecretsRegion, Usage: "AWS region of Secrets Manager; required for SPECIFIED authentication, else the SDK's (AWS_REGION, the shared config file)"},
 		&cli.StringFlag{Name: AWSEndpointOverride, Usage: "Secrets Manager endpoint URL instead of AWS's, for the bulk loader (a VPC endpoint, LocalStack)"},
 		&cli.StringSliceFlag{Name: AWSSecretsPrefixesFilter, Usage: "Load only the secrets whose names start with one of these prefixes (comma-separated)"},
@@ -341,7 +357,8 @@ func Consensus() []cli.Flag {
 		&cli.StringFlag{Name: AzureVaultName, Usage: "Name of the key vault, the subdomain of vault.azure.net"},
 		&cli.StringFlag{Name: AzureClientID, Usage: "Client id of CLIENT_SECRET or USER_ASSIGNED_MANAGED_IDENTITY authentication; optional for SYSTEM_ASSIGNED_MANAGED_IDENTITY"},
 		&cli.StringFlag{Name: AzureTenantID, Usage: "Microsoft Entra ID tenant of CLIENT_SECRET authentication"},
-		&cli.StringFlag{Name: AzureClientSecret, Usage: "Client secret of CLIENT_SECRET authentication; prefer the environment variable, which other users cannot read in the process list"},
+		&cli.StringFlag{Name: AzureClientSecretFile, Usage: "File whose first line is the client secret of CLIENT_SECRET authentication; a secret file, read at startup; not with --azure-client-secret", TakesFile: true},
+		&cli.StringFlag{Name: AzureClientSecret, Usage: "Deprecated: use --azure-client-secret-file. The client secret of CLIENT_SECRET authentication itself; its use is logged as a warning at startup, and so is a value on the command line, where other local users can read it in the process list"},
 		&cli.UintFlag{Name: AzureResponseTimeout, Value: DefaultAzureResponseTimeout, Usage: "Seconds each Azure request and call may take"},
 		&cli.StringSliceFlag{Name: AzureTags, Usage: "Load only the secrets that carry all these tags: TAG_NAME=TAG_VALUE, repeated or separated by |; a name given twice keeps its last value"},
 		&cli.StringFlag{Name: AzureEndpointOverride, Hidden: true, Usage: "Key Vault URL instead of https://<vault>.vault.azure.net"},

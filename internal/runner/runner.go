@@ -65,6 +65,9 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	if err := config.CheckFailSafes(cfg, n); err != nil {
 		return err
 	}
+	if err := StoreCredentials(cfg, log); err != nil {
+		return err
+	}
 	if err := mldsa87.SelfTest(); err != nil {
 		return fmt.Errorf("refusing to start: %w", err)
 	}

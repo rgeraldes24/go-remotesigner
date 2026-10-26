@@ -12,12 +12,15 @@ ML-DSA-87, QRL sizes or the qrysm client), **QRL-sized** / **QRL time** (limits 
 
 Rows that show on the HTTP API are specified in [`docs/contract.md`](docs/contract.md), whose section 21 maps each of
 them to the contract section that states the behaviour. The "go-remotesigner" column links the page that specifies the
-behaviour. Rows X25, X26, X28, X76-X87, X103-X106 and X116 describe execution mode (`remotesigner execution`), which 1.1.0
-adds; [`docs/operations/execution.md`](docs/operations/execution.md) specifies them. Rows X88-X102 describe the secret
-stores, which 1.1.0 adds too: the store pages that [`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources)
-lists specify X88-X101, and `execution.md` specifies X102. The register was reviewed against the code for 1.0.0, and
-its rows X25, X26, X28, X76-X106 and X116 again for 1.1.0. Rows X107-X115 came from a review of the 1.0.0 candidate made
-after the 1.1.0 rows were numbered: they describe consensus mode and belong to 1.0.0.
+behaviour. Rows X25, X26, X28, X76-X87, X103-X106, X116 and X118 describe execution mode (`remotesigner execution`),
+which 1.1.0 adds; [`docs/operations/execution.md`](docs/operations/execution.md) and the flag reference specify them.
+Rows X88-X102 and X119 describe the secret stores, which 1.1.0 adds too: the store pages that
+[`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources) lists specify X88-X101 and X119, and
+`execution.md` specifies X102. The register was reviewed against the code for 1.0.0, and its rows X25, X26, X28,
+X76-X106 and X116 again for 1.1.0. Rows X107-X115 came from a review of the 1.0.0 candidate made after the 1.1.0 rows
+were numbered: they describe consensus mode and belong to 1.0.0. Rows X117-X119 came from a review of the 1.1.0
+candidate and belong to 1.1.0: X117 changes how both modes read a one-letter alias, which 1.0.0 also read from the
+environment and the config file.
 
 | # | Area | Web3Signer | go-remotesigner | Class |
 |---|---|---|---|---|
@@ -139,3 +142,4 @@ after the 1.1.0 rows were numbered: they describe consensus mode and belong to 1
 | X116 | Signing concurrency in execution mode | `--vertx-worker-pool-size` worker threads serve JSON-RPC requests; the rest wait without bound | `qrl_sign`, `qrl_signTransaction` and `qrl_sendTransaction` take the slots of the signing gate of X107 (`--max-concurrent-signing-requests`, `--max-queued-signing-requests`), each element of a batch on its own, `qrl_sendTransaction` only for its checks and signature and never while it waits for the node; one that finds the slots and the queue full gets -32005 "Limit exceeded" at once, 503 for a single request ([docs/operations/execution.md](docs/operations/execution.md#7-guards-health-and-metrics)) | Fix |
 | X117 | One-letter option aliases | The environment and config-file value providers read every name of an option, its one-letter alias included (they strip each name's dashes): `--logging` is also read from `WEB3SIGNER_L` and from an `l` key | A one-letter alias is a command-line shorthand only: `-l` has no environment variable and no config-file key, so `REMOTESIGNER_L` sets nothing and an `l` key is an unknown option (exit 2); `--logging` reads `REMOTESIGNER_LOGGING` and `logging`, and every long alias keeps its own variable and key ([docs/reference/flags.md](docs/reference/flags.md)) | Simplification |
 | X118 | Environment names of execution flags | A subcommand option's variable is the command path followed by the option's name (`WEB3SIGNER_ETH1_DOWNSTREAM_HTTP_HOST`); `eth1` has no option named after the command | The same rule (`REMOTESIGNER_EXECUTION_DOWNSTREAM_HTTP_HOST`), except that a name beginning with the command's own name does not repeat it: `--execution-policy-file`, `--execution-audit-log-file`, `--execution-nonce-crosscheck` and `--execution-proxy-allowed-methods` read `REMOTESIGNER_EXECUTION_POLICY_FILE`, `REMOTESIGNER_EXECUTION_AUDIT_LOG_FILE`, `REMOTESIGNER_EXECUTION_NONCE_CROSSCHECK` and `REMOTESIGNER_EXECUTION_PROXY_ALLOWED_METHODS`; their config-file keys keep the flag's full name ([docs/reference/flags.md](docs/reference/flags.md#execution-flags)) | Simplification |
+| X119 | Secret-store credential flags | `--aws-secrets-secret-access-key` and `--azure-client-secret` take the secret itself, on the command line, in the environment or in the config file, whose mode is not checked | `--aws-secrets-secret-access-key-file` and `--azure-client-secret-file` read it from the first line of a secret file at startup, refused under `--strict-file-permissions` when its group or other users can read it (X62). The plain flags are kept, deprecated: each logs a WARN at startup naming its `-file` flag, a value on the command line a second WARN (every local user can read it in the process list), a `--config-file` that sets one is a secret file, and a plain flag together with its `-file` flag is a usage error (exit 2) ([docs/operations/aws-secrets-manager.md](docs/operations/aws-secrets-manager.md#3-the-bulk-loader), [docs/operations/azure-key-vault.md](docs/operations/azure-key-vault.md#4-the-bulk-loader)) | Fix |

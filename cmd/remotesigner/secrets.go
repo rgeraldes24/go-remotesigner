@@ -24,7 +24,9 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -47,21 +49,26 @@ func secretStores(c *cli.Context) (config.SecretStores, error) {
 	if st.AWSClientCacheSize < 1 {
 		return st, fmt.Errorf("--%s must be at least 1", flags.AWSConnectionCacheSize)
 	}
+	var err error
+	if st.Plain, err = plainSecrets(c); err != nil {
+		return st, err
+	}
 	for _, f := range []string{flags.AzureVaultEnabled, flags.AWSSecretsEnabled, flags.GCPSecretsEnabled} {
 		if c.Bool(f) && !cloudSecretStores {
 			return st, fmt.Errorf("--%s: %s has no cloud secret stores; use the remotesigner flavour", f, binaryName)
 		}
 	}
-	var err error
 	if c.Bool(flags.AzureVaultEnabled) {
 		if st.Azure, err = azureBulk(c); err != nil {
 			return st, err
 		}
+		st.AzureClientSecretFile = c.String(flags.AzureClientSecretFile)
 	}
 	if c.Bool(flags.AWSSecretsEnabled) {
 		if st.AWS, err = awsBulk(c); err != nil {
 			return st, err
 		}
+		st.AWSSecretAccessKeyFile = c.String(flags.AWSSecretsSecretAccessKeyFile)
 	}
 	if c.Bool(flags.GCPSecretsEnabled) {
 		st.GCP = &secrets.GCPBulk{ProjectID: c.String(flags.GCPProjectID), Filter: c.String(flags.GCPSecretsFilter),
@@ -90,7 +97,8 @@ func awsBulk(c *cli.Context) (*secrets.AWSBulk, error) {
 		for _, f := range []struct {
 			name string
 			set  bool
-		}{{flags.AWSSecretsAccessKeyID, b.AccessKeyID != ""}, {flags.AWSSecretsSecretAccessKey, len(b.SecretAccessKey) > 0},
+		}{{flags.AWSSecretsAccessKeyID, b.AccessKeyID != ""},
+			{flags.AWSSecretsSecretAccessKeyFile, len(b.SecretAccessKey) > 0 || c.String(flags.AWSSecretsSecretAccessKeyFile) != ""},
 			{flags.AWSSecretsRegion, b.Region != ""}} {
 			if !f.set {
 				missing = append(missing, "--"+f.name)
@@ -137,7 +145,7 @@ func azureBulk(c *cli.Context) (*secrets.AzureBulk, error) {
 	switch mode {
 	case secrets.AzureClientSecret:
 		need(flags.AzureClientID, b.ClientID != "")
-		need(flags.AzureClientSecret, len(b.ClientSecret) > 0)
+		need(flags.AzureClientSecretFile, len(b.ClientSecret) > 0 || c.String(flags.AzureClientSecretFile) != "")
 		need(flags.AzureTenantID, b.TenantID != "")
 	case secrets.AzureUserAssignedIdentity:
 		need(flags.AzureClientID, b.ClientID != "")
@@ -156,6 +164,55 @@ func azureBulk(c *cli.Context) (*secrets.AzureBulk, error) {
 		return nil, fmt.Errorf("--%s: %w", flags.AzureTags, err)
 	}
 	return b, nil
+}
+
+// plainSecrets returns the plain secret flags that are set, each with the
+// source of its value, in name order. A plain flag and its -file flag
+// together are a usage error.
+func plainSecrets(c *cli.Context) ([]config.PlainSecret, error) {
+	pairs := flags.PlainSecrets()
+	var out []config.PlainSecret
+	for _, plain := range slices.Sorted(maps.Keys(pairs)) {
+		file := pairs[plain]
+		if c.String(plain) == "" {
+			continue
+		}
+		if c.String(file) != "" {
+			return nil, fmt.Errorf("only one of --%s or --%s can be specified", file, plain)
+		}
+		p := config.PlainSecret{Flag: plain, FileFlag: file, Source: config.FromEnvironment}
+		src, _ := c.App.Metadata[metaConfigFile].(*config.YAMLSource)
+		switch args, _ := c.App.Metadata[metaArgs].([]string); {
+		case onCommandLine(args, plain):
+			p.Source = config.FromCommandLine
+		case src != nil && src.Applied(plain):
+			p.Source, p.File = config.FromConfigFile, src.Path()
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// onCommandLine reports whether args, a process's arguments, set the flag
+// name: -name or --name, with its value after = or as the next argument,
+// before any "--" that ends the flags. It tells whether a secret is in the
+// process's command line, which other local users can read, whichever
+// source the value was finally taken from.
+func onCommandLine(args []string, name string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		a, ok := strings.CutPrefix(a, "-")
+		if !ok {
+			continue
+		}
+		a = strings.TrimPrefix(a, "-")
+		if a == name || strings.HasPrefix(a, name+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 // checkURL checks an optional endpoint URL flag.
