@@ -18,11 +18,13 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/theQRL/go-qrllib/wallet/common"
 	walletmldsa87 "github.com/theQRL/go-qrllib/wallet/ml_dsa_87"
 	"golang.org/x/crypto/sha3"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/admission"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 )
 
@@ -700,5 +702,76 @@ func TestStatusOf(t *testing.T) {
 		if got := statusOf(e); got != want {
 			t.Errorf("statusOf(%v) = %d, want %d", e, got, want)
 		}
+	}
+}
+
+// The signing gate bounds qrl_sign, qrl_signTransaction and
+// qrl_sendTransaction, each element of a batch on its own: with every slot
+// taken and the queue full, each is refused at once with -32005 (a 503 for
+// a single request) before anything is signed or reaches the node, while
+// the methods that sign nothing are served. A call that finds a place in the
+// queue is signed once a slot frees.
+func TestSigningGate(t *testing.T) {
+	f := newFixture(t, 1, defaultAllow)
+	_, addr := f.key(0)
+	gate, err := admission.New(1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.handler.gate = gate
+	hold, err := gate.Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	signCall := func(id int) string { return call(id, MethodSign, addr, "0x00") }
+
+	// A first qrl_sign waits in the queue.
+	queued := make(chan *httptest.ResponseRecorder)
+	go func() { queued <- f.post(signCall(1), nil) }()
+	for deadline := time.Now().Add(5 * time.Second); gate.Queued() != 1; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the first qrl_sign never queued")
+		}
+	}
+
+	refused := func(t *testing.T, r rpcResponse) {
+		t.Helper()
+		if r.Error == nil || r.Error.Code != ErrLimitExceeded.Code || r.Error.Message != "Limit exceeded" {
+			t.Fatalf("response %+v, want -32005 Limit exceeded", r)
+		}
+	}
+	for name, body := range map[string]string{
+		"qrl_sign":            signCall(2),
+		"qrl_signTransaction": signRequest(MethodSignTransaction, fullTx(addr)),
+		"qrl_sendTransaction": signRequest(MethodSendTransaction, fullTx(addr)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := f.post(body, nil)
+			if w.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status %d, want 503: %s", w.Code, w.Body)
+			}
+			refused(t, decodeOne(t, w.Body.Bytes()))
+		})
+	}
+	w := f.post(batch(signCall(3), call(4, MethodAccounts), signCall(5)), nil)
+	rs := decodeBatch(t, w.Body.Bytes())
+	if w.Code != http.StatusOK || len(rs) != 3 || rs[1].Error != nil {
+		t.Fatalf("batch: %d %s", w.Code, w.Body)
+	}
+	refused(t, rs[0])
+	refused(t, rs[2])
+	if n := len(f.node.received()); n != 0 {
+		t.Fatalf("refused calls reached the node %d times", n)
+	}
+
+	hold()
+	if r := decodeOne(t, (<-queued).Body.Bytes()); r.Error != nil {
+		t.Fatalf("the queued qrl_sign: %+v", r.Error)
+	}
+	if r := decodeOne(t, f.post(signCall(6), nil).Body.Bytes()); r.Error != nil {
+		t.Fatalf("qrl_sign with a free slot: %+v", r.Error)
+	}
+	if gate.InFlight() != 0 || gate.Queued() != 0 {
+		t.Fatalf("%d slots taken and %d queued after every call returned", gate.InFlight(), gate.Queued())
 	}
 }

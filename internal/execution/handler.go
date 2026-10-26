@@ -37,6 +37,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/admission"
 	"github.com/rgeraldes24/go-remotesigner/internal/server"
 )
 
@@ -52,7 +53,11 @@ type Handler struct {
 	proxy    *proxy
 	txs      *Transactions
 	table    map[string]method
-	log      logrus.FieldLogger
+	// gate bounds the signing calls served at once and those waiting
+	// (--max-concurrent-signing-requests, --max-queued-signing-requests),
+	// shared by every request and every element of a batch; nil admits all.
+	gate *admission.Gate
+	log  logrus.FieldLogger
 	// deadline ends a request's downstream exchange and local work: the
 	// endpoint's write timeout, after which no response can be written.
 	deadline time.Duration

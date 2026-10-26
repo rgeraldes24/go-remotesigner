@@ -12,11 +12,11 @@ ML-DSA-87, QRL sizes or the qrysm client), **QRL-sized** / **QRL time** (limits 
 
 Rows that show on the HTTP API are specified in [`docs/contract.md`](docs/contract.md), whose section 21 maps each of
 them to the contract section that states the behaviour. The "go-remotesigner" column links the page that specifies the
-behaviour. Rows X25, X26, X28, X76-X87 and X103-X106 describe execution mode (`remotesigner execution`), which 1.1.0
+behaviour. Rows X25, X26, X28, X76-X87, X103-X106 and X116 describe execution mode (`remotesigner execution`), which 1.1.0
 adds; [`docs/operations/execution.md`](docs/operations/execution.md) specifies them. Rows X88-X102 describe the secret
 stores, which 1.1.0 adds too: the store pages that [`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources)
 lists specify X88-X101, and `execution.md` specifies X102. The register was reviewed against the code for 1.0.0, and
-its rows X25, X26, X28 and X76-X106 again for 1.1.0. Rows X107-X115 came from a review of the 1.0.0 candidate made
+its rows X25, X26, X28, X76-X106 and X116 again for 1.1.0. Rows X107-X115 came from a review of the 1.0.0 candidate made
 after the 1.1.0 rows were numbered: they describe consensus mode and belong to 1.0.0.
 
 | # | Area | Web3Signer | go-remotesigner | Class |
@@ -136,3 +136,4 @@ after the 1.1.0 rows were numbered: they describe consensus mode and belong to 1
 | X113 | Partial high watermark | The store keeps and serves a high watermark with an epoch or a slot alone (its tests set one; `watermark-repair --set-high-watermark` always writes both) | Every store refuses one part alone, the Postgres schema has a `CHECK` that both are set or neither, and a store that holds one anyway is reported as damaged, so `GET /api/v1/consensus/highWatermark` serves both fields or none ([contract §20](docs/contract.md#20-versioning-and-change-control)) | Stricter |
 | X114 | Health check with protection disabled | `slashing-protection-db-health-check` is left out without slashing protection, so `/healthcheck` can be `UP` | With `--slashing-protection-enabled=false` (loopback only) the check is listed and `DOWN`, so `/healthcheck` answers 503 `DOWN`; `/upcheck` and signing are unaffected ([contract §17](docs/contract.md#17-supporting-endpoints)) | Stricter |
 | X115 | Connections of refused callers | A 401 or a 403 keeps the connection open for the next request, until the idle timeout | A 401 `UNAUTHENTICATED`, a 403 `HOST_NOT_ALLOWED` and a 403 `ORIGIN_NOT_ALLOWED`, on the API listener and the metrics listener, close their connection (`Connection: close` on HTTP/1.1, `GOAWAY` on h2), so that a peer without a credential cannot hold the connection slots with one refused request per connection now and then ([contract §11](docs/contract.md#11-errors), [§13](docs/contract.md#13-size-limits-and-timeouts)) | Fix |
+| X116 | Signing concurrency in execution mode | `--vertx-worker-pool-size` worker threads serve JSON-RPC requests; the rest wait without bound | `qrl_sign`, `qrl_signTransaction` and `qrl_sendTransaction` take the slots of the signing gate of X107 (`--max-concurrent-signing-requests`, `--max-queued-signing-requests`), each element of a batch on its own; one that finds the slots and the queue full gets -32005 "Limit exceeded" at once, 503 for a single request ([docs/operations/execution.md](docs/operations/execution.md#7-guards-health-and-metrics)) | Fix |
