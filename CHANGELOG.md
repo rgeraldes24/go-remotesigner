@@ -19,8 +19,10 @@ Execution mode, which holds QRL account keys in front of a gqrl node, and valida
 The HTTP contract with the qrysm validator client stays at 1.0.0: its one addition, the secret stores' health checks,
 is a clarification that [`docs/contract.md`](docs/contract.md#20-versioning-and-change-control) section 20 lists. The
 slashing-protection schema is unchanged and no flag was removed or renamed, so a 1.0.0 signer upgrades in place with
-its configuration ([`docs/operations/upgrade.md`](docs/operations/upgrade.md)). The behaviours that differ from
-Web3Signer are rows X25, X26, X28, X76-X106 and X116 of [`DEVIATIONS.md`](DEVIATIONS.md).
+its configuration ([`docs/operations/upgrade.md`](docs/operations/upgrade.md)), unless it sets `--logging` through
+`REMOTESIGNER_L` or an `l` config-file key, which 1.1.0 no longer reads (see Removed). The behaviours that differ from
+Web3Signer are rows X25, X26, X28, X76-X106, X116, X118 and X119 of [`DEVIATIONS.md`](DEVIATIONS.md), and row X117
+changes one of 1.0.0.
 
 ### Added
 
@@ -62,6 +64,16 @@ Web3Signer are rows X25, X26, X28, X76-X106 and X116 of [`DEVIATIONS.md`](DEVIAT
   holds a store credential is a secret file under `--strict-file-permissions`. `remotesigner-consensus` refuses the
   AWS, GCP and Azure stores, and execution mode reads none. See
   [`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources) and the page of each store it lists.
+- **Credential files for the bulk loaders.** `--aws-secrets-secret-access-key-file` and `--azure-client-secret-file`
+  read the AWS secret access key and the Azure client secret from the first line of a secret file at startup, under
+  `--strict-file-permissions`. Web3Signer's plain `--aws-secrets-secret-access-key` and `--azure-client-secret` are
+  accepted too, but deprecated: each logs a warning at startup that names its `-file` flag, a value on the command
+  line, where every local user can read it in the process list, a second one, and a `--config-file` that sets one is
+  a secret file. A plain flag with its `-file` flag is a usage error.
+- **An OpenAPI description of execution mode.** [`api/openapi/execution.yaml`](api/openapi/execution.yaml) describes
+  the JSON-RPC endpoint (its methods, batches, the errors and the HTTP status of each) and
+  `GET /api/v1/execution/publicKeys`, with examples the signer's handler produces; `make contract` checks it
+  against [`docs/operations/execution.md`](docs/operations/execution.md) and against the handler.
 - **The source of each release.** Every release attaches `remotesigner-<version>-src-vendored.tar.gz`: the tagged
   source with every module the binaries link in `vendor/`, go-qrl included, which rebuilds the default flavour
   offline with Go 1.26.5 or later ([`docs/operations/release.md`](docs/operations/release.md#3-verifying-a-release)).
@@ -78,6 +90,13 @@ Web3Signer are rows X25, X26, X28, X76-X106 and X116 of [`DEVIATIONS.md`](DEVIAT
   duties without LGPL code ([`docs/operations/release.md`](docs/operations/release.md#2-notice-and-licence-texts-per-flavour)).
 - **`/healthcheck`** also lists `keys-check/aws-bulk-loading`, `keys-check/gcp-bulk-loading` and
   `keys-check/azure-bulk-loading`, each while its bulk loader is enabled, with the data of the other key checks.
+
+### Removed
+
+- **`REMOTESIGNER_L` and the `l` config-file key.** The one-letter alias `-l` of `--logging` is a command-line
+  shorthand only: 1.0.0 also read it from the environment and the config file, as Web3Signer does, and 1.1.0 reads
+  `--logging` from `REMOTESIGNER_LOGGING` and `logging` alone; an `l` key in the config file is refused as unknown
+  (exit 2). No other variable or key changes: every other alias is a long name and keeps its own (X117).
 
 ## [1.0.0] - Unreleased
 
