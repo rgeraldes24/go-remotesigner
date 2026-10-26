@@ -74,7 +74,7 @@ var operatorPages = []struct {
 		"The nightly end-to-end run green for 7 consecutive nights", "Benchmark B16",
 		"time-compressed replay of the mainnet duty schedule, which does not exist yet",
 		"Reference-VM runs of B1-B15 and B18-B20", "The deployment guides brought up by an independent reviewer",
-		"The stacked pull requests merged into `main`", "public ghcr.io packages", "Making the repository public",
+		"The stacked pull requests merged into `main`", "public ghcr.io packages", "The history `main` publishes",
 		"## 7. The v1.1 release checklist", "| `v1.0.0` released first |",
 		"| The gqrl end-to-end test on the reference VMs |",
 		"| The nightly end-to-end run green for 7 consecutive nights on the 1.1.0 candidate |",
