@@ -451,7 +451,8 @@ type workflowStep struct {
 // --snapshot), it must check that the tagged commit is on main, with a
 // checkout that fetched main, run the compliance gates and write the release
 // notes from CHANGELOG.md, which the publishing step passes to goreleaser;
-// and setup-go must not restore a cache an earlier run saved.
+// and setup-go must not restore a cache an earlier run saved, and must
+// install the Go of go.mod's toolchain line (setupGoProblems).
 func releaseWorkflowProblems(steps []workflowStep) []string {
 	publish := slices.IndexFunc(steps, func(s workflowStep) bool {
 		return strings.Contains(s.Run, "goreleaser release") && !strings.Contains(s.Run, "--snapshot")
@@ -486,7 +487,7 @@ func releaseWorkflowProblems(steps []workflowStep) []string {
 		}
 	}
 	for _, gate := range []string{"make license-hash", "make headercheck", "make nogpl", "make licenses",
-		"go vet ./...", "go vet -tags noexecution ./...", "make release-check"} {
+		"make vuln", "go vet ./...", "go vet -tags noexecution ./...", "make release-check"} {
 		if !slices.Contains(commands, gate) {
 			p = append(p, "no step before publishing runs "+gate)
 		}
@@ -496,6 +497,7 @@ func releaseWorkflowProblems(steps []workflowStep) []string {
 			p = append(p, "setup-go restores a cache (want cache: false): the release would be built from it")
 		}
 	}
+	p = append(p, setupGoProblems(steps)...)
 	if !slices.ContainsFunc(before, func(s workflowStep) bool { return strings.Contains(s.Run, "tools/releasedocs -notes") }) {
 		p = append(p, "no step before publishing writes the release notes from the tag's CHANGELOG.md entry (tools/releasedocs -notes)")
 	}
@@ -580,13 +582,39 @@ func TestNightlyWorkflow(t *testing.T) {
 	}
 }
 
+// setupGoProblems returns what is wrong with the setup-go steps of a job
+// that builds or checks what a release ships: each must install the Go of
+// go.mod's toolchain line (go-version-file: go.mod, and no go-version,
+// which would take precedence). The workflows set GOTOOLCHAIN=local, so the
+// go command never switches to that line itself, and a go-version such as
+// "1.26.x" takes whatever 1.26 release the runner has cached.
+func setupGoProblems(steps []workflowStep) []string {
+	var p []string
+	n := 0
+	for _, s := range steps {
+		if !strings.HasPrefix(s.Uses, "actions/setup-go@") {
+			continue
+		}
+		n++
+		if s.With["go-version-file"] != "go.mod" || s.With["go-version"] != nil {
+			p = append(p, fmt.Sprintf("setup-go installs go-version %v, go-version-file %v; want go-version-file: "+
+				"go.mod alone, the Go of its toolchain line", s.With["go-version"], s.With["go-version-file"]))
+		}
+	}
+	if n == 0 {
+		p = append(p, "no setup-go step")
+	}
+	return p
+}
+
 func TestReleaseWorkflowProblems(t *testing.T) {
 	good := []workflowStep{
 		{Uses: "actions/checkout@abc", With: map[string]any{"fetch-depth": 0}},
 		{Run: `git merge-base --is-ancestor HEAD refs/remotes/origin/main`},
-		{Uses: "actions/setup-go@abc", With: map[string]any{"cache": false}},
+		{Uses: "actions/setup-go@abc", With: map[string]any{"cache": false, "go-version-file": "go.mod"}},
 		{Run: `go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"`},
-		{Run: "make license-hash headercheck nogpl licenses GO_LICENSES=x\ngo vet ./...\ngo vet -tags noexecution ./...\n"},
+		{Run: "make license-hash headercheck nogpl licenses GO_LICENSES=x\nmake vuln GOVULNCHECK=y\n" +
+			"go vet ./...\ngo vet -tags noexecution ./...\n"},
 		{Run: `go run ./tools/releasedocs -notes "${GITHUB_REF_NAME}" > notes.md`},
 		{Run: "make release-snapshot GORELEASER=goreleaser\nmake release-check\n"},
 		{Name: "Publish", Run: "goreleaser release --clean --release-notes notes.md"},
@@ -612,10 +640,19 @@ func TestReleaseWorkflowProblems(t *testing.T) {
 			[]string{"fetch-depth"}},
 		{"setup-go cache", with(func(s []workflowStep) []workflowStep { delete(s[2].With, "cache"); return s }),
 			[]string{"cache: false"}},
+		{"setup-go any 1.26", with(func(s []workflowStep) []workflowStep {
+			delete(s[2].With, "go-version-file")
+			s[2].With["go-version"] = "1.26.x"
+			return s
+		}), []string{"go-version-file: go.mod"}},
+		{"setup-go version over the file", with(func(s []workflowStep) []workflowStep {
+			s[2].With["go-version"] = "1.26.x"
+			return s
+		}), []string{"go-version-file: go.mod"}},
 		{"no make gates", with(func(s []workflowStep) []workflowStep {
 			s[4].Run = "go vet ./...\ngo vet -tags noexecution ./...\n"
 			return s
-		}), []string{"make license-hash", "make headercheck", "make nogpl", "make licenses"}},
+		}), []string{"make license-hash", "make headercheck", "make nogpl", "make licenses", "make vuln"}},
 		{"no dry run checks", with(func(s []workflowStep) []workflowStep { return slices.Delete(s, 6, 7) }),
 			[]string{"make release-check"}},
 		{"no release notes", with(func(s []workflowStep) []workflowStep { return slices.Delete(s, 5, 6) }),

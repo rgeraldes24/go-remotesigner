@@ -191,7 +191,8 @@ git push origin v1.0.0
 The Release workflow then checks the tagged tree before it publishes anything:
 
 1. the tagged commit is on `main` (`git merge-base --is-ancestor`); a tag on any other commit fails the job;
-2. the compliance gates of CI: `make license-hash headercheck nogpl licenses` and `go vet` in both flavours;
+2. the compliance gates of CI: `make license-hash headercheck nogpl licenses vuln` and `go vet` in both flavours,
+   with the Go of the `toolchain` line of `go.mod` (setup-go's `go-version-file`), which builds the release;
 3. the release notes: `go run ./tools/releasedocs -notes <tag>` prints the body of the tag's `CHANGELOG.md` entry,
    with its relative links pointed at the repository at the tag, and fails when the entry is missing, empty or still
    `Unreleased`; goreleaser publishes it as the release's description (`--release-notes`). `CHANGELOG.md` has entries

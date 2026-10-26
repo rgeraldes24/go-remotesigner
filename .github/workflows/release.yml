@@ -30,6 +30,8 @@ env:
   GORELEASER_VERSION: v2.18.2
   # renovate: datasource=go depName=github.com/google/go-licenses/v2
   GO_LICENSES_VERSION: v2.0.1
+  # renovate: datasource=go depName=golang.org/x/vuln
+  GOVULNCHECK_VERSION: v1.9.0
   # renovate: datasource=github-releases depName=anchore/syft
   SYFT_VERSION: v1.52.0
   # renovate: datasource=github-releases depName=sigstore/cosign
@@ -59,15 +61,21 @@ jobs:
           fi
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.x"
+          # The Go of go.mod's toolchain line, which GOTOOLCHAIN=local would
+          # otherwise ignore: "1.26.x" takes whatever 1.26 release the
+          # runner has cached, which may be one with a known vulnerability.
+          go-version-file: go.mod
           # The release is built from a cold module and build cache, never from
           # one an earlier workflow run saved.
           cache: false
-      - name: Install go-licenses
-        run: go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"
+      - name: Install go-licenses and govulncheck
+        run: |
+          go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
       - name: Compliance gates (as in CI)
         run: |
           make license-hash headercheck nogpl licenses GO_LICENSES="$(go env GOPATH)/bin/go-licenses"
+          make vuln GOVULNCHECK="$(go env GOPATH)/bin/govulncheck"
           go vet ./...
           go vet -tags noexecution ./...
       - name: Release notes from the tag's CHANGELOG.md entry (dated, except for a pre-release)

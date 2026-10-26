@@ -434,3 +434,22 @@ func TestPipesAndPipefail(t *testing.T) {
 		}
 	}
 }
+
+// CI's compliance job runs govulncheck with the Go the release builds
+// with, go.mod's toolchain line, as the release workflow does.
+func TestComplianceUsesTheReleaseToolchain(t *testing.T) {
+	job, ok := readWorkflow(t, "ci.yml").Jobs["compliance"]
+	if !ok {
+		t.Fatal("ci.yml has no compliance job")
+	}
+	steps := make([]workflowStep, len(job.Steps))
+	for i, s := range job.Steps {
+		steps[i] = s.workflowStep
+	}
+	for _, p := range setupGoProblems(steps) {
+		t.Errorf("compliance: %s", p)
+	}
+	if !job.runs("make vuln") {
+		t.Error("the compliance job does not run make vuln")
+	}
+}

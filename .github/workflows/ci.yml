@@ -266,7 +266,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.x"
+          # govulncheck checks the Go the release builds with: go.mod's
+          # toolchain line, as in release.yml.
+          go-version-file: go.mod
       - name: LICENSE is the verbatim Apache-2.0 text
         run: make license-hash
       - name: NOTICE has no LGPL paragraph
