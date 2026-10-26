@@ -96,9 +96,10 @@ refuses to start (exit 1) when its group or other users can read it, as for ever
 Web3Signer's plain `--azure-client-secret` is still accepted, from the command line, the environment
 (`REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET`) or the config file, but it is deprecated, and the signer logs a WARN at
 startup that names the `-file` flag to use instead. On the command line the secret can be read by every local user in
-the process list, which a second WARN says. A `--config-file` that sets it is a secret file: under
-`--strict-file-permissions` one that its group or other users can read refuses the start. Setting both flags is a
-usage error (exit 2). The managed-identity modes need neither.
+the process list, which a second WARN says. A `--config-file` that sets it is a secret file, even when
+the command line or the environment overrides it, with an empty value too: under `--strict-file-permissions` one that
+its group or other users can read refuses the start. Setting both flags is a usage error (exit 2), and so is the
+`-file` flag with a config file that sets the plain one. The managed-identity modes need neither.
 
 ## 5. Overrides
 
