@@ -188,6 +188,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		go func() { served <- ml.Serve() }()
 		log.WithFields(logrus.Fields{"address": ml.Addr().String(), "token-required": cfg.Metrics.AuthTokenFile != ""}).
 			Info("Metrics listener is listening")
+		runner.WarnMetricsTokenInClear(cfg, log)
 	}
 	log.WithFields(logrus.Fields{
 		"address":         srv.Addr().String(),
