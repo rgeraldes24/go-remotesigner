@@ -23,15 +23,12 @@ and refuses an `execution:` section in its config file.
 Every global, consensus and execution flag can also be set (the subcommands' own flags read what their tables list):
 
 - in the environment, as `REMOTESIGNER_<NAME>` for a global flag, `REMOTESIGNER_CONSENSUS_<NAME>` for a
-  consensus flag and `REMOTESIGNER_EXECUTION_<NAME>` for an execution flag (the flag name or any long alias in
-  upper case, dashes as underscores; an execution flag whose name begins with `execution-` drops it, so
-  `--execution-policy-file` is `REMOTESIGNER_EXECUTION_POLICY_FILE`);
-- in the YAML file given by `--config-file`, under its bare name or any of its long aliases (the Config file column
-  lists them all). Consensus and execution flags may sit at the top level or in a `consensus:` or `execution:`
+  consensus flag and `REMOTESIGNER_EXECUTION_<NAME>` for an execution flag (the flag name or any alias in upper
+  case, dashes as underscores, so `-l` is `REMOTESIGNER_L`; an execution flag whose name begins with `execution-`
+  drops it, so `--execution-policy-file` is `REMOTESIGNER_EXECUTION_POLICY_FILE`);
+- in the YAML file given by `--config-file`, under its bare name or any of its aliases (the Config file column lists
+  them all). Consensus and execution flags may sit at the top level or in a `consensus:` or `execution:`
   section. A list flag takes a YAML list. Unknown keys are rejected, and so is a flag set under two of its names.
-
-A one-letter alias, such as `-l` of `--logging`, is a command-line shorthand only: it has no environment variable
-and no config-file key.
 
 Precedence: command line, then environment, then config file, then default. Booleans are written `--flag`,
 `--flag=true` or `--flag=false`. `--flag false` does not work: the command-line parser (urfave/cli) reads
@@ -57,7 +54,7 @@ up to 10 s, closes the store, wipes the keys and exits 0.
 | `--strict-file-permissions` | `REMOTESIGNER_STRICT_FILE_PERMISSIONS` | `strict-file-permissions` | `true` | Refuse secret files (password files, key-config files with a seed or a secret-store credential, the secret-store credential files, a --config-file that holds a plain secret flag, the token files, and the TLS private key, keystore and keystore password file) that their group or other users can read, and, with --key-manager-api-enabled, a --key-config-path directory they can access; false loads them with a warning |
 | `--reload-timeout` | `REMOTESIGNER_RELOAD_TIMEOUT` | `reload-timeout` | `60` | Minutes a POST /reload may load keys; the sources not loaded by then keep their previous keys. The startup load is not bounded. |
 | `--signer-load-parallelism` | `REMOTESIGNER_SIGNER_LOAD_PARALLELISM` | `signer-load-parallelism` | `0 (from the memory limit)` | Keystore decrypts with the standard KDF that may run at once; 0 sizes the Argon2id budget from GOMEMLIMIT, the cgroup limit or half the RAM |
-| `--logging`, `-l` | `REMOTESIGNER_LOGGING` | `logging` | `INFO` | Log level: OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE or ALL |
+| `--logging`, `-l` | `REMOTESIGNER_LOGGING`, `REMOTESIGNER_L` | `logging` or `l` | `INFO` | Log level: OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE or ALL |
 | `--logging-format`, `--log-format` | `REMOTESIGNER_LOGGING_FORMAT`, `REMOTESIGNER_LOG_FORMAT` | `logging-format` or `log-format` | `text` | Log format: text or json |
 | `--log-file` | `REMOTESIGNER_LOG_FILE` | `log-file` | unset | Write logs to this file instead of standard error |
 | `--http-listen-host` | `REMOTESIGNER_HTTP_LISTEN_HOST` | `http-listen-host` | `127.0.0.1` | Host the API listens on. A non-loopback host turns on the remote-listener fail-safes. |

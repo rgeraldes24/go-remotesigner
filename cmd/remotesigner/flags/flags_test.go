@@ -10,8 +10,6 @@ import (
 	"testing"
 
 	"github.com/urfave/cli/v2"
-
-	"github.com/rgeraldes24/go-remotesigner/internal/config"
 )
 
 // The commands may share flag names (one process runs one command, so a
@@ -52,9 +50,9 @@ func TestFlags(t *testing.T) {
 				}
 				continue
 			}
-			// One variable per long name: a one-letter alias (-l) has none.
-			if long := config.LongNames(f.Names()); len(env) != len(long) {
-				t.Errorf("--%s: env %v for long names %v", f.Names()[0], env, long)
+			// One variable per name, as in Web3Signer: -l has REMOTESIGNER_L.
+			if len(env) != len(f.Names()) {
+				t.Errorf("--%s: env %v for names %v", f.Names()[0], env, f.Names())
 			}
 			for _, e := range env {
 				prefix := "REMOTESIGNER_"
