@@ -264,8 +264,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `cmd/remotesigner/secrets_test.go` | new | | | |
 | `cmd/remotesigner/store.go` | new | | | |
 | `cmd/remotesigner/store_test.go` | new | | | |
-| `cmd/remotesigner/xhelp.go` | new | | | |
-| `cmd/remotesigner/xhelp_test.go` | new | | | |
+| `cmd/remotesigner/xhelp.go` | w3s-derived | Web3Signer | `commandline/src/main/java/tech/pegasys/web3signer/commandline/subcommands/XHelpSubCommand.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `cmd/remotesigner/xhelp_test.go` | w3s-derived | Web3Signer | `commandline/src/test/java/tech/pegasys/web3signer/commandline/XHelpSubCommandTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `deploy/config/postgres-ha.yaml` | new | | | |
 | `deploy/config/single-host.yaml` | new | | | |
 | `deploy/docker/Dockerfile` | new | | | |

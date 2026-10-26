@@ -1,5 +1,21 @@
+// Copyright 2026 ConsenSys AG.
 // Copyright 2026 The go-remotesigner Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+//
 // SPDX-License-Identifier: Apache-2.0
+//
+// Modified by The go-remotesigner Authors, 2026: translated from Java to Go and adapted for QRL.
+// Derived from Web3Signer
+// commandline/src/test/java/tech/pegasys/web3signer/commandline/XHelpSubCommandTest.java
+// at commit 30af06dc975ba5b8ed0e17e53cba8683ca50ec02.
 
 package main
 
@@ -36,24 +52,5 @@ func TestXhelp(t *testing.T) {
 	}
 	if code := runWith([]string{binaryName, "Xhelp", "more"}, &stdout, &stderr, noRun); code != exitUsage {
 		t.Errorf("Xhelp with an argument: exit %d, want %d", code, exitUsage)
-	}
-}
-
-// --enable-key-manager-api is Web3Signer's alias of --key-manager-api-enabled,
-// with the environment variable and config-file key of its name.
-func TestKeyManagerAPIAlias(t *testing.T) {
-	cfg, code, stderr := capture(t, "consensus", "--network=e2e", "--enable-key-manager-api")
-	if code != exitOK {
-		t.Fatalf("exit %d: %s", code, stderr)
-	}
-	if !cfg.Consensus.KeyManagerAPIEnabled {
-		t.Fatal("--enable-key-manager-api did not enable the keymanager API")
-	}
-	t.Setenv("REMOTESIGNER_CONSENSUS_ENABLE_KEY_MANAGER_API", "true")
-	if cfg, code, stderr = capture(t, "consensus", "--network=e2e"); code != exitOK {
-		t.Fatalf("exit %d: %s", code, stderr)
-	}
-	if !cfg.Consensus.KeyManagerAPIEnabled {
-		t.Fatal("REMOTESIGNER_CONSENSUS_ENABLE_KEY_MANAGER_API did not enable the keymanager API")
 	}
 }

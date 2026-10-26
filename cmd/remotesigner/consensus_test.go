@@ -386,3 +386,22 @@ func TestStartupFailureExitsOne(t *testing.T) {
 		t.Fatalf("exit %d, stderr %q", code, stderr.String())
 	}
 }
+
+// --enable-key-manager-api is Web3Signer's alias of --key-manager-api-enabled,
+// with the environment variable and config-file key of its name.
+func TestKeyManagerAPIAlias(t *testing.T) {
+	cfg, code, stderr := capture(t, "consensus", "--network=e2e", "--enable-key-manager-api")
+	if code != exitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if !cfg.Consensus.KeyManagerAPIEnabled {
+		t.Fatal("--enable-key-manager-api did not enable the keymanager API")
+	}
+	t.Setenv("REMOTESIGNER_CONSENSUS_ENABLE_KEY_MANAGER_API", "true")
+	if cfg, code, stderr = capture(t, "consensus", "--network=e2e"); code != exitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if !cfg.Consensus.KeyManagerAPIEnabled {
+		t.Fatal("REMOTESIGNER_CONSENSUS_ENABLE_KEY_MANAGER_API did not enable the keymanager API")
+	}
+}
