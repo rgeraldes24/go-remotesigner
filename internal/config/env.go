@@ -25,18 +25,40 @@ import "strings"
 const EnvPrefix = "REMOTESIGNER"
 
 // EnvVars returns the environment variables of a flag: one per name and
-// alias, REMOTESIGNER_[<COMMAND>_]<NAME> with dashes as underscores, in
+// long alias, REMOTESIGNER_[<COMMAND>_]<NAME> with dashes as underscores, in
 // upper case. command is "" for a global flag and "consensus" for a flag of
 // that subcommand, so --http-listen-port is REMOTESIGNER_HTTP_LISTEN_PORT and
-// consensus --network is REMOTESIGNER_CONSENSUS_NETWORK.
+// consensus --network is REMOTESIGNER_CONSENSUS_NETWORK. A one-letter alias,
+// such as -l of --logging, has none (LongNames), and a name that begins with
+// its command's name does not repeat it: execution --execution-policy-file
+// is REMOTESIGNER_EXECUTION_POLICY_FILE, not
+// REMOTESIGNER_EXECUTION_EXECUTION_POLICY_FILE.
 func EnvVars(command string, names ...string) []string {
 	prefix := EnvPrefix + "_"
 	if command != "" {
 		prefix += envName(command) + "_"
 	}
+	names = LongNames(names)
 	out := make([]string, 0, len(names))
 	for _, n := range names {
-		out = append(out, prefix+envName(strings.TrimLeft(n, "-")))
+		n = strings.TrimLeft(n, "-")
+		if rest, ok := strings.CutPrefix(n, command+"-"); command != "" && ok && rest != "" {
+			n = rest
+		}
+		out = append(out, prefix+envName(n))
+	}
+	return out
+}
+
+// LongNames returns the names of a flag without its one-letter aliases (-l):
+// the names that have an environment variable and a config-file key. A
+// one-letter alias is a command-line shorthand only.
+func LongNames(names []string) []string {
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if len(strings.TrimLeft(n, "-")) > 1 {
+			out = append(out, n)
+		}
 	}
 	return out
 }

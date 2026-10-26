@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"slices"
@@ -84,6 +85,23 @@ func TestExecutionSources(t *testing.T) {
 	if code != exitOK || cfg.Execution.Downstream.Host != "gqrl.internal" || cfg.Execution.Downstream.Port != 8000 {
 		t.Fatalf("env over YAML: %d %s %+v", code, stderr, cfg)
 	}
+	// The execution-* flags' variables do not repeat the command; the
+	// doubled names set nothing.
+	t.Setenv("REMOTESIGNER_EXECUTION_PROXY_ALLOWED_METHODS", "net_*")
+	t.Setenv("REMOTESIGNER_EXECUTION_POLICY_FILE", "/policy.yaml")
+	t.Setenv("REMOTESIGNER_EXECUTION_AUDIT_LOG_FILE", "/audit.jsonl")
+	t.Setenv("REMOTESIGNER_EXECUTION_NONCE_CROSSCHECK", "false")
+	t.Setenv("REMOTESIGNER_EXECUTION_EXECUTION_CHAIN_ID", "7")
+	cfg, code, stderr = capture(t, "execution", "--chain-id=1337")
+	if code != exitOK || !slices.Equal(cfg.Execution.AllowedMethods, []string{"net_*"}) ||
+		cfg.Execution.PolicyFile != "/policy.yaml" || cfg.Execution.AuditLogFile != "/audit.jsonl" ||
+		cfg.Execution.NonceCrosscheck || cfg.Execution.ChainID != 1337 {
+		t.Fatalf("execution-* variables: %d %s %+v", code, stderr, cfg)
+	}
+	t.Setenv("REMOTESIGNER_EXECUTION_EXECUTION_POLICY_FILE", "/doubled.yaml")
+	if cfg, _, _ = capture(t, "execution", "--chain-id=1337"); cfg.Execution.PolicyFile != "/policy.yaml" {
+		t.Fatalf("the doubled variable set --execution-policy-file to %s", cfg.Execution.PolicyFile)
+	}
 	// A consensus section is still valid YAML for this binary; consensus
 	// flags do not reach the execution command.
 	both := filepath.Join(t.TempDir(), "both.yaml")
@@ -132,6 +150,25 @@ func TestExecutionUsageErrors(t *testing.T) {
 	if _, code, stderr := capture(t, "--config-file="+file, "execution"); code != exitUsage ||
 		!strings.Contains(stderr, "unknown option(s): execution.network") {
 		t.Fatalf("a consensus flag in the execution section: %d %s", code, stderr)
+	}
+}
+
+// execution has no subcommands, and its help says so: urfave/cli writes
+// "execution command [command options]" for a command that has some.
+func TestExecutionHelp(t *testing.T) {
+	for _, args := range [][]string{{"execution", "--help"}, {"execution", "-h"}} {
+		var stdout, stderr bytes.Buffer
+		if code := runWith(append([]string{binaryName}, args...), &stdout, &stderr, noRun); code != exitOK {
+			t.Fatalf("%v: exit %d %s", args, code, stderr.String())
+		}
+		out := stdout.String()
+		if !strings.Contains(out, binaryName+" execution [command options]") || strings.Contains(out, "command [command options]") ||
+			strings.Contains(out, "COMMANDS:") {
+			t.Errorf("%v: usage\n%s", args, out)
+		}
+		if !strings.Contains(out, "$REMOTESIGNER_EXECUTION_POLICY_FILE") || strings.Contains(out, "EXECUTION_EXECUTION") {
+			t.Errorf("%v: environment names\n%s", args, out)
+		}
 	}
 }
 

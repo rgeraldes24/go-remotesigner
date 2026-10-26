@@ -26,6 +26,7 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"github.com/rgeraldes24/go-remotesigner/cmd/remotesigner/flags"
+	"github.com/rgeraldes24/go-remotesigner/internal/config"
 )
 
 func main() {
@@ -76,11 +77,15 @@ and refuses an ` + "`execution:`" + ` section in its config file.
 Every global, consensus and execution flag can also be set (the subcommands' own flags read what their tables list):
 
 - in the environment, as ` + "`REMOTESIGNER_<NAME>`" + ` for a global flag, ` + "`REMOTESIGNER_CONSENSUS_<NAME>`" + ` for a
-  consensus flag and ` + "`REMOTESIGNER_EXECUTION_<NAME>`" + ` for an execution flag (the flag name or any alias in upper
-  case, dashes as underscores);
-- in the YAML file given by ` + "`--config-file`" + `, under its bare name or any of its aliases (the Config file column lists
-  them all). Consensus and execution flags may sit at the top level or in a ` + "`consensus:`" + ` or ` + "`execution:`" + `
+  consensus flag and ` + "`REMOTESIGNER_EXECUTION_<NAME>`" + ` for an execution flag (the flag name or any long alias in
+  upper case, dashes as underscores; an execution flag whose name begins with ` + "`execution-`" + ` drops it, so
+  ` + "`--execution-policy-file`" + ` is ` + "`REMOTESIGNER_EXECUTION_POLICY_FILE`" + `);
+- in the YAML file given by ` + "`--config-file`" + `, under its bare name or any of its long aliases (the Config file column
+  lists them all). Consensus and execution flags may sit at the top level or in a ` + "`consensus:`" + ` or ` + "`execution:`" + `
   section. A list flag takes a YAML list. Unknown keys are rejected, and so is a flag set under two of its names.
+
+A one-letter alias, such as ` + "`-l`" + ` of ` + "`--logging`" + `, is a command-line shorthand only: it has no environment variable
+and no config-file key.
 
 Precedence: command line, then environment, then config file, then default. Booleans are written ` + "`--flag`" + `,
 ` + "`--flag=true`" + ` or ` + "`--flag=false`" + `. ` + "`--flag false`" + ` does not work: the command-line parser (urfave/cli) reads
@@ -229,9 +234,10 @@ func section(b *bytes.Buffer, title, command string, fs []cli.Flag, hidden bool)
 }
 
 // configKeys renders the config-file keys of a flag with the given names:
-// every name, as the YAML loader accepts each one, and for a flag of a
+// every long name, as the YAML loader accepts each one, and for a flag of a
 // command also each name in the command's section.
 func configKeys(names []string, command string) string {
+	names = config.LongNames(names)
 	keys := make([]string, 0, 2*len(names))
 	for _, n := range names {
 		keys = append(keys, "`"+n+"`")

@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/urfave/cli/v2"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/config"
 )
 
 // The commands may share flag names (one process runs one command, so a
@@ -23,7 +25,7 @@ func TestFlags(t *testing.T) {
 	}
 	all := map[string]string{}
 	for cmd, fs := range map[string][]cli.Flag{"": Global(), ConsensusCommand: Consensus(), ExecutionCommand: Execution()} {
-		seen := map[string]string{}
+		seen, seenEnv := map[string]string{}, map[string]bool{}
 		for _, f := range fs {
 			d, ok := f.(cli.DocGenerationFlag)
 			if !ok {
@@ -45,8 +47,9 @@ func TestFlags(t *testing.T) {
 				}
 				continue
 			}
-			if len(env) != len(f.Names()) {
-				t.Errorf("--%s: env %v for names %v", f.Names()[0], env, f.Names())
+			// One variable per long name: a one-letter alias (-l) has none.
+			if long := config.LongNames(f.Names()); len(env) != len(long) {
+				t.Errorf("--%s: env %v for long names %v", f.Names()[0], env, long)
 			}
 			for _, e := range env {
 				prefix := "REMOTESIGNER_"
@@ -56,6 +59,13 @@ func TestFlags(t *testing.T) {
 				if !strings.HasPrefix(e, prefix) {
 					t.Errorf("--%s: env %s lacks prefix %s", f.Names()[0], e, prefix)
 				}
+				if cmd != "" && strings.HasPrefix(e, prefix+strings.ToUpper(cmd)+"_") {
+					t.Errorf("--%s: env %s repeats the command", f.Names()[0], e)
+				}
+				if seenEnv[e] {
+					t.Errorf("--%s: env %s is another flag's too", f.Names()[0], e)
+				}
+				seenEnv[e] = true
 			}
 		}
 	}
