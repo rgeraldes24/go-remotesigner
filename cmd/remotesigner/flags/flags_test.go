@@ -25,8 +25,12 @@ func TestFlags(t *testing.T) {
 		}
 	}
 	all := map[string]string{}
+	// A variable names one flag across the commands too: a global
+	// --execution-x and execution's --x would both read
+	// REMOTESIGNER_EXECUTION_X.
+	seenEnv := map[string]bool{}
 	for cmd, fs := range map[string][]cli.Flag{"": Global(), ConsensusCommand: Consensus(), ExecutionCommand: Execution()} {
-		seen, seenEnv := map[string]string{}, map[string]bool{}
+		seen := map[string]string{}
 		for _, f := range fs {
 			d, ok := f.(cli.DocGenerationFlag)
 			if !ok {
