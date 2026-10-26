@@ -72,7 +72,8 @@ func needsRetry(e *Error) bool {
 // so that two calls for one account never take the same nonce. When the
 // client did not choose the nonce and the node answers that another
 // transaction holds it, the signer fills, signs and sends again, up to
-// MaxNonceRetries times.
+// MaxNonceRetries times. The call holds a slot of the signing gate from
+// the fill to the node's answer.
 func (h *Handler) qrlSendTransaction(ctx context.Context, req *Request) (any, *Error) {
 	t := h.txs
 	a, e := t.parseTxArgs(req, h.log)
@@ -96,6 +97,14 @@ func (h *Handler) qrlSendTransaction(ctx context.Context, req *Request) (any, *E
 			withStatus(http.StatusServiceUnavailable)
 	}
 	defer unlock()
+	// The slot is taken once the account's earlier transactions are done, so
+	// that calls queued behind one account hold none, and kept until the
+	// node answers.
+	release, e := h.admit(ctx)
+	if e != nil {
+		return nil, e
+	}
+	defer release()
 
 	reserved := false
 	for retries := 0; ; retries++ {

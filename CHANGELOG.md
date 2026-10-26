@@ -20,7 +20,7 @@ The HTTP contract with the qrysm validator client stays at 1.0.0: its one additi
 is a clarification that [`docs/contract.md`](docs/contract.md#20-versioning-and-change-control) section 20 lists. The
 slashing-protection schema is unchanged and no flag was removed or renamed, so a 1.0.0 signer upgrades in place with
 its configuration ([`docs/operations/upgrade.md`](docs/operations/upgrade.md)). The behaviours that differ from
-Web3Signer are rows X25, X26, X28 and X76-X106 of [`DEVIATIONS.md`](DEVIATIONS.md).
+Web3Signer are rows X25, X26, X28, X76-X106 and X116 of [`DEVIATIONS.md`](DEVIATIONS.md).
 
 ### Added
 
@@ -31,8 +31,10 @@ Web3Signer are rows X25, X26, X28 and X76-X106 of [`DEVIATIONS.md`](DEVIATIONS.m
   go-qrl's text hash, verified before it is returned) and `health_status`, and splits batches of up to 1,000
   requests. `GET /api/v1/execution/publicKeys` lists each account's address with its public key, which a verifier of
   `qrl_sign` needs. Clients authenticate with the sign token in an `Authorization: Bearer` header, a client
-  certificate or both; Basic authentication and a token in the URL are refused. See
-  [`docs/operations/execution.md`](docs/operations/execution.md).
+  certificate or both; Basic authentication and a token in the URL are refused. `qrl_sign` and the transaction
+  methods take slots of consensus mode's signing gate (`--max-concurrent-signing-requests`,
+  `--max-queued-signing-requests`), each element of a batch on its own, and get -32005 "Limit exceeded" when it is
+  full. See [`docs/operations/execution.md`](docs/operations/execution.md).
 - **Transaction signing and sending.** `qrl_signTransaction` signs go-qrl's type-0x2 transactions for `--chain-id`
   and answers gqrl's `{raw, tx}`; the signer compares that chain ID with the node's at startup and every 10 minutes,
   and refuses transactions while they differ. `qrl_sendTransaction` asks the node's `qrl_fillTransaction` for what a

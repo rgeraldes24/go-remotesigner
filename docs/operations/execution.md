@@ -4,7 +4,7 @@
 messages and transactions with them, sends transactions through a gqrl node, and forwards everything else to that
 node, so that the node holds no keys. It is the execution-layer counterpart of `remotesigner consensus`, and a port of
 Web3Signer's `eth1` mode. Every flag is in [`../reference/flags.md`](../reference/flags.md#execution-flags); the
-differences from Web3Signer are rows X25, X26, X28, X76-X87 and X102-X106 of [`DEVIATIONS.md`](../../DEVIATIONS.md).
+differences from Web3Signer are rows X25, X26, X28, X76-X87, X102-X106 and X116 of [`DEVIATIONS.md`](../../DEVIATIONS.md).
 
 It answers `qrl_accounts`, `qrl_sign`, `qrl_signTransaction`, `qrl_sendTransaction` and `health_status`
 (section 4). Transactions are signed for one chain, `--chain-id`, under a fee cap and a per-account policy, and
@@ -124,6 +124,7 @@ The errors the signer itself returns:
 | -32003 | Transaction rejected: the chain ID, the fee cap, the account's policy or the node's fill answer (sections 8 and 9); `data` says why | 200 |
 | -32000 | No unlocked account matches the Sender (`qrl_sign` or a transaction method for an address that is not loaded) | 200 |
 | -32000 | Failed to connect to downstream node / Connection to downstream node timed out / Invalid response from downstream node | 504, 504 and 502 (section 6) |
+| -32005 | Limit exceeded: every slot of the signing gate is taken and its queue is full (section 7) | 503 |
 
 An error may carry a `data` string that says more. A request without an `id` is a notification: a notification of
 a local or refused method runs nothing and gets an empty 200 response.
@@ -210,6 +211,12 @@ Execution mode runs behind the same server as consensus mode ([`tls.md`](tls.md)
   gate, TLS 1.3, and the startup fail-safes of a non-loopback listener: no `--http-auth-mode=none`, no token over
   plaintext HTTP without `--Xallow-plaintext-token-auth`, no host allowlist of loopback names only, and no start
   without `--execution-policy-file` (section 9).
+- **The signing gate.** As in consensus mode, at most `--max-concurrent-signing-requests` (32) signing calls run at
+  once and `--max-queued-signing-requests` (512) more wait; the next is refused at once with -32005 "Limit exceeded",
+  503 for a single request. Each `qrl_sign`, `qrl_signTransaction` and `qrl_sendTransaction` call takes a slot, each
+  element of a batch on its own: `qrl_sign` for its signature, `qrl_signTransaction` from its checks to its signature,
+  and `qrl_sendTransaction` from the moment the account's earlier transactions are done (section 8) to the node's
+  answer. Every other method takes none.
 - **Health.** `/upcheck` and `/healthcheck` as in consensus mode, with the checks `default-check`,
   `keys-check/config-files-loading` and, with a keystore directory, `keys-check/keystores-bulk-loading`.
   `GET /reload` reports the last load, `POST /reload` (admin token) starts one.
