@@ -120,7 +120,7 @@ GOTOOLCHAIN=local CGO_ENABLED=0 GOPROXY=off go build -mod=vendor -trimpath -o re
 ```
 
 `GOTOOLCHAIN=local` keeps the go command on that Go: without it, a Go older than the `toolchain` line of `go.mod`
-(go1.26.9) tries to download that toolchain, which `GOPROXY=off` forbids, and the build fails.
+(go1.26.10) tries to download that toolchain, which `GOPROXY=off` forbids, and the build fails.
 
 ## 4. The release dry run
 
