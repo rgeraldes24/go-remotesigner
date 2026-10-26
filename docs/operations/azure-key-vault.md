@@ -130,7 +130,16 @@ keystores, as in Web3Signer; a key that an earlier source also provides is loade
 
 ## 8. Testing
 
-`make test` runs the client, and the built binary through the three overrides, against an in-process fake of Key
-Vault and Microsoft Entra ID on one TLS server: Key Vault's authentication challenge, Entra ID's OpenID configuration
-and client-credentials token endpoint, App Service's managed identity endpoint, and the secret listing with paging and
-the secret read. Web3Signer's acceptance tests use a Key Vault emulator image with a mock authority in the same way.
+`make test-cloud` runs the client's and the built binary's tests against
+[Lowkey Vault](https://github.com/nagyesta/lowkey-vault) (MIT), an Azure Key Vault emulator, with
+`SYSTEM_ASSIGNED_MANAGED_IDENTITY` authentication: the emulator's token endpoint stands in for App Service's
+(`IDENTITY_ENDPOINT`), `--Xazure-endpoint-override` points at its vault and
+`--Xazure-trust-certificate-override` trusts its certificate. It starts the pinned image in Docker on free loopback
+ports (the CI job `cloud-secrets` runs it as a service container), and the tests read a secret's latest version, a
+missing secret, and the secrets the tags select, through an `azure-secret` document and the bulk loader. `make test`
+runs the client, and the built binary through the three overrides, against an in-process fake of Key Vault and
+Microsoft Entra ID on one TLS server, which also covers `CLIENT_SECRET` and the user-assigned identity: Key Vault's
+authentication challenge, Entra ID's OpenID configuration and client-credentials token endpoint, App Service's managed
+identity endpoint, and the secret listing with paging and the secret read. Web3Signer's acceptance tests use a Key
+Vault emulator image with a mock authority in the same way. Neither replaces a run against Azure, which the release
+checklist requires ([`release.md`](release.md#72-open-gates-this-repository-cannot-meet-today)).

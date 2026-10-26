@@ -357,3 +357,63 @@ func TestSecretStoresDevServers(t *testing.T) {
 		t.Fatalf("health after the reload: %v", checks)
 	}
 }
+
+// The built binary against the emulators of GCP Secret Manager (floci-gcp)
+// and Azure Key Vault (Lowkey Vault, with its managed-identity token
+// endpoint as App Service's IDENTITY_ENDPOINT): a gcp-secret and an
+// azure-secret document, and both bulk loaders. A rotated secret serves its
+// latest version, and the Azure loader selects by tags. floci-gcp ignores
+// ListSecrets' filter, so the GCP loader reads a project of its own whole.
+func TestSecretStoresEmulators(t *testing.T) {
+	gcp := secretstest.GCPEmulator(t)
+	vaultURL, identity, certFile := secretstest.LowkeyVault(t)
+	var rnd [5]byte
+	_, _ = rand.Read(rnd[:])
+	run := "remotesigner-" + hex.EncodeToString(rnd[:])
+	seeds, pubkeys := map[byte]string{}, map[byte]string{}
+	for b := byte(0x51); b <= 0x56; b++ {
+		seeds[b], pubkeys[b] = seedKey(t, b)
+	}
+	secretstest.PutGCPSecret(t, gcp, run, "single", nil, "not a seed", seeds[0x51]+"\n")
+	secretstest.PutGCPSecret(t, gcp, run+"-bulk", "a", map[string]string{"role": "validator"}, seeds[0x52])
+	secretstest.PutGCPSecret(t, gcp, run+"-bulk", "b", nil, seeds[0x53]+"\n")
+	secretstest.PutLowkeySecret(t, vaultURL, certFile, run+"-single", seeds[0x54], nil)
+	secretstest.PutLowkeySecret(t, vaultURL, certFile, run+"-bulk", seeds[0x55]+"\n"+seeds[0x56]+"\n",
+		map[string]string{"run": run})
+	secretstest.PutLowkeySecret(t, vaultURL, certFile, run+"-other", seeds[0x51], map[string]string{"run": "other"})
+
+	keys := t.TempDir()
+	writeDoc(t, keys, "gcp.yaml", fmt.Sprintf("type: gcp-secret\nprojectId: %s\nsecretName: single\nendpointOverride: %s\n",
+		run, gcp))
+	writeDoc(t, keys, "azure.yaml", fmt.Sprintf("type: azure-secret\nvaultName: lowkey\nsecretName: %s-single\n"+
+		"authenticationMode: SYSTEM_ASSIGNED_MANAGED_IDENTITY\nendpointOverride: %s\ntrustCertificateOverride: %s\n",
+		run, vaultURL, certFile))
+	s := start(t, options{keys: keys, env: []string{"IDENTITY_ENDPOINT=" + identity, "IDENTITY_HEADER=header"},
+		consensus: []string{
+			"--gcp-secrets-enabled", "--gcp-project-id=" + run + "-bulk", "--Xgcp-endpoint-override=" + gcp,
+			"--azure-vault-enabled", "--azure-vault-name=lowkey", "--azure-vault-auth-mode=SYSTEM_ASSIGNED_MANAGED_IDENTITY",
+			"--azure-tags=run=" + run, "--Xazure-endpoint-override=" + vaultURL,
+			"--Xazure-trust-certificate-override=" + certFile,
+		}})
+	s.waitReadyWithin(time.Minute)
+	s.waitReloadStatus("completed", time.Minute)
+	got := s.publicKeys()
+	for b, pk := range pubkeys {
+		if !slices.Contains(got, pk) {
+			t.Errorf("key %#x is not loaded", b)
+		}
+	}
+	if len(got) != len(pubkeys) {
+		t.Errorf("%d keys loaded, want %d", len(got), len(pubkeys))
+	}
+	if _, checks := s.healthChecks(); checks["keys-check/config-files-loading"] != "UP 2/0" ||
+		checks["keys-check/gcp-bulk-loading"] != "UP 2/0" || checks["keys-check/azure-bulk-loading"] != "UP 2/0" {
+		t.Fatalf("health: %v", checks)
+	}
+	body := selectionProof(t)
+	for b, pk := range pubkeys {
+		if code, out := s.post("/api/v1/consensus/sign/"+pk, s.signToken(), body); code != 200 {
+			t.Errorf("sign with key %#x: %d %s", b, code, out)
+		}
+	}
+}
