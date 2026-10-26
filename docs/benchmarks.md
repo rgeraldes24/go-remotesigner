@@ -1,6 +1,9 @@
 # Benchmarks
 
-Each benchmark is first run when its component lands, then re-run weekly and before every release. The thresholds
+Each benchmark is first run when its component lands, then re-run before every release, and every week by the
+Benchmarks workflow ([`bench.yml`](../.github/workflows/bench.yml)) on GitHub's hosted runners, which tracks trends
+but is not the release gate. GitHub runs scheduled and manually dispatched workflows only from the default branch,
+so the weekly runs, like the nightly ones, start once the workflows are on `main`. The thresholds
 were set for the reference hardware: a 4-vCPU x86-64 cloud VM and a 4-vCPU Graviton-class arm64 VM, reporting p50,
 p99 and p99.9 with `benchstat` over at least 10 runs. Rows measured elsewhere say so and must be re-run on the
 reference VMs before a release.
@@ -153,7 +156,9 @@ allocates only small bookkeeping, which is why B6 stays far under its memory bou
 ## Public keys and idle connections (B15, B19, the API server)
 
 **B15: met on the development machine.** **B19: met on the development machine** in its 1 h runs (Run V,
-2026-10-20: 162 POSTs, 0 errors; Run W, the same day: 158 POSTs, 0 errors); the nightly job runs it every night.
+2026-10-20: 162 POSTs, 0 errors; Run W, the same day: 158 POSTs, 0 errors). The nightly workflow runs it every night
+once the workflow is on `main`; it has not run in CI yet, since GitHub runs scheduled workflows only from the default
+branch.
 
 ```
 go test -run '^$' -bench PublicKeys10k -benchtime 10x -count 10 ./internal/api/consensus/ | tee b15.txt && benchstat b15.txt
