@@ -297,8 +297,11 @@ components:
       scheme: bearer
       description: |
         The sign token (`--http-auth-token-file`, default `<data-path>/auth-token`) in an `Authorization: Bearer`
-        header, or, with `--http-auth-mode=mtls` or `token+mtls`, a client certificate. Basic authentication and a
-        token in the URL are refused with 401. The admin token does not grant these routes.
+        header. What the routes need depends on `--http-auth-mode`, as in consensus mode (`docs/contract.md`
+        section 6): `token` (the default) the sign token; `mtls` a client certificate, which the TLS handshake
+        requires on every connection, in place of the token; `token+mtls` both the certificate and the token; and
+        `none`, which only a loopback listener may use, nothing. Basic authentication and a token in the URL are
+        refused with 401. The admin token does not grant these routes.
 
   schemas:
     Address:
@@ -315,7 +318,12 @@ components:
       pattern: '^0x(0|[1-9a-fA-F][0-9a-fA-F]*)$'
     Hash:
       type: string
+      description: A 32-byte hash as the signer and the node write it, `0x` and 64 lower-case hex digits.
       pattern: '^0x[0-9a-f]{64}$'
+    RequestHash:
+      type: string
+      description: A 32-byte value in a request, `0x` and 64 hex digits in either case.
+      pattern: '^0x[0-9a-fA-F]{64}$'
     Signature:
       type: string
       description: A 4,627-byte ML-DSA-87 signature, `0x` and 9,254 lower-case hex digits.
@@ -494,7 +502,7 @@ components:
               address: {$ref: '#/components/schemas/Address'}
               storageKeys:
                 type: array
-                items: {$ref: '#/components/schemas/Hash'}
+                items: {$ref: '#/components/schemas/RequestHash'}
         chainId:
           allOf: [{$ref: '#/components/schemas/Quantity'}]
           description: Must be `--chain-id` (-32003 otherwise); absent is `--chain-id`.

@@ -108,6 +108,45 @@ func TestExecutionExamplesMatchTheirSchemas(t *testing.T) {
 	}
 }
 
+// A request's storage keys are read in either case, as go-qrl's
+// common.Hash reads them; the hashes the signer and the node write are lower
+// case.
+func TestExecutionRequestHashesTakeEitherCase(t *testing.T) {
+	upper, lower := "0x"+strings.Repeat("AB", 32), "0x"+strings.Repeat("ab", 32)
+	for _, tt := range []struct {
+		schema string
+		v      string
+		ok     bool
+	}{
+		{"RequestHash", upper, true},
+		{"RequestHash", lower, true},
+		{"RequestHash", "0x" + strings.Repeat("ab", 31), false},
+		{"Hash", lower, true},
+		{"Hash", upper, false},
+	} {
+		if err := executionSchema(t, tt.schema).VisitJSON(tt.v); (err == nil) != tt.ok {
+			t.Errorf("%s %s: %v", tt.schema, tt.v, err)
+		}
+	}
+	tx := map[string]any{"from": "Q" + strings.Repeat("ab", 64), "accessList": []any{
+		map[string]any{"address": "Q" + strings.Repeat("CD", 64), "storageKeys": []any{upper}}}}
+	if err := executionSchema(t, "TransactionArgs").VisitJSON(tx, openapi3.VisitAsRequest()); err != nil {
+		t.Errorf("an upper-case storage key: %v", err)
+	}
+}
+
+// The sign token's description says what each --http-auth-mode of
+// docs/contract.md section 6 requires of these routes.
+func TestExecutionAuthModes(t *testing.T) {
+	desc := loadExecutionSpec(t).Components.SecuritySchemes["signToken"].Value.Description
+	for _, want := range []string{"`token` (the default) the sign token", "`mtls` a client certificate",
+		"`token+mtls` both the certificate and the token", "`none`, which only a loopback listener may use, nothing"} {
+		if !strings.Contains(strings.Join(strings.Fields(desc), " "), want) {
+			t.Errorf("signToken's description lacks %q", want)
+		}
+	}
+}
+
 // localMethods returns the methods execution.yaml says the signer answers,
 // each with the schema of its result (x-result-schema), and the methods it
 // never forwards (x-never-forwarded).
