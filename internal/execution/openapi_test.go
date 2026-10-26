@@ -256,14 +256,18 @@ func TestOpenAPIErrorExamplesAreTheHandlersAnswers(t *testing.T) {
 		}
 	}
 
-	// The node answers a send with HTTP 500, then cannot be reached.
+	// The node answers a send with HTTP 500.
 	send := openAPIExample(t, doc, 0, MethodSendTransaction)
 	f.node.setHandler(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) })
 	if w, want := postExample(t, f, send), openAPIExample(t, doc, 502, "invalidResponse"); w.Code != 502 ||
 		!jsonEqual(t, w.Body.Bytes(), want) {
 		t.Errorf("invalidResponse: %d %s", w.Code, w.Body)
 	}
-	f.node.Close()
+	// A node that is not listening, never reached before.
+	gone := newNode(t)
+	d := downstreamOf(t, gone.Server)
+	gone.Close()
+	f = newFixtureWith(t, 2, defaultAllow, d, gone)
 	if w, want := postExample(t, f, openAPIExample(t, doc, 0, "forwarded")), openAPIExample(t, doc, 504, "connect"); w.Code != 504 ||
 		!jsonEqual(t, w.Body.Bytes(), want) {
 		t.Errorf("connect: %d %s", w.Code, w.Body)
