@@ -440,10 +440,11 @@ func TestUnmanagedPins(t *testing.T) {
 
 // workflowStep is one step of a GitHub Actions job.
 type workflowStep struct {
-	Name string         `yaml:"name"`
-	Uses string         `yaml:"uses"`
-	Run  string         `yaml:"run"`
-	With map[string]any `yaml:"with"`
+	Name string            `yaml:"name"`
+	Uses string            `yaml:"uses"`
+	Run  string            `yaml:"run"`
+	With map[string]any    `yaml:"with"`
+	Env  map[string]string `yaml:"env"`
 }
 
 // releaseWorkflowProblems returns what is wrong with the release job's
@@ -587,7 +588,10 @@ func TestNightlyWorkflow(t *testing.T) {
 // go.mod's toolchain line (go-version-file: go.mod, and no go-version,
 // which would take precedence). The workflows set GOTOOLCHAIN=local, so the
 // go command never switches to that line itself, and a go-version such as
-// "1.26.x" takes whatever 1.26 release the runner has cached.
+// "1.26.x" takes whatever 1.26 release the runner has cached. setup-go
+// reads the toolchain line only when GOTOOLCHAIN is not local, and falls
+// back to the go line otherwise, so the step must set GOTOOLCHAIN in its
+// own env to another value.
 func setupGoProblems(steps []workflowStep) []string {
 	var p []string
 	n := 0
@@ -600,6 +604,10 @@ func setupGoProblems(steps []workflowStep) []string {
 			p = append(p, fmt.Sprintf("setup-go installs go-version %v, go-version-file %v; want go-version-file: "+
 				"go.mod alone, the Go of its toolchain line", s.With["go-version"], s.With["go-version-file"]))
 		}
+		if v := s.Env["GOTOOLCHAIN"]; v == "" || v == "local" {
+			p = append(p, fmt.Sprintf("setup-go runs with step env GOTOOLCHAIN %q, under which it reads go.mod's go "+
+				"line instead of its toolchain line; want GOTOOLCHAIN set in the step's env to another value, such as auto", v))
+		}
 	}
 	if n == 0 {
 		p = append(p, "no setup-go step")
@@ -611,7 +619,8 @@ func TestReleaseWorkflowProblems(t *testing.T) {
 	good := []workflowStep{
 		{Uses: "actions/checkout@abc", With: map[string]any{"fetch-depth": 0}},
 		{Run: `git merge-base --is-ancestor HEAD refs/remotes/origin/main`},
-		{Uses: "actions/setup-go@abc", With: map[string]any{"cache": false, "go-version-file": "go.mod"}},
+		{Uses: "actions/setup-go@abc", With: map[string]any{"cache": false, "go-version-file": "go.mod"},
+			Env: map[string]string{"GOTOOLCHAIN": "auto"}},
 		{Run: `go install "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}"`},
 		{Run: "make license-hash headercheck nogpl licenses GO_LICENSES=x\nmake vuln GOVULNCHECK=y\n" +
 			"go vet ./...\ngo vet -tags noexecution ./...\n"},
@@ -649,6 +658,14 @@ func TestReleaseWorkflowProblems(t *testing.T) {
 			s[2].With["go-version"] = "1.26.x"
 			return s
 		}), []string{"go-version-file: go.mod"}},
+		{"setup-go under GOTOOLCHAIN=local", with(func(s []workflowStep) []workflowStep {
+			s[2].Env = map[string]string{"GOTOOLCHAIN": "local"}
+			return s
+		}), []string{"GOTOOLCHAIN"}},
+		{"setup-go without its own GOTOOLCHAIN", with(func(s []workflowStep) []workflowStep {
+			s[2].Env = nil
+			return s
+		}), []string{"GOTOOLCHAIN"}},
 		{"no make gates", with(func(s []workflowStep) []workflowStep {
 			s[4].Run = "go vet ./...\ngo vet -tags noexecution ./...\n"
 			return s

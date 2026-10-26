@@ -265,6 +265,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        # As in release.yml: setup-go reads go.mod's toolchain line only when
+        # GOTOOLCHAIN is not local, so this step alone runs without it.
+        env:
+          GOTOOLCHAIN: auto
         with:
           # govulncheck checks the Go the release builds with: go.mod's
           # toolchain line, as in release.yml.

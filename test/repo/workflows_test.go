@@ -19,11 +19,10 @@ import (
 // jobStep is a workflow step with its condition, environment and shell.
 type jobStep struct {
 	workflowStep     `yaml:",inline"`
-	ID               string            `yaml:"id"`
-	If               string            `yaml:"if"`
-	WorkingDirectory string            `yaml:"working-directory"`
-	Env              map[string]string `yaml:"env"`
-	Shell            string            `yaml:"shell"`
+	ID               string `yaml:"id"`
+	If               string `yaml:"if"`
+	WorkingDirectory string `yaml:"working-directory"`
+	Shell            string `yaml:"shell"`
 }
 
 // runDefaults is the defaults.run of a workflow or a job.

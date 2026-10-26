@@ -60,6 +60,11 @@ jobs:
             exit 1
           fi
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        # setup-go reads go.mod's go line instead of its toolchain line while
+        # GOTOOLCHAIN is local, so this step alone runs without it; the later
+        # steps use the Go it installs under GOTOOLCHAIN=local.
+        env:
+          GOTOOLCHAIN: auto
         with:
           # The Go of go.mod's toolchain line, which GOTOOLCHAIN=local would
           # otherwise ignore: "1.26.x" takes whatever 1.26 release the
