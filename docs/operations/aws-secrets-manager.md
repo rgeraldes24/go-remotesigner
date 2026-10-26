@@ -87,9 +87,10 @@ the signer refuses to start (exit 1) when its group or other users can read it, 
 Web3Signer's plain `--aws-secrets-secret-access-key` is still accepted, from the command line, the environment
 (`REMOTESIGNER_CONSENSUS_AWS_SECRETS_SECRET_ACCESS_KEY`) or the config file, but it is deprecated, and the signer
 logs a WARN at startup that names the `-file` flag to use instead. On the command line the key can be read by every
-local user in the process list, which a second WARN says. A `--config-file` that sets it is a secret file: under
-`--strict-file-permissions` one that its group or other users can read refuses the start. Setting both flags is a
-usage error (exit 2). `ENVIRONMENT` authentication needs neither.
+local user in the process list, which a second WARN says. A `--config-file` that sets it is a secret file, even when
+the command line or the environment overrides it, with an empty value too: under `--strict-file-permissions` one that
+its group or other users can read refuses the start. Setting both flags is a usage error (exit 2), and so is the
+`-file` flag with a config file that sets the plain one. `ENVIRONMENT` authentication needs neither.
 
 ## 4. Credentials
 

@@ -166,28 +166,35 @@ func azureBulk(c *cli.Context) (*secrets.AzureBulk, error) {
 	return b, nil
 }
 
-// plainSecrets returns the plain secret flags that are set, each with the
-// source of its value and the config file when that file gives it one
+// plainSecrets returns the plain secret flags that hold a secret, each with
+// the source of its value and the config file when that file gives it one
 // (which makes the file a secret file even when the command line or the
-// environment wins), in name order. A plain flag and its -file flag
-// together are a usage error.
+// environment wins), in name order. A flag whose value is empty holds none,
+// unless the config file gives it one: an empty value on the command line or
+// in the environment overrides the file's secret but leaves it in the file,
+// so the file is still a secret file and the source is the file. A plain
+// flag that holds a secret and its -file flag together are a usage error.
 func plainSecrets(c *cli.Context) ([]config.PlainSecret, error) {
 	pairs := flags.PlainSecrets()
+	src, _ := c.App.Metadata[metaConfigFile].(*config.YAMLSource)
+	args, _ := c.App.Metadata[metaArgs].([]string)
 	var out []config.PlainSecret
 	for _, plain := range slices.Sorted(maps.Keys(pairs)) {
 		file := pairs[plain]
-		if c.String(plain) == "" {
+		inFile := src != nil && src.Gives(plain)
+		if c.String(plain) == "" && !inFile {
 			continue
 		}
 		if c.String(file) != "" {
 			return nil, fmt.Errorf("only one of --%s or --%s can be specified", file, plain)
 		}
 		p := config.PlainSecret{Flag: plain, FileFlag: file, Source: config.FromEnvironment}
-		src, _ := c.App.Metadata[metaConfigFile].(*config.YAMLSource)
-		if src != nil && src.Gives(plain) {
+		if inFile {
 			p.File = src.Path()
 		}
-		switch args, _ := c.App.Metadata[metaArgs].([]string); {
+		switch {
+		case c.String(plain) == "": // the file's secret, overridden
+			p.Source = config.FromConfigFile
 		case onCommandLine(args, plain):
 			p.Source = config.FromCommandLine
 		case src != nil && src.Applied(plain):

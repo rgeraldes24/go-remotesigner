@@ -7,13 +7,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secrets"
+	"github.com/rgeraldes24/go-remotesigner/internal/runner"
 )
 
 func TestSecretStoreFlags(t *testing.T) {
@@ -198,6 +202,75 @@ func TestPlainSecretSources(t *testing.T) {
 	}
 	if got = sources("--azure-client-secret", "x"); got["azure-client-secret"].Source != config.FromCommandLine {
 		t.Errorf("value as the next argument: %+v", got)
+	}
+}
+
+// An empty value on the command line or in the environment overrides the
+// config file's secret but leaves it in the file, which stays a secret
+// file: under --strict-file-permissions one its group can read refuses the
+// start, and the plain flag still conflicts with its -file flag. Without a
+// config file that holds it, an empty value holds no secret.
+func TestPlainSecretEmptyOverride(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(file, []byte("consensus:\n  azure-client-secret: from-file-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(file, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []config.PlainSecret{{Flag: "azure-client-secret", FileFlag: "azure-client-secret-file",
+		Source: config.FromConfigFile, File: file}}
+	overrides := []struct {
+		name string
+		env  bool
+		args []string
+	}{
+		{"none", false, nil},
+		{"empty variable", true, nil},
+		{"empty flag", false, []string{"--azure-client-secret="}},
+		{"empty flag and variable", true, []string{"--azure-client-secret="}},
+	}
+	for _, tt := range overrides {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env {
+				t.Setenv("REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET", "")
+			}
+			cfg, code, stderr := capture(t, append([]string{"--config-file=" + file, "consensus", "--network=e2e"},
+				tt.args...)...)
+			if code != exitOK {
+				t.Fatalf("exit %d %s", code, stderr)
+			}
+			if p := cfg.Consensus.SecretStores.Plain; !slices.Equal(p, want) {
+				t.Fatalf("plain secrets %+v, want %+v", p, want)
+			}
+			if runtime.GOOS == "windows" {
+				return
+			}
+			cfg.StrictFilePermissions = true
+			if err := runner.StoreCredentials(cfg, logrus.New()); err == nil ||
+				!strings.Contains(err.Error(), "--config-file holds --azure-client-secret, so it is a secret file") {
+				t.Fatalf("a group-readable config file that holds the secret: %v", err)
+			}
+		})
+		t.Run(tt.name+" with the -file flag", func(t *testing.T) {
+			if tt.env {
+				t.Setenv("REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET", "")
+			}
+			args := append([]string{"--config-file=" + file, "consensus", "--network=e2e",
+				"--azure-client-secret-file=/x"}, tt.args...)
+			if _, code, stderr := capture(t, args...); code != exitUsage || !strings.Contains(stderr,
+				"only one of --azure-client-secret-file or --azure-client-secret can be specified") {
+				t.Fatalf("exit %d %s", code, stderr)
+			}
+		})
+	}
+	// No config file: an empty value is no secret, and no conflict.
+	t.Setenv("REMOTESIGNER_CONSENSUS_AZURE_CLIENT_SECRET", "")
+	cfg, code, stderr := capture(t, "consensus", "--network=e2e", "--azure-client-secret=", "--azure-client-secret-file=/x")
+	if code != exitOK || len(cfg.Consensus.SecretStores.Plain) != 0 {
+		t.Fatalf("exit %d %s, %+v", code, stderr, cfg)
 	}
 }
 
