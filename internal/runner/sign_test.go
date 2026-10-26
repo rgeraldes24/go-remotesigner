@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
@@ -77,6 +78,23 @@ func (r *running) scrape(t *testing.T, host string) (int, string) {
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, string(body)
+}
+
+// scrapeUntil scrapes the metrics listener until the text holds want, for
+// at most 5 s, and returns the last text. A sign request is counted after its
+// response is written, and a response larger than the server's write buffer
+// (any signature) reaches the client before that: a scrape right after the
+// last request can come first.
+func (r *running) scrapeUntil(t *testing.T, host, want string) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		code, text := r.scrape(t, host)
+		if code == http.StatusOK && strings.Contains(text, want) || time.Now().After(deadline) {
+			return text
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func signPath(c vectors.SignCase) string {
