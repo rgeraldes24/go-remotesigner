@@ -88,7 +88,7 @@ Go 1.26.5 or later is required (the module's toolchain line selects go1.26.10).
 make build             # bin/remotesigner, the default flavour
 make build-consensus   # bin/remotesigner-consensus, consensus only (-tags noexecution)
 make test              # go test -race, both flavours
-make test-cloud        # the secret-store tests against a Vault dev server and LocalStack (Docker)
+make test-cloud        # the secret-store tests against Vault, LocalStack and the GCP and Azure emulators (Docker)
 make contract          # OpenAPI lint, example validation, docs/contract.md consistency
 make lint              # go vet, golangci-lint, headercheck, LICENSE hash
 make docs              # regenerate docs/reference/flags.md from the flag definitions

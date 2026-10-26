@@ -425,8 +425,10 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/secrets/awssm/localstack_test.go` | new | | | |
 | `internal/keys/secrets/azurekv/azurekv.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/azure/AzureKeyVault.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/azure/AzureOverrides.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/AzureKeyVaultFactory.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/secrets/azurekv/azurekv_test.go` | new | | | |
+| `internal/keys/secrets/azurekv/emulator_test.go` | new | | | |
 | `internal/keys/secrets/bulk.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/common/SecretValueMapperUtil.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/common/MappedResults.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsAwsBulkLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsGcpBulkLoader.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/secrets/cache.go` | new | | | |
+| `internal/keys/secrets/gcpsm/emulator_test.go` | new | | | |
 | `internal/keys/secrets/gcpsm/gcpsm.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/gcp/GcpSecretManager.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/secrets/gcpsm/gcpsm_test.go` | new | | | |
 | `internal/keys/secrets/hashicorp/devserver_test.go` | new | | | |
@@ -439,6 +441,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/secrets/secretstest/aws.go` | new | | | |
 | `internal/keys/secrets/secretstest/azure.go` | new | | | |
 | `internal/keys/secrets/secretstest/cloud.go` | new | | | |
+| `internal/keys/secrets/secretstest/emulators.go` | new | | | |
 | `internal/keys/secrets/secretstest/gcp.go` | new | | | |
 | `internal/keys/secrets/secretstest/stderr.go` | new | | | |
 | `internal/keys/secrets/secretstest/vault.go` | new | | | |
