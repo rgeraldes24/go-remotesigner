@@ -90,7 +90,8 @@ func TestFlags(t *testing.T) {
 func TestSecretsHaveFileFlags(t *testing.T) {
 	secret := regexp.MustCompile(`(secret|password|token|access-key|credentials?)$`)
 	byName := map[string]cli.Flag{}
-	for _, fs := range [][]cli.Flag{Global(), Consensus(), Execution(), Import(), KeystoreVerify()} {
+	for _, fs := range [][]cli.Flag{Global(), Consensus(), Execution(), Migrate(), Import(), Export(), WatermarkRepair(),
+		SetHighWatermark(), RandaoStateReset(), KeystoreVerify(), DisableValidatorFlags()} {
 		for _, f := range fs {
 			byName[f.Names()[0]] = f
 		}
