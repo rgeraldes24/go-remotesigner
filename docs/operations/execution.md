@@ -7,7 +7,9 @@ Web3Signer's `eth1` mode. Every flag is in [`../reference/flags.md`](../referenc
 differences from Web3Signer are rows X25, X26, X28, X76-X87, X102-X106 and X116 of [`DEVIATIONS.md`](../../DEVIATIONS.md).
 
 It answers `qrl_accounts`, `qrl_sign`, `qrl_signTransaction`, `qrl_sendTransaction` and `health_status`
-(section 4). Transactions are signed for one chain, `--chain-id`, under a fee cap and a per-account policy, and
+(section 4). [`api/openapi/execution.yaml`](../../api/openapi/execution.yaml) is the OpenAPI 3.0.3 description of the
+JSON-RPC endpoint and of `GET /api/v1/execution/publicKeys` (sections 4 and 5), with real examples; `make contract`
+checks it against this page and against the signer's own answers. Transactions are signed for one chain, `--chain-id`, under a fee cap and a per-account policy, and
 recorded in an audit log (sections 8 to 10). The default flavour links the go-qrl library (LGPL-3.0-or-later) to
 build and sign them (section 11).
 
