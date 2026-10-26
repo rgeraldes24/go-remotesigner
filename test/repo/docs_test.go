@@ -133,6 +133,11 @@ func TestOperatorDocs(t *testing.T) {
 			strings.HasSuffix(f.path, ".md") && !slices.Contains(listed, f.path) {
 			t.Errorf("%s is not in the operator documentation list (and maybe not in the README)", f.path)
 		}
+		// The fact notes are linked from the README's Documentation table
+		// too, not only through their index.
+		if strings.HasPrefix(f.path, "docs/spec/") && strings.HasSuffix(f.path, ".md") && !linked[f.path] {
+			t.Errorf("%s is not linked from the README", f.path)
+		}
 	}
 }
 
