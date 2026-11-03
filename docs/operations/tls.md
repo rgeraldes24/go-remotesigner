@@ -173,7 +173,9 @@ The tokens, the certificate and the client trust reload independently, and fail 
   there: under the strict policy such a directory (`--data-path` for the default token files, mode `0770` or `0777`,
   say) refuses the start, or fails the reload, and no token is written into it; with
   `--strict-file-permissions=false` the token is generated with a WARN that names the directory. `chmod 0700` it; a
-  directory that others can only read or enter, such as `0755`, is accepted.
+  directory that others can only read or enter, such as `0755`, is accepted. A Kubernetes volume that the pod's
+  `fsGroup` is applied to has a group-writable root: point `--data-path` at a directory in it
+  ([`deploy-docker.md`](deploy-docker.md#9-orchestrators)).
 - **The client trust fails closed.** If the known-clients file or the client CA file cannot be read or does not parse
   (deleted, a line that is not `<label> <fingerprint>`, a broken certificate), the signer logs an ERROR and refuses
   every client certificate, on new handshakes and on open connections, until a reload succeeds. Keeping the previous
