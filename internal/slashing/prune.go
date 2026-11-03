@@ -56,8 +56,8 @@ type PruneResult struct {
 // Prune prunes every validator in the store, not only the keys this process has loaded: at startup no key is
 // loaded yet, and a key that is no longer loaded keeps its history bounded too.
 //
-// For each validator, in one transaction holding its block, attestation and RANDAO locks: the low watermark is first
-// raised to the oldest record that is kept, never lowered, and the records below the watermark are then deleted. A
+// For each validator, in one transaction holding its block and attestation locks: the low watermark is first raised
+// to the oldest record that is kept, never lowered, and the records below the watermark are then deleted. A
 // validator without a low watermark, or without records, is left alone. The watermark only moves to a record that
 // exists; when none is at or above the computed point (after a watermark repair beyond every record), the watermark
 // stays where it is and the records below it go.

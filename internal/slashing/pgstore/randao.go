@@ -59,11 +59,11 @@ func randaoState(index int64, reveal []byte, last int64) (slashing.RandaoState, 
 }
 
 // CompareAndSwapRandaoState stores next if the validator is enabled and the stored frontier equals old (nil: none
-// stored). It takes the validator's RANDAO lock, then reads the enabled flag and the row in one statement, which
-// starts once the lock is granted: every disable holds the RANDAO lock to its commit, so the statement sees every
-// disable that committed before, and none commits before this transaction ends. A disabled validator is
-// slashing.ErrValidatorDisabled. The write itself is a compare-and-set on the row's values as well. Next is
-// committed before it returns.
+// stored). It takes the validator's RANDAO lock, then reads the row and the enabled flag in one statement, the
+// validators row FOR SHARE. Every disable is an UPDATE of that row, whose row lock conflicts with FOR SHARE: the read
+// waits for a disable still open, on any replica, and then reads the row it committed, and a disable that comes
+// later waits for this transaction to end. A disabled validator is slashing.ErrValidatorDisabled. The write itself is
+// a compare-and-set on the row's values as well. Next is committed before it returns.
 func (s *Store) CompareAndSwapRandaoState(ctx context.Context, id slashing.KeyID, old *slashing.RandaoState, next slashing.RandaoState) (bool, error) {
 	index, err := i64(next.Index)
 	if err != nil {
@@ -86,7 +86,8 @@ func (s *Store) CompareAndSwapRandaoState(ctx context.Context, id slashing.KeyID
 			curReveal         []byte
 		)
 		err = tx.QueryRow(ctx, `SELECT v.enabled, r.deepest_index, r.deepest_reveal, r.last_new_slot
-			FROM validators v LEFT JOIN randao_reveal_state r ON r.validator_id = v.id WHERE v.id = $1`, vid).
+			FROM validators v LEFT JOIN randao_reveal_state r ON r.validator_id = v.id WHERE v.id = $1
+			FOR SHARE OF v`, vid).
 			Scan(&enabled, &curIndex, &curReveal, &curLast)
 		if err != nil {
 			return err

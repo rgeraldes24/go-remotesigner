@@ -444,8 +444,8 @@ func (t *attestationTx) PruneAttestations() (int, error) {
 	return int(tag.RowsAffected()), err
 }
 
-// historyTx is one validator's part of a transaction of UpdateHistory, which holds its block, attestation and RANDAO
-// locks.
+// historyTx is one validator's part of a transaction of UpdateHistory, which holds both its block and its
+// attestation lock.
 type historyTx struct {
 	*blockTx
 	*attestationTx
