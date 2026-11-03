@@ -73,9 +73,10 @@ signer signs, give the store that history back, in order of preference:
    backup that turns out to be recent.
 
 Keys that were disabled after the backup (keymanager `DELETE`, `consensus disable-validator`) come back enabled from
-an older backup, and an import enables every key whose history it imports cleanly, those disabled before the backup
-included ([`migration.md`](migration.md#2-import-the-history)). Disable them again, or remove them from the key
-configuration, before starting.
+an older backup, and the steps above do not restore those disables. Disable them again, or remove them from the key
+configuration, before starting. A key that was disabled on purpose before the backup is still disabled in it, and
+the import leaves it disabled, even when its history imports cleanly, unless `--enable-keys` names it
+([`migration.md`](migration.md#2-import-the-history)): name it there only if it was enabled again after the backup.
 
 ## 4. Why an old backup is safe for RANDAO
 
