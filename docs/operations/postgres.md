@@ -141,11 +141,12 @@ The profile is fixed; a `pool_*` parameter in the URL is refused.
 | Retries | up to 5 runs of a transaction that fails with SQLSTATE 40001 (serialisation failure) or 40P01 (deadlock detected) | |
 
 Advisory locks: `pg_advisory_xact_lock(type, validator_id)` with type 0 for blocks, 1 for attestations and 2 for
-RANDAO frontiers, always taken in that order. Disabling a key takes its block, its attestation and then its RANDAO
-lock; import, pruning, the watermark repair and the keymanager's delete take all three for each validator they
-write, validator by validator in the order of the SHA-256 of the keys, so no two transactions can wait on each other
-in a cycle. A RANDAO frontier move reads the key's enabled flag once it holds the key's RANDAO lock, so a disable
-that commits while a reveal is under way, on any replica, still refuses that reveal's new layer.
+RANDAO frontiers, always taken in that order. Disabling a key takes its block and then its attestation lock;
+import, pruning, the watermark repair and the keymanager's delete take both for each validator they write, validator
+by validator in the order of the SHA-256 of the keys, so no two transactions can wait on each other in a cycle. A
+RANDAO frontier move reads the key's `validators` row, and with it the enabled flag, `FOR SHARE` once it holds the
+key's RANDAO lock. Every disable updates that row, and the two row locks conflict: a move waits for a disable under
+way on any replica and then refuses the new layer, and a disable waits for a move that read the key enabled first.
 
 A check-and-record is five round trips for an attestation and four for a block (`BEGIN`, the lock and the read of
 the validator's flag and watermarks travel together), so the network's round-trip time adds to its latency four or
