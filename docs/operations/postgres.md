@@ -117,7 +117,7 @@ remotesigner consensus migrate \
 - The password comes from `--slashing-protection-db-password-file` (its first line; the file must be readable by its
   owner only unless `--strict-file-permissions=false`), else from libpq's password file (`PGPASSFILE`, by default
   `~/.pgpass`, or the URL's `passfile=`), under the same rule: a password found there in a file that its group or
-  other users can read is refused, or used with a warning under `--strict-file-permissions=false` (libpq would
+  other users can read or write is refused, or used with a warning under `--strict-file-permissions=false` (libpq would
   ignore such a file). The entry is looked up for the user `--slashing-protection-db-username` names, when it is
   set. A password in the URL, `PGPASSWORD` in the environment, and a `password` in the `pg_service.conf` entry of a
   connection service (`service=` or `PGSERVICE`) are refused at startup: they put the password where other

@@ -161,7 +161,7 @@ func postgresConfig(cfg *config.Config, log logrus.FieldLogger) (pgstore.Config,
 	pg := cfg.Consensus.Postgres
 	policy := secretfile.Policy{Strict: cfg.StrictFilePermissions, Warn: func(path string, mode fs.FileMode) {
 		log.WithFields(logrus.Fields{"file": path, "mode": fmt.Sprintf("%04o", mode)}).
-			Warn("The Postgres password file is readable by group or other users")
+			Warn("The Postgres password file is readable or writable by group or other users")
 	}}
 	c := pgstore.Config{URL: pg.URL, User: pg.Username, PasswordFilePolicy: policy}
 	if pg.PasswordFile != "" {

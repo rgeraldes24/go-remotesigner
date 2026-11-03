@@ -65,7 +65,7 @@ sudo install -m 0600 -o remotesigner -g remotesigner key-0.yaml /var/lib/remotes
 | `/var/lib/remotesigner/keys/` | remotesigner, `0700`, files `0600` | one key-config file per key |
 | `/var/lib/remotesigner/keystores/`, `keystores-password.txt` | remotesigner, `0700`, files `0600` | keystores and their password, instead of key-config files or next to them (below) |
 
-A key-config file with a seed, and a password file, that its group or other users can read is refused
+A key-config file with a seed, and a password file, that its group or other users can read or write is refused
 (`--strict-file-permissions`, [`reload.md`](reload.md#secret-files)). Back up `/var/lib/remotesigner`; losing
 `slashing-protection.db` loses the slashing-protection history.
 

@@ -17,11 +17,22 @@ import (
 // own secret files: the sign, admin and metrics token files, read at
 // startup and on SIGHUP, and the TLS private key, PKCS#12 keystore and its
 // password file, and a reused self-signed key. A file that its group or
-// other users can read is refused under the strict policy and logged at
+// other users can read or write, and a directory that they can write and
+// that a missing token file is to be generated in (--data-path for the
+// default token files), are refused under the strict policy and logged at
 // WARN otherwise.
 func ServerFilePolicy(cfg *config.Config, log logrus.FieldLogger) secretfile.Policy {
-	return secretfile.Policy{Strict: cfg.StrictFilePermissions, Warn: func(path string, mode fs.FileMode) {
-		log.WithFields(logrus.Fields{"file": path, "mode": fmt.Sprintf("%04o", mode)}).
-			Warn("A token or TLS key file is readable by its group or other users; restrict it to its owner (chmod 0600)")
-	}}
+	return secretfile.Policy{
+		Strict: cfg.StrictFilePermissions,
+		Warn: func(path string, mode fs.FileMode) {
+			log.WithFields(logrus.Fields{"file": path, "mode": fmt.Sprintf("%04o", mode)}).
+				Warn("A token or TLS key file is readable or writable by its group or other users; restrict it to " +
+					"its owner (chmod 0600)")
+		},
+		WarnDir: func(path string, mode fs.FileMode) {
+			log.WithFields(logrus.Fields{"directory": path, "mode": fmt.Sprintf("%04o", mode)}).
+				Warn("A token file is generated in a directory that its group or other users can write, who could " +
+					"replace it; restrict the directory to its owner (chmod 0700)")
+		},
+	}
 }

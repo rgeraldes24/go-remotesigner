@@ -6,6 +6,7 @@ package secretfile
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -26,55 +27,127 @@ func write(t *testing.T, data string, mode fs.FileMode) string {
 	return p
 }
 
-// A secret file readable by group or others is refused under the strict
-// policy and read with a warning otherwise; owner-only modes pass silently.
+// A secret file that its group or others can read or write is refused
+// under the strict policy and read with a warning otherwise; owner-only
+// modes pass silently. One that they can write but not read is refused
+// too: for a token file, they would choose the credential.
 func TestReadPolicy(t *testing.T) {
 	if !posixModes {
 		t.Skip("file modes carry no POSIX permissions on this platform")
 	}
 	for _, tt := range []struct {
-		mode   fs.FileMode
-		strict bool
-		refuse bool
-		warn   bool
+		mode     fs.FileMode
+		insecure bool
 	}{
-		{0o600, true, false, false},
-		{0o400, true, false, false},
-		{0o700, true, false, false},
-		{0o620, true, false, false}, // group-writable but not readable
-		{0o640, true, true, false},
-		{0o604, true, true, false},
-		{0o644, true, true, false},
-		{0o644, false, false, true},
-		{0o640, false, false, true},
-		{0o600, false, false, false},
+		{0o600, false},
+		{0o400, false},
+		{0o700, false},
+		{0o611, false}, // executable by group and others, which exposes nothing
+		{0o602, true},  // writable by others, not readable
+		{0o620, true},  // writable by the group, not readable
+		{0o622, true},
+		{0o604, true},
+		{0o640, true},
+		{0o644, true},
+		{0o660, true},
+		{0o666, true},
 	} {
-		t.Run(tt.mode.String(), func(t *testing.T) {
-			p := write(t, "hunter2\n", tt.mode)
-			var warned []string
-			pol := Policy{Strict: tt.strict, Warn: func(path string, mode fs.FileMode) {
-				warned = append(warned, path)
-				if mode != tt.mode {
-					t.Errorf("warned with mode %v", mode)
+		for _, strict := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%04o/strict=%v", tt.mode, strict), func(t *testing.T) {
+				p := write(t, "hunter2\n", tt.mode)
+				var warned []string
+				pol := Policy{Strict: strict, Warn: func(path string, mode fs.FileMode) {
+					warned = append(warned, path)
+					if mode != tt.mode {
+						t.Errorf("warned with mode %v", mode)
+					}
+				}, WarnDir: func(path string, _ fs.FileMode) { t.Errorf("WarnDir(%s) for a file", path) }}
+				got, err := Read(p, 64, pol)
+				if tt.insecure && strict {
+					if !errors.Is(err, ErrInsecure) || got != nil {
+						t.Fatalf("Read = %q, %v; want ErrInsecure", got, err)
+					}
+					want := fmt.Sprintf("%s: mode %04o: readable or writable by group or other users", p, tt.mode)
+					if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "--strict-file-permissions=false") {
+						t.Errorf("error %q does not name the file, its mode and the flag", err)
+					}
+					return
 				}
-			}}
-			got, err := Read(p, 64, pol)
-			if tt.refuse {
-				if !errors.Is(err, ErrInsecure) || got != nil {
-					t.Fatalf("Read = %q, %v; want ErrInsecure", got, err)
+				if err != nil || string(got) != "hunter2\n" {
+					t.Fatalf("Read = %q, %v", got, err)
 				}
-				if !strings.Contains(err.Error(), p) || !strings.Contains(err.Error(), "--strict-file-permissions=false") {
-					t.Errorf("error %q does not name the file and the flag", err)
+				if wantWarn := tt.insecure; (len(warned) == 1 && warned[0] == p) != wantWarn || len(warned) > 1 {
+					t.Fatalf("warnings %v, want warn=%v", warned, wantWarn)
 				}
-				return
-			}
-			if err != nil || string(got) != "hunter2\n" {
-				t.Fatalf("Read = %q, %v", got, err)
-			}
-			if (len(warned) == 1) != tt.warn {
-				t.Fatalf("warnings %v, want warn=%v", warned, tt.warn)
-			}
-		})
+			})
+		}
+	}
+}
+
+// A directory that a secret file is to be created in, and that its group
+// or others can write, is refused under the strict policy and passes with
+// a warning otherwise; one they can only read or enter passes silently.
+func TestCheckDir(t *testing.T) {
+	if !posixModes {
+		t.Skip("file modes carry no POSIX permissions on this platform")
+	}
+	for _, tt := range []struct {
+		mode     fs.FileMode
+		insecure bool
+	}{
+		{0o700, false},
+		{0o750, false},
+		{0o755, false},
+		{0o711, false},
+		{0o720, true}, // writable by the group, not readable
+		{0o702, true}, // writable by others, not readable
+		{0o770, true},
+		{0o775, true},
+		{0o777, true},
+		{0o777 | fs.ModeSticky, true}, // others cannot replace the file, but can plant one first
+	} {
+		for _, strict := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%v/strict=%v", tt.mode, strict), func(t *testing.T) {
+				dir := t.TempDir()
+				if err := os.Chmod(dir, tt.mode); err != nil { // not subject to the umask
+					t.Fatal(err)
+				}
+				fi, err := os.Stat(dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var warned []string
+				pol := Policy{Strict: strict, Warn: func(path string, _ fs.FileMode) { t.Errorf("Warn(%s) for a directory", path) },
+					WarnDir: func(path string, mode fs.FileMode) {
+						warned = append(warned, path)
+						if mode != tt.mode.Perm() {
+							t.Errorf("warned with mode %v", mode)
+						}
+					}}
+				err = pol.CheckDir(dir, fi)
+				if tt.insecure && strict {
+					want := fmt.Sprintf("directory %s: mode %04o: writable by group or other users", dir, tt.mode.Perm())
+					if !errors.Is(err, ErrDirInsecure) || !strings.Contains(err.Error(), want) ||
+						!strings.Contains(err.Error(), "--strict-file-permissions=false") {
+						t.Fatalf("CheckDir = %v; want ErrDirInsecure naming the directory, its mode and the flag", err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("CheckDir = %v", err)
+				}
+				if wantWarn := tt.insecure; (len(warned) == 1 && warned[0] == dir) != wantWarn || len(warned) > 1 {
+					t.Fatalf("warnings %v, want warn=%v", warned, wantWarn)
+				}
+			})
+		}
+	}
+	fi, err := os.Stat(write(t, "pw", 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (Policy{Strict: true}).CheckDir("file", fi); err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("a regular file: %v", err)
 	}
 }
 
@@ -96,7 +169,7 @@ func TestReadRefusals(t *testing.T) {
 }
 
 // Where file modes carry no POSIX permissions (Windows), the strict policy
-// refuses only what is not a regular file.
+// refuses only what is not a regular file, and passes every directory.
 func TestCheckWithoutPOSIXModes(t *testing.T) {
 	defer func(v bool) { posixModes = v }(posixModes)
 	posixModes = false
@@ -116,6 +189,17 @@ func TestCheckWithoutPOSIXModes(t *testing.T) {
 	}
 	if err := pol.Check("dir", dir); !errors.Is(err, ErrNotRegular) {
 		t.Fatalf("a directory: %v", err)
+	}
+	open := t.TempDir()
+	if err := os.Chmod(open, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err = os.Stat(open); err != nil {
+		t.Fatal(err)
+	}
+	pol.WarnDir = func(string, fs.FileMode) { warned = true }
+	if err := pol.CheckDir(open, fi); err != nil || warned {
+		t.Fatalf("CheckDir = %v, warned %v", err, warned)
 	}
 }
 

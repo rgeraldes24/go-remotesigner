@@ -52,7 +52,9 @@ type Config struct {
 	// key-config file loaded, in bytes.
 	KeyConfigFileMaxSize int64
 	// StrictFilePermissions is --strict-file-permissions: refuse secret
-	// files readable by group or other users instead of warning.
+	// files readable or writable by group or other users, and directories
+	// writable by them that token files are generated in, instead of
+	// warning.
 	StrictFilePermissions bool
 	// ReloadTimeout is --reload-timeout: how long a POST /reload may load
 	// keys before the sources not loaded yet keep their previous keys.

@@ -59,7 +59,7 @@ type Options struct {
 	RequireClientCert bool
 	// Files is the policy for the secret files (--tls-key-file,
 	// --tls-keystore-file and its password file, and a reused self-signed
-	// key) that their group or other users can read
+	// key) that their group or other users can read or write
 	// (--strict-file-permissions): refused under Strict, warned about
 	// otherwise, at startup and on every Reload.
 	Files secretfile.Policy

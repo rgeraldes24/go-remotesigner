@@ -3,14 +3,18 @@
 
 // Package secretfile reads the files that hold key material in the clear:
 // password files and key-config files with a seed. It checks that such a
-// file is readable by its owner only, reads it into a single buffer of
-// bounded size, and wipes what it read when the read fails.
+// file is readable and writable by its owner only, reads it into a single
+// buffer of bounded size, and wipes what it read when the read fails.
 //
-// A secret file that its group or other users can read is refused under
-// the strict policy (--strict-file-permissions, the default) and loaded
-// with a warning otherwise. On Windows, whose files have no POSIX mode
-// bits (Go reports every file as 0666, or 0444 when it is read-only), that
-// check is not made: access there is governed by the file's ACL.
+// A secret file that its group or other users can read or write is refused
+// under the strict policy (--strict-file-permissions, the default) and
+// loaded with a warning otherwise: one they can read leaks the secret, and
+// one they can write lets them choose it, which for a token file is the
+// credential itself. The same policy applies to a directory that a secret
+// file is about to be created in, when its group or other users can write
+// it. On Windows, whose files have no POSIX mode bits (Go reports every
+// file as 0666, or 0444 when it is read-only), these checks are not made:
+// access there is governed by the file's ACL.
 package secretfile
 
 import (
@@ -27,24 +31,41 @@ import (
 
 // Errors. Callers match them with errors.Is.
 var (
-	// ErrInsecure: the file is readable by its group or by other users.
-	ErrInsecure = errors.New("readable by group or other users; restrict it to its owner (chmod 0600 or 0400) " +
-		"or set --strict-file-permissions=false")
+	// ErrInsecure: the file is readable or writable by its group or by
+	// other users.
+	ErrInsecure = errors.New("readable or writable by group or other users; restrict it to its owner " +
+		"(chmod 0600 or 0400) or set --strict-file-permissions=false")
+	// ErrDirInsecure: the directory a secret file is to be created in is
+	// writable by its group or by other users.
+	ErrDirInsecure = errors.New("writable by group or other users, who could replace the files in it; " +
+		"restrict it to its owner (chmod 0700) or set --strict-file-permissions=false")
 	// ErrNotRegular: the path is not a regular file.
 	ErrNotRegular = errors.New("not a regular file")
 	// ErrTooLarge: the file holds more than the limit.
 	ErrTooLarge = errors.New("file too large")
 )
 
-// Policy is what to do with a secret file that is readable by its group or
-// by other users.
+// Policy is what to do with a secret file that is readable or writable by
+// its group or by other users, and with a directory that a secret file is
+// to be created in and that they can write.
 type Policy struct {
-	// Strict refuses the file with ErrInsecure.
+	// Strict refuses the file with ErrInsecure, and the directory with
+	// ErrDirInsecure.
 	Strict bool
 	// Warn is called with the path and mode of such a file when Strict is
 	// false; nil warns nobody.
 	Warn func(path string, mode fs.FileMode)
+	// WarnDir is called with the path and mode of such a directory when
+	// Strict is false; nil warns nobody.
+	WarnDir func(path string, mode fs.FileMode)
 }
+
+// Modes that the policy refuses: group or other read and write for a
+// secret file, group or other write for the directory it is created in.
+const (
+	insecureFile fs.FileMode = 0o066
+	insecureDir  fs.FileMode = 0o022
+)
 
 // posixModes reports whether file modes carry the owner, group and other
 // permission bits; on Windows they do not.
@@ -52,13 +73,13 @@ var posixModes = runtime.GOOS != "windows"
 
 // Check applies p to the file at path with info fi (which follows
 // symlinks, as os.Stat does): it fails for anything but a regular file,
-// and, where file modes carry POSIX permissions, for a file readable by
-// group or others under the strict policy.
+// and, where file modes carry POSIX permissions, for a file readable or
+// writable by group or others under the strict policy.
 func (p Policy) Check(path string, fi fs.FileInfo) error {
 	if !fi.Mode().IsRegular() {
 		return fmt.Errorf("%s: %w", path, ErrNotRegular)
 	}
-	if !posixModes || fi.Mode().Perm()&0o044 == 0 {
+	if !posixModes || fi.Mode().Perm()&insecureFile == 0 {
 		return nil
 	}
 	if p.Strict {
@@ -66,6 +87,28 @@ func (p Policy) Check(path string, fi fs.FileInfo) error {
 	}
 	if p.Warn != nil {
 		p.Warn(path, fi.Mode().Perm())
+	}
+	return nil
+}
+
+// CheckDir applies p to the directory at path with info fi, in which a
+// secret file is about to be created: it fails for anything but a
+// directory, and, where file modes carry POSIX permissions, for a
+// directory writable by group or others under the strict policy, since
+// they could replace the file once it is written, or plant their own
+// before it is.
+func (p Policy) CheckDir(path string, fi fs.FileInfo) error {
+	if !fi.IsDir() {
+		return fmt.Errorf("directory %s: not a directory", path)
+	}
+	if !posixModes || fi.Mode().Perm()&insecureDir == 0 {
+		return nil
+	}
+	if p.Strict {
+		return fmt.Errorf("directory %s: mode %04o: %w", path, fi.Mode().Perm(), ErrDirInsecure)
+	}
+	if p.WarnDir != nil {
+		p.WarnDir(path, fi.Mode().Perm())
 	}
 	return nil
 }

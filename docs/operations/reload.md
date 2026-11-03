@@ -72,12 +72,16 @@ file. So are the bulk loaders' credential files, `--aws-secrets-secret-access-ke
 `--azure-client-secret-file`, and a `--config-file` that sets one of the deprecated plain credential flags; those are
 read at startup, and one that is refused stops the start (exit 1) rather than failing a load
 ([`aws-secrets-manager.md`](aws-secrets-manager.md#3-the-bulk-loader),
-[`azure-key-vault.md`](azure-key-vault.md#4-the-bulk-loader)). With `--strict-file-permissions` (the default) a secret file that its group or other users can read is
-refused: it fails to load like any other error (section 3), and the log names the file and its mode. With
+[`azure-key-vault.md`](azure-key-vault.md#4-the-bulk-loader)). With `--strict-file-permissions` (the default) a secret
+file that its group or other users can read or write is refused: it fails to load like any other error (section 3),
+and the log names the file and its mode. A file they can write but not read (`0602`, `0620`, `0622`) is refused too,
+because they could replace what it holds; for a token file, that is the credential itself. With
 `--strict-file-permissions=false` it is loaded with a WARN. The mode is checked on the opened file, so the file read
 is the file checked (for a `--config-file`, the mode it had when the signer read it at startup). Keystores themselves are encrypted and are not checked. Keep secret files at `0600` or `0400`
 in `0700` directories. On Windows, whose files have no owner, group and other mode bits, the check is not made
-(only a path that is not a regular file is refused): restrict secret files there with their ACLs.
+(only a path that is not a regular file is refused): restrict secret files there with their ACLs. The token files and
+the TLS private key follow the same rule, and a missing token file is generated only in a directory that its group
+and other users cannot write ([`tls.md`](tls.md#5-rotating-tokens-and-certificates-with-sighup)).
 
 ## 2. The startup load
 

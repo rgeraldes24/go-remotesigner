@@ -66,7 +66,7 @@ func TestStoreCredentialFiles(t *testing.T) {
 		want          string // an error, or "" for a warning only
 	}{
 		{"group-readable, strict", "the-secret\n", 0o640, true, "--aws-secrets-secret-access-key-file: "},
-		{"world-readable, strict", "the-secret\n", 0o604, true, "readable by group or other users"},
+		{"world-readable, strict", "the-secret\n", 0o604, true, "readable or writable by group or other users"},
 		{"group-readable, not strict", "the-secret\n", 0o640, false, ""},
 		{"empty first line", "\nsecret\n", 0o600, true, "the first line is empty"},
 		{"blank first line", "  \r\n", 0o600, true, "the first line is empty"},
@@ -82,7 +82,7 @@ func TestStoreCredentialFiles(t *testing.T) {
 			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want) ||
 				!strings.HasPrefix(err.Error(), "refusing to start: ")):
 				t.Fatalf("error %v, want one mentioning %q", err, tt.want)
-			case tt.want == "" && (err != nil || !strings.Contains(out.String(), "A secret file is readable by its group")):
+			case tt.want == "" && (err != nil || !strings.Contains(out.String(), "A secret file is readable or writable by its group")):
 				t.Fatalf("error %v, log %q: want a warning", err, out)
 			case strings.Contains(out.String(), "the-secret") || (err != nil && strings.Contains(err.Error(), "the-secret")):
 				t.Fatalf("the log or the error carries the secret: %q %v", out, err)
@@ -145,23 +145,23 @@ func TestPlainSecretWarnings(t *testing.T) {
 			unwanted: []string{"process list"}},
 		{name: "owner-only config file", plain: plain(config.FromConfigFile, closed), strict: true,
 			want:     []string{"A deprecated plain secret flag is set", `source="config file"`},
-			unwanted: []string{"process list", "readable by its group"}},
+			unwanted: []string{"process list", "readable or writable by its group"}},
 		{name: "open config file, strict", plain: plain(config.FromConfigFile, open), strict: true,
 			err: "refusing to start: --config-file holds --azure-client-secret, so it is a secret file: " + open +
-				": mode 0644: readable by group or other users"},
+				": mode 0644: readable or writable by group or other users"},
 		{name: "open config file, not strict", plain: plain(config.FromConfigFile, open),
-			want: []string{"A deprecated plain secret flag is set", "A secret file is readable by its group", "file=" + open}},
+			want: []string{"A deprecated plain secret flag is set", "A secret file is readable or writable by its group", "file=" + open}},
 		// The command line or the environment won, but the file holds the
 		// secret all the same.
 		{name: "open config file overridden on the command line, strict", plain: plain(config.FromCommandLine, open),
 			strict: true, err: "refusing to start: --config-file holds --azure-client-secret, so it is a secret file: " +
-				open + ": mode 0644: readable by group or other users"},
+				open + ": mode 0644: readable or writable by group or other users"},
 		{name: "owner-only config file overridden by the environment", plain: plain(config.FromEnvironment, closed),
 			strict: true, want: []string{"A deprecated plain secret flag is set", "source=environment"},
-			unwanted: []string{"process list", "readable by its group"}},
+			unwanted: []string{"process list", "readable or writable by its group"}},
 		{name: "config file open when it was read, strict", plain: readOpen, strict: true,
 			err: "refusing to start: --config-file holds --azure-client-secret, so it is a secret file: " + changed +
-				": mode 0644: readable by group or other users"},
+				": mode 0644: readable or writable by group or other users"},
 		{name: "config file not read", plain: unread,
 			err: "refusing to start: --config-file holds --azure-client-secret, so it is a secret file: " + closed +
 				": no record of the file that was read"},

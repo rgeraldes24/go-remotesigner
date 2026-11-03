@@ -87,7 +87,7 @@ on the same keystore (section 3). The signer budgets 512 MiB per standard-KDF ke
 
   For a printable-ASCII password the three are identical, so a keystore costs one Argon2id run. A non-ASCII password
   that is wrong costs one run per distinct form, up to three.
-- A password file that its group or other users can read is refused, and the keystore it opens fails to load,
+- A password file that its group or other users can read or write is refused, and the keystore it opens fails to load,
   unless `--strict-file-permissions=false` is given, which loads it with a WARN
   ([`reload.md`](reload.md#secret-files)). `keystore verify` applies the same rule. Keep password files readable by
   the signer's user only (`chmod 0400` or `0600`).

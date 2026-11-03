@@ -36,7 +36,7 @@ func TestExecutionTokenFilePermissions(t *testing.T) {
 		global: []string{"--strict-file-permissions=false"}, consensus: downstreamFlags(t, node.Server)})
 	lax.waitReady()
 	lax.stop()
-	if !strings.Contains(lax.output.String(), "A token or TLS key file is readable by its group or other users") {
+	if !strings.Contains(lax.output.String(), "A token or TLS key file is readable or writable by its group or other users") {
 		t.Fatalf("no warning:\n%s", lax.output.String())
 	}
 }

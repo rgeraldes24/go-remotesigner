@@ -82,7 +82,7 @@ func keystoreVerify(c *cli.Context, stdout, stderr io.Writer) error {
 		return usageError(err)
 	}
 	policy := secretfile.Policy{Strict: c.Bool(flags.StrictFilePermissions), Warn: func(path string, mode fs.FileMode) {
-		_, _ = fmt.Fprintf(stderr, "warning: %s: mode %04o: readable by its group or other users\n", path, mode)
+		_, _ = fmt.Fprintf(stderr, "warning: %s: mode %04o: readable or writable by its group or other users\n", path, mode)
 	}}
 	sem, _ := argon.Auto(c.Int(flags.SignerLoadParallelism))
 	var err error

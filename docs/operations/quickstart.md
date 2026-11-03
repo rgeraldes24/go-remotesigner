@@ -37,7 +37,7 @@ privateKey: "0x<96 hex characters>"
   raw ML-DSA secret keys are refused with a message that says which one was found.
 - File names are free. Keys are identified by their public key, never by the file name.
 - Keep the directory readable by the signer's user only (`chmod 700`, files `0600`): the seed is the key. A key file
-  that its group or other users can read is refused unless `--strict-file-permissions=false` is given.
+  that its group or other users can read or write is refused unless `--strict-file-permissions=false` is given.
 
 A file that fails to load is logged at ERROR and counted in the `keys-check/config-files-loading` health check; the
 other files still load. On `POST /reload`, a file that now fails keeps the keys it had.

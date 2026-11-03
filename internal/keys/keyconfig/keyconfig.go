@@ -54,7 +54,7 @@
 // key, an Azure client secret) holds credentials, so both are secret
 // files, as is every keystore password file: the caller's
 // secretfile.Policy decides what happens when its group or other users can
-// read it. Error messages never contain key material or credentials.
+// read or write it. Error messages never contain key material or credentials.
 package keyconfig
 
 import (
