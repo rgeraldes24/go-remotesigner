@@ -55,8 +55,9 @@ type Policy struct {
 	// Warn is called with the path and mode of such a file when Strict is
 	// false; nil warns nobody.
 	Warn func(path string, mode fs.FileMode)
-	// WarnDir is called with the path and mode of such a directory when
-	// Strict is false; nil warns nobody.
+	// WarnDir is called with the path and mode of such a directory (its
+	// permission bits and its setuid, setgid and sticky bits; Octal formats
+	// them) when Strict is false; nil warns nobody.
 	WarnDir func(path string, mode fs.FileMode)
 }
 
@@ -104,13 +105,31 @@ func (p Policy) CheckDir(path string, fi fs.FileInfo) error {
 	if !posixModes || fi.Mode().Perm()&insecureDir == 0 {
 		return nil
 	}
+	mode := fi.Mode() & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)
 	if p.Strict {
-		return fmt.Errorf("directory %s: mode %04o: %w", path, fi.Mode().Perm(), ErrDirInsecure)
+		return fmt.Errorf("directory %s: mode %s: %w", path, Octal(mode), ErrDirInsecure)
 	}
 	if p.WarnDir != nil {
-		p.WarnDir(path, fi.Mode().Perm())
+		p.WarnDir(path, mode)
 	}
 	return nil
+}
+
+// Octal formats mode's permission bits, and its setuid, setgid and sticky
+// bits, as the octal mode that chmod takes: 1777 for /tmp, 2770 for a
+// volume root that a Kubernetes fsGroup was applied to.
+func Octal(mode fs.FileMode) string {
+	m := uint32(mode.Perm())
+	if mode&fs.ModeSetuid != 0 {
+		m |= 0o4000
+	}
+	if mode&fs.ModeSetgid != 0 {
+		m |= 0o2000
+	}
+	if mode&fs.ModeSticky != 0 {
+		m |= 0o1000
+	}
+	return fmt.Sprintf("%04o", m)
 }
 
 // Read checks and reads the secret file at path, which must hold at most

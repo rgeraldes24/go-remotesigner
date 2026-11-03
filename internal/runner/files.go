@@ -30,7 +30,7 @@ func ServerFilePolicy(cfg *config.Config, log logrus.FieldLogger) secretfile.Pol
 					"its owner (chmod 0600)")
 		},
 		WarnDir: func(path string, mode fs.FileMode) {
-			log.WithFields(logrus.Fields{"directory": path, "mode": fmt.Sprintf("%04o", mode)}).
+			log.WithFields(logrus.Fields{"directory": path, "mode": secretfile.Octal(mode)}).
 				Warn("A token file is generated in a directory that its group or other users can write, who could " +
 					"replace it; restrict the directory to its owner (chmod 0700)")
 		},
