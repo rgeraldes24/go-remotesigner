@@ -105,6 +105,8 @@ func TestCheckDir(t *testing.T) {
 		{0o775, true},
 		{0o777, true},
 		{0o777 | fs.ModeSticky, true}, // others cannot replace the file, but can plant one first
+		{0o770 | fs.ModeSetgid, true}, // a volume root that a Kubernetes fsGroup was applied to
+		{0o700 | fs.ModeSetgid, false},
 	} {
 		for _, strict := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%v/strict=%v", tt.mode, strict), func(t *testing.T) {
@@ -116,17 +118,20 @@ func TestCheckDir(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				if got := fi.Mode() &^ fs.ModeDir; got != tt.mode {
+					t.Skipf("the directory has mode %v after chmod %v", got, tt.mode)
+				}
 				var warned []string
 				pol := Policy{Strict: strict, Warn: func(path string, _ fs.FileMode) { t.Errorf("Warn(%s) for a directory", path) },
 					WarnDir: func(path string, mode fs.FileMode) {
 						warned = append(warned, path)
-						if mode != tt.mode.Perm() {
+						if mode != tt.mode {
 							t.Errorf("warned with mode %v", mode)
 						}
 					}}
 				err = pol.CheckDir(dir, fi)
 				if tt.insecure && strict {
-					want := fmt.Sprintf("directory %s: mode %04o: writable by group or other users", dir, tt.mode.Perm())
+					want := fmt.Sprintf("directory %s: mode %s: writable by group or other users", dir, Octal(tt.mode))
 					if !errors.Is(err, ErrDirInsecure) || !strings.Contains(err.Error(), want) ||
 						!strings.Contains(err.Error(), "--strict-file-permissions=false") {
 						t.Fatalf("CheckDir = %v; want ErrDirInsecure naming the directory, its mode and the flag", err)
@@ -148,6 +153,26 @@ func TestCheckDir(t *testing.T) {
 	}
 	if err := (Policy{Strict: true}).CheckDir("file", fi); err == nil || !strings.Contains(err.Error(), "not a directory") {
 		t.Fatalf("a regular file: %v", err)
+	}
+}
+
+// Octal gives a mode as chmod takes it, special bits included, as the
+// refusal of a directory shows it.
+func TestOctal(t *testing.T) {
+	for _, tt := range []struct {
+		mode fs.FileMode
+		want string
+	}{
+		{0o600, "0600"},
+		{0o755 | fs.ModeDir, "0755"},
+		{0o777 | fs.ModeSticky, "1777"},
+		{0o770 | fs.ModeSetgid, "2770"},
+		{0o755 | fs.ModeSetuid, "4755"},
+		{0o777 | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky | fs.ModeDir, "7777"},
+	} {
+		if got := Octal(tt.mode); got != tt.want {
+			t.Errorf("Octal(%v) = %s, want %s", tt.mode, got, tt.want)
+		}
 	}
 }
 
