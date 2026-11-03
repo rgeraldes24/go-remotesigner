@@ -185,8 +185,8 @@ selection proofs and sync-committee messages) still sign. Use it for a key that 
 attestation again, for example one that has moved to another signer.
 
 - With bbolt the signer must be stopped: the store is locked while it runs, and the command says so and changes
-  nothing. With Postgres it runs online: it waits for the key's open block and attestation transactions on every
-  replica, and every replica refuses the key from its next request
+  nothing. With Postgres it runs online: it waits for the key's open block and attestation transactions and RANDAO
+  frontier moves on every replica, and every replica refuses the key from its next request
   ([`postgres.md`](postgres.md#6-store-commands-online)).
 - The key must be registered in the store (loaded at least once); `--slashing-protection-db-url=bolt:///path` names
   another store than `<data-path>/slashing-protection.db`.

@@ -141,9 +141,11 @@ The profile is fixed; a `pool_*` parameter in the URL is refused.
 | Retries | up to 5 runs of a transaction that fails with SQLSTATE 40001 (serialisation failure) or 40P01 (deadlock detected) | |
 
 Advisory locks: `pg_advisory_xact_lock(type, validator_id)` with type 0 for blocks, 1 for attestations and 2 for
-RANDAO frontiers, always taken in that order. Disabling a key takes its block and then its attestation lock;
-import, pruning and the watermark repair take both for each validator they write, validator by validator in the
-order of the SHA-256 of the keys, so no two transactions can wait on each other in a cycle.
+RANDAO frontiers, always taken in that order. Disabling a key takes its block, its attestation and then its RANDAO
+lock; import, pruning, the watermark repair and the keymanager's delete take all three for each validator they
+write, validator by validator in the order of the SHA-256 of the keys, so no two transactions can wait on each other
+in a cycle. A RANDAO frontier move reads the key's enabled flag once it holds the key's RANDAO lock, so a disable
+that commits while a reveal is under way, on any replica, still refuses that reveal's new layer.
 
 A check-and-record is five round trips for an attestation and four for a block (`BEGIN`, the lock and the read of
 the validator's flag and watermarks travel together), so the network's round-trip time adds to its latency four or
@@ -171,7 +173,7 @@ With Postgres the store commands run while the replicas sign, under the same loc
 | `consensus watermark-repair --epoch --slot` | Batches of 64 validators per transaction. |
 | `consensus set-high-watermark` | Waits for every check-and-record that read the old high watermark, so that once it returns no message decided under the old one is still to be recorded. It locks the `metadata` table first, so check-and-records that start meanwhile wait behind it (for `lock_timeout` at most) and steady signing cannot starve it. When a transaction that read the old high watermark runs longer than `lock_timeout` (an import writing a long history, say), it fails with nothing changed: run it again. |
 | `consensus randao-state reset --key` | Online; the next reveal for the key, on any replica, is a first use. |
-| `consensus disable-validator --key` | Waits for the key's open block and attestation transactions on every replica; from the next request every replica refuses the key's blocks, attestations and new RANDAO layers with 412 `VALIDATOR_DISABLED`. A replica's response cache can still answer an exact repeat of a signature it released before, for the cache's lifetime (two epochs): that is the same message again, not a new one. |
+| `consensus disable-validator --key` | Waits for the key's open block and attestation transactions and RANDAO frontier moves on every replica; from the next request every replica refuses the key's blocks, attestations and new RANDAO layers with 412 `VALIDATOR_DISABLED`. A replica's response cache can still answer an exact repeat of a signature it released before, for the cache's lifetime (two epochs): that is the same message again, not a new one. |
 | `consensus migrate` | Section 3. |
 
 ## 7. Running replicas
@@ -182,14 +184,14 @@ With Postgres the store commands run while the replicas sign, under the same loc
   `INSERT … ON CONFLICT DO NOTHING` and never writes an existing key's row. A replica whose reload fails for a key
   (an unreadable password file, say) keeps its previous keys, and the key stays enabled for every replica; only
   `disable-validator`, a failed import of the key, or the keymanager API disables it.
-- **RANDAO.** Every reveal is classified against the key's row, not against anything a replica remembers, and
-  every frontier move re-reads the row under the key's RANDAO lock and compares it before it writes. A request two
-  replicas serve for the same slot is answered by one as a new layer and by the other as a re-reveal of the same
-  layer; a replica that lost the race classifies the request again instead of failing. The loser checks its own
-  new-layer bucket before its compare-and-set, though: when it read the row before the winner committed and its
-  bucket for the key is empty, it answers 412 `RANDAO_NEW_LAYER_RATE_LIMITED` instead (next point). A replica
-  remembers only the next layer it precomputed, for the index it was computed for, and ignores it once the row has
-  moved.
+- **RANDAO.** Every reveal is classified against the key's row, not against anything a replica remembers, and every
+  frontier move re-reads the row and the key's enabled flag under the key's RANDAO lock and compares the row before
+  it writes. A request two replicas serve for the same slot is answered by one as a new layer and by the other as a
+  re-reveal of the same layer; a replica that lost the race classifies the request again instead of failing. The
+  loser checks its own new-layer bucket before its compare-and-set, though: when it read the row before the winner
+  committed and its bucket for the key is empty, it answers 412 `RANDAO_NEW_LAYER_RATE_LIMITED` instead (next
+  point). A replica remembers only the next layer it precomputed, for the index it was computed for, and ignores it
+  once the row has moved.
 - **The new-layer bucket is per replica.** The bucket that bounds frontier moves per key
   (`--randao-new-layer-burst`, `--randao-new-layer-refill-epochs`; [`randao.md`](randao.md#3-sizing-the-bucket))
   lives in each replica's memory, so N replicas allow up to N times the rate when an attacker can reach all of them.
