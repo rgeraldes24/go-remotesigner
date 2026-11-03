@@ -114,8 +114,6 @@ github.com/cpuguy83/go-md2man/v2 v2.0.0/go.mod h1:maD7wRr/U5Z6m/iR4s+kqSMx2CaBsr
 github.com/cpuguy83/go-md2man/v2 v2.0.5 h1:ZtcqGrnekaHpVLArFSe4HK5DoKx1T0rq2DwVB0alcyc=
 github.com/cpuguy83/go-md2man/v2 v2.0.5/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
-github.com/cyyber/go-qrl v0.3.2-0.20260918165407-a9f196d809aa h1:dl4YKrBqLgN7ivwfpmyL78+ToJoGm3WYI5qjAN1wXuQ=
-github.com/cyyber/go-qrl v0.3.2-0.20260918165407-a9f196d809aa/go.mod h1:x8gny9eMptJeZ8QVNt2mun2kRtAr1jyFGEvAyzYWwVM=
 github.com/d4l3k/messagediff v1.2.1 h1:ZcAIMYsUg0EAp9X+tt8/enBE/Q8Yd5kzPynLyKptt9U=
 github.com/d4l3k/messagediff v1.2.1/go.mod h1:Oozbb1TVXFac9FtSIxHBMnBCq2qeH/2KkEQxENCrlLo=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -466,8 +464,8 @@ github.com/prysmaticlabs/gohashtree v0.0.5-beta/go.mod h1:HRuvtXLZ4WkaB1MItToVH2
 github.com/prysmaticlabs/protoc-gen-go-cast v0.0.0-20230228205207-28762a7b9294 h1:q9wE0ZZRdTUAAeyFP/w0SwBEnCqlVy2+on6X2/e+eAU=
 github.com/prysmaticlabs/protoc-gen-go-cast v0.0.0-20230228205207-28762a7b9294/go.mod h1:ZVEbRdnMkGhp/pu35zq4SXxtvUwWK0J1MATtekZpH2Y=
 github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563/go.mod h1:bCqnVzQkZxMG4s8nGwiZ5l3QUCyqpo9Y+/ZMZ9VjZe4=
-github.com/rgeraldes24/qrysm v0.0.0-20261015164126-eefefe9230e1 h1:ldOtka7jlSba0LEM1rBo0pehUpID0pG6OBy3bXcLTLs=
-github.com/rgeraldes24/qrysm v0.0.0-20261015164126-eefefe9230e1/go.mod h1:mJgnVnk+ZqsQRvBZDZaI6P6e8FrqPtZp4kOOiT55N7Q=
+github.com/rgeraldes24/qrysm v0.0.0-20261026180825-d026800cb233 h1:eyHIcjPx/PU355zzNBgKpjCzeVoLqYYLLI2Tx3FT1rs=
+github.com/rgeraldes24/qrysm v0.0.0-20261026180825-d026800cb233/go.mod h1:5No4xujoVI4MFCGMo4wiS236XRN9gs7bVh/l8Fvvq4A=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rivo/uniseg v0.4.4 h1:8TfxU8dW6PdqD27gjM8MVNuicgxIjxpm4K7x4jp8sis=
 github.com/rivo/uniseg v0.4.4/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
@@ -527,8 +525,10 @@ github.com/templexxx/cpufeat v0.0.0-20180724012125-cef66df7f161/go.mod h1:wM7WEv
 github.com/templexxx/xor v0.0.0-20191217153810-f85b25db303b/go.mod h1:5XA7W9S6mni3h5uvOC75dA3m9CCCaS83lltmc0ukdi4=
 github.com/theQRL/go-bitfield v0.0.0-20231204084259-f3b877be8f63 h1:cU1QlEDDZ3zI6uya2Bbz+ldjvy+j6yhTmDtLkipDvz4=
 github.com/theQRL/go-bitfield v0.0.0-20231204084259-f3b877be8f63/go.mod h1:Xm3tb2axH6IT4miFd3hKIeD877Y6aA9Hxf2jOYtfTIk=
-github.com/theQRL/go-qrllib v0.10.0 h1:zsZ33lgyHZI2HXSUvWftn3T8zioryt6AYXQs6V/I+zA=
-github.com/theQRL/go-qrllib v0.10.0/go.mod h1:cJalbgwzfscRXz7gqwPmmeC2wxB/QJh631N1dpihXuI=
+github.com/theQRL/go-qrl v0.0.0-20261020143425-f3864c46b3f9 h1:5VrQ3jFAE3WCYIupyiLUr0P9WnuKdQKuWalHObstcso=
+github.com/theQRL/go-qrl v0.0.0-20261020143425-f3864c46b3f9/go.mod h1:c4FI7fxmIQ4S6uexw0DEkO/+3hQ/BOgo5nQcLiAbwTY=
+github.com/theQRL/go-qrllib v0.11.0 h1:WogcKH+gjQsWGWI8+/EtcIMU24UWPHi6xt4nm+rXNU8=
+github.com/theQRL/go-qrllib v0.11.0/go.mod h1:cJalbgwzfscRXz7gqwPmmeC2wxB/QJh631N1dpihXuI=
 github.com/theQRL/grpc-gateway/v2 v2.0.0-20250214142603-49067762c97f h1:hEgl/ykBvqXdxoQc3mFuh59ju8ylNMVwDyAaiRHdLBY=
 github.com/theQRL/grpc-gateway/v2 v2.0.0-20250214142603-49067762c97f/go.mod h1:IOyTYjcIO0rkmnGBfJTL0NJ11exy/Tc2QEuv7hCXp24=
 github.com/thomaso-mirodin/intmath v0.0.0-20160323211736-5dc6d854e46e h1:cR8/SYRgyQCt5cNCMniB/ZScMkhI9nk8U5C7SbISXjo=

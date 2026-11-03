@@ -22,8 +22,8 @@ stay out of the signer's module. It has four jobs:
 
 ## Pins
 
-`go.mod` pins qrysm to `cyyber/qrysm` `0b9cdf25` (identical to `rgeraldes24/qrysm` main) and repeats qrysm's own
-`replace` directives, because replaces apply only in the main module:
+`go.mod` pins qrysm to `cyyber/qrysm` `0b9cdf25` (an ancestor of `rgeraldes24/qrysm` main, now `a3979a15`) and
+repeats qrysm's own `replace` directives, because replaces apply only in the main module:
 
 | Module | Replaced by | Why |
 |---|---|---|
@@ -133,27 +133,32 @@ go run . -signer http://127.0.0.1:9000 -token-file <data-path>/auth-token -netwo
 The revived keymanager is on no theQRL or cyyber branch yet, and the v1.0 release waits for it: the merge of #60-#62
 and the move of this pin to the merged commit are an open gate of the release checklist
 ([`docs/operations/release.md`](../../docs/operations/release.md#62-open-gates-this-repository-cannot-meet-today)
-section 6.2). The pin is the tip of a stack of three qrysm PRs on `cyyber/qrysm` `0b9cdf25`, the commit the golden
-vectors pin: rgeraldes24/qrysm#60 (branch `remote-signer/q1-randao-slot`, `8fc55fff`), which passes the proposal
-slot to `RandaoRevealer` (the tool's RANDAO check calls `RandaoReveal` with it), then #61
-(`remote-signer/q2-remote-keymanager`, `2e957846`), the revived keymanager, then #62 (`remote-signer/q3-vc-wiring`,
-`eefefe92`), its validator wiring. One module cannot hold two qrysm versions, and moving the golden-vector pin would
-change every fixture's generator record, so `contract/go.mod` pins qrysm on its own:
+section 6.2). The pin is the top of a stack of five qrysm PRs on `cyyber/qrysm` `a3979a15`, which is
+`rgeraldes24/qrysm` main and a descendant of the golden vectors' `0b9cdf25`: rgeraldes24/qrysm#60 (branch
+`remote-signer/q1-randao-slot`, `d5e74d9d`), which passes the proposal slot to `RandaoRevealer` (the tool's RANDAO
+check calls `RandaoReveal` with it), then #61 (`remote-signer/q2-remote-keymanager`, `051a9a43`), the revived
+keymanager, then #62 (`remote-signer/q3-vc-wiring`, `47f6b65e`), its validator wiring, then #68
+(`remote-signer/q5-remote-keys-api`, `d76a6bcd`), the remote keys API, then #69 (`remote-signer/q6-exits-docs`,
+`d026800c`), voluntary exits through the signer. #68 and #69 change the keymanager too (its key file handling and
+its errors for refused exits), so the pin is #69's head rather than #62's. One module cannot hold two qrysm versions,
+and moving the golden-vector pin would change every fixture's generator record, so `contract/go.mod` pins qrysm on
+its own:
 
 | Module | Replaced by | Why |
 |---|---|---|
-| `github.com/theQRL/qrysm` | `github.com/rgeraldes24/qrysm v0.0.0-20261015164126-eefefe9230e1` | The tip of #62: the RANDAO slot (#60) and the revived keymanager (#61) with the validator wiring on top, as the qrysm e2e runs it. A public fork, so CI fetches it through the module proxy |
-| `github.com/theQRL/go-qrl` | `github.com/cyyber/go-qrl v0.3.2-0.20260918165407-a9f196d809aa` | qrysm's own replace |
+| `github.com/theQRL/qrysm` | `github.com/rgeraldes24/qrysm v0.0.0-20261026180825-d026800cb233` | The head of #69, the top of the stack: the RANDAO slot (#60), the revived keymanager (#61), its validator wiring (#62), the remote keys API (#68) and exits (#69). A public fork, so CI fetches it through the module proxy |
 | `github.com/grpc-ecosystem/grpc-gateway/v2` | `github.com/theQRL/grpc-gateway/v2 v2.0.0-20250214142603-49067762c97f` | qrysm's own replace |
 | `github.com/json-iterator/go` | `github.com/prestonvanloon/go v1.1.7-0.20190722034630-4f2e55fcf87b` | qrysm's own replace |
 
-`contract`'s `TestReplacesMirrorQrysm` fails when a replace differs from qrysm's `go.mod` at the pinned commit, and
-the tool checks at start that `testdata/vectors/networks.json` agrees with the pinned qrysm on the selected network's
-fork version and slot timing (`make vectors-contract` runs both networks). It prints the qrysm module it was built
-with.
+qrysm's `go.mod` no longer replaces go-qrl at `a3979a15` and after, so the contract module does not either: it links
+the `theQRL/go-qrl` commit that qrysm requires, while the golden vectors' module keeps `0b9cdf25`'s `cyyber/go-qrl`
+replace. `contract`'s `TestReplacesMirrorQrysm` fails when a replace differs from qrysm's `go.mod` at the pinned
+commit, or when the module has one that qrysm's lacks, and the tool checks at start that
+`testdata/vectors/networks.json` agrees with the pinned qrysm on the selected network's fork version and slot timing
+(`make vectors-contract` runs both networks). It prints the qrysm module it was built with.
 
-To bump the pin, for example to a new tip of #62 or, once #60-#62 merge, to the `theQRL` or `cyyber` commit that
-carries them:
+To bump the pin, for example to a new head of #69 or, once the stack merges, to the `theQRL` or `cyyber` commit that
+carries it:
 
 1. In `tools/vectorgen/contract`, point the replace at the full commit hash; `go mod tidy` rewrites it as a
    pseudo-version:
@@ -165,8 +170,8 @@ carries them:
    ```
 
    The commit must be in a public repository, so that the module proxy, and CI, can fetch it.
-2. Copy qrysm's own `replace` directives from its `go.mod` at that commit; `go test ./...` (`TestReplacesMirrorQrysm`)
-   names any that differ.
+2. Copy qrysm's own `replace` directives from its `go.mod` at that commit, and drop those it no longer has;
+   `go test ./...` (`TestReplacesMirrorQrysm`) names any that differ.
 3. Run `make vectors-test` and `make vectors-contract`. A failure is contract drift between the signer and that qrysm
    commit: fix the side that broke the contract (`docs/contract.md` section 20) rather than the check.
 4. Update the table above and the contract row of `PROVENANCE.md` ("Golden vectors").
