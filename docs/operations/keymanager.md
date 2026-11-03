@@ -168,7 +168,8 @@ is registered there, disabled, and stays: name only keys you mean to delete. A k
 that is not loaded is disabled too, so that a load that brings it in later, from any source, cannot make it sign:
 the startup load still running, a reload of a source that had failed to load, or the key's file put back. Only an
 import of its keystore (section 3), whether the key is loaded by then or not, or a clean offline `consensus import` of
-its history ([`migration.md`](migration.md#2-import-the-history)), enables a key again.
+its history with `--enable-keys` naming the key ([`reload.md`](reload.md#51-enabling-a-key-again)), enables a key
+again: without `--enable-keys` that import writes the history and leaves the key disabled.
 
 `slashing_protection` is an EIP-3076 version 5 interchange of every key the delete disabled that has history: the same
 document `consensus export --keys=<the keys>` writes, from one consistent read after the keys were disabled, so no

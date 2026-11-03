@@ -132,7 +132,9 @@ store of its own version that holds the history signed since:
      restored store included.
    - With `--enable-keys`, a key disabled on purpose in the restored store (keymanager `DELETE`,
      `disable-validator`) stays disabled, and the import says so on stderr (`the key stays disabled`). If such a key
-     was enabled when you stopped, import the file again with the key named in `--enable-keys`.
+     was enabled when you stopped, enable it as [`reload.md`](reload.md#51-enabling-a-key-again) section 5.1 says:
+     import the file again with the key named in `--enable-keys`, or, for a key the export left out because it has
+     no history, use one of the other ways that section gives.
 
    Set the high watermark again (`consensus set-high-watermark`) if there was one. RANDAO frontiers need nothing
    ([`backup.md`](backup.md#4-why-an-old-backup-is-safe-for-randao)).
