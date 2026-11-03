@@ -464,8 +464,8 @@ github.com/prysmaticlabs/gohashtree v0.0.5-beta/go.mod h1:HRuvtXLZ4WkaB1MItToVH2
 github.com/prysmaticlabs/protoc-gen-go-cast v0.0.0-20230228205207-28762a7b9294 h1:q9wE0ZZRdTUAAeyFP/w0SwBEnCqlVy2+on6X2/e+eAU=
 github.com/prysmaticlabs/protoc-gen-go-cast v0.0.0-20230228205207-28762a7b9294/go.mod h1:ZVEbRdnMkGhp/pu35zq4SXxtvUwWK0J1MATtekZpH2Y=
 github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563/go.mod h1:bCqnVzQkZxMG4s8nGwiZ5l3QUCyqpo9Y+/ZMZ9VjZe4=
-github.com/rgeraldes24/qrysm v0.0.0-20261026180825-d026800cb233 h1:eyHIcjPx/PU355zzNBgKpjCzeVoLqYYLLI2Tx3FT1rs=
-github.com/rgeraldes24/qrysm v0.0.0-20261026180825-d026800cb233/go.mod h1:5No4xujoVI4MFCGMo4wiS236XRN9gs7bVh/l8Fvvq4A=
+github.com/rgeraldes24/qrysm v0.0.0-20261026105706-47f6b65e6c58 h1:TSrLwNkKfqtzSSHj3CmiNWWC1kkkT+p4ND2lC+vjcQQ=
+github.com/rgeraldes24/qrysm v0.0.0-20261026105706-47f6b65e6c58/go.mod h1:5No4xujoVI4MFCGMo4wiS236XRN9gs7bVh/l8Fvvq4A=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rivo/uniseg v0.4.4 h1:8TfxU8dW6PdqD27gjM8MVNuicgxIjxpm4K7x4jp8sis=
 github.com/rivo/uniseg v0.4.4/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
