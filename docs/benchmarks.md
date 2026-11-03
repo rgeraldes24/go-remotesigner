@@ -38,7 +38,7 @@ where the tests keep their stores, took 3.0 ms on average.
 
 | ID | Threshold | Run Y | Load average | Verdict (dev machine) |
 |---|---|---|---|---|
-| B7 | last ≤ 1 s, p99 ≤ 500 ms, 0 errors | 11 runs: last 467-941 ms, p50 25-418 ms, p99 463-937 ms, 0 errors; p99 over 500 ms in 8 of 11 | 1.6-2.4 | not met (3 of 11); the last response came within 1 s in every run |
+| B7 | last ≤ 1 s, p99 ≤ 500 ms, 0 errors | 11 runs: last 467-941 ms, p50 25-418 ms, p99 463-937 ms, 0 errors; p99 over 500 ms in 8 of 11 | 1.6-2.4 | met in 3 of 11; the last response came within 1 s in every run |
 | B8 | each ≤ 250 ms; RSS + ≤ 128 MiB | 11 runs: slowest 29.1-32.3 ms, and 72.1 ms in one run; RSS +28-38 MiB | 1.8-2.2 | met |
 | B9 | reveal p99 ≤ 0.5 s; unknown ≤ 0.6 s, cached on retry; signing p99 ≤ 500 ms alongside | 11 runs: 4 first reveals p99 227-389 ms; unknown 53-101 ms, retry 0.20-0.31 ms; signing p99 alongside 201-391 ms | 1.9-2.3 | met |
 | B12 | B7 p99 during the reload ≤ 2 × without | 3 runs: B7 p99 159-191 ms without a reload, 236-390 ms during a reload of 100 standard-KDF keystores (1.43 ×, 2.01 × and 2.45 ×); the reload took 38-42 s at 2.60-2.82 s per decrypt | 2.4-14 | met in 1 of 3; the burst always met B7's own bound (p99 ≤ 500 ms) |
