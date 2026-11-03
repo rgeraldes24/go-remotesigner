@@ -18,9 +18,10 @@ import (
 // viewPage is how many validators one query of HistoryView.Validators reads.
 const viewPage = 256
 
-// UpdateHistory runs fn once for each of ids, in order, in one transaction. It first takes the block and then the
-// attestation lock of every validator, validator by validator in KeyID order, and holds them to the commit. A
-// retried transaction runs fn again for every id.
+// UpdateHistory runs fn once for each of ids, in order, in one transaction. It first takes the block, the attestation
+// and then the RANDAO lock of every validator, validator by validator in KeyID order, and holds them to the commit:
+// the RANDAO lock makes a disable that fn writes (historyTx.SetEnabled, DisableForImport) one that a frontier commit
+// waits for. A retried transaction runs fn again for every id.
 func (s *Store) UpdateHistory(ctx context.Context, ids []slashing.KeyID, fn func(slashing.KeyID, slashing.HistoryTx) error) error {
 	sorted := slices.Clone(ids)
 	slices.SortFunc(sorted, func(a, b slashing.KeyID) int { return bytes.Compare(a[:], b[:]) })
@@ -50,7 +51,7 @@ func (s *Store) UpdateHistory(ctx context.Context, ids []slashing.KeyID, fn func
 			return slashing.ErrValidatorNotRegistered
 		}
 		for _, id := range sorted {
-			for _, typ := range []int{lockBlock, lockAttestation} {
+			for _, typ := range []int{lockBlock, lockAttestation, lockRandao} {
 				if err := lock(ctx, tx, vids[id], typ); err != nil {
 					return err
 				}
