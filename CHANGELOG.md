@@ -94,7 +94,7 @@ Web3Signer are rows X25, X26, X28, X76-X106, X116, X118 and X119 of [`DEVIATIONS
 The first release: a remote signer for the ML-DSA-87 validator keys of qrysm validator clients on Testnet V3, ported
 from Consensys Web3Signer and, like it, licensed under the Apache License 2.0 ([`LICENSE`](LICENSE),
 [`NOTICE`](NOTICE)). Every behaviour that differs from Web3Signer is listed in [`DEVIATIONS.md`](DEVIATIONS.md)
-(rows X1-X75 and X107-X115); the ones about execution mode (X25, X26, X28) describe what 1.1.0 adds. The
+(rows X1-X75, X107-X115 and X120); the ones about execution mode (X25, X26, X28) describe what 1.1.0 adds. The
 validator client needs qrysm's remote-signer keymanager, and
 [`docs/operations/requirements.md`](docs/operations/requirements.md#5-a-qrysm-validator-client-with-the-remote-signer-keymanager)
 section 5 names the qrysm build that has it.
@@ -130,26 +130,32 @@ section 5 names the qrysm build that has it.
   With bbolt they run on a stopped signer, with Postgres online. The
   history is pruned every `--slashing-protection-pruning-interval` (512 epochs kept by default): with bbolt also at
   startup; with Postgres, paced so that a run takes at most half of the database's time.
-- **RANDAO reveals.** `POST /api/v1/consensus/randao_reveal/{identifier}` releases hash-onion layers under the frontier
-  rule: a two-sided slot window, a per-key new-layer token bucket, a rate-limited slow-path scan and persistent state
-  per key, which an admin can reset online (`DELETE /api/v1/consensus/randao_state/{identifier}`) or offline
-  (`consensus randao-state reset`). Replicas on one Postgres database serve a slot's reveal consistently.
+- **RANDAO reveals.** `POST /api/v1/consensus/randao_reveal/{identifier}` releases hash-onion layers under the
+  frontier rule: a two-sided slot window, a per-key new-layer token bucket, a rate-limited slow-path scan and
+  persistent state per key, which an admin can reset online (`DELETE /api/v1/consensus/randao_state/{identifier}`) or
+  offline (`consensus randao-state reset`). Replicas on one Postgres database serve a slot's reveal consistently. A
+  reveal that races a disable of its key (keymanager `DELETE`, `consensus disable-validator`, an import that fails for
+  the key) releases no new layer: the transaction that moves the frontier checks again that the key is enabled, on
+  Postgres waiting for a disable under way on any replica, and the reveal gets 412 `VALIDATOR_DISABLED`.
 - **Key sources.** `file-raw` key-config files with 48-byte seeds, `file-keystore` key-config files, and keystore
   directories (`--keystores-path` with `--keystores-password-file` or `--keystores-passwords-path`), for qrysm's
   keystore v1 and the deposit CLI's keystores. Keystores are opened by a hardened decryptor that bounds the KDF
-  parameters before any work, compares the derived key with the declared one, and runs Argon2id under one
-  memory-sized semaphore (`--signer-load-parallelism`). Password and seed files that other users can read are
-  refused (`--strict-file-permissions`), as are token files and TLS private keys. `consensus keystore verify` checks
-  keystores and password files offline.
+  parameters before any work, compares the derived key with the declared one, and runs Argon2id under one memory-sized
+  semaphore (`--signer-load-parallelism`). Password and seed files that other users can read or write are refused
+  (`--strict-file-permissions`), as are token files and TLS private keys. `consensus keystore verify` checks keystores
+  and password files offline.
 - **Reload.** `POST /reload` loads only the sources that changed, never disables a key, keeps the previous keys of a
   source that fails, and is bounded by `--reload-timeout`. The startup load, which runs while the API already
   listens, is not bounded. `GET /reload` reports the status of either.
 - **Keymanager API.** With `--key-manager-api-enabled`, `GET`, `POST` and `DELETE /qrl/v1/keystores` list, import
   (with their slashing-protection history) and delete keys while the signer runs, behind the admin token.
 - **Authentication and TLS.** Bearer tokens for a `sign` and an `admin` scope, generated on first start and rotated
-  with `SIGHUP`; TLS 1.3 on the API listener from PEM files, a PKCS#12 keystore or a certificate generated on first
-  start (`--tls-generate-self-signed`), its fingerprint logged for pinning; client certificates in
-  `--http-auth-mode=mtls` and `token+mtls`, trusted by fingerprint or by a client CA, never by the system roots.
+  with `SIGHUP`, but never generated in a directory that other users can write (a Kubernetes volume that the pod's
+  `fsGroup` makes group-writable takes `--data-path=/data/signer`,
+  [`docs/operations/deploy-docker.md`](docs/operations/deploy-docker.md#9-orchestrators)); TLS 1.3 on the API listener
+  from PEM files, a PKCS#12 keystore or a certificate generated on first start (`--tls-generate-self-signed`), its
+  fingerprint logged for pinning; client certificates in `--http-auth-mode=mtls` and `token+mtls`, trusted by
+  fingerprint or by a client CA, never by the system roots.
 - **Request guards.** Host allowlist, refusal of any `Origin` header, `Content-Type` checks, per-route body limits,
   timeouts, a connection cap that a request refused for its credential, `Host` or `Origin` frees at once by closing
   its connection, a signing gate that admits 32 sign requests at once, queues 512 more and answers the
