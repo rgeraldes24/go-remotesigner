@@ -146,13 +146,12 @@ and the round-trip check `vectorgen interchange-check`.
   YAMLs carry the class `new` header.
 - **Contract mode.** `tools/vectorgen/contract` is a second nested module of the same kind: class `new` sources, a
   GPL-3.0 combined work when built, never shipped, never imported by the signer module. It links qrysm at
-  `rgeraldes24/qrysm` `d026800cb2337ac1c7564968730e0587f5bc1161` (2026-10-26, the top of a stack of five PRs on
-  `cyyber/qrysm` `a3979a15`: rgeraldes24/qrysm#60 `remote-signer/q1-randao-slot` `d5e74d9d`, which passes the proposal
-  slot to `RandaoRevealer`; #61 `remote-signer/q2-remote-keymanager` `051a9a43`, the revived `remote-web3signer`
-  keymanager; #62 `remote-signer/q3-vc-wiring` `47f6b65e`, its validator wiring; #68
-  `remote-signer/q5-remote-keys-api` `d76a6bcd`, the remote keys API; and #69 `remote-signer/q6-exits-docs`, voluntary
-  exits through the signer), because one module cannot hold the golden vectors' qrysm and this one. It writes no
-  files: it drives a running signer with qrysm's keymanager and checks the answers with qrysm's verifiers.
+  `rgeraldes24/qrysm` `47f6b65e6c58bb8c268d3dfd94aca8cbd1718bcc` (2026-10-26, the head of the last of a stack of three
+  PRs on `cyyber/qrysm` `a3979a15`: rgeraldes24/qrysm#60 `remote-signer/q1-randao-slot` `d5e74d9d`, which passes the
+  proposal slot to `RandaoRevealer`; #61 `remote-signer/q2-remote-keymanager` `051a9a43`, the revived
+  `remote-web3signer` keymanager; and #62 `remote-signer/q3-vc-wiring`, its validator wiring), because one module
+  cannot hold the golden vectors' qrysm and this one. It writes no files: it drives a running signer with qrysm's
+  keymanager and checks the answers with qrysm's verifiers.
   `test/acceptance` builds and runs it in a temporary directory (`make vectors-contract`); its DTO-rename test
   copies the qrysm packages the tool links into a temporary directory and renames two JSON field names in the
   copy, so no qrysm file ever enters the repository. `tools/vectorgen/README.md` records the pin and how to bump it.
