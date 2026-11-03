@@ -38,10 +38,9 @@ conditions**, in this order:
 5. The validator is enabled in slashing protection, else 412 `VALIDATOR_DISABLED`.
 
 The new frontier is then committed (bbolt fsyncs) and only then is the layer returned. The store checks condition 5
-again inside that commit, under the key's RANDAO lock, which every disable (a keymanager `DELETE`,
-`consensus disable-validator`, an import that fails for the key) takes as well: a key disabled while its reveal is
-under way gets 412 `VALIDATOR_DISABLED`, not the layer. A response lost after the commit is harmless: the retry is a
-`re_reveal` of the same layer.
+again inside that commit, serialised with every disable (a keymanager `DELETE`, `consensus disable-validator`, an
+import that fails for the key): a key disabled while its reveal is under way gets 412 `VALIDATOR_DISABLED`, not the
+layer. A response lost after the commit is harmless: the retry is a `re_reveal` of the same layer.
 
 **Why the window has two sides.** With only `slot > last`, a key whose last proposal was long ago could be walked by
 asking for `last+1, last+2, …, now`. The lower edge allows at most `skew + 2` frontier moves in one real slot (3 with

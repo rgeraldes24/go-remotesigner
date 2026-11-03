@@ -460,9 +460,10 @@ assumes the commitment is current; it bounds what a caller can extract per key a
 5. The validator is enabled. Else 412 `VALIDATOR_DISABLED`.
 
 Then compare-and-set `(m, R, last) → (j-1, x_{j-1}, slot)`, commit (bbolt fsync or Postgres `COMMIT`), take the
-token, and only then respond. Condition 5 is checked again inside the compare-and-set, under the key's RANDAO lock,
-which every disable takes as well (lock order block, attestation, RANDAO), so a key disabled after the first check
-gets 412 `VALIDATOR_DISABLED` and its frontier does not move.
+token, and only then respond. Condition 5 is checked again inside the compare-and-set, serialised with every disable
+(bbolt: under the key's RANDAO lock, which a disable takes as well, in the order block, attestation, RANDAO;
+Postgres: the key's `validators` row is read `FOR SHARE`, which the row update of a disable waits for and which waits
+for one), so a key disabled after the first check gets 412 `VALIDATOR_DISABLED` and its frontier does not move.
 
 | Request commitment `c = x_j` | Class (metric `result`) | Action | State write |
 |---|---|---|---|
