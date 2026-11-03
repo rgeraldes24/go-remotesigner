@@ -94,9 +94,13 @@ license-hash:
 	@echo "$(LICENSE_SHA256)  LICENSE" | shasum -a 256 -c -
 	@echo "$(LICENSE_SHA256)  LICENSES/Apache-2.0.txt" | shasum -a 256 -c -
 
+## go-licenses tells the standard library's packages apart by the GOROOT it was built with, so a go-licenses built
+## with an older Go than go.mod's toolchain line reports every standard package as having no module info. GOROOT is
+## set to the toolchain the module selects, as tools/releasedocs sets it for release-docs.
+LICENSES_ENV   := GOROOT="$$($(GO) env GOROOT)"
 licenses:
-	$(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES)
-	GOFLAGS=-tags=noexecution $(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES)
+	$(LICENSES_ENV) $(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES)
+	$(LICENSES_ENV) GOFLAGS=-tags=noexecution $(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES)
 
 vuln:
 	$(GOVULNCHECK) ./...
