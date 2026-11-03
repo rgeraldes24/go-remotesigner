@@ -124,9 +124,17 @@ store of its own version that holds the history signed since:
    or your own; for Postgres the server's backup.
 4. With the **old** release, import the file: `consensus import --from=<file>`. The import only adds records and
    raises watermarks, so the restored store again refuses everything the new release signed.
-5. Redo what the file does not carry. The import enables every key whose history it imports cleanly, so disable
-   again, with `consensus disable-validator`, every key that was disabled when you stopped; and set the high
-   watermark again (`consensus set-high-watermark`) if there was one. RANDAO frontiers need nothing
+5. Redo what the file does not carry. Disable again, with `consensus disable-validator`, every key that was disabled
+   when you stopped: the restored store does not know the disables made after it was taken, and an import does not
+   restore them. What the older release's import does with a key that the restored store holds disabled depends on
+   whether its `consensus import --help` lists `--enable-keys`:
+   - Without `--enable-keys`, the import enables every key whose history it imports cleanly, those disabled in the
+     restored store included.
+   - With `--enable-keys`, a key disabled on purpose in the restored store (keymanager `DELETE`,
+     `disable-validator`) stays disabled, and the import says so on stderr (`the key stays disabled`). If such a key
+     was enabled when you stopped, import the file again with the key named in `--enable-keys`.
+
+   Set the high watermark again (`consensus set-high-watermark`) if there was one. RANDAO frontiers need nothing
    ([`backup.md`](backup.md#4-why-an-old-backup-is-safe-for-randao)).
 6. Start the older release.
 
