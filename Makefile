@@ -165,8 +165,11 @@ license-hash:
 ## Both checks read the dependencies that ship: the binaries are built with CGO_ENABLED=0, which links
 ## github.com/decred/dcrd/dcrec/secp256k1 where a cgo build links go-qrl's own crypto/secp256k1, and the release
 ## documents are made for linux/amd64 (tools/releasedocs).
+## go-licenses tells the standard library's packages apart by the GOROOT it was built with, so a go-licenses built
+## with an older Go than go.mod's toolchain line reports every standard package as having no module info. GOROOT is
+## set to the toolchain the module selects, as tools/releasedocs sets it for release-docs.
 GO_QRL_LIBRARY := github.com/theQRL/go-qrl/
-LICENSES_ENV   := CGO_ENABLED=0 GOOS=linux GOARCH=amd64
+LICENSES_ENV   := CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOROOT="$$($(GO) env GOROOT)"
 licenses:
 	$(LICENSES_ENV) $(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES) --ignore $(GO_QRL_LIBRARY)
 	$(LICENSES_ENV) GOFLAGS=-tags=noexecution $(GO_LICENSES) check ./... --allowed_licenses=$(ALLOWED_LICENSES)
