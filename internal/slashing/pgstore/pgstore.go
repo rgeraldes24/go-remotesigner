@@ -25,9 +25,11 @@
 // Every check-and-record runs in one READ COMMITTED transaction under pg_advisory_xact_lock(type, validator id), the
 // type being 0 for blocks, 1 for attestations and 2 for RANDAO frontiers. A transaction that takes several locks
 // takes them in that order, and one that covers several validators (UpdateHistory: the interchange import, pruning,
-// the watermark repair) takes them validator by validator in KeyID order, so no two transactions wait on each other
-// in a cycle. Disabling a validator takes its block and then its attestation lock. A transaction that fails with
-// SQLSTATE 40001 (serialisation failure) or 40P01 (deadlock detected) is rolled back and run again.
+// the watermark repair, the keymanager's delete) takes all three validator by validator in KeyID order, so no two
+// transactions wait on each other in a cycle. Disabling a validator takes its block, then its attestation, then its
+// RANDAO lock, and a RANDAO frontier commit reads the enabled flag once it holds the RANDAO lock, so a disable is
+// serialised with signing and with RANDAO reveals alike. A transaction that fails with SQLSTATE 40001 (serialisation
+// failure) or 40P01 (deadlock detected) is rolled back and run again.
 //
 // Each call is bounded as a whole, acquiring a connection and any retry included, by Config.Timeout (4.5 s by
 // default), and every session runs with lock_timeout 2 s, statement_timeout 5 s and
@@ -517,7 +519,8 @@ func wrap(op string, err error) error {
 		return fmt.Errorf("%w (%s)", slashing.ErrWatermarkConflict, pe.Message)
 	case errors.Is(err, slashing.ErrValidatorNotRegistered), errors.Is(err, slashing.ErrWatermarkConflict),
 		errors.Is(err, slashing.ErrNoGenesisValidatorsRoot), errors.Is(err, slashing.ErrInvalidPublicKey),
-		errors.Is(err, slashing.ErrDuplicateRecord), errors.Is(err, ErrOutOfRange), errors.Is(err, ErrClosed):
+		errors.Is(err, slashing.ErrDuplicateRecord), errors.Is(err, slashing.ErrValidatorDisabled),
+		errors.Is(err, ErrOutOfRange), errors.Is(err, ErrClosed):
 		return err
 	}
 	return fmt.Errorf("pgstore: %s: %w", op, err)

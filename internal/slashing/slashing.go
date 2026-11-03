@@ -123,6 +123,9 @@ var (
 	ErrInvalidPublicKey = errors.New("slashing: public key must be 2592 bytes")
 	// ErrValidatorNotRegistered: the key was never registered.
 	ErrValidatorNotRegistered = errors.New("slashing: validator is not registered")
+	// ErrValidatorDisabled: the key is disabled, so its RANDAO frontier must not move. CompareAndSwapRandaoState
+	// returns it from inside the commit; the reveal service answers it with 412 VALIDATOR_DISABLED.
+	ErrValidatorDisabled = errors.New("slashing: validator is disabled")
 	// ErrDuplicateRecord: a block is already recorded at the slot, or an attestation at the target epoch.
 	ErrDuplicateRecord = errors.New("slashing: a record already exists at this slot or target epoch")
 	// ErrWatermarkConflict: a low watermark would exceed the high watermark, or a high watermark would not exceed

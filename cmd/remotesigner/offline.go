@@ -164,7 +164,8 @@ func disableValidatorCommand(stdout io.Writer) *cli.Command {
 }
 
 // disableValidator persists enabled=false for a registered key. It reports whether the key was already disabled.
-// With Postgres the write waits for the key's open block and attestation transactions in every replica.
+// With Postgres the write waits for the key's open block and attestation transactions and RANDAO frontier moves in
+// every replica.
 func disableValidator(ctx context.Context, target storeTarget, id slashing.KeyID) (bool, error) {
 	s, err := target.open(ctx, nil, ", then run consensus disable-validator again")
 	if err != nil {

@@ -23,7 +23,8 @@ var ErrClosed = errors.New("memstore: store is closed")
 // Store is an in-memory slashing.Store, safe for concurrent use.
 //
 // Lock order: Store.mu, then validator.mu. Every per-validator operation holds Store.mu for reading for its whole
-// duration, so SetHighWatermark, which holds it for writing, sees every low watermark at rest.
+// duration, so SetHighWatermark, which holds it for writing, sees every low watermark at rest. validator.mu stands for
+// all three of the validator's locks (block, attestation, RANDAO): every disable and every frontier commit hold it.
 type Store struct {
 	mu         sync.RWMutex
 	closed     bool
@@ -190,7 +191,8 @@ func (s *Store) UpdateAttestations(ctx context.Context, id slashing.KeyID, fn fu
 }
 
 // UpdateHistory runs fn for each of ids with one undo journal, so that an error undoes every validator's writes.
-// It holds the mutex of each distinct validator, taken in KeyID order.
+// It holds the mutex of each distinct validator, taken in KeyID order, so a frontier commit waits for a disable it
+// writes.
 func (s *Store) UpdateHistory(ctx context.Context, ids []slashing.KeyID, fn func(slashing.KeyID, slashing.HistoryTx) error) error {
 	if err := s.read(ctx); err != nil {
 		return err
@@ -243,10 +245,15 @@ func (s *Store) RandaoState(ctx context.Context, id slashing.KeyID) (slashing.Ra
 	return st, ok, err
 }
 
-// CompareAndSwapRandaoState stores next if the stored frontier equals old (nil: none stored).
+// CompareAndSwapRandaoState stores next if the validator is enabled and the stored frontier equals old (nil: none
+// stored). It reads the enabled flag under the validator's mutex, which every disable holds, and returns
+// slashing.ErrValidatorDisabled for a disabled validator.
 func (s *Store) CompareAndSwapRandaoState(ctx context.Context, id slashing.KeyID, old *slashing.RandaoState, next slashing.RandaoState) (bool, error) {
 	var swapped bool
 	err := s.withValidator(ctx, id, func(v *validator) error {
+		if !v.enabled {
+			return slashing.ErrValidatorDisabled
+		}
 		if (old == nil) != (v.randao == nil) || (old != nil && *old != *v.randao) {
 			return nil
 		}

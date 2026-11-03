@@ -14,7 +14,7 @@ import (
 )
 
 // UpdateHistory runs fn for each of ids in one bbolt transaction, so a batch of validators costs one fsync. It
-// holds the block and attestation locks of every validator in ids, in KeyID order.
+// holds the block, attestation and RANDAO locks of every validator in ids, in KeyID order.
 func (s *Store) UpdateHistory(ctx context.Context, ids []slashing.KeyID, fn func(slashing.KeyID, slashing.HistoryTx) error) error {
 	unlock := s.lockHistories(ids)
 	defer unlock()
@@ -36,8 +36,9 @@ func (s *Store) UpdateHistory(ctx context.Context, ids []slashing.KeyID, fn func
 	})
 }
 
-// lockHistories takes the block and attestation locks of each distinct validator in ids, in KeyID order, and
-// returns the function that releases them.
+// lockHistories takes the block, attestation and RANDAO locks of each distinct validator in ids, in KeyID order and
+// for each in that order, and returns the function that releases them. The RANDAO lock makes a disable that the
+// transaction writes (HistoryTx.SetEnabled, DisableForImport) one that a frontier commit waits for.
 func (s *Store) lockHistories(ids []slashing.KeyID) func() {
 	sorted := slices.Clone(ids)
 	slices.SortFunc(sorted, func(a, b slashing.KeyID) int { return bytes.Compare(a[:], b[:]) })
@@ -47,9 +48,11 @@ func (s *Store) lockHistories(ids []slashing.KeyID) func() {
 		locks[i] = s.lockFor(id)
 		locks[i].block.Lock()
 		locks[i].attestation.Lock()
+		locks[i].randao.Lock()
 	}
 	return func() {
 		for _, l := range slices.Backward(locks) {
+			l.randao.Unlock()
 			l.attestation.Unlock()
 			l.block.Unlock()
 		}
