@@ -5,8 +5,10 @@ package repo
 
 import (
 	"cmp"
+	"errors"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -180,9 +182,10 @@ func firstLine(s string) string {
 // builds the consensus flavour's image from the commit under test with
 // qrl-tests' script, the qrysm images from the qrysm ref a repository
 // variable names, starts the devnet from the qrl-package ref another names
-// and runs the lane from the qrl-tests ref a third names. It says so, and
-// does nothing else, while any of the three is unset, and keeps the lane's
-// reports and the devnet's service logs of a failed run.
+// and runs the lane from the qrl-tests ref a third names. While any of the
+// three is unset, its first step fails a scheduled run and makes a manual
+// run skip the rest (TestNightlyLaneRefsStep); it keeps the lane's reports
+// and the devnet's service logs of a failed run.
 func TestNightlyRemoteSignerLane(t *testing.T) {
 	w := readWorkflow(t, "nightly.yml")
 	if _, ok := w.Jobs["qrysm-e2e"]; ok {
@@ -206,7 +209,8 @@ func TestNightlyRemoteSignerLane(t *testing.T) {
 	for i, s := range job.Steps {
 		if i == 0 {
 			notice = s.ID == "refs" && s.If == "" && strings.Contains(s.Run, "::notice") &&
-				strings.Contains(s.Run, "run=false") && strings.Contains(s.Run, "run=true") &&
+				strings.Contains(s.Run, "::error") && strings.Contains(s.Run, "run=false") &&
+				strings.Contains(s.Run, "run=true") &&
 				!slices.ContainsFunc(slices.Collect(maps.Keys(refs)), func(v string) bool { return !strings.Contains(s.Run, v) })
 			continue
 		}
@@ -233,8 +237,9 @@ func TestNightlyRemoteSignerLane(t *testing.T) {
 			network = s.WorkingDirectory == "qrl-tests" && strings.Contains(s.Run, "--profile remote-signer") &&
 				strings.Contains(s.Run, "../qrl-package")
 		case strings.TrimSpace(s.Run) == "make e2e":
+			// release.md's seven nights name this step: a night counts only when it ran and passed.
 			lane = s.WorkingDirectory == "qrl-tests" && s.Env["E2E_LANE"] == "consensus-remote-signer" &&
-				s.Env["E2E_SOURCE_REMOTESIGNER"] == "${{ github.sha }}"
+				s.Env["E2E_SOURCE_REMOTESIGNER"] == "${{ github.sha }}" && s.Name == "Run the consensus-remote-signer lane"
 		case strings.HasPrefix(s.Uses, "actions/upload-artifact@") && strings.Contains(s.If, "failure()"):
 			path, _ := s.With["path"].(string)
 			upload = strings.Contains(path, "qrl-tests/reports/") && strings.Contains(path, "e2e-out")
@@ -251,6 +256,80 @@ func TestNightlyRemoteSignerLane(t *testing.T) {
 	if !notice || !signer || !signerImage || !qrysmImages || !network || !lane || !upload {
 		t.Errorf("remote-signer-lane: notice %v, signer checkout %v, signer image %v, qrysm images %v, network %v, "+
 			"lane %v, failure artefacts %v", notice, signer, signerImage, qrysmImages, network, lane, upload)
+	}
+}
+
+// The lane job's first step runs the lane only when all three refs are set.
+// While any is unset, a scheduled run fails with an error naming the missing
+// ones, so that a night without the lane never shows green in the runs the
+// release checklist's seven nights are read from (docs/operations/release.md
+// section 6.2), and a manual run posts a notice and skips the lane. The step
+// runs here as GitHub runs a step with no shell, bash -e.
+func TestNightlyLaneRefsStep(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not installed")
+	}
+	job, ok := readWorkflow(t, "nightly.yml").Jobs["remote-signer-lane"]
+	if !ok || len(job.Steps) == 0 || job.Steps[0].ID != "refs" {
+		t.Fatal("remote-signer-lane does not start with the refs step")
+	}
+	script := filepath.Join(t.TempDir(), "refs.sh")
+	if err := os.WriteFile(script, []byte(job.Steps[0].Run), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	all := []string{"E2E_QRL_TESTS_REF", "E2E_QRL_PACKAGE_REF", "E2E_QRYSM_REF"}
+	for _, tt := range []struct {
+		event   string
+		unset   []string
+		fails   bool
+		message string // the annotation the step prints, "" for none
+		output  string // what it writes to GITHUB_OUTPUT
+	}{
+		{"schedule", nil, false, "", "run=true\n"},
+		{"workflow_dispatch", nil, false, "", "run=true\n"},
+		{"schedule", all, true, "::error title=qrl-tests lane not configured::The repository variables " +
+			"E2E_QRL_TESTS_REF, E2E_QRL_PACKAGE_REF, E2E_QRYSM_REF are not set", ""},
+		{"schedule", []string{"E2E_QRYSM_REF"}, true,
+			"::error title=qrl-tests lane not configured::The repository variables E2E_QRYSM_REF are not set", ""},
+		{"workflow_dispatch", []string{"E2E_QRL_PACKAGE_REF"}, false,
+			"::notice title=qrl-tests lane skipped::The repository variables E2E_QRL_PACKAGE_REF are not set",
+			"run=false\n"},
+	} {
+		name := tt.event + " without " + cmp.Or(strings.Join(tt.unset, ","), "none")
+		t.Run(name, func(t *testing.T) {
+			output := filepath.Join(t.TempDir(), "output")
+			env := []string{"PATH=" + os.Getenv("PATH"), "GITHUB_EVENT_NAME=" + tt.event, "GITHUB_OUTPUT=" + output,
+				"E2E_QRL_TESTS_REPO=o/qrl-tests", "E2E_QRL_PACKAGE_REPO=o/qrl-package", "E2E_QRYSM_REPO=o/qrysm"}
+			for _, v := range all {
+				if !slices.Contains(tt.unset, v) {
+					env = append(env, v+"=main")
+				}
+			}
+			cmd := exec.Command("bash", "--noprofile", "--norc", "-e", script)
+			cmd.Env = env
+			out, err := cmd.CombinedOutput()
+			var exit *exec.ExitError
+			failed := errors.As(err, &exit) && exit.ExitCode() == 1
+			switch {
+			case tt.fails && !failed:
+				t.Errorf("the step exited with %v, want status 1: %s", err, out)
+			case !tt.fails && err != nil:
+				t.Errorf("the step failed: %v: %s", err, out)
+			}
+			if tt.message == "" && len(out) != 0 {
+				t.Errorf("the step printed %q, want nothing", out)
+			}
+			if tt.message != "" && !strings.HasPrefix(string(out), tt.message) {
+				t.Errorf("the step printed %q, want it to start with %q", out, tt.message)
+			}
+			got, err := os.ReadFile(output)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+			if string(got) != tt.output {
+				t.Errorf("the step wrote %q to GITHUB_OUTPUT, want %q", got, tt.output)
+			}
+		})
 	}
 }
 

@@ -39,7 +39,10 @@ jobs:
     # client; each comes from the branch, tag or commit that a repository
     # variable names (E2E_QRL_TESTS_REF, E2E_QRL_PACKAGE_REF, E2E_QRYSM_REF),
     # in the repository its _REPO variable names (by default the ones below).
-    # Until all three refs are set, the job only says so. The images are
+    # Until all three refs are set, a scheduled run fails with an error that
+    # names the missing ones, so that a night without the lane never shows
+    # green next to the nights it ran, and a manual run only says so and
+    # skips the lane. The images are
     # built as qrl-tests builds them: the signer's and qrysm's with its
     # scripts, the execution client's and the genesis generator's as its
     # nightly does, from go-qrl and qrl-genesis-generator (main unless
@@ -68,19 +71,24 @@ jobs:
       ENCLAVE: remote-signer-${{ github.run_id }}-${{ github.run_attempt }}
       E2E_OUT: ${{ github.workspace }}/e2e-out
     steps:
-      - name: Skip while the lane's refs are not configured
+      - name: Check the lane's refs (a scheduled run fails, a manual one skips, while any is unset)
         id: refs
         run: |
           missing=
           for v in E2E_QRL_TESTS_REF E2E_QRL_PACKAGE_REF E2E_QRYSM_REF; do
             if [ -z "${!v}" ]; then missing="${missing:+${missing}, }${v}"; fi
           done
-          if [ -n "${missing}" ]; then
-            echo "::notice title=qrl-tests lane skipped::The repository variables ${missing} are not set. Set E2E_QRL_TESTS_REF to the qrl-tests branch, tag or commit with the consensus-remote-signer lane, E2E_QRL_PACKAGE_REF to the qrl-package one that runs go-remotesigner, and E2E_QRYSM_REF to the qrysm one with the remote-signer client (and E2E_QRL_TESTS_REPO, E2E_QRL_PACKAGE_REPO or E2E_QRYSM_REPO where the repository is not ${E2E_QRL_TESTS_REPO}, ${E2E_QRL_PACKAGE_REPO} or ${E2E_QRYSM_REPO}) to run this job."
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
+          if [ -z "${missing}" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          how="Set E2E_QRL_TESTS_REF to the qrl-tests branch, tag or commit with the consensus-remote-signer lane, E2E_QRL_PACKAGE_REF to the qrl-package one that runs go-remotesigner, and E2E_QRYSM_REF to the qrysm one with the remote-signer client (and E2E_QRL_TESTS_REPO, E2E_QRL_PACKAGE_REPO or E2E_QRYSM_REPO where the repository is not ${E2E_QRL_TESTS_REPO}, ${E2E_QRL_PACKAGE_REPO} or ${E2E_QRYSM_REPO}) to run this job."
+          if [ "${GITHUB_EVENT_NAME}" = schedule ]; then
+            echo "::error title=qrl-tests lane not configured::The repository variables ${missing} are not set, so tonight's lane did not run and this night does not count towards the release checklist's seven nights. ${how}"
+            exit 1
+          fi
+          echo "::notice title=qrl-tests lane skipped::The repository variables ${missing} are not set. ${how}"
+          echo "run=false" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.refs.outputs.run == 'true'
         with:
