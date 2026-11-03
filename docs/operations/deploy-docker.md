@@ -80,7 +80,7 @@ under the password you gave it; qrysm's `validator accounts backup` writes keyst
 ([`keystores.md`](keystores.md#5-from-a-qrysm-wallet)). Copy the keystores, and only them, into `keys/keystores/`
 (every `*.json` file there is loaded, and a `deposit_data-*.json` would fail), and write the password into
 `keys/password.txt`. The container runs as uid 65532, which must be able to read the files, and only it: a password
-file that its group or other users can read is refused (`--strict-file-permissions`,
+file that its group or other users can read or write is refused (`--strict-file-permissions`,
 [`reload.md`](reload.md#secret-files)). On Linux:
 
 ```

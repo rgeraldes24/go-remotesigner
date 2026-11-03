@@ -53,12 +53,16 @@ load that is running when the keymanager imports or deletes a key does not undo 
 ### Secret files
 
 A password file, and a key-config file with a `file-raw` document (which holds a seed in the clear), is a secret
-file. With `--strict-file-permissions` (the default) a secret file that its group or other users can read is
-refused: it fails to load like any other error (section 3), and the log names the file and its mode. With
+file. With `--strict-file-permissions` (the default) a secret file that its group or other users can read or write
+is refused: it fails to load like any other error (section 3), and the log names the file and its mode. A file they
+can write but not read (`0602`, `0620`, `0622`) is refused too, because they could replace what it holds; for a token
+file, that is the credential itself. With
 `--strict-file-permissions=false` it is loaded with a WARN. The mode is checked on the opened file, so the file read
 is the file checked. Keystores themselves are encrypted and are not checked. Keep secret files at `0600` or `0400`
 in `0700` directories. On Windows, whose files have no owner, group and other mode bits, the check is not made
-(only a path that is not a regular file is refused): restrict secret files there with their ACLs.
+(only a path that is not a regular file is refused): restrict secret files there with their ACLs. The token files and
+the TLS private key follow the same rule, and a missing token file is generated only in a directory that its group
+and other users cannot write ([`tls.md`](tls.md#5-rotating-tokens-and-certificates-with-sighup)).
 
 ## 2. The startup load
 

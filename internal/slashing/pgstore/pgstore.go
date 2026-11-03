@@ -143,8 +143,8 @@ type Config struct {
 	// password file (PGPASSFILE, by default ~/.pgpass), read under PasswordFilePolicy.
 	Password string
 	// PasswordFilePolicy is the secret-file policy of libpq's password file: a password found there for this
-	// connection, in a file that its group or other users can read, is refused under the strict policy and used
-	// with a warning otherwise.
+	// connection, in a file that its group or other users can read or write, is refused under the strict policy and
+	// used with a warning otherwise.
 	PasswordFilePolicy secretfile.Policy
 	// GenesisValidatorsRoot, when set, is the network's configured root. A store that has no root yet is pinned to
 	// it; a store pinned to a different root is refused with slashing.ErrGenesisValidatorsRootMismatch.
@@ -246,8 +246,8 @@ const maxPassfile = 1 << 20
 // passfilePassword looks the password of cc's host, port, database and user up in libpq's password file, as libpq
 // does: the file that the URL's passfile parameter, the service or PGPASSFILE names, by default ~/.pgpass
 // (%APPDATA%\postgresql\pgpass.conf on Windows). A file that does not exist holds none. A password found in a file
-// that its group or other users can read is refused under the strict policy and used with a warning otherwise,
-// where libpq would ignore the file.
+// that its group or other users can read or write is refused under the strict policy and used with a warning
+// otherwise, where libpq would ignore the file.
 func (c Config) passfilePassword(cc *pgconn.Config, service map[string]string) (string, error) {
 	u, err := url.Parse(c.URL)
 	if err != nil {

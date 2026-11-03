@@ -245,7 +245,7 @@ func TestKeystoresQRLPackageSharedPasswordRefusedOnReload(t *testing.T) {
 	if code, h := keystoresHealth(t, s); code != 503 || h != fmt.Sprintf("DOWN keys-loaded=%d error-count=1", n) {
 		t.Fatalf("healthcheck after the refusal: %d %s", code, h)
 	}
-	if !strings.Contains(s.output.String(), "readable by group or other users") {
+	if !strings.Contains(s.output.String(), "readable or writable by group or other users") {
 		t.Error("the refusal is not logged")
 	}
 
@@ -304,7 +304,7 @@ func TestKeystoresQRLPackageUnprepared(t *testing.T) {
 		if code, h := keystoresHealth(t, s); code != 503 || h != "DOWN keys-loaded=0 error-count=1" {
 			t.Fatalf("healthcheck: %d %s", code, h)
 		}
-		if !strings.Contains(s.output.String(), "readable by group or other users") {
+		if !strings.Contains(s.output.String(), "readable or writable by group or other users") {
 			t.Error("the refusal is not logged")
 		}
 
@@ -313,7 +313,7 @@ func TestKeystoresQRLPackageUnprepared(t *testing.T) {
 		if got := lax.publicKeys(); !slices.Equal(got, keys) {
 			t.Fatalf("--strict-file-permissions=false: %d keys, want %d", len(got), len(keys))
 		}
-		if !strings.Contains(lax.output.String(), "A secret file is readable by its group or other users") {
+		if !strings.Contains(lax.output.String(), "A secret file is readable or writable by its group or other users") {
 			t.Error("no warning for the world-readable password file")
 		}
 	})
