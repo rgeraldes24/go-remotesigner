@@ -765,11 +765,12 @@ show on this contract:
 | X36 (`/upcheck` 503 while loading), X37 (healthcheck detail needs the sign scope), X44 (fixed reload messages), X114 (store check `DOWN` with protection disabled) | [sections 5](#5-endpoints) and [17](#17-supporting-endpoints) |
 | X45 (every POST and DELETE needs `application/json`) | [section 7](#7-request-envelope-and-validation-pipeline) |
 | X48 (client certificates grant the sign scope only), X50 (metrics token) | [section 6](#6-authentication-and-scopes) |
-| X49 (TLS 1.3 only), X120 (the `consensus` subcommand and `/api/v1/consensus/`, no `eth2` alias) | [section 2](#2-transport) |
+| X49 (TLS 1.3 only) | [section 2](#2-transport) |
 | X52 (response cache) | [section 15](#15-selection-proofs-and-signing-modes) |
 | X68 (keymanager availability), X69 (keymanager import), X70 (keymanager delete) | [section 17](#17-supporting-endpoints) |
 | X113 (a high watermark has both parts or none) | [section 20](#20-versioning-and-change-control) |
 | X115 (a refusal of the caller closes its connection) | [sections 11](#11-errors) and [13](#13-size-limits-and-timeouts) |
+| X120 (the `consensus` subcommand, `/api/v1/consensus/` and `/qrl/v1/keystores`, no `eth2` alias) | [sections 2](#2-transport) and [17](#17-supporting-endpoints) |
 <!-- contract:deviations:end -->
 
 ## 22. Worked examples
