@@ -34,8 +34,12 @@ import (
 // value on hup re-reads the token and TLS files.
 type runFunc func(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan struct{}) error
 
-// metaConfigFile is the App.Metadata key of the parsed --config-file.
-const metaConfigFile = "config-file"
+// The App.Metadata keys of the parsed --config-file and of the process's
+// arguments.
+const (
+	metaConfigFile = "config-file"
+	metaArgs       = "args"
+)
 
 func consensusCommand(run runFunc, stdout, stderr io.Writer) *cli.Command {
 	return &cli.Command{

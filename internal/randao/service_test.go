@@ -818,3 +818,104 @@ func TestLostRaceReReveals(t *testing.T) {
 func (f *fixture) slot() uint64 {
 	return uint64(f.clock.Now().Unix()-testGenesis) / testSPS
 }
+
+// disablingStore disables the key once, right after the reveal service's check of condition 5 has read it enabled:
+// a keymanager DELETE or a consensus disable-validator, on this signer or on another one that shares the store,
+// committing between that check and the frontier's compare-and-set.
+type disablingStore struct {
+	slashing.Store
+	disable func(context.Context, slashing.Store, slashing.KeyID) error
+	armed   atomic.Bool
+}
+
+func (s *disablingStore) ValidatorStatus(ctx context.Context, id slashing.KeyID) (slashing.ValidatorStatus, error) {
+	st, err := s.Store.ValidatorStatus(ctx, id)
+	if err == nil && st.Enabled && s.armed.CompareAndSwap(true, false) {
+		err = s.disable(ctx, s.Store, id)
+	}
+	return st, err
+}
+
+// A key disabled after the reveal service checked condition 5 gets no new layer: the store refuses the commit of the
+// frontier, and the reveal is refused with 412 VALIDATOR_DISABLED, for a first use and for a new layer, through every
+// disable path and with memstore and bbolt alike. The frontier stays where it was, and the bucket keeps its token.
+func TestDisabledBeforeCommit(t *testing.T) {
+	stores := []struct {
+		name string
+		open func(t *testing.T) slashing.Store
+	}{
+		{"memstore", func(*testing.T) slashing.Store { return memstore.New() }},
+		{"boltstore", func(t *testing.T) slashing.Store {
+			s, err := boltstore.Open(filepath.Join(t.TempDir(), "slashing-protection.db"), boltstore.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			return s
+		}},
+	}
+	disables := []struct {
+		name    string
+		disable func(context.Context, slashing.Store, slashing.KeyID) error
+	}{
+		{"disable-validator", func(ctx context.Context, s slashing.Store, id slashing.KeyID) error {
+			return s.SetValidatorEnabled(ctx, id, false)
+		}},
+		{"keymanager delete", func(ctx context.Context, s slashing.Store, id slashing.KeyID) error {
+			return s.UpdateHistory(ctx, []slashing.KeyID{id}, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
+				return tx.SetEnabled(false)
+			})
+		}},
+		{"failed import", func(ctx context.Context, s slashing.Store, id slashing.KeyID) error {
+			return s.UpdateHistory(ctx, []slashing.KeyID{id}, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
+				return tx.DisableForImport()
+			})
+		}},
+	}
+	for _, st := range stores {
+		for _, d := range disables {
+			for _, prime := range []bool{false, true} {
+				name := st.name + "/" + d.name + "/first use"
+				if prime {
+					name = st.name + "/" + d.name + "/new layer"
+				}
+				t.Run(name, func(t *testing.T) {
+					store := &disablingStore{Store: st.open(t), disable: d.disable}
+					// One token for each reveal that must be served: a refusal that took one leaves the last
+					// reveal rate-limited.
+					burst := uint64(1)
+					if prime {
+						burst = 2
+					}
+					f := newFixture(t, store, withConfig(func(c *Config) { c.NewLayerBurst = burst }))
+					j := testLayers
+					if prime {
+						f.ok(f.reveal(1000, j), j, metrics.RandaoFirstUse)
+						f.clock.atSlot(1001)
+						j--
+					}
+					store.armed.Store(true)
+					f.refusedWith(f.reveal(f.slot(), j), apierr.ValidatorDisabled)
+					if store.armed.Load() {
+						t.Fatal("the key was never disabled")
+					}
+					if prime {
+						f.frontier(uint64(j), 1000)
+					} else if _, ok, err := store.RandaoState(context.Background(), f.id); err != nil || ok {
+						t.Fatalf("a frontier was stored for the disabled key: %v, %v", ok, err)
+					}
+					// The refused reveal took no token: once enabled again, the key's next layer is served.
+					if err := store.SetValidatorEnabled(context.Background(), f.id, true); err != nil {
+						t.Fatal(err)
+					}
+					class := metrics.RandaoFirstUse
+					if prime {
+						class = metrics.RandaoNewLayer
+					}
+					f.clock.advance(testSPS * time.Second) // past the slow path's scan budget
+					f.ok(f.reveal(f.slot(), j), j, class)
+				})
+			}
+		}
+	}
+}

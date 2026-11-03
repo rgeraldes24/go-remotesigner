@@ -57,7 +57,7 @@ Unknown fields are refused, as in every key-config document. A file may hold sev
 loads as a whole or fails as a whole.
 
 **A file with a `token` is a secret file**: under `--strict-file-permissions` (the default) it is refused when its
-group or other users can read it, so keep it at `0600` ([`reload.md`](reload.md#secret-files)).
+group or other users can read or write it, so keep it at `0600` ([`reload.md`](reload.md#secret-files)).
 
 ## 3. Authentication
 

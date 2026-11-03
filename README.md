@@ -35,7 +35,8 @@ verify` checks qrysm and deposit CLI keystores and their password files offline
 holds QRL account keys for JSON-RPC clients in front of a gqrl node: it answers `qrl_accounts`, `qrl_sign`,
 `qrl_signTransaction` and `qrl_sendTransaction` under a chain ID, a fee cap, a per-account policy and an audit log,
 and forwards an allowlist of methods to the node, without the client's credentials
-([`docs/operations/execution.md`](docs/operations/execution.md)). To try the signer, see
+([`docs/operations/execution.md`](docs/operations/execution.md), described in OpenAPI by
+[`api/openapi/execution.yaml`](api/openapi/execution.yaml)). To try the signer, see
 [`docs/operations/quickstart.md`](docs/operations/quickstart.md); every flag is in
 [`docs/reference/flags.md`](docs/reference/flags.md).
 
@@ -87,8 +88,8 @@ Go 1.26.5 or later is required (the module's toolchain line selects go1.26.10).
 make build             # bin/remotesigner, the default flavour
 make build-consensus   # bin/remotesigner-consensus, consensus only (-tags noexecution)
 make test              # go test -race, both flavours
-make test-cloud        # the secret-store tests against a Vault dev server and LocalStack (Docker)
-make contract          # OpenAPI lint, example validation, docs/contract.md consistency
+make test-cloud        # the secret-store tests against Vault, LocalStack and the GCP and Azure emulators (Docker)
+make contract          # OpenAPI lint and examples of both modes, docs/contract.md and execution.md consistency
 make lint              # go vet, golangci-lint, headercheck, LICENSE hash
 make docs              # regenerate docs/reference/flags.md from the flag definitions
 make image             # the container image of FLAVOUR for this machine's Docker

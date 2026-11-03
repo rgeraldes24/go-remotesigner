@@ -722,6 +722,35 @@ func TestMakeBuildVersion(t *testing.T) {
 	}
 }
 
+// make licenses runs both go-licenses checks with GOROOT set to the
+// toolchain the module selects: go-licenses tells the standard library's
+// packages apart by the GOROOT it was built with, so one built with an older
+// Go than go.mod's toolchain line would report every standard package as
+// having no module info and fail the check. make -n prints the commands
+// without running them.
+func TestMakeLicensesSetsGOROOT(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make is not installed")
+	}
+	out, err := exec.Command("make", "-n", "-C", root, "licenses", "GO=go", "GO_LICENSES=go-licenses").CombinedOutput()
+	if err != nil {
+		t.Fatalf("make -n licenses: %v: %s", err, out)
+	}
+	checks := 0
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if !strings.Contains(line, "go-licenses check ") {
+			continue
+		}
+		checks++
+		if !strings.Contains(line, `GOROOT="$(go env GOROOT)" `) {
+			t.Errorf("make licenses runs go-licenses without the module's GOROOT: %s", line)
+		}
+	}
+	if checks != 2 {
+		t.Errorf("make licenses runs go-licenses check %d times, want 2 (one per flavour):\n%s", checks, out)
+	}
+}
+
 // make release-version builds for the tag of the newest version that
 // CHANGELOG.md has an entry for, unless RELEASE_TAG names another tag
 // (docs/operations/release.md section 4), so that its default follows the

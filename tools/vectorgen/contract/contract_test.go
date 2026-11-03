@@ -410,6 +410,13 @@ func TestReplacesMirrorQrysm(t *testing.T) {
 			t.Errorf("replace %s => %q here, qrysm has %q", path, ours[path], target)
 		}
 	}
+	// A replace qrysm dropped would keep linking the module it no longer
+	// asks for; qrysm itself is the one replace qrysm's go.mod cannot have.
+	for path, target := range ours {
+		if _, ok := theirs[path]; !ok && path != "github.com/theQRL/qrysm" {
+			t.Errorf("replace %s => %q here, qrysm has none", path, target)
+		}
+	}
 }
 
 // replaces returns the single-line replace directives of a go.mod file.

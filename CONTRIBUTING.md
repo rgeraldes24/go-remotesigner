@@ -95,6 +95,10 @@ make lint                    # go vet, golangci-lint (incl. depguard), headerche
 make licenses vuln           # go-licenses check, govulncheck
 ```
 
+go-licenses tells the standard library apart by the Go it was built with, so `make licenses` runs it with `GOROOT`
+set to the toolchain `go.mod` selects (`go env GOROOT`): a go-licenses installed before the toolchain line moved
+still works. Set `GOROOT` the same way when you run go-licenses by hand.
+
 Code must be `gofmt`-clean and idiomatic Go, with table-driven tests for new behaviour.
 
 The Postgres store's tests, every test with `Postgres` in its name, need a PostgreSQL server: they run against the

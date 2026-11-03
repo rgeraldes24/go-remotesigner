@@ -497,28 +497,17 @@ func heldWhileWaiting(t *testing.T, watch *pgx.Conn, typ int, vid int32) []advis
 		if err != nil {
 			t.Fatal(err)
 		}
-		rows, err := watch.Query(bg, `SELECT classid::bigint, objid::bigint FROM pg_locks
-			WHERE pid = $1 AND locktype = 'advisory' AND granted ORDER BY classid, objid`, pid)
-		if err != nil {
-			t.Fatal(err)
-		}
-		held, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (advisoryLock, error) {
-			var l advisoryLock
-			return l, r.Scan(&l[0], &l[1])
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return held
+		return advisoryLocksHeld(t, watch, pid)
 	}
 }
 
 // The advisory locks are taken in one order everywhere, BLOCK(0), ATTESTATION(1), RANDAO(2): while another session
 // holds one of a validator's locks, the waiting store holds exactly the locks that come before it. Disabling a key
-// takes its block and then its attestation lock; a history transaction (import, pruning, the watermark repair)
-// takes both locks of each validator in turn, in KeyID order whatever order the call names them in; a RANDAO frontier
-// write or reset takes the RANDAO lock alone, and a write reads the row only once it holds the lock, so it sees what
-// the lock's previous holder wrote.
+// takes its block and then its attestation lock; a history transaction (import, pruning, the watermark repair, the
+// keymanager's delete) takes both locks of each validator in turn, in KeyID order whatever order the call names them
+// in; neither takes a RANDAO lock. A RANDAO frontier write or reset takes the RANDAO lock alone, and a write reads the
+// row and the enabled flag only once it holds the lock, so it sees what the lock's previous holder wrote; it reads
+// the validators row FOR SHARE, so it waits for a disable whose update of that row is not committed yet.
 func TestPostgresLockOrder(t *testing.T) {
 	db := migrated(t)
 	s := open(t, config(db))
@@ -532,6 +521,7 @@ func TestPostgresLockOrder(t *testing.T) {
 			return nil
 		})
 	}
+	disable := func() error { return s.SetValidatorEnabled(bg, ids[0], false) }
 	sorted := func(ls ...advisoryLock) []advisoryLock {
 		slices.SortFunc(ls, func(x, y advisoryLock) int { return slices.Compare(x[:], y[:]) })
 		return ls
@@ -543,9 +533,7 @@ func TestPostgresLockOrder(t *testing.T) {
 		want []advisoryLock
 		call func() error
 	}{
-		{"disable", lockTypeAttestation, a, sorted(advisoryLock{0, int64(a)}), func() error {
-			return s.SetValidatorEnabled(bg, ids[0], false)
-		}},
+		{"disable", lockTypeAttestation, a, sorted(advisoryLock{0, int64(a)}), disable},
 		{"history, first validator's attestation lock", lockTypeAttestation, a, sorted(advisoryLock{0, int64(a)}), history},
 		{"history, second validator's block lock", lockTypeBlock, b,
 			sorted(advisoryLock{0, int64(a)}, advisoryLock{1, int64(a)}), history},
@@ -566,7 +554,26 @@ func TestPostgresLockOrder(t *testing.T) {
 		})
 	}
 
+	// A disable, alone or in a history transaction, does not wait for the RANDAO lock (a wait would fail after
+	// lock_timeout): the third advisory lock per key would cost a large keymanager DELETE a round trip and a slot of
+	// the server's lock table per key.
+	t.Run("disables without the RANDAO lock", func(t *testing.T) {
+		tx := holdLock(t, db, lockTypeRandao, a)
+		if _, err := tx.Exec(bg, `SELECT pg_advisory_xact_lock(2, $1)`, b); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { must(t, tx.Rollback(bg)) }()
+		must(t, disable())
+		must(t, s.UpdateHistory(bg, ids, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
+			return tx.SetEnabled(false)
+		}))
+		must(t, s.UpdateHistory(bg, ids, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
+			return tx.DisableForImport()
+		}))
+	})
+
 	t.Run("RANDAO write", func(t *testing.T) {
+		must(t, s.SetValidatorEnabled(bg, ids[0], true)) // the disable cases above disabled it
 		tx := holdLock(t, db, lockTypeRandao, a)
 		type result struct {
 			swapped bool
@@ -593,6 +600,119 @@ func TestPostgresLockOrder(t *testing.T) {
 			t.Fatalf("frontier %+v, %v, %v; want the one stored under the lock", st, ok, err)
 		}
 	})
+
+	// A disable updates the validators row, whose row lock conflicts with the frontier write's FOR SHARE read: the
+	// write, holding the RANDAO lock, waits for the disable's transaction, and refuses once it commits or stores once
+	// it rolls back.
+	for _, commit := range []bool{true, false} {
+		t.Run(fmt.Sprintf("RANDAO write waits for an open disable, commit %v", commit), func(t *testing.T) {
+			must(t, s.SetValidatorEnabled(bg, ids[1], true))
+			must(t, s.DeleteRandaoState(bg, ids[1]))
+			tx, err := db.Connect(t).Begin(bg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var holder int32
+			if err := tx.QueryRow(bg, `SELECT pg_backend_pid()`).Scan(&holder); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.Exec(bg, `UPDATE validators SET enabled = false WHERE id = $1`, b); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() {
+				_, err := s.CompareAndSwapRandaoState(bg, ids[1], nil, slashing.RandaoState{Index: 9, LastSlot: 9})
+				done <- err
+			}()
+			if got := heldWhileBlocked(t, watch, holder); !slices.Equal(got, []advisoryLock{{2, int64(b)}}) {
+				t.Errorf("waiting for the disable while holding %v, want the RANDAO lock alone", got)
+			}
+			select {
+			case err := <-done:
+				t.Fatalf("the frontier write returned (%v) while a disable of the key was open", err)
+			default:
+			}
+			if commit {
+				must(t, tx.Commit(bg))
+				if err := <-done; !errors.Is(err, slashing.ErrValidatorDisabled) {
+					t.Fatalf("frontier write after the disable committed: %v, want ErrValidatorDisabled", err)
+				}
+				if _, ok, err := s.RandaoState(bg, ids[1]); err != nil || ok {
+					t.Fatalf("a frontier was stored: %v, %v", ok, err)
+				}
+				return
+			}
+			must(t, tx.Rollback(bg))
+			must(t, <-done)
+			if st, ok, err := s.RandaoState(bg, ids[1]); err != nil || !ok || st.Index != 9 {
+				t.Fatalf("frontier %+v, %v, %v after the disable rolled back; want the one written", st, ok, err)
+			}
+		})
+	}
+
+	t.Run("RANDAO write after a disable under the lock", func(t *testing.T) {
+		must(t, s.SetValidatorEnabled(bg, ids[1], true))
+		must(t, s.DeleteRandaoState(bg, ids[1]))
+		tx := holdLock(t, db, lockTypeRandao, b)
+		done := make(chan error, 1)
+		go func() {
+			_, err := s.CompareAndSwapRandaoState(bg, ids[1], nil, slashing.RandaoState{Index: 9, LastSlot: 9})
+			done <- err
+		}()
+		heldWhileWaiting(t, watch, lockTypeRandao, b)
+		// The lock's holder disables the key while the store waits: the store reads the flag once it holds the lock.
+		if _, err := tx.Exec(bg, `UPDATE validators SET enabled = false WHERE id = $1`, b); err != nil {
+			t.Fatal(err)
+		}
+		must(t, tx.Commit(bg))
+		if err := <-done; !errors.Is(err, slashing.ErrValidatorDisabled) {
+			t.Fatalf("frontier write for a key disabled under the lock: %v, want ErrValidatorDisabled", err)
+		}
+		if _, ok, err := s.RandaoState(bg, ids[1]); err != nil || ok {
+			t.Fatalf("a frontier was stored: %v, %v", ok, err)
+		}
+	})
+}
+
+// heldWhileBlocked waits until a session waits for a lock that the session holder holds, and returns the advisory
+// locks the waiting session holds meanwhile, ordered by type and validator id.
+func heldWhileBlocked(t *testing.T, watch *pgx.Conn, holder int32) []advisoryLock {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var pid int32
+		err := watch.QueryRow(bg, `SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))`, holder).
+			Scan(&pid)
+		if errors.Is(err, pgx.ErrNoRows) {
+			if time.Now().After(deadline) {
+				t.Fatalf("no session waited for session %d", holder)
+			}
+			time.Sleep(5 * time.Millisecond)
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return advisoryLocksHeld(t, watch, pid)
+	}
+}
+
+// advisoryLocksHeld returns the advisory locks session pid holds, ordered by type and validator id.
+func advisoryLocksHeld(t *testing.T, watch *pgx.Conn, pid int32) []advisoryLock {
+	t.Helper()
+	rows, err := watch.Query(bg, `SELECT classid::bigint, objid::bigint FROM pg_locks
+		WHERE pid = $1 AND locktype = 'advisory' AND granted ORDER BY classid, objid`, pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (advisoryLock, error) {
+		var l advisoryLock
+		return l, r.Scan(&l[0], &l[1])
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return held
 }
 
 // The advisory lock types, as the store numbers them.
@@ -603,7 +723,8 @@ const (
 )
 
 // split is one store whose SetValidatorEnabled goes through a second instance: the store contract's serialisation
-// test then checks that a disable on one replica waits for a transaction open on another.
+// test then checks that a disable on one replica waits for a transaction open on another, and the RANDAO suite that
+// a frontier commit on one replica refuses a key another replica disabled.
 type split struct {
 	slashing.Store
 	other slashing.Store
@@ -617,7 +738,7 @@ func (s split) Close() error { return errors.Join(s.Store.Close(), s.other.Close
 
 func TestPostgresContractAcrossInstances(t *testing.T) {
 	pgtest.Skip(t)
-	slashingtest.RunStoreContract(t, func(t *testing.T) slashing.Store {
+	newSplit := func(t *testing.T) slashing.Store {
 		db := migrated(t)
 		a, err := pgstore.Open(bg, config(db))
 		if err != nil {
@@ -628,7 +749,9 @@ func TestPostgresContractAcrossInstances(t *testing.T) {
 			t.Fatal(err)
 		}
 		return split{Store: a, other: b}
-	})
+	}
+	t.Run("StoreContract", func(t *testing.T) { slashingtest.RunStoreContract(t, newSplit) })
+	t.Run("Randao", func(t *testing.T) { slashingtest.RunRandao(t, newSplit) })
 }
 
 // A transaction that fails with 40P01 or 40001 runs again; any other error ends it.

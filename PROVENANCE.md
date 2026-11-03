@@ -46,7 +46,7 @@ notice.
 | Item | Value |
 |---|---|
 | Upstream path | `pkg/go-qrl-wallet-encryptor-keystore` |
-| Source commit | `cyyber/qrysm` `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` (2026-10-12), identical to `rgeraldes24/qrysm` main |
+| Source commit | `cyyber/qrysm` `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` (2026-10-12), an ancestor of `rgeraldes24/qrysm` main (`a3979a15`) |
 | Tree id | `6c97bfffa7d145c2be452fa4435c81b6c7532554` (the same tree in `theQRL/qrysm` main `e07a6007`) |
 | Copy | `third_party/qrl-keystore/go-qrl-wallet-encryptor-keystore/`, pristine; `headercheck` verifies the tree id |
 | Upstream of upstream | `wealdtech/go-eth2-wallet-encryptor-keystorev4` (https://github.com/wealdtech/go-eth2-wallet-encryptor-keystorev4), Apache-2.0, "Copyright © 2019 - 2023 Weald Technology Trading" (per-file years 2019-2023); compared against `v1.4.1` (`1067d369`, 2023-07-29), released a month before the QRL copy. Notices stripped in the QRL copy. |
@@ -146,11 +146,11 @@ and the round-trip check `vectorgen interchange-check`.
   YAMLs carry the class `new` header.
 - **Contract mode.** `tools/vectorgen/contract` is a second nested module of the same kind: class `new` sources, a
   GPL-3.0 combined work when built, never shipped, never imported by the signer module. It links qrysm at
-  `rgeraldes24/qrysm` `eefefe9230e10a1ce0c9b05c04bd40556da29684` (2026-10-15, the tip of a stack of three PRs on
-  `cyyber/qrysm` `0b9cdf25`: rgeraldes24/qrysm#60 `remote-signer/q1-randao-slot` `8fc55fff`, which passes the proposal
-  slot to `RandaoRevealer`; #61 `remote-signer/q2-remote-keymanager` `2e957846`, the revived `remote-web3signer`
-  keymanager; and #62 `remote-signer/q3-vc-wiring`, its validator wiring), because one module cannot hold the golden
-  vectors' qrysm and this one. It writes no files: it drives a running signer with qrysm's
+  `rgeraldes24/qrysm` `47f6b65e6c58bb8c268d3dfd94aca8cbd1718bcc` (2026-10-26, the head of the last of a stack of three
+  PRs on `cyyber/qrysm` `a3979a15`: rgeraldes24/qrysm#60 `remote-signer/q1-randao-slot` `d5e74d9d`, which passes the
+  proposal slot to `RandaoRevealer`; #61 `remote-signer/q2-remote-keymanager` `051a9a43`, the revived
+  `remote-web3signer` keymanager; and #62 `remote-signer/q3-vc-wiring`, its validator wiring), because one module
+  cannot hold the golden vectors' qrysm and this one. It writes no files: it drives a running signer with qrysm's
   keymanager and checks the answers with qrysm's verifiers.
   `test/acceptance` builds and runs it in a temporary directory (`make vectors-contract`); its DTO-rename test
   copies the qrysm packages the tool links into a temporary directory and renames two JSON field names in the
@@ -237,6 +237,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `api/openapi/docs_test.go` | new | | | |
 | `api/openapi/encoding_test.go` | new | | | |
 | `api/openapi/examples_test.go` | new | | | |
+| `api/openapi/execution.yaml` | new | | | |
+| `api/openapi/execution_test.go` | new | | | |
 | `api/openapi/golden_test.go` | new | | | |
 | `api/openapi/spec_test.go` | new | | | |
 | `cmd/remotesigner/consensus.go` | new | | | |
@@ -360,6 +362,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/execution/jsonrpc_test.go` | new | | | |
 | `internal/execution/methods.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/routes/eth1/JsonRpcRoute.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/Eth1AccountsHandler.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/internalresponse/EthSignResultProvider.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/util/EthMessageUtil.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/execution/methods_w3s_test.go` | w3s-derived | Web3Signer | `core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/EthAccountsIntegrationTest.java`<br>`core/src/integrationTest/java/tech/pegasys/web3signer/core/jsonrpcproxy/EthSignIntegrationTest.java`<br>`core/src/test/java/tech/pegasys/web3signer/core/service/jsonrpc/EthSignResultProviderTest.java`<br>`core/src/test/java/tech/pegasys/web3signer/core/service/jsonrpc/handlers/RequestMapperTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `internal/execution/openapi_test.go` | new | | | |
 | `internal/execution/payload.go` | new | | | |
 | `internal/execution/policy.go` | new | | | |
 | `internal/execution/policy_test.go` | new | | | |
@@ -422,8 +425,10 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/secrets/awssm/localstack_test.go` | new | | | |
 | `internal/keys/secrets/azurekv/azurekv.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/azure/AzureKeyVault.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/azure/AzureOverrides.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/config/AzureKeyVaultFactory.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/secrets/azurekv/azurekv_test.go` | new | | | |
+| `internal/keys/secrets/azurekv/emulator_test.go` | new | | | |
 | `internal/keys/secrets/bulk.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/common/SecretValueMapperUtil.java`<br>`keystorage/src/main/java/tech/pegasys/web3signer/keystorage/common/MappedResults.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsAwsBulkLoader.java`<br>`signing/src/main/java/tech/pegasys/web3signer/signing/bulkloading/BlsGcpBulkLoader.java`<br>`core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/secrets/cache.go` | new | | | |
+| `internal/keys/secrets/gcpsm/emulator_test.go` | new | | | |
 | `internal/keys/secrets/gcpsm/gcpsm.go` | w3s-derived | Web3Signer | `keystorage/src/main/java/tech/pegasys/web3signer/keystorage/gcp/GcpSecretManager.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
 | `internal/keys/secrets/gcpsm/gcpsm_test.go` | new | | | |
 | `internal/keys/secrets/hashicorp/devserver_test.go` | new | | | |
@@ -436,6 +441,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/keys/secrets/secretstest/aws.go` | new | | | |
 | `internal/keys/secrets/secretstest/azure.go` | new | | | |
 | `internal/keys/secrets/secretstest/cloud.go` | new | | | |
+| `internal/keys/secrets/secretstest/emulators.go` | new | | | |
 | `internal/keys/secrets/secretstest/gcp.go` | new | | | |
 | `internal/keys/secrets/secretstest/stderr.go` | new | | | |
 | `internal/keys/secrets/secretstest/vault.go` | new | | | |
@@ -472,6 +478,8 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `internal/randao/onion/onion_test.go` | new | | | |
 | `internal/randao/service.go` | new | | | |
 | `internal/randao/service_test.go` | new | | | |
+| `internal/runner/credentials.go` | new | | | |
+| `internal/runner/credentials_test.go` | new | | | |
 | `internal/runner/files.go` | new | | | |
 | `internal/runner/keymanager_test.go` | new | | | |
 | `internal/runner/keys.go` | w3s-derived | Web3Signer | `core/src/main/java/tech/pegasys/web3signer/core/Eth2Runner.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |

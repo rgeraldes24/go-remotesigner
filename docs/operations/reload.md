@@ -54,7 +54,7 @@ remotesigner consensus --network=… \
 Every `*.json` file in the directory is taken for a keystore, as in Web3Signer, so copy only the `keystore-*.json`
 files there: the deposit CLI's `deposit_data-*.json` would fail to load and keep the keystore health check `DOWN`.
 The password file the CLI was given can be used as it is (its trailing line feed is not part of the password), once
-it is readable by its owner only (see "Secret files" below).
+its group and other users can neither read nor write it (see "Secret files" below).
 
 `--keystores-path` needs exactly one of the two password flags, and they need it; any other combination is a usage
 error (exit 2). The sources load in Web3Signer's order: the key-config files, Azure Key Vault, the keystores, AWS
@@ -68,12 +68,20 @@ load that is running when the keymanager imports or deletes a key does not undo 
 
 A password file, a key-config file with a `file-raw` document (which holds a seed in the clear), and a key-config file
 with a secret-store credential (a Vault `token`, an AWS `secretAccessKey`, an Azure `clientSecret`) is a secret
-file. With `--strict-file-permissions` (the default) a secret file that its group or other users can read is
-refused: it fails to load like any other error (section 3), and the log names the file and its mode. With
+file. So are the bulk loaders' credential files, `--aws-secrets-secret-access-key-file` and
+`--azure-client-secret-file`, and a `--config-file` that sets one of the deprecated plain credential flags; those are
+read at startup, and one that is refused stops the start (exit 1) rather than failing a load
+([`aws-secrets-manager.md`](aws-secrets-manager.md#3-the-bulk-loader),
+[`azure-key-vault.md`](azure-key-vault.md#4-the-bulk-loader)). With `--strict-file-permissions` (the default) a secret
+file that its group or other users can read or write is refused: it fails to load like any other error (section 3),
+and the log names the file and its mode. A file they can write but not read (`0602`, `0620`, `0622`) is refused too,
+because they could replace what it holds; for a token file, that is the credential itself. With
 `--strict-file-permissions=false` it is loaded with a WARN. The mode is checked on the opened file, so the file read
-is the file checked. Keystores themselves are encrypted and are not checked. Keep secret files at `0600` or `0400`
+is the file checked (for a `--config-file`, the mode it had when the signer read it at startup). Keystores themselves are encrypted and are not checked. Keep secret files at `0600` or `0400`
 in `0700` directories. On Windows, whose files have no owner, group and other mode bits, the check is not made
-(only a path that is not a regular file is refused): restrict secret files there with their ACLs.
+(only a path that is not a regular file is refused): restrict secret files there with their ACLs. The token files and
+the TLS private key follow the same rule, and a missing token file is generated only in a directory that its group
+and other users cannot write ([`tls.md`](tls.md#5-rotating-tokens-and-certificates-with-sighup)).
 
 ## 2. The startup load
 
@@ -181,8 +189,8 @@ selection proofs and sync-committee messages) still sign. Use it for a key that 
 attestation again, for example one that has moved to another signer.
 
 - With bbolt the signer must be stopped: the store is locked while it runs, and the command says so and changes
-  nothing. With Postgres it runs online: it waits for the key's open block and attestation transactions on every
-  replica, and every replica refuses the key from its next request
+  nothing. With Postgres it runs online: it waits for the key's open block and attestation transactions and RANDAO
+  frontier moves on every replica, and every replica refuses the key from its next request
   ([`postgres.md`](postgres.md#6-store-commands-online)).
 - The key must be registered in the store (loaded at least once); `--slashing-protection-db-url=bolt:///path` names
   another store than `<data-path>/slashing-protection.db`.

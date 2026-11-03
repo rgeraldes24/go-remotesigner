@@ -14,9 +14,12 @@
 // A token is "0x" followed by at least 64 hex characters. Token files are
 // generated (mode 0600) when missing and re-read by Reload, which the
 // process calls on SIGHUP. They are secret files: one that its group or
-// other users can read is refused or warned about by Config.Files, the
-// --strict-file-permissions policy. Presented tokens are compared in constant time,
-// over SHA-256 digests so that the comparison does not depend on length.
+// other users can read or write is refused or warned about by
+// Config.Files, the --strict-file-permissions policy, and so is a
+// directory that they can write when a token file is to be generated in
+// it (--data-path for the default ones). Presented tokens are compared in
+// constant time, over SHA-256 digests so that the comparison does not
+// depend on length.
 //
 // The auth mode decides what grants the sign scope (docs/contract.md
 // section 6): the sign token (token); a client certificate (mtls); both
@@ -139,8 +142,10 @@ type Config struct {
 	// in force; required in the mtls modes.
 	VerifyClient func(*tls.ConnectionState) error
 	// Files is the policy for token files that their group or other users
-	// can read (--strict-file-permissions): refused under Strict, warned
-	// about otherwise, at startup and on every Reload.
+	// can read or write, and for a directory that they can write and that
+	// a missing token file is to be generated in
+	// (--strict-file-permissions): refused under Strict, warned about
+	// otherwise, at startup and on every Reload.
 	Files secretfile.Policy
 }
 
@@ -341,10 +346,20 @@ func loadOrGenerate(path string, p secretfile.Policy) ([sha256.Size]byte, error)
 }
 
 // generate writes a new random token to path (mode 0600, never replacing an
-// existing file) and returns the file content. When another process created
-// the file first, it reads that one under the file policy p.
+// existing file) and returns the file content. A directory that its group or
+// other users can write is refused or warned about first, under the file
+// policy p: they could replace the token once it is written. When another
+// process created the file first, it reads that one under p.
 func generate(path string, p secretfile.Policy) ([]byte, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.CheckDir(dir, fi); err != nil {
 		return nil, err
 	}
 	var raw [32]byte

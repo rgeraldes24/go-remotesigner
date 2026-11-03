@@ -460,7 +460,10 @@ assumes the commitment is current; it bounds what a caller can extract per key a
 5. The validator is enabled. Else 412 `VALIDATOR_DISABLED`.
 
 Then compare-and-set `(m, R, last) → (j-1, x_{j-1}, slot)`, commit (bbolt fsync or Postgres `COMMIT`), take the
-token, and only then respond.
+token, and only then respond. Condition 5 is checked again inside the compare-and-set, serialised with every disable
+(bbolt: under the key's RANDAO lock, which a disable takes as well, in the order block, attestation, RANDAO;
+Postgres: the key's `validators` row is read `FOR SHARE`, which the row update of a disable waits for and which waits
+for one), so a key disabled after the first check gets 412 `VALIDATOR_DISABLED` and its frontier does not move.
 
 | Request commitment `c = x_j` | Class (metric `result`) | Action | State write |
 |---|---|---|---|
@@ -767,6 +770,7 @@ show on this contract:
 | X68 (keymanager availability), X69 (keymanager import), X70 (keymanager delete) | [section 17](#17-supporting-endpoints) |
 | X113 (a high watermark has both parts or none) | [section 20](#20-versioning-and-change-control) |
 | X115 (a refusal of the caller closes its connection) | [sections 11](#11-errors) and [13](#13-size-limits-and-timeouts) |
+| X120 (the `consensus` subcommand, `/api/v1/consensus/` and `/qrl/v1/keystores`, no `eth2` alias) | [sections 2](#2-transport) and [17](#17-supporting-endpoints) |
 <!-- contract:deviations:end -->
 
 ## 22. Worked examples

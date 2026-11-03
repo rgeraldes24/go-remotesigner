@@ -80,7 +80,7 @@ under the password you gave it; qrysm's `validator accounts backup` writes keyst
 ([`keystores.md`](keystores.md#5-from-a-qrysm-wallet)). Copy the keystores, and only them, into `keys/keystores/`
 (every `*.json` file there is loaded, and a `deposit_data-*.json` would fail), and write the password into
 `keys/password.txt`. The container runs as uid 65532, which must be able to read the files, and only it: a password
-file that its group or other users can read is refused (`--strict-file-permissions`,
+file that its group or other users can read or write is refused (`--strict-file-permissions`,
 [`reload.md`](reload.md#secret-files)). On Linux:
 
 ```
@@ -389,14 +389,24 @@ wins, so an orchestrator can move what the entrypoint sets: `--data-path` to a m
   (65532) cannot read. Make them readable by 65532 and keep the non-root user: with Kurtosis, `chown 65532:65532`
   the files in the step that writes them (for example a `plan.run_sh`) before it stores them as a files artifact; in
   Kubernetes, give the Secret or ConfigMap volume a `defaultMode` that lets 65532 read them (`0440` with the pod's
-  `fsGroup: 65532`, or `0444`). With `fsGroup`, also set `fsGroupChangePolicy: OnRootMismatch`: otherwise the
-  kubelet makes the `/data` volume group-writable at every mount, and the signer refuses a `/data/tls` its group can
-  write. Those modes suit the configuration and certificates only: the kubelet cannot give a Secret file to 65532
-  alone, so a `file-raw` key-config file or a password file mounted that way is refused. Copy those into an
-  `emptyDir` with mode `0600` in an init container that runs as 65532, or set `--strict-file-permissions=false`,
-  which loads them with a WARN. Do not run the container as root instead: without capabilities (`--cap-drop=ALL`, as
-  in section 3 and the compose example) root cannot write the `/data` the image creates for 65532, so the signer
-  exits 1, and with them it writes root-owned files into `/data`.
+  `fsGroup: 65532`, or `0444`). Those modes suit the configuration and certificates only: the kubelet cannot give a
+  Secret file to 65532 alone, so a `file-raw` key-config file or a password file mounted that way is refused. Copy
+  those into an `emptyDir` with mode `0600` in an init container that runs as 65532, or set
+  `--strict-file-permissions=false`, which loads them with a WARN. Do not run the container as root instead: without
+  capabilities (`--cap-drop=ALL`, as in section 3 and the compose example) root cannot write the `/data` the image
+  creates for 65532, so the signer exits 1, and with them it writes root-owned files into `/data`.
+- **The data volume with `fsGroup`.** The kubelet makes the root of a volume that it applies the pod's `fsGroup` to
+  group-writable (mode `2770` or wider), and the signer generates no token file in a directory that its group can
+  write ([`tls.md`](tls.md#5-rotating-tokens-and-certificates-with-sighup)): with the entrypoint's
+  `--data-path=/data`, the first start exits 1 (`directory /data: mode 2770: writable by group or other users`), and a
+  reload that would generate a deleted token fails. Mount the volume at `/data` and add `--data-path=/data/signer` to
+  `args`, before `consensus`: the signer creates that directory with mode `0700` on first start, and keeps the tokens,
+  the slashing-protection store and the generated certificate in it. Also set `fsGroupChangePolicy: OnRootMismatch`:
+  otherwise the kubelet makes every file and directory in the volume group-writable at every mount, and the signer
+  refuses the token files, the TLS key and the `tls` directory. A signer that already runs with `--data-path=/data`
+  loads the token files it has there as before. Keep its data path, and rotate a token by writing the new one into its
+  file rather than deleting it; or move its files, the slashing-protection store among them, into `/data/signer` while
+  it is stopped. Never start it on a data path without its store: it would sign with no slashing-protection history.
 - **Overrides.** The `--X…` overrides work the same way when appended, for example `--Xallow-plaintext-token-auth`
   together with `--tls-generate-self-signed=false` on a throwaway test network where TLS is impractical. The token
   then crosses the network in clear text: never do this where real validator keys are at stake.

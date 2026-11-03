@@ -28,7 +28,11 @@ func executionCommand(run runFunc, _, stderr io.Writer) *cli.Command {
 		Before:          applySection(flags.ExecutionCommand),
 		OnUsageError:    onUsageError,
 		HideHelpCommand: true,
-		Action:          modeAction(executionConfigFrom, run, stderr),
+		// execution has no subcommands: its help is a leaf command's
+		// ("remotesigner execution [command options]"), not urfave/cli's
+		// "execution command [command options]" of a command with some.
+		CustomHelpTemplate: cli.CommandHelpTemplate,
+		Action:             modeAction(executionConfigFrom, run, stderr),
 	}
 }
 

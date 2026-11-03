@@ -8,10 +8,80 @@ were set for the reference hardware: a 4-vCPU x86-64 cloud VM and a 4-vCPU Gravi
 p99 and p99.9 with `benchstat` over at least 10 runs. Rows measured elsewhere say so and must be re-run on the
 reference VMs before a release.
 
-The first two sections are the runs for the 1.1.0 and the 1.0.0 releases; the sections after them describe each
-benchmark and keep the runs made when its component landed.
+The first three sections are the release runs on the development machine: Run Y re-ran the benchmarks of the signing
+path and the slashing-protection stores after the review fixes, and Runs W and V, the runs for the 1.1.0 and the 1.0.0
+releases, ran every benchmark that runs there before those fixes. The sections after them describe each benchmark and
+keep the runs made when its component landed.
+
+## Sign-path and store re-run (dev machine)
+
+**These are development-machine numbers, not the release gate.** Both releases need every benchmark below within its
+threshold on the reference VMs, and B16; those are open items of the
+[v1.0](operations/release.md#62-open-gates-this-repository-cannot-meet-today) and
+[v1.1](operations/release.md#72-open-gates-this-repository-cannot-meet-today) release checklists. Runs V and W came
+before the review fixes, and several of those fixes are on the paths that B7-B9, B12-B14, B19 and B20 measure: the
+signing gate, which admits 32 sign requests at once into the slashing check, the signature and its verification, lets
+512 more wait and refuses the next with 503 `OVERLOADED`; the release of a request's slot before its response is
+written; closing the connection of a request refused for its credential, `Host` or `Origin`; the cap on the metrics
+listener's connections; and, in the stores, a high watermark kept whole, imports that re-enable only the keys an
+import disabled, and the enabled flag checked inside the RANDAO frontier commit. Run Y re-ran those benchmarks with
+the commands of the sections below, each test on its own, the acceptance tests against one signer binary built as
+their `TestMain` builds it and named by `REMOTESIGNER_BINARY`. The other benchmarks were not re-run: Runs V and W,
+from before the fixes, stay their latest release runs.
+
+Run Y, 2026-11-03, commit `e83f133`, Go 1.26.10, Apple M2 (4 performance and 4 efficiency cores, 16 GiB, darwin/arm64,
+macOS 15.5, on mains power), PostgreSQL 17.11 (`postgres:17-alpine`) in Docker Desktop for B13 and B14. The machine
+was quieter than for Runs V and W but not idle: other work kept a devnet running in Docker. The load average of each
+run is in the table; only B12 raised it much, with the eight Argon2id decrypts at once of its own reload. B19 ran
+alongside the others. The data volume was 99 % full, and a synced write (`F_FULLFSYNC`) in the temporary directory,
+where the tests keep their stores, took 3.0 ms on average.
+
+| ID | Threshold | Run Y | Load average | Verdict (dev machine) |
+|---|---|---|---|---|
+| B7 | last ≤ 1 s, p99 ≤ 500 ms, 0 errors | 11 runs: last 467-941 ms, p50 25-418 ms, p99 463-937 ms, 0 errors; p99 over 500 ms in 8 of 11 | 1.6-2.4 | met in 3 of 11; the last response came within 1 s in every run |
+| B8 | each ≤ 250 ms; RSS + ≤ 128 MiB | 11 runs: slowest 29.1-32.3 ms, and 72.1 ms in one run; RSS +28-38 MiB | 1.8-2.2 | met |
+| B9 | reveal p99 ≤ 0.5 s; unknown ≤ 0.6 s, cached on retry; signing p99 ≤ 500 ms alongside | 11 runs: 4 first reveals p99 227-389 ms; unknown 53-101 ms, retry 0.20-0.31 ms; signing p99 alongside 201-391 ms | 1.9-2.3 | met |
+| B12 | B7 p99 during the reload ≤ 2 × without | 3 runs: B7 p99 159-191 ms without a reload, 236-390 ms during a reload of 100 standard-KDF keystores (1.43 ×, 2.01 × and 2.45 ×); the reload took 38-42 s at 2.60-2.82 s per decrypt | 2.4-14 | met in 1 of 3; the burst always met B7's own bound (p99 ≤ 500 ms) |
+| B13 | p50 ≤ 5 ms, p99 ≤ 20 ms; burst ≤ 100 ms; stalled DB fails in ≤ 5 s | 3 runs: attestation p50 1.22-1.48 ms, p99 1.78-4.31 ms; block p50 1.19-1.22 ms, p99 1.49-3.10 ms; burst of 33 wall p50 26.1-26.8 ms, p99 51.8-55.6 ms; stalled database 4.50 s | 2.5-3.3 | met |
+| B14 | run ≤ 5 min; signing p99 during ≤ 2 × baseline | bbolt: steady state 9.7 s, 0.72 ×; first run on twice the window 45.4 s, 0.79 ×. Postgres: 38.2 s, 1.48 ×; 51.5 s, 0.69 × | 3.3-6.4 (bbolt), 2.5-2.6 (Postgres) | met |
+| B19 | 0 idle-connection errors over 1 h with `IdleTimeout` 120 s | 1 h run (`make b19 B19_DURATION=1h`, alongside the other runs): 162 POSTs, 0 connection errors | 1.6-14 over the hour | met |
+| B20 | p99 handshake ≤ 200 ms on 4 vCPU | 11 runs: P-256 p99 17.7-97.2 ms (max 97.3 ms), RSA-2048 p99 45.6-102.7 ms (max 103.4 ms). B7 over TLS on HTTP/1.1: P-256 p99 194-558 ms (over 500 ms in four runs), RSA-2048 218-490 ms; on h2: P-256 158-616 ms (in two), RSA-2048 252-787 ms (in five); 0 errors | 2.5-4.3 | storm met; B7 over TLS met in 33 of the 44 measurements |
+
+- **Against Runs V and W.** B8, B9, B13, B14, B19 and the B20 storm stay within their thresholds, as in both runs.
+  B9's reveals and the burst beside them were slower than in Run W (reveal p99 up to 389 ms against 243 ms) and B14's
+  Postgres steady state let signing rise to 1.48 × its baseline, where both earlier runs stayed below 1 ×; its bbolt
+  prune of twice the window took 45.4 s, against 24.5 s in Run W. All of these are within bound. B12 met its bound in
+  1 of 3 runs, where Run W met it in 2 of 3 and Run V in none. B7 met it in 3 of 11 runs, where Run W met it in 8 of 9
+  and Run V in 4 of 6, at a lower load than either, and its TLS variants in 33 of 44, against 37 of 44 in Run W. The
+  difference does not come from the review fixes: the signer of the commit that records Run W, built with the same
+  toolchain and run interleaved with this commit's for 8 runs each (load average 1.9-3.1), missed in 8 of 8 (p99
+  577-807 ms), and this commit's met in 3 of 8 (p99 394-899 ms).
+- **Where B7 queues.** B7 starts a fresh signer whose genesis validators root is pinned on first use, so its burst is
+  also the signer's first: every request that passes the policy check before the first pin has been committed and
+  applied writes the pin in a bbolt transaction of its own, and the 32 attestations then commit their records behind
+  those transactions. Each commit syncs twice (`F_FULLFSYNC` on macOS), so bbolt's single writer is the queue. Of this
+  commit's 27 runs at the default gate (the table's 11 and the 16 of the comparisons), 19 missed, one of them also
+  with its last response after 1.10 s; in each of them (the signer's log is printed only then) 42-142 of the 158
+  requests wrote the pin, and the tail tracked their number: with up to 65 pins p99 was 511-712 ms and p50 25-56 ms,
+  with 100 or more 729-1,096 ms and 194-427 ms. The burst with the root pinned and the keys registered is much faster:
+  B12's bursts after its warm-up had p99 138-201 ms. A production signer pins the root with its first request, once,
+  or is given it with `--network-genesis-validators-root`.
+- **Where the signing gate queues it.** The gate comes after the key lookup, the pin and the response cache, at step
+  10 of the [pipeline](contract.md#7-request-envelope-and-validation-pipeline), and holds a request's slot through the
+  slashing check-and-record, the signature and its verification. The B7 burst brings 158 requests to its 32 slots, so
+  up to 126 wait in its queue, and none is refused (512 may wait). The attestations hold their slots while they wait
+  for bbolt's writer, and a sync committee message, which needs no store, that finds every slot taken waits in the
+  queue behind them. With the gate opened to the whole burst (`REMOTESIGNER_MAX_CONCURRENT_SIGNING_REQUESTS=158`, so
+  that every request is admitted at once, as before the gate) and 8 runs interleaved with 8 at the default, p99 met
+  its bound in 3 of 8 against 2 of 8, and p50 was above 100 ms in 1 of 8 against 3 of 8. The gate adds some of that
+  queueing on this machine, but the misses come from the store's writer, with or without it.
+
+The reference VMs decide B7 and B12. The raw logs of Run Y are not kept in the repository.
 
 ## v1.1 release run (dev machine)
+
+**Pre-review: Run W ran before the review fixes.** For B7-B9, B12-B14, B19 and B20,
+[Run Y](#sign-path-and-store-re-run-dev-machine) re-ran them after those fixes.
 
 **These are development-machine numbers, not the release gate.** Like v1.0, v1.1 needs every benchmark below within
 its threshold on the reference VMs, and B16; both are open items of the
@@ -48,12 +118,14 @@ from about 2 to 14.
 | B19 | 0 idle-connection errors over 1 h with `IdleTimeout` 120 s | 1 h run (`make b19 B19_DURATION=1h`, alongside the other runs): 158 POSTs, 0 connection errors | 2-15 over the hour | met |
 | B20 | p99 handshake ≤ 200 ms on 4 vCPU | 11 runs: P-256 p99 20.5-89.8 ms (max 89.8 ms), RSA-2048 p99 43.1-106.2 ms (max 106.7 ms). B7 over TLS on HTTP/1.1: P-256 p99 164-824 ms (over 500 ms in one run), RSA-2048 181-386 ms; on h2: P-256 132-846 ms (over 500 ms in two runs), RSA-2048 192-914 ms (in four); 0 errors | 2.5-10 | storm met; B7 over TLS met in 37 of the 44 measurements |
 
-Against Run V the results are the same within the noise of a shared machine, as expected: 1.1.0 changes neither the
-signing path nor the slashing-protection stores, and its secret-store loaders run only when configured. The B7 misses
-are again single runs next to passing ones, and B12 met its bound in two of three runs, where Run V met it in none;
-the reference VMs decide both. The raw logs of Run W are not kept in the repository.
+Against Run V the results are the same within the noise of a shared machine. The B7 misses are again single runs next
+to passing ones, and B12 met its bound in two of three runs, where Run V met it in none; the reference VMs decide
+both. The raw logs of Run W are not kept in the repository.
 
 ## v1.0 release run (dev machine)
+
+**Pre-review: Run V ran before the review fixes.** For B7-B9, B12-B14, B19 and B20,
+[Run Y](#sign-path-and-store-re-run-dev-machine) re-ran them after those fixes.
 
 **These are development-machine numbers, not the release gate.** v1.0 needs every benchmark below within its threshold
 on the reference VMs, and B16 for 24 h on a reference VM; both are open items of the
@@ -156,9 +228,9 @@ allocates only small bookkeeping, which is why B6 stays far under its memory bou
 ## Public keys and idle connections (B15, B19, the API server)
 
 **B15: met on the development machine.** **B19: met on the development machine** in its 1 h runs (Run V,
-2026-10-20: 162 POSTs, 0 errors; Run W, the same day: 158 POSTs, 0 errors). The nightly workflow runs it every night
-once the workflow is on `main`; it has not run in CI yet, since GitHub runs scheduled workflows only from the default
-branch.
+2026-10-20: 162 POSTs, 0 errors; Run W, the same day: 158 POSTs, 0 errors; Run Y, 2026-11-03: 162 POSTs, 0
+errors). The nightly workflow runs it every night once the workflow is on `main`; it has not run in CI yet, since
+GitHub runs scheduled workflows only from the default branch.
 
 ```
 go test -run '^$' -bench PublicKeys10k -benchtime 10x -count 10 ./internal/api/consensus/ | tee b15.txt && benchstat b15.txt
@@ -175,7 +247,7 @@ about 2:1 at any level. B19 runs the built binary and two clients with Go's defa
 |---|---|---|---|---|
 | B15 | `BenchmarkPublicKeys10k/plain` | ≤ 2 s on a LAN; transient allocation ≤ 64 MB | 20.7-21.0 ms, 71.6 KB and 12 allocations per request | met on dev machine |
 | B15 | `BenchmarkPublicKeys10k/gzip` | as above | 526-551 ms, 1.28 MB and 32 allocations per request | met on dev machine |
-| B19 | `TestB19IdleConnectionRace` (`make b19`) | 0 "server closed idle connection" or EOF errors over 1 h with `IdleTimeout` 120 s | 1 h runs (Run V and Run W, 2026-10-20): 162 and 158 POSTs, 0 errors; earlier a 40 s smoke run (0 errors) and a 5 min run (2026-10-15: 14 POSTs, 0 errors) | met on dev machine |
+| B19 | `TestB19IdleConnectionRace` (`make b19`) | 0 "server closed idle connection" or EOF errors over 1 h with `IdleTimeout` 120 s | 1 h runs (Run V and Run W, 2026-10-20, and Run Y, 2026-11-03): 162, 158 and 162 POSTs, 0 errors; earlier a 40 s smoke run (0 errors) and a 5 min run (2026-10-15: 14 POSTs, 0 errors) | met on dev machine |
 
 Run E, 2026-10-15, Go 1.26.9, Apple M2 (8 cores, darwin/arm64), 10 runs of 10 requests each, load average 4-5 from
 other work.

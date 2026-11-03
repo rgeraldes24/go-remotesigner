@@ -93,6 +93,12 @@ AWS, GCP), and a key that an earlier source also provides is loaded from the ear
 
 ## 7. Testing
 
-No Secret Manager emulator is published. `make test` runs the client, and the built binary through
-`--Xgcp-endpoint-override`, against an in-process fake that implements the SDK's own generated gRPC service
-(`ListSecrets` with paging and label filters, `AccessSecretVersion`).
+Google publishes no Secret Manager emulator. `make test-cloud` runs the client's and the built binary's tests against
+[floci-gcp](https://github.com/floci-io/floci-gcp) (MIT), an open-source emulator of Google Cloud APIs: it starts the
+pinned image in Docker on a free loopback port and points `--Xgcp-endpoint-override=http://…` at it, which reaches it
+without TLS or credentials (the CI job `cloud-secrets` runs it as a service container). The tests read a secret's
+latest version, a missing secret, and a project's secrets in bulk, through a `gcp-secret` document and the bulk
+loader. floci-gcp ignores the `ListSecrets` filter, so `make test` covers the label filters, paging and the error paths
+against an in-process fake that implements the SDK's own generated gRPC service (`ListSecrets` with paging and label
+filters, `AccessSecretVersion`). Neither replaces a run against Google's service, with Application Default
+Credentials, which the release checklist requires ([`release.md`](release.md#72-open-gates-this-repository-cannot-meet-today)).

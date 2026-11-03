@@ -35,8 +35,13 @@ type operation struct {
 // operations returns every operation of the specification in a stable order.
 func operations(t *testing.T) []operation {
 	t.Helper()
+	return operationsOf(loadSpec(t))
+}
+
+// operationsOf returns every operation of doc in a stable order.
+func operationsOf(doc *openapi3.T) []operation {
 	var ops []operation
-	for path, item := range loadSpec(t).Paths.Map() {
+	for path, item := range doc.Paths.Map() {
 		for method, op := range item.Operations() {
 			ops = append(ops, operation{method: method, path: path, op: op})
 		}
@@ -84,8 +89,13 @@ func parameterExamples(where string, p *openapi3.Parameter) []example {
 // request bodies, responses, response headers and component schemas.
 func allExamples(t *testing.T) []example {
 	t.Helper()
+	return examplesOf(loadSpec(t))
+}
+
+// examplesOf collects every example of doc, as allExamples does.
+func examplesOf(doc *openapi3.T) []example {
 	var out []example
-	for _, o := range operations(t) {
+	for _, o := range operationsOf(doc) {
 		at := o.method + " " + o.path
 		for _, p := range o.op.Parameters {
 			out = append(out, parameterExamples(at+" parameter "+p.Value.Name, p.Value)...)
@@ -104,7 +114,7 @@ func allExamples(t *testing.T) []example {
 			}
 		}
 	}
-	for name, s := range loadSpec(t).Components.Schemas {
+	for name, s := range doc.Components.Schemas {
 		if s.Value.Example != nil {
 			out = append(out, example{where: "components.schemas." + name + " example", schema: s.Value, value: s.Value.Example})
 		}

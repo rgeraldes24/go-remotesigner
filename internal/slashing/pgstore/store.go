@@ -263,7 +263,8 @@ func (s *Store) ValidatorStatus(ctx context.Context, id slashing.KeyID) (slashin
 
 // SetValidatorEnabled sets a registered key's enabled flag under the validator's block and then attestation lock, as
 // Web3Signer's lockAllForValidator does: a check-and-record that read the old flag has committed before it returns,
-// in this process or another one.
+// in this process or another one. So has a RANDAO frontier commit that read it: that read is FOR SHARE, which the
+// UPDATE waits for.
 func (s *Store) SetValidatorEnabled(ctx context.Context, id slashing.KeyID, enabled bool) error {
 	return s.inTx(ctx, "set a validator's enabled flag", func(ctx context.Context, tx pgx.Tx) error {
 		vid, err := lockValidator(ctx, tx, id, lockBlock)
