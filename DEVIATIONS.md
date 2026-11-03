@@ -16,6 +16,8 @@ the behaviour. Rows X25, X26 and X28 describe execution mode (`remotesigner exec
 they record the design that release will follow and have no page yet. The register was reviewed against the code
 for 1.0.0. Rows X107-X115 came from a review of the 1.0.0 candidate made after the rows of execution mode and the
 secret stores, which a later release adds, were numbered X76-X106: they describe consensus mode and belong to 1.0.0.
+Row X120 came from a later review; it describes consensus mode and belongs to 1.0.0 too, and the numbers X116-X119
+are kept for rows of that later release.
 
 | # | Area | Web3Signer | go-remotesigner | Class |
 |---|---|---|---|---|
@@ -25,7 +27,7 @@ secret stores, which a later release adds, were numbered X76-X106: they describe
 | X4 | Missing `fork_info` | NPE, then 500 | 400 `MISSING_FORK_INFO` ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)) | Fix |
 | X5 | `fork_info` validation | Trusted; GVR pinned for blocks and attestations only | Must match the configured network for every type; domain from config ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)) | Fix |
 | X6 | Authentication | None | Bearer token by default, `admin` scope, optional mTLS ([contract §6](docs/contract.md#6-authentication-and-scopes)) | Fix (user request) |
-| X7 | Content type and `Origin` | Not enforced | 415 for a POST or `DELETE` without `Content-Type: application/json` ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)); 403 for any `Origin` ([contract §6](docs/contract.md#6-authentication-and-scopes)) | Fix |
+| X7 | Content type and `Origin` | `Content-Type` not enforced; CORS for the origin patterns `--http-cors-origins` lists (default none) | 415 for a POST or `DELETE` without `Content-Type: application/json` ([contract §7](docs/contract.md#7-request-envelope-and-validation-pipeline)); 403 for any `Origin` ([contract §6](docs/contract.md#6-authentication-and-scopes)): CORS is off and not configurable in v1, and `--http-cors-origins` is not accepted (exit 2) | Fix |
 | X8 | Low-watermark conditions | `<` plus a double-vote check | Literal EIP-3076 (`≤`) ([contract §11](docs/contract.md#11-errors)) | Stricter |
 | X9 | Body limits | 10 MiB everywhere | Per route ([contract §13](docs/contract.md#13-size-limits-and-timeouts)) | QRL-sized |
 | X10 | Idle timeout | 30 s | 120 s ([contract §13](docs/contract.md#13-size-limits-and-timeouts)) | Go client |
@@ -35,7 +37,7 @@ secret stores, which a later release adds, were numbered X76-X106: they describe
 | X14 | Keystores | EIP-2335 | QRL v1 + deposit-cli, KDF bounds, derive and compare ([docs/operations/keystores.md](docs/operations/keystores.md#2-what-the-signer-refuses)) | QRL-forced + fix |
 | X15 | Keymanager file names | `<pubkey>.*` | `<sha256(pk)>.*`, 0600 ([docs/operations/keymanager.md](docs/operations/keymanager.md#3-importing-keys)) | NAME_MAX |
 | X16 | Interchange import | Per-validator errors swallowed, no locks | Errors surface, key inactive, locks, GVR always exported; the keymanager writes only its imported keys' history and refuses an unreadable file before any keystore is decrypted ([docs/operations/keymanager.md](docs/operations/keymanager.md#3-importing-keys)) | Fix |
-| X17 | Pruning | 250 epochs, 32 slots per epoch | 512 epochs, slots per epoch from the network ([docs/operations/migration.md](docs/operations/migration.md#6-pruning)) | QRL time |
+| X17 | Pruning | 250 epochs, 32 slots per epoch (`--slashing-protection-pruning-slots-per-epoch`) | 512 epochs, slots per epoch from the network; `--slashing-protection-pruning-slots-per-epoch` is not accepted (exit 2) ([docs/operations/migration.md](docs/operations/migration.md#6-pruning)) | QRL time |
 | X18 | Secret logging | Import body at INFO on parse error | Redaction; bodies never logged ([docs/operations/keymanager.md](docs/operations/keymanager.md#6-logging)) | Fix |
 | X19 | Embedded store | none (protection off without Postgres) | bbolt by default ([docs/reference/flags.md](docs/reference/flags.md)) | Fix |
 | X20 | Exits | Always signed | Off by default ([contract §8](docs/contract.md#8-artifact-types)) | Policy |
@@ -103,3 +105,4 @@ secret stores, which a later release adds, were numbered X76-X106: they describe
 | X113 | Partial high watermark | The store keeps and serves a high watermark with an epoch or a slot alone (its tests set one; `watermark-repair --set-high-watermark` always writes both) | Every store refuses one part alone, the Postgres schema has a `CHECK` that both are set or neither, and a store that holds one anyway is reported as damaged, so `GET /api/v1/consensus/highWatermark` serves both fields or none ([contract §20](docs/contract.md#20-versioning-and-change-control)) | Stricter |
 | X114 | Health check with protection disabled | `slashing-protection-db-health-check` is left out without slashing protection, so `/healthcheck` can be `UP` | With `--slashing-protection-enabled=false` (loopback only) the check is listed and `DOWN`, so `/healthcheck` answers 503 `DOWN`; `/upcheck` and signing are unaffected ([contract §17](docs/contract.md#17-supporting-endpoints)) | Stricter |
 | X115 | Connections of refused callers | A 401 or a 403 keeps the connection open for the next request, until the idle timeout | A 401 `UNAUTHENTICATED`, a 403 `HOST_NOT_ALLOWED` and a 403 `ORIGIN_NOT_ALLOWED`, on the API listener and the metrics listener, close their connection (`Connection: close` on HTTP/1.1, `GOAWAY` on h2), so that a peer without a credential cannot hold the connection slots with one refused request per connection now and then ([contract §11](docs/contract.md#11-errors), [§13](docs/contract.md#13-size-limits-and-timeouts)) | Fix |
+| X120 | Subcommand and API namespace | `eth2` subcommand, with `eth2 import`, `eth2 export` and `eth2 watermark-repair`; routes under `/api/v1/eth2/` | `consensus` subcommand, which holds the store commands too (`consensus import`, …); routes under `/api/v1/consensus/`, which the qrysm client hard-codes; no `eth2` alias: `eth2` is an unknown command (exit 2) and a path under `/api/v1/eth2/` matches no route (404 after authentication); the environment and config-file names (X40) and the metric names (X23) follow ([contract §2](docs/contract.md#2-transport)) | QRL-forced |
