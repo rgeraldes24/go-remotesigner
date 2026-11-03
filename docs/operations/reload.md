@@ -54,7 +54,7 @@ remotesigner consensus --network=… \
 Every `*.json` file in the directory is taken for a keystore, as in Web3Signer, so copy only the `keystore-*.json`
 files there: the deposit CLI's `deposit_data-*.json` would fail to load and keep the keystore health check `DOWN`.
 The password file the CLI was given can be used as it is (its trailing line feed is not part of the password), once
-it is readable by its owner only (see "Secret files" below).
+its group and other users can neither read nor write it (see "Secret files" below).
 
 `--keystores-path` needs exactly one of the two password flags, and they need it; any other combination is a usage
 error (exit 2). The sources load in Web3Signer's order: the key-config files, Azure Key Vault, the keystores, AWS
