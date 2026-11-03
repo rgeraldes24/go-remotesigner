@@ -24,10 +24,10 @@
 // token, a deeper layer exists, and the validator is enabled. The new
 // frontier is then committed with compare-and-set, and only after that is
 // the layer returned. The store checks the enabled flag again inside that
-// commit, under the key's RANDAO lock, which every disable takes too: a
-// keymanager DELETE or a disable-validator, on this signer or another one
-// sharing the store, that commits after the first check still refuses the
-// layer with 412 VALIDATOR_DISABLED. The slow path runs at most once per
+// commit, serialised with every disable: a keymanager DELETE or a
+// disable-validator, on this signer or another one sharing the store, that
+// commits after the first check still refuses the layer with 412
+// VALIDATOR_DISABLED. The slow path runs at most once per
 // key per --randao-full-scan-min-interval (else 429), and unknown
 // commitments are remembered in a negative cache.
 //

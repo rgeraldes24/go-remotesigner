@@ -14,8 +14,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Modified by The go-remotesigner Authors, 2026: translated from Java to Go and adapted for QRL: validators keyed by
-// sha256(public key), the high watermark fenced against concurrent signing, and disabling under the block, attestation
-// and RANDAO locks.
+// sha256(public key), the high watermark fenced against concurrent signing, and disabling under both validator locks.
 // Derived from Web3Signer
 // slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/MetadataDao.java,
 // slashing-protection/src/main/java/tech/pegasys/web3signer/slashingprotection/dao/ValidatorsDao.java,
@@ -262,19 +261,18 @@ func (s *Store) ValidatorStatus(ctx context.Context, id slashing.KeyID) (slashin
 	return st, err
 }
 
-// SetValidatorEnabled sets a registered key's enabled flag under the validator's block, then attestation, then RANDAO
-// lock, as Web3Signer's lockAllForValidator does with the first two: a check-and-record or a RANDAO frontier commit
-// that read the old flag has committed before it returns, in this process or another one.
+// SetValidatorEnabled sets a registered key's enabled flag under the validator's block and then attestation lock, as
+// Web3Signer's lockAllForValidator does: a check-and-record that read the old flag has committed before it returns,
+// in this process or another one. So has a RANDAO frontier commit that read it: that read is FOR SHARE, which the
+// UPDATE waits for.
 func (s *Store) SetValidatorEnabled(ctx context.Context, id slashing.KeyID, enabled bool) error {
 	return s.inTx(ctx, "set a validator's enabled flag", func(ctx context.Context, tx pgx.Tx) error {
 		vid, err := lockValidator(ctx, tx, id, lockBlock)
 		if err != nil {
 			return err
 		}
-		for _, typ := range []int{lockAttestation, lockRandao} {
-			if err := lock(ctx, tx, vid, typ); err != nil {
-				return err
-			}
+		if err := lock(ctx, tx, vid, lockAttestation); err != nil {
+			return err
 		}
 		_, err = tx.Exec(ctx, `UPDATE validators SET enabled = $2, disabled_by_import = false WHERE id = $1`, vid,
 			enabled)

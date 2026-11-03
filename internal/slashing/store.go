@@ -116,11 +116,11 @@ type Store interface {
 	// ValidatorStatus returns a key's registration state; an unknown key is neither registered nor enabled.
 	ValidatorStatus(ctx context.Context, id KeyID) (ValidatorStatus, error)
 	// SetValidatorEnabled sets a registered key's enabled flag. Disabling a key this way disables it on purpose (it
-	// is no longer DisabledByImport), so that an import leaves it disabled. It is serialised with UpdateBlocks,
-	// UpdateAttestations and CompareAndSwapRandaoState for the same validator: it takes the validator's block, then
-	// its attestation, then its RANDAO lock (the fixed order block, attestation, RANDAO that every multi-lock
-	// operation uses), so a check-and-record or a frontier commit that read the old flag has committed before it
-	// returns, and one that starts afterwards reads the new flag.
+	// is no longer DisabledByImport), so that an import leaves it disabled. It is serialised with UpdateBlocks and
+	// UpdateAttestations for the same validator: it takes the validator's block lock and then its attestation lock
+	// (the fixed order block, attestation, RANDAO that every multi-lock operation uses), so a check-and-record that
+	// read the old flag has committed before it returns, and one that starts afterwards reads the new flag. It is
+	// serialised with CompareAndSwapRandaoState in the same way (see there).
 	SetValidatorEnabled(ctx context.Context, id KeyID, enabled bool) error
 
 	// UpdateBlocks runs fn in a block transaction for one validator.
@@ -128,11 +128,11 @@ type Store interface {
 	// UpdateAttestations runs fn in an attestation transaction for one validator.
 	UpdateAttestations(ctx context.Context, id KeyID, fn func(AttestationTx) error) error
 	// UpdateHistory runs fn once for each of ids, in order, in one transaction: the interchange import and the
-	// pruner use it to write many validators with one commit. For the whole transaction it holds the block, the
-	// attestation and the RANDAO lock of every validator in ids, taken validator by validator in KeyID order and, for
-	// each, in that order, so it is serialised with UpdateBlocks, UpdateAttestations, SetValidatorEnabled and
-	// CompareAndSwapRandaoState: a disable it writes (HistoryTx.SetEnabled, DisableForImport) is a disable for the
-	// RANDAO frontier as well. An id may appear more than once. When fn returns an error, nothing written for any id
+	// pruner use it to write many validators with one commit. For the whole transaction it holds the block and the
+	// attestation lock of every validator in ids, taken validator by validator in KeyID order and, for each, block
+	// before attestation, so it is serialised with UpdateBlocks, UpdateAttestations and SetValidatorEnabled. A
+	// disable it writes (HistoryTx.SetEnabled, DisableForImport) is serialised with CompareAndSwapRandaoState as
+	// SetValidatorEnabled's is. An id may appear more than once. When fn returns an error, nothing written for any id
 	// is kept. It returns ErrValidatorNotRegistered, without calling fn, when any id is unregistered. A backend that
 	// retries the transaction (Postgres after a serialisation failure or a deadlock) rolls it back and runs fn again
 	// for every id, from the first: fn must derive what it writes and reports from id and tx alone, and set its
