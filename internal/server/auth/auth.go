@@ -45,8 +45,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/api/apierr"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
@@ -349,7 +351,8 @@ func loadOrGenerate(path string, p secretfile.Policy) ([sha256.Size]byte, error)
 // existing file) and returns the file content. A directory that its group or
 // other users can write is refused or warned about first, under the file
 // policy p: they could replace the token once it is written. When another
-// process created the file first, it reads that one under p.
+// process created the file first, it reads that one under p: signers
+// started at once on one data path end up with the same token.
 func generate(path string, p secretfile.Policy) ([]byte, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -367,20 +370,107 @@ func generate(path string, p secretfile.Policy) ([]byte, error) {
 		return nil, err
 	}
 	data := []byte("0x" + hex.EncodeToString(raw[:]) + "\n")
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
-	if errors.Is(err, fs.ErrExist) {
+	created, err := createExclusive(path, data)
+	if err != nil || !created {
+		mldsa87.Wipe(data)
+	}
+	switch {
+	case err != nil:
+		return nil, err
+	case !created:
 		// Another process created it first; use that one.
 		return secretfile.Read(path, maxTokenFile, p)
 	}
-	if err != nil {
-		return nil, err
-	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return nil, err
-	}
-	if err := f.Close(); err != nil {
-		return nil, err
-	}
 	return data, nil
+}
+
+// link hard-links a new token file into place; tests replace it.
+var link = os.Link
+
+// createExclusive creates path holding data, mode 0600, unless a file is
+// there already, and reports whether it did. A reader never finds a part
+// of data at path: data is written to a temporary file next to it and
+// synced, then hard-linked to path, which fails when path exists, and the
+// directory is synced. The temporary file is removed whatever happens.
+// Where the file system has no hard links, path is created exclusively and
+// written in place instead, and a concurrent reader there may find it empty.
+func createExclusive(path string, data []byte) (bool, error) {
+	dir := filepath.Dir(path)
+	tmp, err := writeTemp(dir, "."+filepath.Base(path)+".*.tmp", data)
+	if err != nil {
+		return false, err
+	}
+	err = link(tmp, path)
+	_ = os.Remove(tmp) // path, when linked, keeps the file
+	if errors.Is(err, errors.ErrUnsupported) || errors.Is(err, syscall.EPERM) {
+		err = writeInPlace(path, data) // EPERM: Linux file systems without hard links
+	}
+	switch {
+	case errors.Is(err, fs.ErrExist):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	if err := syncDir(dir); err != nil {
+		return true, fmt.Errorf("sync directory %s: %w", dir, err)
+	}
+	return true, nil
+}
+
+// writeTemp writes data to a new temporary file in dir (os.CreateTemp's
+// pattern, mode 0600), synced, and returns its name. On failure nothing is
+// left.
+func writeTemp(dir, pattern string, data []byte) (string, error) {
+	f, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return "", err
+	}
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+// writeInPlace creates path exclusively (mode 0600) and writes data to it,
+// synced, removing it again when the write fails.
+func writeInPlace(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(path)
+	}
+	return err
+}
+
+// syncDir makes the directory's entries durable, where the platform can.
+func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	err = d.Sync()
+	if cerr := d.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
