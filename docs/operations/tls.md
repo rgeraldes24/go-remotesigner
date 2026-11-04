@@ -195,6 +195,13 @@ level=error msg="Reloading the TLS client trust failed; every client certificate
 To revoke a client, remove its line from the known-clients file (or its CA from the CA file) and send SIGHUP; this
 works for the last client too, which leaves a trust that accepts nobody and logs a WARN saying so.
 
+A token file is generated whole: the signer writes the token to a temporary file next to it
+(`.auth-token.<random>.tmp` for `auth-token`, mode `0600`), syncs it and links it to the token file's name, which
+fails when that file exists. Signers started at once on one data path therefore end up with the same token, and none
+loads a file another has created but not yet written. A crash at that moment can leave the temporary file behind;
+delete it. On a file system without hard links the token file is created and written in place instead, and a signer
+started at the same moment can find it empty and refuse to start: start it again.
+
 To rotate a token, write a new one (`0x` and at least 64 hex characters) into its file, or delete the file, and send
 SIGHUP; then give the new sign token to the validator clients. The old token stops working at once, so update the
 clients right after the reload. To rotate a certificate, replace the files in place (write the new ones next to them
