@@ -40,11 +40,18 @@ func TestRender(t *testing.T) {
 		"| `--logging`, `-l` |",
 		"`--Xallow-plaintext-token-auth`",
 		"| `--downstream-http-port` | `REMOTESIGNER_EXECUTION_DOWNSTREAM_HTTP_PORT` | `downstream-http-port` or `execution.downstream-http-port` | `8545` |",
-		"| `--execution-proxy-allowed-methods` | `REMOTESIGNER_EXECUTION_EXECUTION_PROXY_ALLOWED_METHODS` | `execution-proxy-allowed-methods` or `execution.execution-proxy-allowed-methods` | `qrl_*,net_*,web3_*` |",
+		"| `--execution-proxy-allowed-methods` | `REMOTESIGNER_EXECUTION_PROXY_ALLOWED_METHODS` | `execution-proxy-allowed-methods` or `execution.execution-proxy-allowed-methods` | `qrl_*,net_*,web3_*` |",
+		"| `--execution-policy-file` | `REMOTESIGNER_EXECUTION_POLICY_FILE` |",
 		"| `--keystores-path` | `REMOTESIGNER_EXECUTION_KEYSTORES_PATH` |",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("rendered reference lacks %q", want)
+		}
+	}
+	// No execution variable repeats the command.
+	for _, unwanted := range []string{"_EXECUTION_EXECUTION_"} {
+		if strings.Contains(doc, unwanted) {
+			t.Errorf("rendered reference has %s", unwanted)
 		}
 	}
 	if i, j := strings.Index(doc, "## Override flags"), strings.Index(doc, "--Xallow-gvr-tofu"); j < i {
@@ -132,7 +139,8 @@ func TestConfigKeys(t *testing.T) {
 		{[]string{"data-path"}, "", "`data-path`"},
 		{[]string{"key-config-path", "key-store-path"}, "", "`key-config-path` or `key-store-path`"},
 		{[]string{"network"}, "consensus", "`network` or `consensus.network`"},
-		{[]string{"a", "b"}, "consensus", "`a`, `b`, `consensus.a` or `consensus.b`"},
+		{[]string{"aa", "bb"}, "consensus", "`aa`, `bb`, `consensus.aa` or `consensus.bb`"},
+		{[]string{"logging", "l"}, "", "`logging` or `l`"},
 	} {
 		if got := configKeys(tt.names, tt.command); got != tt.want {
 			t.Errorf("configKeys(%q, %q) = %s, want %s", tt.names, tt.command, got, tt.want)

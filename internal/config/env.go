@@ -25,10 +25,15 @@ import "strings"
 const EnvPrefix = "REMOTESIGNER"
 
 // EnvVars returns the environment variables of a flag: one per name and
-// alias, REMOTESIGNER_[<COMMAND>_]<NAME> with dashes as underscores, in
-// upper case. command is "" for a global flag and "consensus" for a flag of
-// that subcommand, so --http-listen-port is REMOTESIGNER_HTTP_LISTEN_PORT and
-// consensus --network is REMOTESIGNER_CONSENSUS_NETWORK.
+// alias, as Web3Signer derives one from every name of an option, its
+// one-letter alias included (-l of --logging is REMOTESIGNER_L):
+// REMOTESIGNER_[<COMMAND>_]<NAME> with dashes as underscores, in upper case.
+// command is "" for a global flag and "consensus" for a flag of that
+// subcommand, so --http-listen-port is REMOTESIGNER_HTTP_LISTEN_PORT and
+// consensus --network is REMOTESIGNER_CONSENSUS_NETWORK. A name that begins
+// with its command's name does not repeat it: execution
+// --execution-policy-file is REMOTESIGNER_EXECUTION_POLICY_FILE, not
+// REMOTESIGNER_EXECUTION_EXECUTION_POLICY_FILE.
 func EnvVars(command string, names ...string) []string {
 	prefix := EnvPrefix + "_"
 	if command != "" {
@@ -36,7 +41,11 @@ func EnvVars(command string, names ...string) []string {
 	}
 	out := make([]string, 0, len(names))
 	for _, n := range names {
-		out = append(out, prefix+envName(strings.TrimLeft(n, "-")))
+		n = strings.TrimLeft(n, "-")
+		if rest, ok := strings.CutPrefix(n, command+"-"); command != "" && ok && rest != "" {
+			n = rest
+		}
+		out = append(out, prefix+envName(n))
 	}
 	return out
 }

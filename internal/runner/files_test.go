@@ -4,7 +4,6 @@
 package runner
 
 import (
-	"bytes"
 	"strings"
 	"testing"
 
@@ -13,15 +12,6 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 )
-
-// credentialLog returns a logger and the buffer it writes its lines to.
-func credentialLog() (*logrus.Logger, *bytes.Buffer) {
-	var buf bytes.Buffer
-	log := logrus.New()
-	log.SetOutput(&buf)
-	log.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true, DisableColors: true})
-	return log, &buf
-}
 
 // Every file policy the signer builds follows --strict-file-permissions
 // and, without it, logs at WARN what it lets through: a loose mode, a

@@ -251,6 +251,42 @@ consensus:
 	}
 }
 
+// The one-letter alias -l of --logging is read, as Web3Signer reads -l
+// from WEB3SIGNER_L and an l key, from REMOTESIGNER_L and an l key in the
+// config file, as 1.0.0 read it; the file may not set both names.
+func TestShortAliasSources(t *testing.T) {
+	cfg, code, stderr := capture(t, "-l", "DEBUG", "consensus", "--network=e2e")
+	if code != exitOK || cfg.Logging.Level != "DEBUG" {
+		t.Fatalf("-l: exit %d %s", code, stderr)
+	}
+	dir := t.TempDir()
+	file, both := filepath.Join(dir, "config.yaml"), filepath.Join(dir, "both.yaml")
+	if err := os.WriteFile(file, []byte("l: WARN\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(both, []byte("logging: WARN\nl: DEBUG\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, code, stderr = capture(t, "--config-file="+file, "consensus", "--network=e2e"); code != exitOK ||
+		cfg.Logging.Level != "WARN" {
+		t.Fatalf("an l key: exit %d %s", code, stderr)
+	}
+	if _, code, stderr = capture(t, "--config-file="+both, "consensus", "--network=e2e"); code != exitUsage ||
+		!strings.Contains(stderr, "set the same option") {
+		t.Fatalf("logging and l keys: exit %d %s", code, stderr)
+	}
+	t.Setenv("REMOTESIGNER_L", "TRACE")
+	if cfg, code, stderr = capture(t, "--config-file="+file, "consensus", "--network=e2e"); code != exitOK ||
+		cfg.Logging.Level != "TRACE" {
+		t.Fatalf("REMOTESIGNER_L: exit %d %s, level %v", code, stderr, cfg)
+	}
+	var stdout, errOut bytes.Buffer
+	if code := runWith([]string{binaryName, "--help"}, &stdout, &errOut, noRun); code != exitOK ||
+		!strings.Contains(stdout.String(), "$REMOTESIGNER_LOGGING, $REMOTESIGNER_L]") {
+		t.Fatalf("--help: exit %d\n%s", code, stdout.String())
+	}
+}
+
 func TestUsageErrors(t *testing.T) {
 	dir := t.TempDir()
 	badYAML := filepath.Join(dir, "bad.yaml")

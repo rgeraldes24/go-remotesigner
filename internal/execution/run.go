@@ -108,6 +108,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 			SelfSignedHosts:   cfg.HTTP.HostAllowlist,
 			RequireClientCert: cfg.HTTP.AuthMode.ClientCerts(),
 			Files:             files,
+			TrustFiles:        runner.TrustFilePolicy(cfg, log),
 		})
 		if err != nil {
 			return fmt.Errorf("refusing to start: TLS: %w", err)

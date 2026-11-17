@@ -20,7 +20,7 @@ The HTTP contract with the qrysm validator client stays at 1.0.0: its one additi
 is a clarification that [`docs/contract.md`](docs/contract.md#20-versioning-and-change-control) section 20 lists. The
 slashing-protection schema is unchanged and no flag was removed or renamed, so a 1.0.0 signer upgrades in place with
 its configuration ([`docs/operations/upgrade.md`](docs/operations/upgrade.md)). The behaviours that differ from
-Web3Signer are rows X25, X26, X28, X76-X106 and X116 of [`DEVIATIONS.md`](DEVIATIONS.md).
+Web3Signer are rows X25, X26, X28, X76-X106, X116, X118 and X119 of [`DEVIATIONS.md`](DEVIATIONS.md).
 
 ### Added
 
@@ -62,6 +62,16 @@ Web3Signer are rows X25, X26, X28, X76-X106 and X116 of [`DEVIATIONS.md`](DEVIAT
   holds a store credential is a secret file under `--strict-file-permissions`. `remotesigner-consensus` refuses the
   AWS, GCP and Azure stores, and execution mode reads none. See
   [`docs/operations/reload.md`](docs/operations/reload.md#1-key-sources) and the page of each store it lists.
+- **Credential files for the bulk loaders.** `--aws-secrets-secret-access-key-file` and `--azure-client-secret-file`
+  read the AWS secret access key and the Azure client secret from the first line of a secret file at startup, under
+  `--strict-file-permissions`. Web3Signer's plain `--aws-secrets-secret-access-key` and `--azure-client-secret` are
+  accepted too, but deprecated: each logs a warning at startup that names its `-file` flag, a value on the command
+  line, where every local user can read it in the process list, a second one, and a `--config-file` that sets one is
+  a secret file. A plain flag with its `-file` flag is a usage error.
+- **An OpenAPI description of execution mode.** [`api/openapi/execution.yaml`](api/openapi/execution.yaml) describes
+  the JSON-RPC endpoint (its methods, batches, the errors and the HTTP status of each) and
+  `GET /api/v1/execution/publicKeys`, with examples the signer's handler produces; `make contract` checks it
+  against [`docs/operations/execution.md`](docs/operations/execution.md) and against the handler.
 - **The source of each release.** Every release attaches `remotesigner-<version>-src-vendored.tar.gz`: the tagged
   source with every module the binaries link in `vendor/`, go-qrl included, which rebuilds the default flavour
   offline with Go 1.26.5 or later ([`docs/operations/release.md`](docs/operations/release.md#3-verifying-a-release)).

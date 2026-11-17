@@ -336,7 +336,13 @@ func TestRandaoRequestStrictness(t *testing.T) {
 // more lenient than strict validators and code generators here, so a
 // nullable beside an allOf would pass these tests and still break clients.
 func TestNullableSitsNextToType(t *testing.T) {
-	doc := loadSpec(t)
+	for _, doc := range []*openapi3.T{loadSpec(t), loadExecutionSpec(t)} {
+		nullableSitsNextToType(t, doc)
+	}
+}
+
+func nullableSitsNextToType(t *testing.T, doc *openapi3.T) {
+	t.Helper()
 	seen := map[*openapi3.Schema]bool{}
 	var walk func(where string, ref *openapi3.SchemaRef)
 	walk = func(where string, ref *openapi3.SchemaRef) {
@@ -359,7 +365,7 @@ func TestNullableSitsNextToType(t *testing.T) {
 	for name, s := range doc.Components.Schemas {
 		walk("components.schemas."+name, s)
 	}
-	for _, o := range operations(t) {
+	for _, o := range operationsOf(doc) {
 		at := o.method + " " + o.path
 		if rb := o.op.RequestBody; rb != nil {
 			for ct, mt := range rb.Value.Content {

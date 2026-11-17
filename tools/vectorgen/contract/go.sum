@@ -464,8 +464,10 @@ github.com/prysmaticlabs/gohashtree v0.0.5-beta/go.mod h1:HRuvtXLZ4WkaB1MItToVH2
 github.com/prysmaticlabs/protoc-gen-go-cast v0.0.0-20230228205207-28762a7b9294 h1:q9wE0ZZRdTUAAeyFP/w0SwBEnCqlVy2+on6X2/e+eAU=
 github.com/prysmaticlabs/protoc-gen-go-cast v0.0.0-20230228205207-28762a7b9294/go.mod h1:ZVEbRdnMkGhp/pu35zq4SXxtvUwWK0J1MATtekZpH2Y=
 github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563/go.mod h1:bCqnVzQkZxMG4s8nGwiZ5l3QUCyqpo9Y+/ZMZ9VjZe4=
-github.com/rgeraldes24/qrysm v0.0.0-20261026105706-47f6b65e6c58 h1:TSrLwNkKfqtzSSHj3CmiNWWC1kkkT+p4ND2lC+vjcQQ=
-github.com/rgeraldes24/qrysm v0.0.0-20261026105706-47f6b65e6c58/go.mod h1:5No4xujoVI4MFCGMo4wiS236XRN9gs7bVh/l8Fvvq4A=
+github.com/rgeraldes24/go-qrl v0.0.0-20261023161232-0c124c634a28 h1:uUgLdXER7f1MycZjeP93+8SLBMo5R9cloBZn9tSBG14=
+github.com/rgeraldes24/go-qrl v0.0.0-20261023161232-0c124c634a28/go.mod h1:c4FI7fxmIQ4S6uexw0DEkO/+3hQ/BOgo5nQcLiAbwTY=
+github.com/rgeraldes24/qrysm v0.0.0-20261117161652-693839886113 h1:8ZqLgKKg7qOyDls+gyrE4gfB2OAZGY9MZmXi8HNkPDY=
+github.com/rgeraldes24/qrysm v0.0.0-20261117161652-693839886113/go.mod h1:svOP+klWVdVjZFQbNTfvrKK6ej7F5aacYAwFd+GHSvc=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rivo/uniseg v0.4.4 h1:8TfxU8dW6PdqD27gjM8MVNuicgxIjxpm4K7x4jp8sis=
 github.com/rivo/uniseg v0.4.4/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
@@ -525,8 +527,6 @@ github.com/templexxx/cpufeat v0.0.0-20180724012125-cef66df7f161/go.mod h1:wM7WEv
 github.com/templexxx/xor v0.0.0-20191217153810-f85b25db303b/go.mod h1:5XA7W9S6mni3h5uvOC75dA3m9CCCaS83lltmc0ukdi4=
 github.com/theQRL/go-bitfield v0.0.0-20231204084259-f3b877be8f63 h1:cU1QlEDDZ3zI6uya2Bbz+ldjvy+j6yhTmDtLkipDvz4=
 github.com/theQRL/go-bitfield v0.0.0-20231204084259-f3b877be8f63/go.mod h1:Xm3tb2axH6IT4miFd3hKIeD877Y6aA9Hxf2jOYtfTIk=
-github.com/theQRL/go-qrl v0.0.0-20261020143425-f3864c46b3f9 h1:5VrQ3jFAE3WCYIupyiLUr0P9WnuKdQKuWalHObstcso=
-github.com/theQRL/go-qrl v0.0.0-20261020143425-f3864c46b3f9/go.mod h1:c4FI7fxmIQ4S6uexw0DEkO/+3hQ/BOgo5nQcLiAbwTY=
 github.com/theQRL/go-qrllib v0.11.0 h1:WogcKH+gjQsWGWI8+/EtcIMU24UWPHi6xt4nm+rXNU8=
 github.com/theQRL/go-qrllib v0.11.0/go.mod h1:cJalbgwzfscRXz7gqwPmmeC2wxB/QJh631N1dpihXuI=
 github.com/theQRL/grpc-gateway/v2 v2.0.0-20250214142603-49067762c97f h1:hEgl/ykBvqXdxoQc3mFuh59ju8ylNMVwDyAaiRHdLBY=

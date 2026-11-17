@@ -98,11 +98,14 @@ jobs:
 
   cloud-secrets:
     # The secret-store clients and the built binary against a real HashiCorp
-    # Vault dev server and LocalStack's Secrets Manager, run as service
-    # containers (make test-cloud). GCP Secret Manager and Azure Key Vault
-    # have no emulator here: the test job runs their clients against
-    # in-process fakes of their wire protocols. LocalStack 4.14.0 is the last
-    # release that serves Secrets Manager without an auth token.
+    # Vault dev server, LocalStack's Secrets Manager, and the emulators of GCP
+    # Secret Manager (floci-gcp) and Azure Key Vault (Lowkey Vault, whose
+    # managed-identity token endpoint stands in for App Service's), run as
+    # service containers (make test-cloud). The test job also runs the GCP
+    # and Azure clients against in-process fakes of their wire protocols,
+    # which cover the label filters floci-gcp ignores and the error paths.
+    # LocalStack 4.14.0 is the last release that serves Secrets Manager
+    # without an auth token.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
@@ -122,10 +125,24 @@ jobs:
         options: >-
           --health-cmd "curl -sf http://localhost:4566/_localstack/health"
           --health-interval 5s --health-timeout 5s --health-retries 30
+      gcp:
+        image: floci/floci-gcp:0.11.0@sha256:eae9683d806ceb643bcb36aee97cdb8cad13c3e2959cd053bf40e481994fde12
+        ports:
+          - 4588:4588
+      azure:
+        image: nagyesta/lowkey-vault:7.3.127@sha256:d92adc63759571b2ef68e84f4fad94e6d9603c1faf9d338a2d90c2302303c952
+        env:
+          LOWKEY_ARGS: --server.port=8443 --app.token.port=8080 --LOWKEY_VAULT_RELAXED_PORTS=true
+        ports:
+          - 8443:8443
+          - 8080:8080
     env:
       REMOTESIGNER_TEST_VAULT_ADDR: http://127.0.0.1:8200
       REMOTESIGNER_TEST_VAULT_TOKEN: remotesigner-ci-root
       REMOTESIGNER_TEST_AWS_ENDPOINT: http://127.0.0.1:4566
+      REMOTESIGNER_TEST_GCP_ENDPOINT: http://127.0.0.1:4588
+      REMOTESIGNER_TEST_AZURE_VAULT: https://localhost:8443
+      REMOTESIGNER_TEST_AZURE_IDENTITY_ENDPOINT: http://127.0.0.1:8080/metadata/identity/oauth2/token
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -133,15 +150,17 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.x"
-      - name: Wait for Vault
+      - name: Wait for Vault and the emulators
         run: |
-          for i in $(seq 60); do
-            curl -sf "$REMOTESIGNER_TEST_VAULT_ADDR/v1/sys/health" >/dev/null && exit 0
+          for i in $(seq 120); do
+            curl -sf "$REMOTESIGNER_TEST_VAULT_ADDR/v1/sys/health" >/dev/null &&
+              curl -sf "$REMOTESIGNER_TEST_GCP_ENDPOINT/health" >/dev/null &&
+              curl -sfk "$REMOTESIGNER_TEST_AZURE_VAULT/ping" >/dev/null && exit 0
             sleep 1
           done
-          echo "Vault did not start" >&2
+          echo "Vault, floci-gcp or Lowkey Vault did not start" >&2
           exit 1
-      - name: Secret-store clients and the built binary against Vault and LocalStack
+      - name: Secret-store clients and the built binary against Vault, LocalStack and the emulators
         run: make test-cloud
 
   lint:
@@ -284,7 +303,7 @@ jobs:
           fi
       - name: headercheck
         run: make headercheck
-      - name: contract (OpenAPI spec, examples, docs/contract.md)
+      - name: contract (OpenAPI specs of both modes, examples, docs/contract.md and execution.md)
         run: make contract
       - name: docs/reference/flags.md is current (tools/flagdoc)
         run: go run ./tools/flagdoc -check

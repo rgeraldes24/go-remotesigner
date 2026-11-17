@@ -68,12 +68,16 @@ load that is running when the keymanager imports or deletes a key does not undo 
 
 A password file, a key-config file with a `file-raw` document (which holds a seed in the clear), and a key-config file
 with a secret-store credential (a Vault `token`, an AWS `secretAccessKey`, an Azure `clientSecret`) is a secret
-file. With `--strict-file-permissions` (the default) a secret file that its group or other users can read or write
-is refused: it fails to load like any other error (section 3), and the log names the file and its mode. A file they
-can write but not read (`0602`, `0620`, `0622`) is refused too, because they could replace what it holds; for a token
-file, that is the credential itself. With
+file. So are the bulk loaders' credential files, `--aws-secrets-secret-access-key-file` and
+`--azure-client-secret-file`, and a `--config-file` that sets one of the deprecated plain credential flags; those are
+read at startup, and one that is refused stops the start (exit 1) rather than failing a load
+([`aws-secrets-manager.md`](aws-secrets-manager.md#3-the-bulk-loader),
+[`azure-key-vault.md`](azure-key-vault.md#4-the-bulk-loader)). With `--strict-file-permissions` (the default) a secret
+file that its group or other users can read or write is refused: it fails to load like any other error (section 3),
+and the log names the file and its mode. A file they can write but not read (`0602`, `0620`, `0622`) is refused too,
+because they could replace what it holds; for a token file, that is the credential itself. With
 `--strict-file-permissions=false` it is loaded with a WARN. The mode is checked on the opened file, so the file read
-is the file checked. Keystores themselves are encrypted and are not checked. Keep secret files at `0600` or `0400`
+is the file checked (for a `--config-file`, the mode it had when the signer read it at startup). Keystores themselves are encrypted and are not checked. Keep secret files at `0600` or `0400`
 in `0700` directories.
 
 The owner counts as the mode does. A secret file must belong to the user the signer runs as (its effective uid) or
