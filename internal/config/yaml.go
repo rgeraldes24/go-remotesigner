@@ -22,6 +22,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -42,15 +44,33 @@ type YAMLSource struct {
 	path     string
 	top      map[string]*yaml.Node
 	sections map[string]map[string]*yaml.Node
+	// info is the file's type and mode as they were when it was read.
+	info fs.FileInfo
 }
 
-// LoadYAML reads and parses the config file at path.
+// LoadYAML reads and parses the config file at path. It keeps the type and
+// mode the opened file had (Info), so that the file is checked as the file
+// that was read, whatever the path names later.
 func LoadYAML(path string) (*YAMLSource, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrConfigFile, err)
 	}
-	return ParseYAML(path, data)
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrConfigFile, err)
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrConfigFile, err)
+	}
+	s, err := ParseYAML(path, data)
+	if err != nil {
+		return nil, err
+	}
+	s.info = info
+	return s, nil
 }
 
 // ParseYAML parses config-file content; path is used in messages.
@@ -164,6 +184,13 @@ func (s *YAMLSource) Apply(c *cli.Context, flags []cli.Flag, section string) err
 	}
 	return nil
 }
+
+// Path is the config file's path.
+func (s *YAMLSource) Path() string { return s.path }
+
+// Info is the type and mode the config file had when LoadYAML read it; nil
+// for content that ParseYAML parsed.
+func (s *YAMLSource) Info() fs.FileInfo { return s.info }
 
 // lookup finds the value of f by any of its names.
 func (s *YAMLSource) lookup(f cli.Flag, section string) (*yaml.Node, string, error) {
