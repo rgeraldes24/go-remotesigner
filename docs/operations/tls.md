@@ -25,7 +25,9 @@ file that cannot be read, a wrong password, or a key that does not match its cer
 1). The private key, the PKCS#12 keystore and its password file are secret files, like the token files (section 5): with
 `--strict-file-permissions` (the default) one that its group or other users can read or write refuses the start, and
 the log names the file and its mode; with `--strict-file-permissions=false` it is loaded with a WARN. Keep them at
-`0600` or `0400`. The certificate file is public and is not checked. At startup the signer logs the certificate's
+`0600` or `0400`, owned by the signer's user: one that another user than the signer's and root owns is refused or
+warned about in the same way ([`reload.md`](reload.md#secret-files)). The certificate file is public and is not
+checked. At startup the signer logs the certificate's
 source, path, SHA-256 fingerprint and expiry:
 
 ```
@@ -133,6 +135,12 @@ nor resume its session, and its open connections get 401 `UNAUTHENTICATED` from 
 reload of a known-clients file that lists nobody, or of a CA file without a certificate, trusts nobody. At startup
 such a file refuses the start instead, as a mistake.
 
+The known-clients file and the CA file hold no secret, and anyone may read them (`0644` is fine). But whoever can
+write one adds a client of their own, so with `--strict-file-permissions` (the default) a trust file that its group
+or other users can write (`0664`, say), or that another user than the signer's and root owns, refuses the start, and
+fails a reload as any unreadable trust file does (section 5); the error names the file and its mode or owner. With
+`--strict-file-permissions=false` it is loaded with a WARN. Each must be a regular file of at most 16 MiB.
+
 The validator client presents its certificate with `--validators-external-signer-tls-client-cert-file` and
 `--validators-external-signer-tls-client-key-file`.
 
@@ -167,17 +175,22 @@ The tokens, the certificate and the client trust reload independently, and fail 
   or key file that its group or other users can read or write under `--strict-file-permissions` is logged as an
   ERROR, and the previous tokens or certificate stay in force, so a mistake never leaves the signer without
   credentials. The token files are secret files at startup too: under the strict policy one that others can read or
-  write refuses the start (one they can write but cannot read, `0602` or `0622`, would let them choose the token),
-  and with `--strict-file-permissions=false` it is loaded with a WARN that names it. A missing token file is
-  generated only in a directory that its group and other users cannot write, since they could replace the token
-  there: under the strict policy such a directory (`--data-path` for the default token files, mode `0770` or `0777`,
-  say) refuses the start, or fails the reload, and no token is written into it; with
-  `--strict-file-permissions=false` the token is generated with a WARN that names the directory. `chmod 0700` it; a
-  directory that others can only read or enter, such as `0755`, is accepted. A Kubernetes volume that the pod's
-  `fsGroup` is applied to has a group-writable root: point `--data-path` at a directory in it
+  write, or that another user than the signer's and root owns, refuses the start (one they can write but cannot
+  read, `0602` or `0622`, would let them choose the token), and with `--strict-file-permissions=false` it is loaded
+  with a WARN that names it. A token file is loaded from, and a missing one generated in, only a directory that its
+  group and other users cannot write and that the signer's user or root owns, since whoever can write the directory
+  can put a token of their own in the file's place, whatever the file's mode: under the strict policy such a
+  directory (`--data-path` for the default token files, mode `0770` or `0777`, say) refuses the start, or fails the
+  reload, and no token is written into it; with `--strict-file-permissions=false` the token is loaded or generated
+  with a WARN that names the directory. `chmod 0700` it; a directory that others can only read or enter, such as
+  `0755`, is accepted, and the sticky bit (`1777`, as on `/tmp`) exempts nothing. For a token file named through a
+  symbolic link, both the link's directory and the file's are checked; the directories above them are not, so keep
+  the whole path out of other users' reach. A Kubernetes volume that the pod's `fsGroup` is applied to has a
+  group-writable root: point `--data-path` at a directory in it
   ([`deploy-docker.md`](deploy-docker.md#9-orchestrators)).
 - **The client trust fails closed.** If the known-clients file or the client CA file cannot be read or does not parse
-  (deleted, a line that is not `<label> <fingerprint>`, a broken certificate), the signer logs an ERROR and refuses
+  (deleted, a line that is not `<label> <fingerprint>`, a broken certificate), or is refused because its group or
+  other users can write it or another user owns it (section 3), the signer logs an ERROR and refuses
   every client certificate, on new handshakes and on open connections, until a reload succeeds. Keeping the previous
   trust would keep the client the edit was meant to revoke. Fix the file and send SIGHUP again.
 
@@ -199,8 +212,9 @@ A token file is generated whole: the signer writes the token to a temporary file
 (`.auth-token.<random>.tmp` for `auth-token`, mode `0600`), syncs it and links it to the token file's name, which
 fails when that file exists. Signers started at once on one data path therefore end up with the same token, and none
 loads a file another has created but not yet written. A crash at that moment can leave the temporary file behind;
-delete it. On a file system without hard links the token file is created and written in place instead, and a signer
-started at the same moment can find it empty and refuse to start: start it again.
+delete it. On a file system without hard links, or wherever else the link fails, the token file is created and
+written in place instead, and a signer started at the same moment can find it empty and refuse to start: start it
+again. A new data path is created with mode `0700`.
 
 To rotate a token, write a new one (`0x` and at least 64 hex characters) into its file, or delete the file, and send
 SIGHUP; then give the new sign token to the validator clients. The old token stops working at once, so update the

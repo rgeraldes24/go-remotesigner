@@ -187,6 +187,12 @@ REMOTESIGNER_HTTP_LISTEN_PORT=9000 bin/remotesigner-consensus --config-file=/etc
 
 Unknown keys in the file are refused (exit code 2), so a typo never silently falls back to a default.
 
+Whoever can write the config file decides how the signer runs. With `--strict-file-permissions` (the default,
+whichever source sets it) a config file that its group or other users can write, or that another user than the
+signer's and root owns, refuses the start (exit code 1), for the offline commands too; with
+`--strict-file-permissions=false` it is used with a `warning:` line on standard error. Anyone may read it (`0644`
+owned by root is the usual choice), unless it holds a secret ([`reload.md`](reload.md#secret-files)).
+
 ## 10. Listening beyond loopback
 
 The defaults bind `127.0.0.1`. A non-loopback `--http-listen-host` turns on fail-safes, each of which refuses to start

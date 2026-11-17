@@ -59,10 +59,24 @@ can write but not read (`0602`, `0620`, `0622`) is refused too, because they cou
 file, that is the credential itself. With
 `--strict-file-permissions=false` it is loaded with a WARN. The mode is checked on the opened file, so the file read
 is the file checked. Keystores themselves are encrypted and are not checked. Keep secret files at `0600` or `0400`
-in `0700` directories. On Windows, whose files have no owner, group and other mode bits, the check is not made
+in `0700` directories.
+
+The owner counts as the mode does. A secret file must belong to the user the signer runs as (its effective uid) or
+to root: another user can read, replace or re-mode a file it owns, whatever the mode says, so under
+`--strict-file-permissions` such a file is refused (`owner uid 1000, signer uid 65532: owned by another user than the
+signer's and root`), and with `--strict-file-permissions=false` it is loaded with a WARN that gives the owner. This
+holds for a signer that runs as root too: `chown` the files to the signer's user. The owner, like the mode, is that
+of the opened file.
+
+On Windows, whose files have no owner, group and other mode bits and no uid, these checks are not made
 (only a path that is not a regular file is refused): restrict secret files there with their ACLs. The token files and
-the TLS private key follow the same rule, and a missing token file is generated only in a directory that its group
-and other users cannot write ([`tls.md`](tls.md#5-rotating-tokens-and-certificates-with-sighup)).
+the TLS private key follow the same rules, and a token file is loaded from, or generated in, only a directory that
+its group and other users cannot write and that the signer's user or root owns
+([`tls.md`](tls.md#5-rotating-tokens-and-certificates-with-sighup)). The files that decide whom the signer trusts and
+how it runs (`--tls-known-clients-file`, `--tls-client-ca-file`, `--config-file`) hold no secret and may be read by
+anyone, but one that its group or other users can write, or that another user owns, is refused or warned about under
+the same policy ([`tls.md`](tls.md#3-client-certificates-mtls),
+[`quickstart.md`](quickstart.md#9-configuration-file-and-environment)).
 
 ## 2. The startup load
 

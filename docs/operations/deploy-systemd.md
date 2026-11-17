@@ -65,8 +65,9 @@ sudo install -m 0600 -o remotesigner -g remotesigner key-0.yaml /var/lib/remotes
 | `/var/lib/remotesigner/keys/` | remotesigner, `0700`, files `0600` | one key-config file per key |
 | `/var/lib/remotesigner/keystores/`, `keystores-password.txt` | remotesigner, `0700`, files `0600` | keystores and their password, instead of key-config files or next to them (below) |
 
-A key-config file with a seed, and a password file, that its group or other users can read or write is refused
-(`--strict-file-permissions`, [`reload.md`](reload.md#secret-files)). Back up `/var/lib/remotesigner`; losing
+A key-config file with a seed, and a password file, that its group or other users can read or write, or that
+another user than `remotesigner` and root owns, is refused, and so is a configuration file that they can write or
+own (`--strict-file-permissions`, [`reload.md`](reload.md#secret-files)); the owners and modes in the table pass. Back up `/var/lib/remotesigner`; losing
 `slashing-protection.db` loses the slashing-protection history.
 
 **Keystores, instead of seeds or next to them.** Keystores from the deposit CLI or qrysm's `validator accounts
