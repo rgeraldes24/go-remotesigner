@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/hygiene"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 	"github.com/rgeraldes24/go-remotesigner/internal/logging"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/runner"
@@ -93,6 +95,20 @@ func loadConfigFile(c *cli.Context) error {
 	}
 	c.App.Metadata[metaConfigFile] = src
 	return nil
+}
+
+// filePolicy is the --strict-file-permissions policy for the secret files
+// of a command that has no logger: its warnings go to w.
+func filePolicy(c *cli.Context, w io.Writer) secretfile.Policy {
+	return secretfile.Policy{
+		Strict: c.Bool(flags.StrictFilePermissions),
+		Warn: func(path string, mode fs.FileMode) {
+			_, _ = fmt.Fprintf(w, "warning: %s: mode %04o: readable or writable by group or other users\n", path, mode)
+		},
+		WarnOwner: func(path string, uid uint32) {
+			_, _ = fmt.Fprintf(w, "warning: %s: owned by uid %d, another user than the signer's and root\n", path, uid)
+		},
+	}
 }
 
 // runWithSignals runs the signer, stopping it on SIGTERM or SIGINT and

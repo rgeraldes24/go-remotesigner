@@ -17,10 +17,11 @@ import (
 // own secret files: the sign, admin and metrics token files, read at
 // startup and on SIGHUP, and the TLS private key, PKCS#12 keystore and its
 // password file, and a reused self-signed key. A file that its group or
-// other users can read or write, and a directory that they can write and
+// other users can read or write, a directory that they can write and
 // that a missing token file is to be generated in (--data-path for the
-// default token files), are refused under the strict policy and logged at
-// WARN otherwise.
+// default token files), and a file or directory that another user than
+// the signer's and root owns, are refused under the strict policy and
+// logged at WARN otherwise.
 func ServerFilePolicy(cfg *config.Config, log logrus.FieldLogger) secretfile.Policy {
 	return secretfile.Policy{
 		Strict: cfg.StrictFilePermissions,
@@ -34,5 +35,15 @@ func ServerFilePolicy(cfg *config.Config, log logrus.FieldLogger) secretfile.Pol
 				Warn("A token file is generated in a directory that its group or other users can write, who could " +
 					"replace it; restrict the directory to its owner (chmod 0700)")
 		},
+		WarnOwner: warnOwner(log, "A token or TLS key file, or a token file's directory, is owned by another user "+
+			"than the signer's and root, who can read or replace it; chown it to the signer's user"),
+	}
+}
+
+// warnOwner logs msg at WARN for a file or directory that another user
+// than the signer's and root owns.
+func warnOwner(log logrus.FieldLogger, msg string) func(string, uint32) {
+	return func(path string, uid uint32) {
+		log.WithFields(logrus.Fields{"file": path, "owner-uid": uid}).Warn(msg)
 	}
 }

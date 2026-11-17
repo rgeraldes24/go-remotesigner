@@ -162,7 +162,8 @@ func postgresConfig(cfg *config.Config, log logrus.FieldLogger) (pgstore.Config,
 	policy := secretfile.Policy{Strict: cfg.StrictFilePermissions, Warn: func(path string, mode fs.FileMode) {
 		log.WithFields(logrus.Fields{"file": path, "mode": fmt.Sprintf("%04o", mode)}).
 			Warn("The Postgres password file is readable or writable by group or other users")
-	}}
+	}, WarnOwner: warnOwner(log, "The Postgres password file is owned by another user than the signer's and root, "+
+		"who can read or replace it; chown it to the signer's user")}
 	c := pgstore.Config{URL: pg.URL, User: pg.Username, PasswordFilePolicy: policy}
 	if pg.PasswordFile != "" {
 		pw, err := pgstore.ReadPasswordFile(pg.PasswordFile, policy)

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -81,9 +80,7 @@ func keystoreVerify(c *cli.Context, stdout, stderr io.Writer) error {
 	if err := checkLoading(c); err != nil {
 		return usageError(err)
 	}
-	policy := secretfile.Policy{Strict: c.Bool(flags.StrictFilePermissions), Warn: func(path string, mode fs.FileMode) {
-		_, _ = fmt.Fprintf(stderr, "warning: %s: mode %04o: readable or writable by its group or other users\n", path, mode)
-	}}
+	policy := filePolicy(c, stderr)
 	sem, _ := argon.Auto(c.Int(flags.SignerLoadParallelism))
 	var err error
 	if single {
