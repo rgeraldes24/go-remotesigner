@@ -48,7 +48,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/api/apierr"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
@@ -390,10 +389,14 @@ var link = os.Link
 // createExclusive creates path holding data, mode 0600, unless a file is
 // there already, and reports whether it did. A reader never finds a part
 // of data at path: data is written to a temporary file next to it and
-// synced, then hard-linked to path, which fails when path exists, and the
-// directory is synced. The temporary file is removed whatever happens.
-// Where the file system has no hard links, path is created exclusively and
-// written in place instead, and a concurrent reader there may find it empty.
+// synced, then hard-linked to path, which fails when path exists. The
+// temporary file is removed whatever happens. When the link fails for any
+// other reason (a file system without hard links answers EPERM, ENOTSUP,
+// ENOSYS or an error of its own), path is created exclusively and written
+// in place instead, as it was before token files were linked, and a
+// concurrent reader there may find it empty. The directory is then synced
+// as far as the file system can: the token is in place and in use whether
+// or not its entry was made durable, so a failed sync refuses nothing.
 func createExclusive(path string, data []byte) (bool, error) {
 	dir := filepath.Dir(path)
 	tmp, err := writeTemp(dir, "."+filepath.Base(path)+".*.tmp", data)
@@ -402,8 +405,8 @@ func createExclusive(path string, data []byte) (bool, error) {
 	}
 	err = link(tmp, path)
 	_ = os.Remove(tmp) // path, when linked, keeps the file
-	if errors.Is(err, errors.ErrUnsupported) || errors.Is(err, syscall.EPERM) {
-		err = writeInPlace(path, data) // EPERM: Linux file systems without hard links
+	if err != nil && !errors.Is(err, fs.ErrExist) {
+		err = writeInPlace(path, data)
 	}
 	switch {
 	case errors.Is(err, fs.ErrExist):
@@ -411,9 +414,7 @@ func createExclusive(path string, data []byte) (bool, error) {
 	case err != nil:
 		return false, err
 	}
-	if err := syncDir(dir); err != nil {
-		return true, fmt.Errorf("sync directory %s: %w", dir, err)
-	}
+	_ = syncDir(dir)
 	return true, nil
 }
 

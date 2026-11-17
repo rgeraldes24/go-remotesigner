@@ -214,6 +214,16 @@ func TestCreateExclusive(t *testing.T) {
 			return then(oldname, newname)
 		}
 	}
+	// blocked puts a directory at the token's name, so that neither the
+	// link nor the exclusive create in place can make the file.
+	blocked := func(then func(string, string) error) func(string, string) error {
+		return func(oldname, newname string) error {
+			if err := os.Mkdir(newname, 0o700); err != nil {
+				return err
+			}
+			return then(oldname, newname)
+		}
+	}
 	for _, tt := range []struct {
 		name    string
 		link    func(oldname, newname string) error
@@ -226,7 +236,9 @@ func TestCreateExclusive(t *testing.T) {
 		{name: "no hard links, EPERM", link: linkErr(syscall.EPERM)},
 		{name: "no hard links, ENOTSUP", link: linkErr(syscall.ENOTSUP)},
 		{name: "no hard links, another caller first", link: plant(winner+"\n", linkErr(syscall.EPERM)), want: winner},
-		{name: "link fails", link: linkErr(syscall.EIO), wantErr: syscall.EIO},
+		{name: "no hard links, ENOSYS", link: linkErr(syscall.ENOSYS)},
+		{name: "no hard links, an error of the file system's own", link: linkErr(syscall.EIO)},
+		{name: "neither a link nor a file in place", link: blocked(linkErr(syscall.EIO)), wantErr: secretfile.ErrNotRegular},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "data")
@@ -265,11 +277,8 @@ func TestCreateExclusive(t *testing.T) {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("loadOrGenerate = %v, want %v", err, tt.wantErr)
 				}
-				if errors.Is(err, syscall.EIO) && len(names) != 0 {
-					t.Fatalf("the directory holds %v after the failed link, want nothing", names)
-				}
-				if !errors.Is(err, syscall.EIO) && !slices.Equal(names, []string{"auth-token"}) {
-					t.Fatalf("the directory holds %v, want the other caller's file only", names)
+				if !slices.Equal(names, []string{"auth-token"}) {
+					t.Fatalf("the directory holds %v, want what was at the token's name only", names)
 				}
 				return
 			}
