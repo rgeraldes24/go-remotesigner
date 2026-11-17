@@ -109,7 +109,9 @@ func TestParse(t *testing.T) {
 				t.Fatalf("LoadFile error = %v, want %v", err, tt.err)
 			}
 			if err != nil {
-				if strings.Contains(err.Error(), "abab") || strings.Contains(err.Error(), "0101") {
+				// The temporary directory's random name may hold the digits by chance.
+				msg := strings.ReplaceAll(err.Error(), dir, "")
+				if strings.Contains(msg, "abab") || strings.Contains(msg, "0101") {
 					t.Fatalf("error leaks key material: %v", err)
 				}
 				return
