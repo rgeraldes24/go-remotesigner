@@ -48,8 +48,8 @@ var (
 	// other users.
 	ErrInsecure = errors.New("readable or writable by group or other users; restrict it to its owner " +
 		"(chmod 0600 or 0400) or set --strict-file-permissions=false")
-	// ErrDirInsecure: the directory a secret file is to be created in is
-	// writable by its group or by other users.
+	// ErrDirInsecure: the directory that holds a token file, or that one
+	// is to be created in, is writable by its group or by other users.
 	ErrDirInsecure = errors.New("writable by group or other users, who could replace the files in it; " +
 		"restrict it to its owner (chmod 0700) or set --strict-file-permissions=false")
 	// ErrForeignOwner: the file or directory belongs to another user than
