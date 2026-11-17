@@ -331,6 +331,9 @@ func TestReleaseImages(t *testing.T) {
 			if want := versionLine(flavour, md); !strings.HasPrefix(out, want) {
 				t.Errorf("--version printed %q, want it to start with %q", out, want)
 			}
+			for _, p := range versionNoticeProblems(flavour, md.Version, out) {
+				t.Error(p)
+			}
 			smoke(t, img.Name)
 		})
 	}

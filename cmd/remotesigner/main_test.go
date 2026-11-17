@@ -120,27 +120,48 @@ func TestReleaseFromBuildInfo(t *testing.T) {
 }
 
 // --version carries the go-qrl notice in the default flavour, which links
-// go-qrl, and no LGPL notice in the consensus flavour.
+// go-qrl, and no LGPL notice in the consensus flavour. The notice says
+// where the licence texts are, in the release archive and in the image,
+// and names the corresponding source by its file name and the URL of the
+// release that attaches it, for the version the binary reports; a build
+// without a release version gives the pattern of both.
 func TestVersionNotice(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if code := runWith([]string{binaryName, "--version"}, &stdout, &stderr, noRun); code != exitOK {
-		t.Fatalf("exit %d", code)
-	}
-	out := strings.Join(strings.Fields(stdout.String()), " ")
-	lgpl := strings.Contains(out, "Lesser General Public License") || strings.Contains(out, "LGPL")
-	switch binaryName {
-	case "remotesigner":
-		for _, want := range []string{"links the go-qrl library (https://github.com/theQRL/go-qrl)",
-			"Copyright 2014-2025 The go-ethereum Authors", "GNU Lesser General Public License v3.0 or later",
-			"LICENSES/LGPL-3.0-or-later.txt and LICENSES/GPL-3.0-or-later.txt"} {
-			if !strings.Contains(out, want) {
-				t.Errorf("--version %q lacks %q", out, want)
+	old := version
+	t.Cleanup(func() { version = old })
+	const releases = "https://github.com/rgeraldes24/go-remotesigner/releases/tag/"
+	for _, tt := range []struct {
+		version, src, release string
+	}{
+		{"1.1.0", "remotesigner-1.1.0-src-vendored.tar.gz", releases + "v1.1.0"},
+		{"1.1.0-rc.1", "remotesigner-1.1.0-rc.1-src-vendored.tar.gz", releases + "v1.1.0-rc.1"},
+		{"1.1.0-SNAPSHOT-9e510d5", "remotesigner-1.1.0-SNAPSHOT-9e510d5-src-vendored.tar.gz",
+			releases + "v1.1.0-SNAPSHOT-9e510d5"},
+		{"dev", "remotesigner-<version>-src-vendored.tar.gz", releases + "v<version>"},
+	} {
+		t.Run(tt.version, func(t *testing.T) {
+			version = tt.version
+			var stdout, stderr bytes.Buffer
+			if code := runWith([]string{binaryName, "--version"}, &stdout, &stderr, noRun); code != exitOK {
+				t.Fatalf("exit %d", code)
 			}
-		}
-	default:
-		if lgpl || strings.Contains(out, "go-qrl ") {
-			t.Errorf("the consensus flavour's --version names go-qrl: %q", out)
-		}
+			out := strings.Join(strings.Fields(stdout.String()), " ")
+			lgpl := strings.Contains(out, "Lesser General Public License") || strings.Contains(out, "LGPL")
+			switch binaryName {
+			case "remotesigner":
+				for _, want := range []string{"links the go-qrl library (https://github.com/theQRL/go-qrl)",
+					"Copyright 2014-2025 The go-ethereum Authors", "GNU Lesser General Public License v3.0 or later",
+					"LICENSES/LGPL-3.0-or-later.txt and LICENSES/GPL-3.0-or-later.txt in the release archive",
+					"under /usr/share/doc/remotesigner/ in the image", " " + tt.src + " ", " " + tt.release} {
+					if !strings.Contains(out+" ", want) {
+						t.Errorf("--version %q lacks %q", out, want)
+					}
+				}
+			default:
+				if lgpl || strings.Contains(out, "go-qrl ") || strings.Contains(out, "src-vendored") {
+					t.Errorf("the consensus flavour's --version names go-qrl: %q", out)
+				}
+			}
+		})
 	}
 }
 
