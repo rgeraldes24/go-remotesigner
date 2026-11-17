@@ -419,3 +419,72 @@ func mustRPC(t *testing.T, s *signer, body string) string {
 	_, out := s.rpc(body, nil)
 	return out
 }
+
+// The built binary's signing gate in execution mode: with one slot and no
+// queue, a burst of concurrent qrl_sign calls gets -32005 Limit exceeded
+// with HTTP 503 for the calls that find the slot taken and a signature for
+// the rest; with the default gate the same burst is signed in full.
+func TestExecutionSigningGate(t *testing.T) {
+	const burst = 128
+	node := newGQRLNode(t)
+	keys := t.TempDir()
+	addr := writeAccountKey(t, keys, "account.yaml", keystoretest.ExtendedSeed("acceptance", 0))
+	body := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"qrl_sign","params":["%s","0x00"]}`, addr)
+	send := func(s *signer) (codes map[int]int, errs map[int]int) {
+		t.Helper()
+		client := &http.Client{Transport: http.DefaultTransport.(*http.Transport).Clone()}
+		codes, errs = map[int]int{}, map[int]int{}
+		var (
+			mu sync.Mutex
+			wg sync.WaitGroup
+		)
+		for range burst {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				req, _ := http.NewRequest(http.MethodPost, s.base+"/", strings.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Authorization", "Bearer "+s.signToken())
+				resp, err := client.Do(req)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				data, _ := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				var r rpcReply
+				_ = json.Unmarshal(data, &r)
+				mu.Lock()
+				defer mu.Unlock()
+				codes[resp.StatusCode]++
+				if r.Error != nil {
+					errs[r.Error.Code]++
+				}
+			}()
+		}
+		wg.Wait()
+		return codes, errs
+	}
+
+	s := start(t, options{command: "execution", keys: keys, global: []string{
+		"--max-concurrent-signing-requests=1", "--max-queued-signing-requests=0"}, consensus: downstreamFlags(t, node.Server)})
+	s.waitReady()
+	codes, errs := send(s)
+	t.Logf("one slot, no queue: statuses %v, JSON-RPC errors %v", codes, errs)
+	if codes[http.StatusServiceUnavailable] == 0 || codes[http.StatusOK] == 0 ||
+		codes[http.StatusOK]+codes[http.StatusServiceUnavailable] != burst {
+		t.Errorf("statuses %v: want 200 and 503 only, some of each", codes)
+	}
+	if errs[-32005] != codes[http.StatusServiceUnavailable] || len(errs) != 1 {
+		t.Errorf("JSON-RPC errors %v, want -32005 only, one per 503", errs)
+	}
+
+	s = start(t, options{command: "execution", keys: keys, consensus: downstreamFlags(t, node.Server)})
+	s.waitReady()
+	if codes, errs := send(s); codes[http.StatusOK] != burst || len(errs) != 0 {
+		t.Errorf("default gate: statuses %v, errors %v, want %d signatures", codes, errs, burst)
+	}
+	if reqs, _ := node.received(); len(reqs) != 0 {
+		t.Errorf("qrl_sign reached the node %d times", len(reqs))
+	}
+}

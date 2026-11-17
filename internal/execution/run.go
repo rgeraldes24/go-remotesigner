@@ -35,6 +35,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/admission"
 	"github.com/rgeraldes24/go-remotesigner/internal/api/consensus"
 	"github.com/rgeraldes24/go-remotesigner/internal/api/ops"
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
@@ -98,12 +99,15 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	defer closeTxs()
 
 	var tlsSrv *tlsconf.Server
-	authCfg := auth.Config{Mode: cfg.HTTP.AuthMode, SignTokenFile: cfg.SignTokenFile(), AdminTokenFile: cfg.AdminTokenFile()}
+	files := runner.ServerFilePolicy(cfg, log)
+	authCfg := auth.Config{Mode: cfg.HTTP.AuthMode, SignTokenFile: cfg.SignTokenFile(), AdminTokenFile: cfg.AdminTokenFile(),
+		Files: files}
 	if cfg.TLS.Enabled() {
 		tlsSrv, err = tlsconf.New(cfg.TLS, tlsconf.Options{
 			SelfSignedDir:     cfg.SelfSignedTLSPath(),
 			SelfSignedHosts:   cfg.HTTP.HostAllowlist,
 			RequireClientCert: cfg.HTTP.AuthMode.ClientCerts(),
+			Files:             files,
 		})
 		if err != nil {
 			return fmt.Errorf("refusing to start: TLS: %w", err)
@@ -132,6 +136,13 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	reloader := ops.NewReloader(loader.Load, log)
 	var ready atomic.Bool
 
+	gate, err := admission.New(cfg.Signing.Limits())
+	if err != nil {
+		return fmt.Errorf("refusing to start: %w", err)
+	}
+	handler := newHandler(accounts, allow, proxy, txs, log)
+	handler.gate = gate
+
 	var serverTLS *tls.Config
 	if tlsSrv != nil {
 		serverTLS = tlsSrv.TLSConfig()
@@ -141,7 +152,7 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 		TLS:            serverTLS,
 		HostAllowlist:  cfg.HTTP.HostAllowlist,
 		Auth:           authn,
-		Routes:         routes(newHandler(accounts, allow, proxy, txs, log), accounts, loader, reloader, authn, ready.Load, log),
+		Routes:         routes(handler, accounts, loader, reloader, authn, ready.Load, log),
 		Ready:          ready.Load,
 		MaxConnections: cfg.HTTP.MaxConnections,
 		ReadTimeout:    ReadTimeout,
@@ -183,8 +194,9 @@ func Run(ctx context.Context, cfg *config.Config, log *logrus.Logger, hup <-chan
 	if ml != nil {
 		serving++
 		go func() { served <- ml.Serve() }()
-		log.WithFields(logrus.Fields{"address": ml.Addr().String(), "token": cfg.Metrics.AuthTokenFile != ""}).
+		log.WithFields(logrus.Fields{"address": ml.Addr().String(), "token-required": cfg.Metrics.AuthTokenFile != ""}).
 			Info("Metrics listener is listening")
+		runner.WarnMetricsTokenInClear(cfg, log)
 	}
 	log.WithFields(logrus.Fields{
 		"address":         srv.Addr().String(),

@@ -30,6 +30,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strconv"
 
 	"golang.org/x/crypto/sha3"
@@ -91,7 +92,7 @@ func (h *Handler) qrlAccounts(_ context.Context, req *Request) (any, *Error) {
 // result is the raw 4,627-byte signature in hex. ML-DSA signatures are not
 // recoverable and carry no public key: verifiers take it from
 // GET /api/v1/execution/publicKeys.
-func (h *Handler) qrlSign(_ context.Context, req *Request) (any, *Error) {
+func (h *Handler) qrlSign(ctx context.Context, req *Request) (any, *Error) {
 	params, ok := elements(req.Params, 2)
 	if !ok || len(params) != 2 {
 		return nil, ErrInvalidParams.with(MethodSign + " takes [address, data]")
@@ -112,6 +113,11 @@ func (h *Handler) qrlSign(_ context.Context, req *Request) (any, *Error) {
 	if !ok {
 		return nil, ErrUnknownAccount
 	}
+	release, e := h.admit(ctx)
+	if e != nil {
+		return nil, e
+	}
+	defer release()
 	digest := TextHash(data)
 	sig, err := key.Sign(digest[:], mldsa87.Hedged)
 	switch {
@@ -126,6 +132,24 @@ func (h *Handler) qrlSign(_ context.Context, req *Request) (any, *Error) {
 		return nil, ErrInternal
 	}
 	return "0x" + hex.EncodeToString(sig[:]), nil
+}
+
+// admit takes a slot of the signing gate for one signing call (qrl_sign,
+// qrl_signTransaction or qrl_sendTransaction; each element of a batch takes
+// its own), waiting in the gate's queue when every slot is taken. When the
+// queue is full too it refuses at once with -32005, whose single response is
+// a 503, like consensus mode's 503 OVERLOADED. The caller calls release
+// once its signing work is done.
+func (h *Handler) admit(ctx context.Context) (release func(), e *Error) {
+	if h.gate == nil {
+		return func() {}, nil
+	}
+	release, err := h.gate.Acquire(ctx)
+	if err != nil {
+		return nil, ErrLimitExceeded.with("too many signing requests at once; retry later").
+			withStatus(http.StatusServiceUnavailable)
+	}
+	return release, nil
 }
 
 // TextHash is go-qrl's accounts.TextHash: Keccak-256 of

@@ -33,6 +33,9 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/theQRL/go-qrl/common/hexutil"
+	"github.com/theQRL/go-qrl/core/types"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 )
 
 // MaxNonceRetries is how many times qrl_sendTransaction fills, signs and
@@ -72,7 +75,9 @@ func needsRetry(e *Error) bool {
 // so that two calls for one account never take the same nonce. When the
 // client did not choose the nonce and the node answers that another
 // transaction holds it, the signer fills, signs and sends again, up to
-// MaxNonceRetries times.
+// MaxNonceRetries times. Each time it signs, the call holds a slot of the
+// signing gate for its checks and its signature only, never while it waits
+// for the node.
 func (h *Handler) qrlSendTransaction(ctx context.Context, req *Request) (any, *Error) {
 	t := h.txs
 	a, e := t.parseTxArgs(req, h.log)
@@ -103,22 +108,16 @@ func (h *Handler) qrlSendTransaction(ctx context.Context, req *Request) (any, *E
 		if e != nil {
 			return nil, e
 		}
-		if r == nil {
-			r = t.check(from, f.tx)
-		}
-		if r == nil && !reserved {
-			// One request counts once against max-transactions-per-hour,
-			// however many times it is signed.
-			r = t.policy.Reserve(from, t.now())
-		}
 		if r != nil {
 			return nil, t.refused(req.Method, a, r, h.log)
 		}
-		reserved = true
-		signed, e := t.sign(req.Method, key, from, f.tx, h.log)
+		// One request counts once against max-transactions-per-hour, however
+		// many times it is signed.
+		signed, e := h.checkAndSign(ctx, req.Method, a, key, f.tx, !reserved)
 		if e != nil {
 			return nil, e
 		}
+		reserved = true
 		raw, err := signed.MarshalBinary()
 		if err != nil {
 			h.log.WithError(err).Error("Encoding a signed transaction failed")
@@ -152,4 +151,29 @@ func (h *Handler) qrlSendTransaction(ctx context.Context, req *Request) (any, *E
 		h.log.WithFields(logrus.Fields{"retry": retries + 1, "error": cut(answer.err.Message)}).
 			Info("The node refused the transaction's nonce; filling, signing and sending it again")
 	}
+}
+
+// checkAndSign applies the policy to a filled transaction of
+// qrl_sendTransaction, reserves its place under max-transactions-per-hour
+// when reserve is set, and signs it, in a slot of the signing gate. The slot
+// is released before the transaction goes to the node, so that a slow node
+// keeps no slot from qrl_sign and qrl_signTransaction. Calls queued behind
+// one account's earlier transactions hold none either: the account's lock
+// is taken first.
+func (h *Handler) checkAndSign(ctx context.Context, method string, a *txArgs, key *mldsa87.Key,
+	tx *types.DynamicFeeTx, reserve bool) (*types.Transaction, *Error) {
+	release, e := h.admit(ctx)
+	if e != nil {
+		return nil, e
+	}
+	defer release()
+	t, from := h.txs, Address(*a.From)
+	r := t.check(from, tx)
+	if r == nil && reserve {
+		r = t.policy.Reserve(from, t.now())
+	}
+	if r != nil {
+		return nil, t.refused(method, a, r, h.log)
+	}
+	return t.sign(method, key, from, tx, h.log)
 }
