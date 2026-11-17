@@ -18,7 +18,7 @@ own: a tag such as `v1.0.0-rc.1` publishes the notes of its version's entry, dat
 The first release: a remote signer for the ML-DSA-87 validator keys of qrysm validator clients on Testnet V3, ported
 from Consensys Web3Signer and, like it, licensed under the Apache License 2.0 ([`LICENSE`](LICENSE),
 [`NOTICE`](NOTICE)). Every behaviour that differs from Web3Signer is listed in [`DEVIATIONS.md`](DEVIATIONS.md)
-(rows X1-X75, X107-X115 and X120); the ones about execution mode (X25, X26, X28) describe a later release. The
+(rows X1-X75, X107-X115 and X120-X123); the ones about execution mode (X25, X26, X28) describe a later release. The
 validator client needs qrysm's remote-signer keymanager, and
 [`docs/operations/requirements.md`](docs/operations/requirements.md#5-a-qrysm-validator-client-with-the-remote-signer-keymanager)
 section 5 names the qrysm build that has it.
@@ -65,21 +65,25 @@ section 5 names the qrysm build that has it.
   directories (`--keystores-path` with `--keystores-password-file` or `--keystores-passwords-path`), for qrysm's
   keystore v1 and the deposit CLI's keystores. Keystores are opened by a hardened decryptor that bounds the KDF
   parameters before any work, compares the derived key with the declared one, and runs Argon2id under one memory-sized
-  semaphore (`--signer-load-parallelism`). Password and seed files that other users can read or write are refused
-  (`--strict-file-permissions`), as are token files and TLS private keys. `consensus keystore verify` checks keystores
-  and password files offline.
+  semaphore (`--signer-load-parallelism`). Password and seed files that other users can read or write, or that
+  another user than the signer's and root owns, are refused (`--strict-file-permissions`), as are token files and TLS
+  private keys. `consensus keystore verify` checks keystores and password files offline.
 - **Reload.** `POST /reload` loads only the sources that changed, never disables a key, keeps the previous keys of a
   source that fails, and is bounded by `--reload-timeout`. The startup load, which runs while the API already
   listens, is not bounded. `GET /reload` reports the status of either.
 - **Keymanager API.** With `--key-manager-api-enabled`, `GET`, `POST` and `DELETE /qrl/v1/keystores` list, import
   (with their slashing-protection history) and delete keys while the signer runs, behind the admin token.
 - **Authentication and TLS.** Bearer tokens for a `sign` and an `admin` scope, generated on first start and rotated
-  with `SIGHUP`, but never generated in a directory that other users can write (a Kubernetes volume that the pod's
-  `fsGroup` makes group-writable takes `--data-path=/data/signer`,
-  [`docs/operations/deploy-docker.md`](docs/operations/deploy-docker.md#9-orchestrators)); TLS 1.3 on the API listener
-  from PEM files, a PKCS#12 keystore or a certificate generated on first start (`--tls-generate-self-signed`), its
-  fingerprint logged for pinning; client certificates in `--http-auth-mode=mtls` and `token+mtls`, trusted by
-  fingerprint or by a client CA, never by the system roots.
+  with `SIGHUP`, but never generated in, or loaded from, a directory that other users can write or that another user
+  than the signer's and root owns (a Kubernetes volume that the pod's `fsGroup` makes group-writable takes
+  `--data-path=/data/signer`,
+  [`docs/operations/deploy-docker.md`](docs/operations/deploy-docker.md#9-orchestrators)); a generated token file
+  appears whole or not at all. TLS 1.3 on the API listener from PEM files, a PKCS#12 keystore or a certificate
+  generated on first start (`--tls-generate-self-signed`), its fingerprint logged for pinning; client certificates in
+  `--http-auth-mode=mtls` and `token+mtls`, trusted by fingerprint or by a client CA, never by the system roots. The
+  files that decide whom the signer trusts and how it runs (`--tls-known-clients-file`, `--tls-client-ca-file`,
+  `--config-file`) may be read by anyone, but under `--strict-file-permissions` one that other users can write or
+  that another user than the signer's and root owns is refused.
 - **Request guards.** Host allowlist, refusal of any `Origin` header, `Content-Type` checks, per-route body limits,
   timeouts, a connection cap that a request refused for its credential, `Host` or `Origin` frees at once by closing
   its connection, a signing gate that admits 32 sign requests at once, queues 512 more and answers the
@@ -109,7 +113,8 @@ section 5 names the qrysm build that has it.
   `LICENSE`, its flavour's `NOTICE`, `LICENSES/` and the licence files of every linked module
   (`third_party_licenses/`). Archives have SPDX SBOMs and a build provenance attestation, `checksums.txt` a
   keyless cosign signature, and the images an SBOM, a provenance attestation and a cosign signature. `--version`
-  prints the release version (`1.0.0` for the `v1.0.0` tag) and commit.
+  prints the release version (`1.0.0` for the `v1.0.0` tag) and commit. The release is built with the Go of
+  `go.mod`'s toolchain line (go1.26.11), with which `govulncheck` reports nothing the signer calls.
 - **HTTP contract 1.0.0.** [`api/openapi/consensus.yaml`](api/openapi/consensus.yaml) and
   [`docs/contract.md`](docs/contract.md) specify every route, field, status code and reason with the qrysm validator
   client. CC0 golden vectors generated with qrysm's own code ([`testdata/vectors`](testdata/vectors/README.md)) and
