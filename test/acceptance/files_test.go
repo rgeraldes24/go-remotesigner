@@ -108,7 +108,7 @@ func TestListenerSecretFilePermissions(t *testing.T) {
 	openLax := start(t, options{data: open, keys: first.keys, global: []string{"--strict-file-permissions=false"}})
 	openLax.waitReady()
 	openLax.stop()
-	if !strings.Contains(out(openLax), "A token file is generated in a directory that its group or other users can write") ||
+	if !strings.Contains(out(openLax), "A token file's directory is writable by its group or other users") ||
 		!strings.Contains(out(openLax), open) {
 		t.Fatalf("no warning naming the 0777 data path %s:\n%s", open, out(openLax))
 	}
@@ -136,4 +136,63 @@ func TestListenerSecretFilePermissions(t *testing.T) {
 	if code := pemKey.exitCode(15 * time.Second); code != 1 || !strings.Contains(out(pemKey), kf) {
 		t.Fatalf("a 0644 --tls-key-file: exit %d\n%s", code, out(pemKey))
 	}
+}
+
+// logged waits until the signer's output holds text.
+func logged(t *testing.T, s *signer, text string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !strings.Contains(s.output.String(), text) {
+		if time.Now().After(deadline) {
+			t.Fatalf("%q was not logged:\n%s", text, s.output.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// Token files that exist are loaded only from a directory that its group
+// and other users cannot write, who could otherwise put a token of their
+// own in a file's place: a data path made 0770 after the tokens were
+// generated refuses the next start under the strict policy (the default)
+// and fails a SIGHUP reload, where the tokens in force stay; without the
+// policy the tokens are loaded with a warning naming the directory.
+func TestExistingTokenDirectoryPermissions(t *testing.T) {
+	data := t.TempDir()
+	first := start(t, options{data: data})
+	first.waitReady()
+	first.stop()
+	if err := os.Chmod(data, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	refused := launch(t, options{data: data, keys: first.keys})
+	if code := refused.exitCode(15 * time.Second); code != 1 || !strings.Contains(refused.output.String(),
+		"auth-token: directory "+data+": mode 0770: writable by group or other users") {
+		t.Fatalf("tokens in a 0770 data path: exit %d\n%s", code, refused.output.String())
+	}
+	lax := start(t, options{data: data, keys: first.keys, global: []string{"--strict-file-permissions=false"}})
+	lax.waitReady()
+	if code, _, _ := lax.do(request{path: "/api/v1/consensus/publicKeys", token: lax.signToken()}); code != 200 {
+		t.Fatalf("the sign token loaded from the 0770 data path, not strict: %d", code)
+	}
+	lax.stop()
+	if out := lax.output.String(); !strings.Contains(out, "A token file's directory is writable by its group or other users") ||
+		!strings.Contains(out, "directory="+data) {
+		t.Fatalf("no warning naming the 0770 data path %s:\n%s", data, out)
+	}
+
+	if err := os.Chmod(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := start(t, options{data: data, keys: first.keys})
+	s.waitReady()
+	tok := s.signToken()
+	if err := os.Chmod(data, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	s.signal(syscall.SIGHUP)
+	logged(t, s, "Reloading the token files failed")
+	if code, _, _ := s.do(request{path: "/api/v1/consensus/publicKeys", token: tok}); code != 200 {
+		t.Fatalf("the sign token in force before the failed reload: %d", code)
+	}
+	s.stop()
 }

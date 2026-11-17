@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Secret files must
+// Secret files and a token directory must
 // belong to the signer's user or to root: another user can read, replace
 // or re-mode what it owns, whatever the mode says. Only root can give a
 // file away, so this test runs as root only; the signer it starts runs as
@@ -60,6 +60,10 @@ func TestFilesOfAnotherUser(t *testing.T) {
 		t.Fatalf("no warning naming %s and its owner:\n%s", token, out)
 	}
 	take(token)
+
+	give(data)
+	refusal("another user's data path", options{data: data}, "directory "+data)
+	take(data)
 
 	dir := t.TempDir()
 	cf, kf := writePEMPair(t, dir, "server", serverCert(t, false))

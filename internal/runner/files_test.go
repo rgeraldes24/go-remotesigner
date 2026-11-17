@@ -37,7 +37,7 @@ func TestFilePolicies(t *testing.T) {
 	}{
 		{name: "server files", policy: ServerFilePolicy,
 			mode:  "A token or TLS key file is readable or writable by its group or other users",
-			dir:   "A token file is generated in a directory that its group or other users can write",
+			dir:   "A token file's directory is writable by its group or other users",
 			owner: "A token or TLS key file, or a token file's directory, is owned by another user"},
 		{name: "secret files", policy: SecretPolicy,
 			mode:  "A secret file is readable or writable by its group or other users",

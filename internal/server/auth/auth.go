@@ -16,8 +16,10 @@
 // process calls on SIGHUP. They are secret files: one that its group or
 // other users can read or write is refused or warned about by
 // Config.Files, the --strict-file-permissions policy, and so is a
-// directory that they can write when a token file is to be generated in
-// it (--data-path for the default ones). Presented tokens are compared in
+// directory that they can write, or that another user than the signer's
+// and root owns, when it holds a token file or one is to be generated in
+// it (--data-path for the default ones), and a token file that such a
+// user owns. Presented tokens are compared in
 // constant time, over SHA-256 digests so that the comparison does not
 // depend on length.
 //
@@ -143,8 +145,9 @@ type Config struct {
 	// in force; required in the mtls modes.
 	VerifyClient func(*tls.ConnectionState) error
 	// Files is the policy for token files that their group or other users
-	// can read or write, and for a directory that they can write and that
-	// a missing token file is to be generated in
+	// can read or write, for a directory that they can write and that
+	// holds a token file or is to have a missing one generated in it, and
+	// for either when another user than the signer's and root owns it
 	// (--strict-file-permissions): refused under Strict, warned about
 	// otherwise, at startup and on every Reload.
 	Files secretfile.Policy
@@ -329,11 +332,19 @@ func isHex(c byte) bool {
 }
 
 // loadOrGenerate returns the SHA-256 of the token in path, read under the
-// file policy p, generating a new token file when none exists.
+// file policy p, generating a new token file when none exists. The
+// directory of a token file that exists is held to p as the directory of
+// one that is generated is: whoever can write it, or owns it, can replace
+// the token with one of their own, whatever the file's mode and owner.
 func loadOrGenerate(path string, p secretfile.Policy) ([sha256.Size]byte, error) {
 	data, err := secretfile.Read(path, maxTokenFile, p)
-	if errors.Is(err, fs.ErrNotExist) {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
 		data, err = generate(path, p)
+	case err == nil:
+		if err = checkDirs(path, p); err != nil {
+			mldsa87.Wipe(data)
+		}
 	}
 	if err != nil {
 		return [sha256.Size]byte{}, fmt.Errorf("auth: token file %s: %w", path, err)
@@ -346,10 +357,39 @@ func loadOrGenerate(path string, p secretfile.Policy) ([sha256.Size]byte, error)
 	return sha256.Sum256(tok), nil
 }
 
+// checkDirs applies p to the directory that holds the token file at path
+// and, when path reaches the file through symbolic links, to the
+// directory the file itself is in: an entry replaced in either changes
+// the token that is read.
+func checkDirs(path string, p secretfile.Policy) error {
+	dir := filepath.Dir(path)
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if err := p.CheckDir(dir, fi); err != nil {
+		return err
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	target := filepath.Dir(resolved)
+	ti, err := os.Stat(target)
+	if err != nil {
+		return err
+	}
+	if os.SameFile(fi, ti) {
+		return nil
+	}
+	return p.CheckDir(target, ti)
+}
+
 // generate writes a new random token to path (mode 0600, never replacing an
 // existing file) and returns the file content. A directory that its group or
-// other users can write is refused or warned about first, under the file
-// policy p: they could replace the token once it is written. When another
+// other users can write, or that another user than the signer's and root
+// owns, is refused or warned about first, under the file policy p: they
+// could replace the token once it is written. When another
 // process created the file first, it reads that one under p: signers
 // started at once on one data path end up with the same token.
 func generate(path string, p secretfile.Policy) ([]byte, error) {
