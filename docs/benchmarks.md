@@ -29,7 +29,8 @@ the commands of the sections below, each test on its own, the acceptance tests a
 their `TestMain` builds it and named by `REMOTESIGNER_BINARY`. The other benchmarks were not re-run: Runs V and W,
 from before the fixes, stay their latest release runs.
 
-Run Y, 2026-11-03, commit `e83f133`, Go 1.26.10, Apple M2 (4 performance and 4 efficiency cores, 16 GiB, darwin/arm64,
+Run Y, 2026-11-03, commit `e83f133` (a commit from before the audit fixes were reordered in the stack, which no
+branch holds now), Go 1.26.10, Apple M2 (4 performance and 4 efficiency cores, 16 GiB, darwin/arm64,
 macOS 15.5, on mains power), PostgreSQL 17.11 (`postgres:17-alpine`) in Docker Desktop for B13 and B14. The machine
 was quieter than for Runs V and W but not idle: other work kept a devnet running in Docker. The load average of each
 run is in the table; only B12 raised it much, with the eight Argon2id decrypts at once of its own reload. B19 ran
