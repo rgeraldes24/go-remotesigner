@@ -13,8 +13,15 @@
 //
 // A token is "0x" followed by at least 64 hex characters. Token files are
 // generated (mode 0600) when missing and re-read by Reload, which the
-// process calls on SIGHUP. Presented tokens are compared in constant time,
-// over SHA-256 digests so that the comparison does not depend on length.
+// process calls on SIGHUP. They are secret files: one that its group or
+// other users can read or write is refused or warned about by
+// Config.Files, the --strict-file-permissions policy, and so is a
+// directory that they can write, or that another user than the signer's
+// and root owns, when it holds a token file or one is to be generated in
+// it (--data-path for the default ones), and a token file that such a
+// user owns. Presented tokens are compared in
+// constant time, over SHA-256 digests so that the comparison does not
+// depend on length.
 //
 // The auth mode decides what grants the sign scope (docs/contract.md
 // section 6): the sign token (token); a client certificate (mtls); both
@@ -28,6 +35,7 @@
 package auth
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -39,10 +47,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
 	"github.com/rgeraldes24/go-remotesigner/internal/api/apierr"
+	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 	"github.com/rgeraldes24/go-remotesigner/internal/logging"
 )
 
@@ -106,6 +117,9 @@ const MinTokenHexLength = 64
 // fileMode is the permission of a generated token file.
 const fileMode fs.FileMode = 0o600
 
+// maxTokenFile bounds a token file.
+const maxTokenFile = 4 << 10
+
 // Errors returned by this package.
 var (
 	ErrInvalidToken     = errors.New("auth: token must be 0x followed by at least 64 hex characters")
@@ -130,6 +144,13 @@ type Config struct {
 	// VerifyClient checks a request's client certificate against the trust
 	// in force; required in the mtls modes.
 	VerifyClient func(*tls.ConnectionState) error
+	// Files is the policy for token files that their group or other users
+	// can read or write, for a directory that they can write and that
+	// holds a token file or is to have a missing one generated in it, and
+	// for either when another user than the signer's and root owns it
+	// (--strict-file-permissions): refused under Strict, warned about
+	// otherwise, at startup and on every Reload.
+	Files secretfile.Policy
 }
 
 // Authenticator checks requests against the current tokens. It is safe for
@@ -180,7 +201,7 @@ func (a *Authenticator) Reload() error {
 		if path == "" {
 			continue
 		}
-		d, err := loadOrGenerate(path)
+		d, err := loadOrGenerate(path, a.cfg.Files)
 		if err != nil {
 			return err
 		}
@@ -310,27 +331,77 @@ func isHex(c byte) bool {
 	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
 }
 
-// loadOrGenerate returns the SHA-256 of the token in path, generating a new
-// token file when none exists.
-func loadOrGenerate(path string) ([sha256.Size]byte, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		data, err = generate(path)
+// loadOrGenerate returns the SHA-256 of the token in path, read under the
+// file policy p, generating a new token file when none exists. The
+// directory of a token file that exists is held to p as the directory of
+// one that is generated is: whoever can write it, or owns it, can replace
+// the token with one of their own, whatever the file's mode and owner.
+func loadOrGenerate(path string, p secretfile.Policy) ([sha256.Size]byte, error) {
+	data, err := secretfile.Read(path, maxTokenFile, p)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		data, err = generate(path, p)
+	case err == nil:
+		if err = checkDirs(path, p); err != nil {
+			mldsa87.Wipe(data)
+		}
 	}
 	if err != nil {
 		return [sha256.Size]byte{}, fmt.Errorf("auth: token file %s: %w", path, err)
 	}
-	tok := logging.Secret(strings.TrimSpace(string(data)))
+	defer mldsa87.Wipe(data)
+	tok := logging.Secret(bytes.TrimSpace(data))
 	if !ValidToken(tok) {
 		return [sha256.Size]byte{}, fmt.Errorf("auth: token file %s: %w", path, ErrInvalidToken)
 	}
 	return sha256.Sum256(tok), nil
 }
 
+// checkDirs applies p to the directory that holds the token file at path
+// and, when path reaches the file through symbolic links, to the
+// directory the file itself is in: an entry replaced in either changes
+// the token that is read.
+func checkDirs(path string, p secretfile.Policy) error {
+	dir := filepath.Dir(path)
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if err := p.CheckDir(dir, fi); err != nil {
+		return err
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	target := filepath.Dir(resolved)
+	ti, err := os.Stat(target)
+	if err != nil {
+		return err
+	}
+	if os.SameFile(fi, ti) {
+		return nil
+	}
+	return p.CheckDir(target, ti)
+}
+
 // generate writes a new random token to path (mode 0600, never replacing an
-// existing file) and returns the file content.
-func generate(path string) ([]byte, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+// existing file) and returns the file content. A directory that its group or
+// other users can write, or that another user than the signer's and root
+// owns, is refused or warned about first, under the file policy p: they
+// could replace the token once it is written. When another
+// process created the file first, it reads that one under p: signers
+// started at once on one data path end up with the same token.
+func generate(path string, p secretfile.Policy) ([]byte, error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.CheckDir(dir, fi); err != nil {
 		return nil, err
 	}
 	var raw [32]byte
@@ -338,20 +409,109 @@ func generate(path string) ([]byte, error) {
 		return nil, err
 	}
 	data := []byte("0x" + hex.EncodeToString(raw[:]) + "\n")
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
-	if errors.Is(err, fs.ErrExist) {
+	created, err := createExclusive(path, data)
+	if err != nil || !created {
+		mldsa87.Wipe(data)
+	}
+	switch {
+	case err != nil:
+		return nil, err
+	case !created:
 		// Another process created it first; use that one.
-		return os.ReadFile(path)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return nil, err
-	}
-	if err := f.Close(); err != nil {
-		return nil, err
+		return secretfile.Read(path, maxTokenFile, p)
 	}
 	return data, nil
+}
+
+// link hard-links a new token file into place; tests replace it.
+var link = os.Link
+
+// createExclusive creates path holding data, mode 0600, unless a file is
+// there already, and reports whether it did. A reader never finds a part
+// of data at path: data is written to a temporary file next to it and
+// synced, then hard-linked to path, which fails when path exists. The
+// temporary file is removed whatever happens. When the link fails for any
+// other reason (a file system without hard links answers EPERM, ENOTSUP,
+// ENOSYS or an error of its own), path is created exclusively and written
+// in place instead, as it was before token files were linked, and a
+// concurrent reader there may find it empty. The directory is then synced
+// as far as the file system can: the token is in place and in use whether
+// or not its entry was made durable, so a failed sync refuses nothing.
+func createExclusive(path string, data []byte) (bool, error) {
+	dir := filepath.Dir(path)
+	tmp, err := writeTemp(dir, "."+filepath.Base(path)+".*.tmp", data)
+	if err != nil {
+		return false, err
+	}
+	err = link(tmp, path)
+	_ = os.Remove(tmp) // path, when linked, keeps the file
+	if err != nil && !errors.Is(err, fs.ErrExist) {
+		err = writeInPlace(path, data)
+	}
+	switch {
+	case errors.Is(err, fs.ErrExist):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	_ = syncDir(dir)
+	return true, nil
+}
+
+// writeTemp writes data to a new temporary file in dir (os.CreateTemp's
+// pattern, mode 0600), synced, and returns its name. On failure nothing is
+// left.
+func writeTemp(dir, pattern string, data []byte) (string, error) {
+	f, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return "", err
+	}
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+// writeInPlace creates path exclusively (mode 0600) and writes data to it,
+// synced, removing it again when the write fails.
+func writeInPlace(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(path)
+	}
+	return err
+}
+
+// syncDir makes the directory's entries durable, where the platform can.
+func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	err = d.Sync()
+	if cerr := d.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }

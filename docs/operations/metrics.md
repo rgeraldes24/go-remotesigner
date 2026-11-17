@@ -13,12 +13,19 @@ metric, the label values that are fixed by the contract, and what to do when one
 | `--metrics-host-allowlist` | `localhost,127.0.0.1` | `Host` header names served; `*` or `all` accepts any, `none` refuses all |
 | `--metrics-auth-token-file` | unset | Bearer token a scrape must send; generated `0600` when missing, re-read on SIGHUP. Unset leaves `/metrics` open. |
 
-The names and defaults are Web3Signer's, except the token, which Web3Signer does not have. The listener serves
+The names and defaults are Web3Signer's, except the token, which Web3Signer does not have. Web3Signer's
+`--metrics-category` and `--metrics-push-*` options are not accepted: the listener serves every metric, and only to a
+scraper (DEVIATIONS X111). The listener serves
 `GET /metrics` in the Prometheus text format and answers 404 to every other path. A `Host` outside the allowlist gets
 403 `HOST_NOT_ALLOWED`, which keeps a browser page from reading the metrics through DNS rebinding. With
 `--metrics-auth-token-file`, a scrape without the metrics token gets 401 `UNAUTHENTICATED`; the sign and admin
 tokens never grant it, and it must differ from both ([`tls.md`](tls.md#7-the-metrics-token) has the Prometheus
-configuration). The listener has no TLS, so keep it on loopback, or on a network only Prometheus can reach.
+configuration). The listener has no TLS, so keep it on loopback, or on a network only Prometheus can reach; with a
+token on a non-loopback `--metrics-host`, the signer warns at startup that scrapes send it in clear. It holds
+at most 32 open connections, whoever opens them; a further connection waits until one closes, so a client that holds
+connections open cannot use up the file descriptors the API listener needs. A scrape refused with 401 or 403 closes
+its connection, so refused scrapes do not hold any of the 32 (DEVIATIONS X115). The startup line `Metrics listener is
+listening` gives its address and, as `token-required`, whether a scrape needs the metrics token.
 
 Startup is refused (exit code 1) when the listener is enabled on a non-loopback host and:
 
@@ -88,14 +95,14 @@ are not counted in `consensus_randao_reveals_total`.
 
 ## 3. Label values fixed by the contract
 
-The qrysm e2e evaluator reads these values, so they are part of the HTTP contract
-([`../contract.md`](../contract.md#18-metric-label-values)) and change only together with it. Every value exists from
-startup, at 0, so a scrape shows it before it first occurs.
+The end-to-end test, qrl-tests' lane `consensus-remote-signer`, reads these values, so they are part of the HTTP
+contract ([`../contract.md`](../contract.md#18-metric-label-values)) and change only together with it. Every value
+exists from startup, at 0, so a scrape shows it before it first occurs.
 
 | Metric and label | Values |
 |---|---|
 | `signing_requests_total{type}` | the nine artifact types: `BLOCK_V2`, `ATTESTATION`, `AGGREGATION_SLOT`, `AGGREGATE_AND_PROOF`, `VOLUNTARY_EXIT`, `SYNC_COMMITTEE_MESSAGE`, `SYNC_COMMITTEE_SELECTION_PROOF`, `SYNC_COMMITTEE_CONTRIBUTION_AND_PROOF`, `VALIDATOR_REGISTRATION` |
-| `signing_requests_total{result}` | `ok` (signed); `refused` (403 policy, 412 clock bound or slashing protection); `bad_request` (any other 4xx, including 404 `UNKNOWN_KEY`); `error` (5xx, including 503 `KEY_QUARANTINED`) |
+| `signing_requests_total{result}` | `ok` (signed); `refused` (403 policy, 412 clock bound or slashing protection); `bad_request` (any other 4xx, including 404 `UNKNOWN_KEY`); `error` (5xx, including 503 `KEY_QUARANTINED` and 503 `OVERLOADED`) |
 | `consensus_slashingprotection_prevented_signings_total{reason}` | `slashing_double_proposal`, `slashing_double_vote`, `slashing_surrounding_vote`, `slashing_surrounded_vote`, `slashing_below_watermark`, `slashing_above_high_watermark`, `validator_disabled` |
 | `consensus_randao_reveals_total{result}` | `first_use`, `new_layer`, `gap_advanced`, `re_reveal`, `refused` (any 412, 422 or 429), `error` (5xx, including 503 `KEY_QUARANTINED`) |
 | `http_request_duration_seconds{route,code}` | `route` is the pattern, such as `/api/v1/consensus/sign/{identifier}`, or `-` for a request refused before routing (a foreign `Host` or an `Origin`); `code` is the numeric status |

@@ -23,9 +23,13 @@
 // after the last frontier-moving slot, the key's new-layer bucket holds a
 // token, a deeper layer exists, and the validator is enabled. The new
 // frontier is then committed with compare-and-set, and only after that is
-// the layer returned. The slow path runs at most once per key per
-// --randao-full-scan-min-interval (else 429), and unknown commitments are
-// remembered in a negative cache.
+// the layer returned. The store checks the enabled flag again inside that
+// commit, serialised with every disable: a keymanager DELETE or a
+// disable-validator, on this signer or another one sharing the store, that
+// commits after the first check still refuses the layer with 412
+// VALIDATOR_DISABLED. The slow path runs at most once per
+// key per --randao-full-scan-min-interval (else 429), and unknown
+// commitments are remembered in a negative cache.
 //
 // With a store that several signers share (Postgres), every request is classified against the stored row, and
 // a compare-and-set that finds the frontier moved by another signer classifies the request again against the row
@@ -356,6 +360,8 @@ func (s *Service) scan(ctx context.Context, ks *keyState, r Request, path *strin
 // advance releases layer j-1 of the onion for the commitment x_j, moving
 // the frontier from cur (nil: none) to it, after the new-layer conditions
 // in their contract order. reveal is x_{j-1} when a scan already found it.
+// Condition 5 is checked here, before the layer is computed, and again by
+// the compare-and-set, which refuses a key disabled in between.
 func (s *Service) advance(ctx context.Context, ks *keyState, r Request, cur *slashing.RandaoState, j uint64,
 	reveal *[onion.Size]byte, result string, path *string) Outcome {
 	now := s.cfg.Now()
@@ -398,6 +404,10 @@ func (s *Service) advance(ctx context.Context, ks *keyState, r Request, cur *sla
 	}
 	next := slashing.RandaoState{Index: j - 1, Reveal: *reveal, LastSlot: r.Slot}
 	swapped, err := s.cfg.Store.CompareAndSwapRandaoState(ctx, r.ID, cur, next)
+	if errors.Is(err, slashing.ErrValidatorDisabled) {
+		// Condition 5 again, inside the commit: the key was disabled after the check above.
+		return refused(apierr.ValidatorDisabled, "validator is disabled")
+	}
 	if err != nil {
 		return storeFailure(err)
 	}

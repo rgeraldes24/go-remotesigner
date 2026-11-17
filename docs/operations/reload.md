@@ -41,7 +41,7 @@ remotesigner consensus --network=… \
 Every `*.json` file in the directory is taken for a keystore, as in Web3Signer, so copy only the `keystore-*.json`
 files there: the deposit CLI's `deposit_data-*.json` would fail to load and keep the keystore health check `DOWN`.
 The password file the CLI was given can be used as it is (its trailing line feed is not part of the password), once
-it is readable by its owner only (see "Secret files" below).
+its group and other users can neither read nor write it (see "Secret files" below).
 
 `--keystores-path` needs exactly one of the two password flags, and they need it; any other combination is a usage
 error (exit 2). The key-config files are loaded first, then the keystores. A key that two sources provide is loaded
@@ -53,12 +53,30 @@ load that is running when the keymanager imports or deletes a key does not undo 
 ### Secret files
 
 A password file, and a key-config file with a `file-raw` document (which holds a seed in the clear), is a secret
-file. With `--strict-file-permissions` (the default) a secret file that its group or other users can read is
-refused: it fails to load like any other error (section 3), and the log names the file and its mode. With
+file. With `--strict-file-permissions` (the default) a secret file that its group or other users can read or write
+is refused: it fails to load like any other error (section 3), and the log names the file and its mode. A file they
+can write but not read (`0602`, `0620`, `0622`) is refused too, because they could replace what it holds; for a token
+file, that is the credential itself. With
 `--strict-file-permissions=false` it is loaded with a WARN. The mode is checked on the opened file, so the file read
 is the file checked. Keystores themselves are encrypted and are not checked. Keep secret files at `0600` or `0400`
-in `0700` directories. On Windows, whose files have no owner, group and other mode bits, the check is not made
-(only a path that is not a regular file is refused): restrict secret files there with their ACLs.
+in `0700` directories.
+
+The owner counts as the mode does. A secret file must belong to the user the signer runs as (its effective uid) or
+to root: another user can read, replace or re-mode a file it owns, whatever the mode says, so under
+`--strict-file-permissions` such a file is refused (`owner uid 1000, signer uid 65532: owned by another user than the
+signer's and root`), and with `--strict-file-permissions=false` it is loaded with a WARN that gives the owner. This
+holds for a signer that runs as root too: `chown` the files to the signer's user. The owner, like the mode, is that
+of the opened file.
+
+On Windows, whose files have no owner, group and other mode bits and no uid, these checks are not made
+(only a path that is not a regular file is refused): restrict secret files there with their ACLs. The token files and
+the TLS private key follow the same rules, and a token file is loaded from, or generated in, only a directory that
+its group and other users cannot write and that the signer's user or root owns
+([`tls.md`](tls.md#5-rotating-tokens-and-certificates-with-sighup)). The files that decide whom the signer trusts and
+how it runs (`--tls-known-clients-file`, `--tls-client-ca-file`, `--config-file`) hold no secret and may be read by
+anyone, but one that its group or other users can write, or that another user owns, is refused or warned about under
+the same policy ([`tls.md`](tls.md#3-client-certificates-mtls),
+[`quickstart.md`](quickstart.md#9-configuration-file-and-environment)).
 
 ## 2. The startup load
 
@@ -164,22 +182,22 @@ selection proofs and sync-committee messages) still sign. Use it for a key that 
 attestation again, for example one that has moved to another signer.
 
 - With bbolt the signer must be stopped: the store is locked while it runs, and the command says so and changes
-  nothing. With Postgres it runs online: it waits for the key's open block and attestation transactions on every
-  replica, and every replica refuses the key from its next request
+  nothing. With Postgres it runs online: it waits for the key's open block and attestation transactions and RANDAO
+  frontier moves on every replica, and every replica refuses the key from its next request
   ([`postgres.md`](postgres.md#6-store-commands-online)).
 - The key must be registered in the store (loaded at least once); `--slashing-protection-db-url=bolt:///path` names
   another store than `<data-path>/slashing-protection.db`.
 - It exits 0 and says so when the key is already disabled.
 
 A keymanager `DELETE` disables a key the same way, with the signer running
-([`keymanager.md`](keymanager.md#4-deleting-keys)). These two write `enabled=false` on purpose. The only other write
-of it protects a key whose history fails to import: the keymanager `POST` and the offline `consensus import` disable
-a key whose element in the file fails, so that it cannot sign without the history the file meant to give it. A
-reload never writes it. Two things enable a key again: importing its keystore through the keymanager, whether the
-key is loaded or not ([`keymanager.md`](keymanager.md#3-importing-keys)), and an offline `consensus import` of a file
-whose element for the key imports cleanly ([`migration.md`](migration.md#2-import-the-history)), even when every
-record in it is already covered. So do not import the history of a key that has moved to another signer into this
-one.
+([`keymanager.md`](keymanager.md#4-deleting-keys)). These two write `enabled=false` on purpose, and the store
+remembers that they did. The only other write of it protects a key whose history fails to import: the keymanager
+`POST` and the offline `consensus import` disable a key whose element in the file fails, so that it cannot sign
+without the history the file meant to give it, and a key new to the store stays disabled until the import has
+written its history. A reload never writes it. A later import whose element for such a key imports cleanly enables
+it again. A key disabled on purpose stays disabled through `consensus import`, also when its element fails, unless
+`--enable-keys` names it (section 5.1), so a routine merge of histories never lifts a `disable-validator` or a
+`DELETE`; a keymanager `POST` of its keystore enables it, as section 5.1 says.
 
 Removing a key's files only evicts it (section 3.1); it does not disable it.
 
@@ -195,19 +213,21 @@ order of preference:
    whatever source loads the key: a loaded key is enabled where it is, without any file written, and a key that is
    not loaded is written to `--key-config-path` and loaded. There is no need to `DELETE` it first: a `DELETE`
    would only disable it again.
-2. **Import its history offline**, for a key without a keystore (a `file-raw` seed) or a signer without the
-   keymanager: `consensus import` of an EIP-3076 file whose element for the key imports cleanly enables it, even
-   when the store already holds every record in it ([`migration.md`](migration.md#2-import-the-history)). The key's
-   own history serves:
+2. **Import its history offline with `--enable-keys`**, for a key without a keystore (a `file-raw` seed) or a
+   signer without the keymanager: `consensus import --enable-keys=<id>` of an EIP-3076 file whose element for the key
+   imports cleanly enables it, even when the store already holds every record in it
+   ([`migration.md`](migration.md#2-import-the-history)). Without `--enable-keys` the import writes the history,
+   leaves the key disabled and says so. The key's own history serves:
 
    ```
    remotesigner --data-path=/var/lib/remotesigner consensus --network=<network> export --keys=<id> --to=key.json
-   remotesigner --data-path=/var/lib/remotesigner consensus --network=<network> import --from=key.json
+   remotesigner --data-path=/var/lib/remotesigner consensus --network=<network> import --from=key.json --enable-keys=<id>
    ```
 
    With bbolt the signer must be stopped for both; with Postgres both run online. A key that has no history in the
    store is left out of the export (the command says so on stderr); for it, an element with empty
-   `signed_blocks` and `signed_attestations` lists, under the store's genesis validators root, does the same.
+   `signed_blocks` and `signed_attestations` lists, under the store's genesis validators root, does the same. A key
+   that `--enable-keys` names without an element that imports makes the command exit 1, and is not enabled.
 
 The keymanager answers `imported` for the key, and the offline import counts it among the validators it imported;
 from then on its blocks, attestations and new RANDAO layers no longer get `412 VALIDATOR_DISABLED`.

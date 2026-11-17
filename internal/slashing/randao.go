@@ -21,8 +21,14 @@ type RandaoState struct {
 type RandaoStore interface {
 	// RandaoState returns the validator's frontier, if one is stored.
 	RandaoState(ctx context.Context, id KeyID) (RandaoState, bool, error)
-	// CompareAndSwapRandaoState stores next only if the stored frontier equals old, where a nil old means that no
-	// frontier is stored. It reports whether it stored next; when it did, next is durable before it returns.
+	// CompareAndSwapRandaoState stores next only if the validator is enabled and the stored frontier equals old,
+	// where a nil old means that no frontier is stored. It reports whether it stored next; when it did, next is
+	// durable before it returns. For a disabled validator it stores nothing and returns ErrValidatorDisabled. It
+	// reads the enabled flag in the transaction that writes the frontier, serialised with every disable
+	// (SetValidatorEnabled, or UpdateHistory's SetEnabled and DisableForImport): a disable that has returned is seen,
+	// one still open is waited for, and one that starts after the read waits for the commit. bbolt and the memory
+	// store hold the validator's RANDAO lock in every disable; Postgres reads the validators row FOR SHARE, which
+	// conflicts with the update of that row every disable makes, so each waits for the other's transaction to end.
 	CompareAndSwapRandaoState(ctx context.Context, id KeyID, old *RandaoState, next RandaoState) (bool, error)
 	// DeleteRandaoState removes the validator's frontier (an operator reset). Deleting an absent frontier is not an
 	// error.

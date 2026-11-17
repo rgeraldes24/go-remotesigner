@@ -23,9 +23,10 @@
 //
 // Names keep Web3Signer's <category>_<name> structure with bls renamed to
 // mldsa87 and eth2 to consensus, and histograms in place of summaries. The
-// names and label values that the qrysm e2e evaluator reads are part of the
-// contract (docs/contract.md section 18): every documented label value is
-// created at startup, so a scrape shows it at zero before it first occurs.
+// names and label values that the end-to-end test (qrl-tests' lane
+// consensus-remote-signer) reads are part of the contract (docs/contract.md
+// section 18): every documented label value is created at startup, so a
+// scrape shows it at zero before it first occurs.
 // No metric carries a public key or a URL.
 package metrics
 

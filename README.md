@@ -54,13 +54,17 @@ unit, example configuration files, the Grafana dashboard and the Prometheus aler
 | [`docs/reference/registration-fee-recipient-file.md`](docs/reference/registration-fee-recipient-file.md) | the per-key fee-recipient file |
 | [`docs/contract.md`](docs/contract.md) | the HTTP contract with the qrysm validator client |
 | [`docs/spec/README.md`](docs/spec/README.md) | the protocol facts the signer relies on: SSZ containers, signing roots, the RANDAO onion, network configuration |
+| [`docs/spec/ssz-containers.md`](docs/spec/ssz-containers.md) | the SSZ containers of the nine artifact types and their hash-tree roots |
+| [`docs/spec/signing-roots.md`](docs/spec/signing-roots.md) | domains and signing roots, per artifact type |
+| [`docs/spec/randao-onion.md`](docs/spec/randao-onion.md) | the RANDAO hash onion and its reveals |
+| [`docs/spec/network-config.md`](docs/spec/network-config.md) | network configuration files, the genesis validators root and the genesis time |
 | [`docs/benchmarks.md`](docs/benchmarks.md) | benchmark results, measured on a development machine |
 | [`DEVIATIONS.md`](DEVIATIONS.md) | every behaviour that differs from Web3Signer |
 | [`CHANGELOG.md`](CHANGELOG.md) | what each release adds, changes and fixes |
 
 ## Building
 
-Go 1.26.5 or later is required (the module's toolchain line selects go1.26.9).
+Go 1.26.5 or later is required (the module's toolchain line selects go1.26.11).
 
 ```
 make build             # bin/remotesigner, the default flavour
@@ -78,7 +82,7 @@ or any other GPL or LGPL code.
 
 ```
 $ bin/remotesigner --version
-remotesigner version 1.0.0 (commit ..., go1.26.9, linux/amd64)
+remotesigner version 1.0.0 (commit ..., go1.26.11, linux/amd64)
 ```
 
 The version is the tag's without its `v` (`1.0.0` for `v1.0.0`), as in the release binaries and in a binary that

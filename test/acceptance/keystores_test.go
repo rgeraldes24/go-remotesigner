@@ -356,7 +356,7 @@ func TestKeystoresReloadRefusalAndRemoval(t *testing.T) {
 	if code != 503 || !strings.Contains(out, `"keys-check/keystores-bulk-loading","status":"DOWN","data":{"error-count":1,"keys-loaded":3}`) {
 		t.Fatalf("healthcheck after the refusal: %d %s", code, out)
 	}
-	if !strings.Contains(s.output.String(), "readable by group or other users") {
+	if !strings.Contains(s.output.String(), "readable or writable by group or other users") {
 		t.Error("the refusal is not logged")
 	}
 

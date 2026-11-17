@@ -12,8 +12,8 @@ import (
 )
 
 // httpMetrics are the API listener's metrics (docs/operations/metrics.md).
-// Their names and labels are part of the contract with the qrysm e2e
-// evaluator (docs/contract.md section 18).
+// Their names and labels are part of the contract that the end-to-end test
+// reads (docs/contract.md section 18).
 type httpMetrics struct {
 	open         prometheus.Gauge
 	limitReached prometheus.Counter

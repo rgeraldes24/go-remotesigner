@@ -20,7 +20,9 @@ const viewPage = 256
 
 // UpdateHistory runs fn once for each of ids, in order, in one transaction. It first takes the block and then the
 // attestation lock of every validator, validator by validator in KeyID order, and holds them to the commit. A
-// retried transaction runs fn again for every id.
+// disable that fn writes (historyTx.SetEnabled, DisableForImport) updates the validators row, which a RANDAO
+// frontier commit reads FOR SHARE, so the two are serialised without the RANDAO lock. A retried transaction runs fn
+// again for every id.
 func (s *Store) UpdateHistory(ctx context.Context, ids []slashing.KeyID, fn func(slashing.KeyID, slashing.HistoryTx) error) error {
 	sorted := slices.Clone(ids)
 	slices.SortFunc(sorted, func(a, b slashing.KeyID) int { return bytes.Compare(a[:], b[:]) })

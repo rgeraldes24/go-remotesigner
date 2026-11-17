@@ -25,9 +25,12 @@
 // Every check-and-record runs in one READ COMMITTED transaction under pg_advisory_xact_lock(type, validator id), the
 // type being 0 for blocks, 1 for attestations and 2 for RANDAO frontiers. A transaction that takes several locks
 // takes them in that order, and one that covers several validators (UpdateHistory: the interchange import, pruning,
-// the watermark repair) takes them validator by validator in KeyID order, so no two transactions wait on each other
-// in a cycle. Disabling a validator takes its block and then its attestation lock. A transaction that fails with
-// SQLSTATE 40001 (serialisation failure) or 40P01 (deadlock detected) is rolled back and run again.
+// the watermark repair, the keymanager's delete) takes them validator by validator in KeyID order, so no two
+// transactions wait on each other in a cycle. Disabling a validator takes its block and then its attestation lock,
+// and updates its validators row; a RANDAO frontier commit reads that row FOR SHARE once it holds the RANDAO lock, so
+// a disable is serialised with signing and with RANDAO reveals alike, without a third advisory lock per disabled key.
+// A transaction that fails with SQLSTATE 40001 (serialisation failure) or 40P01 (deadlock detected) is rolled back
+// and run again.
 //
 // Each call is bounded as a whole, acquiring a connection and any retry included, by Config.Timeout (4.5 s by
 // default), and every session runs with lock_timeout 2 s, statement_timeout 5 s and
@@ -140,8 +143,8 @@ type Config struct {
 	// password file (PGPASSFILE, by default ~/.pgpass), read under PasswordFilePolicy.
 	Password string
 	// PasswordFilePolicy is the secret-file policy of libpq's password file: a password found there for this
-	// connection, in a file that its group or other users can read, is refused under the strict policy and used
-	// with a warning otherwise.
+	// connection, in a file that its group or other users can read or write, is refused under the strict policy and
+	// used with a warning otherwise.
 	PasswordFilePolicy secretfile.Policy
 	// GenesisValidatorsRoot, when set, is the network's configured root. A store that has no root yet is pinned to
 	// it; a store pinned to a different root is refused with slashing.ErrGenesisValidatorsRootMismatch.
@@ -243,8 +246,8 @@ const maxPassfile = 1 << 20
 // passfilePassword looks the password of cc's host, port, database and user up in libpq's password file, as libpq
 // does: the file that the URL's passfile parameter, the service or PGPASSFILE names, by default ~/.pgpass
 // (%APPDATA%\postgresql\pgpass.conf on Windows). A file that does not exist holds none. A password found in a file
-// that its group or other users can read is refused under the strict policy and used with a warning otherwise,
-// where libpq would ignore the file.
+// that its group or other users can read or write is refused under the strict policy and used with a warning
+// otherwise, where libpq would ignore the file.
 func (c Config) passfilePassword(cc *pgconn.Config, service map[string]string) (string, error) {
 	u, err := url.Parse(c.URL)
 	if err != nil {
@@ -517,7 +520,8 @@ func wrap(op string, err error) error {
 		return fmt.Errorf("%w (%s)", slashing.ErrWatermarkConflict, pe.Message)
 	case errors.Is(err, slashing.ErrValidatorNotRegistered), errors.Is(err, slashing.ErrWatermarkConflict),
 		errors.Is(err, slashing.ErrNoGenesisValidatorsRoot), errors.Is(err, slashing.ErrInvalidPublicKey),
-		errors.Is(err, slashing.ErrDuplicateRecord), errors.Is(err, ErrOutOfRange), errors.Is(err, ErrClosed):
+		errors.Is(err, slashing.ErrDuplicateRecord), errors.Is(err, slashing.ErrValidatorDisabled),
+		errors.Is(err, ErrOutOfRange), errors.Is(err, ErrClosed):
 		return err
 	}
 	return fmt.Errorf("pgstore: %s: %w", op, err)

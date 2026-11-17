@@ -5,6 +5,9 @@ package config
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -324,6 +327,31 @@ consensus:
 	}
 }
 
+// LoadYAML keeps the type and mode of the file it read, which a later
+// change of the file's mode does not alter; ParseYAML has no file.
+func TestLoadYAMLInfo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("logging: WARN\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src, err := LoadYAML(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if fi := src.Info(); fi == nil || !fi.Mode().IsRegular() || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
+		t.Fatalf("Info %v, want the regular 0600 file that was read", fi)
+	}
+	if src, err := ParseYAML("test.yaml", []byte("logging: WARN\n")); err != nil || src.Info() != nil {
+		t.Fatalf("ParseYAML: %v %v", src, err)
+	}
+	if _, err := LoadYAML(filepath.Join(t.TempDir(), "missing.yaml")); !errors.Is(err, ErrConfigFile) {
+		t.Fatalf("a missing file: %v", err)
+	}
+}
+
 func TestYAMLSourceErrors(t *testing.T) {
 	tests := map[string]string{
 		"unknown key":           "http-listen-prot: 1\n",
@@ -388,5 +416,23 @@ func TestSlashingProtectionDB(t *testing.T) {
 	c.Consensus.SlashingProtectionDBPath = "/elsewhere/sp.db"
 	if got := c.SlashingProtectionDB(); got != "/elsewhere/sp.db" {
 		t.Fatalf("from the URL %s", got)
+	}
+}
+
+// The zero Signing is the gate's defaults; any other value is taken as it is,
+// a queue of 0 included.
+func TestSigningLimits(t *testing.T) {
+	tests := []struct {
+		in                 Signing
+		concurrent, queued int
+	}{
+		{Signing{}, 32, 512},
+		{Signing{MaxConcurrent: 1}, 1, 0},
+		{Signing{MaxConcurrent: 64, MaxQueued: 1024}, 64, 1024},
+	}
+	for _, tt := range tests {
+		if c, q := tt.in.Limits(); c != tt.concurrent || q != tt.queued {
+			t.Errorf("%+v.Limits() = %d, %d, want %d, %d", tt.in, c, q, tt.concurrent, tt.queued)
+		}
 	}
 }

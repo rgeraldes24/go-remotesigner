@@ -42,6 +42,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 )
 
 // Options are the settings that do not come from the TLS flags.
@@ -55,6 +57,19 @@ type Options struct {
 	// RequireClientCert requires and verifies a client certificate (auth
 	// modes mtls and token+mtls).
 	RequireClientCert bool
+	// Files is the policy for the secret files (--tls-key-file,
+	// --tls-keystore-file and its password file, and a reused self-signed
+	// key) that their group or other users can read or write
+	// (--strict-file-permissions): refused under Strict, warned about
+	// otherwise, at startup and on every Reload.
+	Files secretfile.Policy
+	// TrustFiles is the policy for the client trust files
+	// (--tls-known-clients-file and --tls-client-ca-file) that their group
+	// or other users can write, or that another user than the signer's and
+	// root owns: whoever can write one chooses the clients the signer
+	// accepts. Refused under Strict, warned about otherwise, at startup
+	// and on every Reload.
+	TrustFiles secretfile.Policy
 	// Now is the clock for certificate validity; nil means time.Now.
 	Now func() time.Time
 }
@@ -267,13 +282,13 @@ func (s *Server) loadCertificate() (tls.Certificate, Info, error) {
 	switch {
 	case s.cfg.CertFile != "":
 		info.Source, info.Path = SourcePEM, s.cfg.CertFile
-		cert, err = loadPEM(s.cfg.CertFile, s.cfg.KeyFile)
+		cert, err = loadPEM(s.cfg.CertFile, s.cfg.KeyFile, s.opts.Files)
 	case s.cfg.KeystoreFile != "":
 		info.Source, info.Path = SourcePKCS12, s.cfg.KeystoreFile
-		cert, err = loadPKCS12(s.cfg.KeystoreFile, s.cfg.KeystorePasswordFile)
+		cert, err = loadPKCS12(s.cfg.KeystoreFile, s.cfg.KeystorePasswordFile, s.opts.Files)
 	default:
 		info.Source, info.Path = SourceSelfSigned, filepath.Join(s.opts.SelfSignedDir, SelfSignedCertFile)
-		cert, info.Generated, err = selfSigned(s.opts.SelfSignedDir, s.opts.SelfSignedHosts, s.opts.Now())
+		cert, info.Generated, err = selfSigned(s.opts.SelfSignedDir, s.opts.SelfSignedHosts, s.opts.Now(), s.opts.Files)
 		if err == nil && !info.Generated {
 			info.Uncovered = uncoveredHosts(cert.Leaf, s.opts.SelfSignedHosts)
 		}
@@ -297,7 +312,7 @@ func (s *Server) loadTrust(info *Info, startup bool) (*trust, error) {
 	}
 	t := &trust{now: s.opts.Now}
 	if path := s.cfg.KnownClientsFile; path != "" {
-		known, err := loadKnownClients(path)
+		known, err := loadKnownClients(path, s.opts.TrustFiles)
 		if err != nil {
 			return nil, err
 		}
@@ -307,7 +322,7 @@ func (s *Server) loadTrust(info *Info, startup bool) (*trust, error) {
 		t.known, info.KnownClients = known, len(known)
 	}
 	if path := s.cfg.ClientCAFile; path != "" {
-		pool, n, err := loadClientCAs(path)
+		pool, n, err := loadClientCAs(path, s.opts.TrustFiles)
 		if err != nil {
 			return nil, err
 		}

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/admission"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/hygiene"
 	"github.com/rgeraldes24/go-remotesigner/internal/logging"
@@ -48,7 +49,9 @@ type Config struct {
 	// key-config file loaded, in bytes.
 	KeyConfigFileMaxSize int64
 	// StrictFilePermissions is --strict-file-permissions: refuse secret
-	// files readable by group or other users instead of warning.
+	// files readable or writable by group or other users, and directories
+	// writable by them that token files are generated in, instead of
+	// warning.
 	StrictFilePermissions bool
 	// ReloadTimeout is --reload-timeout: how long a POST /reload may load
 	// keys before the sources not loaded yet keep their previous keys.
@@ -56,8 +59,10 @@ type Config struct {
 	// SignerLoadParallelism is --signer-load-parallelism; 0 sizes the
 	// Argon2id semaphore from the memory limit.
 	SignerLoadParallelism int
-	Logging               logging.Config
-	HTTP                  HTTP
+	// Signing bounds the sign requests served at once.
+	Signing Signing
+	Logging logging.Config
+	HTTP    HTTP
 	// TLS holds the API listener's --tls-* flags.
 	TLS tlsconf.Config
 	// AllowPlaintextTokenAuth is --Xallow-plaintext-token-auth.
@@ -97,6 +102,27 @@ type HTTP struct {
 	MaxConnections int
 	IdleTimeout    time.Duration
 	AccessLogs     bool
+}
+
+// Signing is the signing gate: --max-concurrent-signing-requests and
+// --max-queued-signing-requests. The zero value means their defaults.
+type Signing struct {
+	// MaxConcurrent is how many sign requests may be in their slashing
+	// check, signature and verification at once.
+	MaxConcurrent int
+	// MaxQueued is how many more may wait for a slot; beyond them a request
+	// is refused with 503 OVERLOADED.
+	MaxQueued int
+}
+
+// Limits returns the gate's slots and queue size: the defaults for the zero
+// value, which the command line never gives (--max-concurrent-signing-requests
+// is at least 1).
+func (s Signing) Limits() (concurrent, queued int) {
+	if s == (Signing{}) {
+		return admission.DefaultConcurrent, admission.DefaultQueued
+	}
+	return s.MaxConcurrent, s.MaxQueued
 }
 
 // Consensus holds the consensus subcommand's settings.

@@ -40,7 +40,7 @@
 // A file with a file-raw document holds seeds in the clear, so it is a
 // secret file, as is every keystore password file: the caller's
 // secretfile.Policy decides what happens when its group or other users can
-// read it. Error messages never contain key material.
+// read or write it. Error messages never contain key material.
 package keyconfig
 
 import (

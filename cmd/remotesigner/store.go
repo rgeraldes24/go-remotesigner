@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -54,9 +53,7 @@ func targetOf(c *cli.Context, mustExist bool) (storeTarget, error) {
 		return storeTarget{}, err
 	}
 	if u.Postgres != "" {
-		policy := secretfile.Policy{Strict: c.Bool(flags.StrictFilePermissions), Warn: func(path string, mode fs.FileMode) {
-			_, _ = fmt.Fprintf(c.App.ErrWriter, "warning: %s: mode %04o: readable by group or other users\n", path, mode)
-		}}
+		policy := filePolicy(c, c.App.ErrWriter)
 		pg := commandConfig(u.Postgres, lineageString(c, flags.SlashingProtectionDBUser))
 		pg.PasswordFilePolicy = policy
 		return storeTarget{pg: pg, passwordFile: lineageString(c, flags.SlashingProtectionDBPass), policy: policy}, nil

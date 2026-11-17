@@ -7,7 +7,7 @@
 // process holds it, so the store's in-memory view is always coherent. Every write is one bbolt transaction that is
 // fsynced on commit, before the call returns, so a signature or RANDAO reveal is released only after its record is
 // durable. Check-and-record calls are additionally serialised per validator by in-memory mutexes, in the fixed order
-// block, attestation, RANDAO.
+// block, attestation, RANDAO; disabling a validator takes all three.
 //
 // The file carries its schema version in meta/schema_version. Open refuses a file written with any other version:
 // an older one must first be upgraded offline with Migrate (`remotesigner consensus migrate`), and a newer one is
@@ -65,7 +65,7 @@ type Store struct {
 }
 
 // validatorLocks serialise one validator's transactions of each kind. Code that takes several takes them in the
-// order block, attestation, RANDAO.
+// order block, attestation, RANDAO: SetValidatorEnabled and UpdateHistory take all three.
 type validatorLocks struct {
 	block, attestation, randao sync.Mutex
 }
@@ -249,6 +249,9 @@ func (s *Store) HighWatermark(ctx context.Context) (slashing.HighWatermark, erro
 // SetHighWatermark replaces the global high watermark after checking it against every low watermark. bbolt runs
 // one write transaction at a time, so no low watermark moves while it checks.
 func (s *Store) SetHighWatermark(ctx context.Context, h slashing.HighWatermark) error {
+	if err := h.Validate(); err != nil {
+		return err
+	}
 	return s.update(ctx, func(tx *bolt.Tx) error {
 		meta := tx.Bucket(bucketMeta)
 		if !h.IsSet() {
@@ -317,7 +320,11 @@ func createValidator(vs *bolt.Bucket, id slashing.KeyID, pk []byte, enabled bool
 	if err := b.Put(keyPublicKey, pk); err != nil {
 		return err
 	}
-	if err := b.Put(keyEnabled, encodeBool(enabled)); err != nil {
+	state := stateEnabled
+	if !enabled {
+		state = stateDisabledByImport // only the interchange import registers keys disabled
+	}
+	if err := b.Put(keyEnabled, encodeState(state)); err != nil {
 		return err
 	}
 	if _, err := b.CreateBucket(bucketBlocks); err != nil {
@@ -335,26 +342,30 @@ func (s *Store) ValidatorStatus(ctx context.Context, id slashing.KeyID) (slashin
 		if b == nil {
 			return nil
 		}
-		enabled, err := decodeBool("enabled", b.Get(keyEnabled))
-		st = slashing.ValidatorStatus{Registered: true, Enabled: enabled}
+		state, err := decodeState(b.Get(keyEnabled))
+		st = slashing.ValidatorStatus{Registered: true, Enabled: state == stateEnabled,
+			DisabledByImport: state == stateDisabledByImport}
 		return err
 	})
 	return st, err
 }
 
-// SetValidatorEnabled sets a registered key's enabled flag, holding the validator's block and attestation locks.
+// SetValidatorEnabled sets a registered key's enabled flag, holding the validator's block, attestation and RANDAO
+// locks.
 func (s *Store) SetValidatorEnabled(ctx context.Context, id slashing.KeyID, enabled bool) error {
 	l := s.lockFor(id)
 	l.block.Lock()
 	defer l.block.Unlock()
 	l.attestation.Lock()
 	defer l.attestation.Unlock()
+	l.randao.Lock()
+	defer l.randao.Unlock()
 	return s.update(ctx, func(tx *bolt.Tx) error {
 		b, err := validatorBucket(tx, id)
 		if err != nil {
 			return err
 		}
-		return b.Put(keyEnabled, encodeBool(enabled))
+		return b.Put(keyEnabled, encodeEnabled(enabled))
 	})
 }
 
@@ -408,7 +419,9 @@ func (s *Store) RandaoState(ctx context.Context, id slashing.KeyID) (slashing.Ra
 	return st, ok, err
 }
 
-// CompareAndSwapRandaoState stores next if the stored frontier equals old (nil: none stored). A stored next is
+// CompareAndSwapRandaoState stores next if the validator is enabled and the stored frontier equals old (nil: none
+// stored). It reads the enabled flag in the transaction that writes the frontier, under the validator's RANDAO lock,
+// which every disable holds, and returns slashing.ErrValidatorDisabled for a disabled validator. A stored next is
 // fsynced before it returns.
 func (s *Store) CompareAndSwapRandaoState(ctx context.Context, id slashing.KeyID, old *slashing.RandaoState, next slashing.RandaoState) (bool, error) {
 	l := s.lockFor(id)
@@ -419,6 +432,13 @@ func (s *Store) CompareAndSwapRandaoState(ctx context.Context, id slashing.KeyID
 		b, err := validatorBucket(tx, id)
 		if err != nil {
 			return err
+		}
+		state, err := decodeState(b.Get(keyEnabled))
+		if err != nil {
+			return err
+		}
+		if state != stateEnabled {
+			return slashing.ErrValidatorDisabled
 		}
 		cur := b.Get(keyRandao)
 		switch {

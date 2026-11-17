@@ -54,6 +54,10 @@ type ImportOptions struct {
 	// files are written). A key new to the store then stays registered disabled until the caller enables it. A key
 	// whose element fails is still disabled.
 	LeaveEnabled bool
+	// Enable names keys disabled on purpose (a keymanager DELETE or disable-validator) that a clean element enables
+	// too. Without it a clean element enables only a key that an import disabled (new to the store, or disabled by
+	// an earlier import's failure); a key disabled on purpose stays disabled and is reported KeptDisabled.
+	Enable []slashing.KeyID
 }
 
 // Counts are one validator's records of one kind.
@@ -86,6 +90,9 @@ type ValidatorResult struct {
 	// Disabled reports that the key of a failed element was disabled. It is false when the element has no valid
 	// key, or when disabling the key failed too (Err then says so).
 	Disabled bool
+	// KeptDisabled reports that the element imported but its key stays disabled, because it was disabled on
+	// purpose (a keymanager DELETE or disable-validator) and ImportOptions.Enable does not name it.
+	KeptDisabled bool
 }
 
 // ImportResult reports an import, element by element in file order.
@@ -113,16 +120,23 @@ func (r ImportResult) Failed() []ValidatorResult {
 // nothing below it is signed). Validators are written in batches that share a transaction; when one fails, the batch
 // is written again validator by validator, so that only the failing ones are lost.
 //
-// A validator whose element imports is enabled, by the transaction that writes its history (a key new to the store
-// is registered disabled before it), unless opts.LeaveEnabled; one whose element fails is disabled, so that its key cannot sign without the
-// history the file meant to give it, and it is reported in the result. Import returns an error when the
+// A validator whose element imports is enabled by the transaction that writes its history, unless opts.LeaveEnabled,
+// when an import disabled it: a key new to the store is registered disabled before that transaction, and a key whose
+// element failed in an earlier import was disabled by it. A key disabled on purpose (a keymanager DELETE or
+// disable-validator) stays disabled, and is reported KeptDisabled, unless opts.Enable names it. A validator whose
+// element fails is disabled, so that its key cannot sign without the history the file meant to give it, and it is
+// reported in the result; a key disabled on purpose stays disabled on purpose. Import returns an error when the
 // file stops being readable, when the roots differ, or when ctx ends. The elements read before such an error are
 // still written, as far as the store allows: each is whole, and history only adds protection. An element that could
 // not be written is reported as failed, like any other.
 func Import(ctx context.Context, s slashing.Store, r io.Reader, opts ImportOptions) (ImportResult, error) {
-	im := &importer{ctx: ctx, s: s, batch: opts.Batch, leaveEnabled: opts.LeaveEnabled}
+	im := &importer{ctx: ctx, s: s, batch: opts.Batch, leaveEnabled: opts.LeaveEnabled,
+		enable: make(map[slashing.KeyID]bool, len(opts.Enable))}
 	if im.batch <= 0 {
 		im.batch = DefaultBatch
+	}
+	for _, k := range opts.Enable {
+		im.enable[k] = true
 	}
 	if opts.Keys != nil {
 		im.want = make(map[slashing.KeyID]bool, len(opts.Keys))
@@ -144,6 +158,7 @@ type importer struct {
 	batch        int
 	want         map[slashing.KeyID]bool // nil: every element
 	leaveEnabled bool
+	enable       map[slashing.KeyID]bool // keys disabled on purpose to enable
 	results      []ValidatorResult
 	pending      []pendingEntry
 	items        int
@@ -272,11 +287,30 @@ func (im *importer) write(entries []pendingEntry) error {
 		if res.Attestations, err = importAttestations(tx, p.entry.Attestations); err != nil {
 			return err
 		}
+		res.KeptDisabled = false
 		if im.leaveEnabled {
 			return nil
 		}
-		return tx.SetEnabled(true)
+		return im.enableKey(id, tx, res)
 	})
+}
+
+// enableKey enables a key whose element imported, unless it is disabled on purpose and not named in Enable, when it
+// reports it KeptDisabled.
+func (im *importer) enableKey(id slashing.KeyID, tx slashing.HistoryTx, res *ValidatorResult) error {
+	enabled, err := tx.Enabled()
+	if err != nil || enabled {
+		return err
+	}
+	byImport, err := tx.DisabledByImport()
+	if err != nil {
+		return err
+	}
+	if !byImport && !im.enable[id] {
+		res.KeptDisabled = true
+		return nil
+	}
+	return tx.SetEnabled(true)
 }
 
 // fail marks a failed element's key, when it has one, for disabling.
@@ -288,7 +322,9 @@ func (im *importer) fail(result int) {
 
 // disableFailed registers and disables the key of every failed element, after everything else is written, so that
 // a key with a failed element stays disabled even when another element for it imported. A key new to the store is
-// registered disabled, so it is never enabled on the way. A failure to disable is added to the element's error.
+// registered disabled, so it is never enabled on the way. The key is disabled by import, so that a later clean
+// import enables it again, unless it was disabled on purpose, which it stays. A failure to disable is added to the
+// element's error.
 func (im *importer) disableFailed() {
 	outcome := map[slashing.KeyID]error{}
 	for _, i := range im.failed {
@@ -300,7 +336,9 @@ func (im *importer) disableFailed() {
 			ctx := context.WithoutCancel(im.ctx)
 			err = im.s.RegisterValidatorsDisabled(ctx, [][]byte{res.PublicKey})
 			if err == nil {
-				err = im.s.SetValidatorEnabled(ctx, id, false)
+				err = im.s.UpdateHistory(ctx, []slashing.KeyID{id}, func(_ slashing.KeyID, tx slashing.HistoryTx) error {
+					return tx.DisableForImport()
+				})
 			}
 			outcome[id] = err
 		}

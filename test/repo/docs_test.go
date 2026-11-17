@@ -61,10 +61,10 @@ var operatorPages = []struct {
 		"## 5. Going back to an older release"}},
 	{"docs/operations/release.md", []string{"## 3. Verifying a release", "## 6. The v1.0 release checklist",
 		"qrysm's remote-signer client merged", "the pin of `tools/vectorgen/contract` moved to the merged commit",
-		"Both nightly end-to-end runs green for 7 consecutive nights", "Benchmark B16",
-		"time-compressed replay of the mainnet duty schedule, which does not exist yet",
+		"The nightly end-to-end run green for 7 consecutive nights", "Benchmark B16",
+		"`make b16`, which replays the duty schedule of a mainnet-sized network",
 		"Reference-VM runs of B1-B15 and B18-B20", "The deployment guides brought up by an independent reviewer",
-		"The stacked pull requests merged into `main`", "public ghcr.io packages", "Making the repository public"}},
+		"The stacked pull requests merged into `main`", "public ghcr.io packages", "The history `main` publishes"}},
 	{"CHANGELOG.md", []string{"## [1.0.0]", "listens, is not bounded", "Every global and `consensus` flag",
 		"hex of the wrong\n  length are refused"}},
 	{"docs/reference/flags.md", []string{"## Override flags", "### What each override accepts"}},
@@ -111,6 +111,11 @@ func TestOperatorDocs(t *testing.T) {
 		if (strings.HasPrefix(f.path, "docs/operations/") || strings.HasPrefix(f.path, "docs/reference/")) &&
 			strings.HasSuffix(f.path, ".md") && !slices.Contains(listed, f.path) {
 			t.Errorf("%s is not in the operator documentation list (and maybe not in the README)", f.path)
+		}
+		// The fact notes are linked from the README's Documentation table
+		// too, not only through their index.
+		if strings.HasPrefix(f.path, "docs/spec/") && strings.HasSuffix(f.path, ".md") && !linked[f.path] {
+			t.Errorf("%s is not linked from the README", f.path)
 		}
 	}
 }

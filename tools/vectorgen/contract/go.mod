@@ -7,7 +7,7 @@ toolchain go1.26.9
 require (
 	github.com/prysmaticlabs/fastssz v0.0.0-20260421202104-7a6eb71e6e45
 	github.com/theQRL/go-bitfield v0.0.0-20231204084259-f3b877be8f63
-	github.com/theQRL/qrysm v0.0.0-20261015164126-eefefe9230e1
+	github.com/theQRL/qrysm v0.0.0-20261026105706-47f6b65e6c58
 )
 
 require (
@@ -76,8 +76,8 @@ require (
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
-	github.com/theQRL/go-qrl v0.0.0-20260326201015-e36df34a2434 // indirect
-	github.com/theQRL/go-qrllib v0.10.0 // indirect
+	github.com/theQRL/go-qrl v0.0.0-20261020143425-f3864c46b3f9 // indirect
+	github.com/theQRL/go-qrllib v0.11.0 // indirect
 	github.com/thomaso-mirodin/intmath v0.0.0-20160323211736-5dc6d854e46e // indirect
 	github.com/tklauser/go-sysconf v0.3.13 // indirect
 	github.com/tklauser/numcpus v0.7.0 // indirect
@@ -111,17 +111,17 @@ require (
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
-// qrysm content: rgeraldes24/qrysm eefefe92, the tip of a stack of three PRs on cyyber/qrysm 0b9cdf25:
-// #60 (remote-signer/q1-randao-slot 8fc55fff) passes the proposal slot to RandaoRevealer, #61
-// (remote-signer/q2-remote-keymanager 2e957846) revives the remote-web3signer keymanager, and #62
-// (remote-signer/q3-vc-wiring eefefe92) wires it into the validator. None is on a theQRL or cyyber branch
-// yet. See ../README.md for how to bump it.
-replace github.com/theQRL/qrysm => github.com/rgeraldes24/qrysm v0.0.0-20261015164126-eefefe9230e1
+// qrysm content: rgeraldes24/qrysm 47f6b65e, the head of #62, on a stack of three PRs on cyyber/qrysm a3979a15
+// (rgeraldes24/qrysm main): #60 (remote-signer/q1-randao-slot d5e74d9d) passes the proposal slot to
+// RandaoRevealer, #61 (remote-signer/q2-remote-keymanager 051a9a43) revives the remote-web3signer keymanager, and
+// #62 (remote-signer/q3-vc-wiring 47f6b65e) wires it into the validator: the PRs the release gate names and the
+// branch docs/operations/requirements.md has operators build. None is on a theQRL or cyyber branch yet. See
+// ../README.md for how to bump it.
+replace github.com/theQRL/qrysm => github.com/rgeraldes24/qrysm v0.0.0-20261026105706-47f6b65e6c58
 
-// The replaces below mirror qrysm's own go.mod at that commit. Replace directives only apply in the main module,
-// so every one qrysm needs must be repeated here. TestReplacesMirrorQrysm checks that they stay equal.
-replace github.com/theQRL/go-qrl => github.com/cyyber/go-qrl v0.3.2-0.20260918165407-a9f196d809aa
-
+// The replaces below mirror qrysm's own go.mod at that commit, which has no go-qrl replace. Replace directives only
+// apply in the main module, so every one qrysm needs must be repeated here. TestReplacesMirrorQrysm checks that they
+// stay equal.
 replace github.com/grpc-ecosystem/grpc-gateway/v2 => github.com/theQRL/grpc-gateway/v2 v2.0.0-20250214142603-49067762c97f
 
 replace github.com/json-iterator/go => github.com/prestonvanloon/go v1.1.7-0.20190722034630-4f2e55fcf87b

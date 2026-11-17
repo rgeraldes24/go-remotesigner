@@ -18,7 +18,10 @@ type validatorTx struct {
 	b  *bolt.Bucket
 }
 
-func (t *validatorTx) Enabled() (bool, error) { return decodeBool("enabled", t.b.Get(keyEnabled)) }
+func (t *validatorTx) Enabled() (bool, error) {
+	state, err := decodeState(t.b.Get(keyEnabled))
+	return state == stateEnabled, err
+}
 
 func (t *validatorTx) HighWatermark() (slashing.HighWatermark, error) { return highWatermark(t.tx) }
 
@@ -254,5 +257,18 @@ func (t historyTx) HighWatermark() (slashing.HighWatermark, error) { return t.bl
 func (t historyTx) LowWatermark() (slashing.LowWatermark, error) { return t.blockTx.LowWatermark() }
 
 func (t historyTx) SetEnabled(enabled bool) error {
-	return t.blockTx.b.Put(keyEnabled, encodeBool(enabled))
+	return t.blockTx.b.Put(keyEnabled, encodeEnabled(enabled))
+}
+
+func (t historyTx) DisabledByImport() (bool, error) {
+	state, err := decodeState(t.blockTx.b.Get(keyEnabled))
+	return state == stateDisabledByImport, err
+}
+
+func (t historyTx) DisableForImport() error {
+	state, err := decodeState(t.blockTx.b.Get(keyEnabled))
+	if err != nil || state == stateDisabled {
+		return err
+	}
+	return t.blockTx.b.Put(keyEnabled, encodeState(stateDisabledByImport))
 }

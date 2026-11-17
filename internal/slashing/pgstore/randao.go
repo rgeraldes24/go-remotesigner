@@ -58,9 +58,12 @@ func randaoState(index int64, reveal []byte, last int64) (slashing.RandaoState, 
 	return st, true, nil
 }
 
-// CompareAndSwapRandaoState stores next if the stored frontier equals old (nil: none stored). It takes the
-// validator's RANDAO lock, re-reads the row under it and compares; the write itself is a compare-and-set on the
-// row's values as well. Next is committed before it returns.
+// CompareAndSwapRandaoState stores next if the validator is enabled and the stored frontier equals old (nil: none
+// stored). It takes the validator's RANDAO lock, then reads the row and the enabled flag in one statement, the
+// validators row FOR SHARE. Every disable is an UPDATE of that row, whose row lock conflicts with FOR SHARE: the read
+// waits for a disable still open, on any replica, and then reads the row it committed, and a disable that comes
+// later waits for this transaction to end. A disabled validator is slashing.ErrValidatorDisabled. The write itself is
+// a compare-and-set on the row's values as well. Next is committed before it returns.
 func (s *Store) CompareAndSwapRandaoState(ctx context.Context, id slashing.KeyID, old *slashing.RandaoState, next slashing.RandaoState) (bool, error) {
 	index, err := i64(next.Index)
 	if err != nil {
@@ -78,15 +81,21 @@ func (s *Store) CompareAndSwapRandaoState(ctx context.Context, id slashing.KeyID
 			return err
 		}
 		var (
-			curIndex, curLast int64
+			enabled           bool
+			curIndex, curLast *int64
 			curReveal         []byte
 		)
-		err = tx.QueryRow(ctx, `SELECT deepest_index, deepest_reveal, last_new_slot FROM randao_reveal_state
-			WHERE validator_id = $1`, vid).Scan(&curIndex, &curReveal, &curLast)
-		found := err == nil
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `SELECT v.enabled, r.deepest_index, r.deepest_reveal, r.last_new_slot
+			FROM validators v LEFT JOIN randao_reveal_state r ON r.validator_id = v.id WHERE v.id = $1
+			FOR SHARE OF v`, vid).
+			Scan(&enabled, &curIndex, &curReveal, &curLast)
+		if err != nil {
 			return err
 		}
+		if !enabled {
+			return slashing.ErrValidatorDisabled
+		}
+		found := curIndex != nil
 		if found != (old != nil) {
 			return nil
 		}
@@ -96,14 +105,14 @@ func (s *Store) CompareAndSwapRandaoState(ctx context.Context, id slashing.KeyID
 			cmd = `INSERT INTO randao_reveal_state (validator_id, deepest_index, deepest_reveal, last_new_slot, updated_at)
 				VALUES ($1, $2, $3, $4, now()) ON CONFLICT (validator_id) DO NOTHING`
 		} else {
-			cur, _, err := randaoState(curIndex, curReveal, curLast)
+			cur, _, err := randaoState(*curIndex, curReveal, *curLast)
 			if err != nil || cur != *old {
 				return err
 			}
 			cmd = `UPDATE randao_reveal_state SET deepest_index = $2, deepest_reveal = $3, last_new_slot = $4,
 				updated_at = now() WHERE validator_id = $1 AND deepest_index = $5 AND deepest_reveal = $6
 				AND last_new_slot = $7`
-			args = append(args, curIndex, curReveal, curLast)
+			args = append(args, *curIndex, curReveal, *curLast)
 		}
 		tag, err := tx.Exec(ctx, cmd, args...)
 		swapped = err == nil && tag.RowsAffected() == 1

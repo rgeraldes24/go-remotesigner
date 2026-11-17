@@ -83,10 +83,7 @@ type keyLoader struct {
 
 func newKeyLoader(cfg *config.Config, sem *argon.Semaphore, keys *provider.Provider, engine *slashing.Engine,
 	sig *signer.Signer, reveals *randao.Service, state *loadState, log logrus.FieldLogger) *keyLoader {
-	policy := secretfile.Policy{Strict: cfg.StrictFilePermissions, Warn: func(path string, mode fs.FileMode) {
-		log.WithFields(logrus.Fields{"file": path, "mode": fmt.Sprintf("%04o", mode)}).
-			Warn("A secret file is readable by its group or other users; restrict it to its owner (chmod 0600)")
-	}}
+	policy := SecretPolicy(cfg, log)
 	l := &keyLoader{sem: sem, timeout: cfg.ReloadTimeout, keys: keys, engine: engine, sig: sig, reveals: reveals,
 		state: state, log: log}
 	if cfg.KeyConfigPath != "" {
@@ -98,6 +95,16 @@ func newKeyLoader(cfg *config.Config, sem *argon.Semaphore, keys *provider.Provi
 			Policy: policy, Decrypt: sem.Decrypt}
 	}
 	return l
+}
+
+// SecretPolicy is the --strict-file-permissions policy for secret files,
+// warning through log when it is off.
+func SecretPolicy(cfg *config.Config, log logrus.FieldLogger) secretfile.Policy {
+	return secretfile.Policy{Strict: cfg.StrictFilePermissions, Warn: func(path string, mode fs.FileMode) {
+		log.WithFields(logrus.Fields{"file": path, "mode": fmt.Sprintf("%04o", mode)}).
+			Warn("A secret file is readable or writable by its group or other users; restrict it to its owner (chmod 0600)")
+	}, WarnOwner: warnOwner(log, "A secret file is owned by another user than the signer's and root, who can read or "+
+		"replace it; chown it to the signer's user")}
 }
 
 // workers is the number of sources loaded at once. A reload runs while the
@@ -255,7 +262,7 @@ func logKeySources(log logrus.FieldLogger, cfg *config.Config, sz argon.Sizing) 
 	log.WithFields(logrus.Fields{"procs": sz.Procs, "budget-mib": sz.Budget >> 20, "budget-source": sz.Source}).
 		Info("Keystore decryption: " + sz.String())
 	if !cfg.StrictFilePermissions {
-		log.Warn("--strict-file-permissions=false: secret files that their group or other users can read are loaded " +
-			"with a warning")
+		log.Warn("--strict-file-permissions=false: secret files that their group or other users can read or write " +
+			"are loaded with a warning")
 	}
 }

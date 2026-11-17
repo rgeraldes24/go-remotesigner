@@ -323,8 +323,8 @@ func (c *countingCache) Get(key string) (*tls.ClientSessionState, bool) {
 // client certificate reaches the sign routes and gets 403 on admin routes
 // without the admin token; in token+mtls each scope needs the certificate
 // and its token. An unknown certificate is refused at the handshake, and a
-// client removed by SIGHUP can neither use its open connection nor resume
-// its session.
+// client removed by SIGHUP gets 401 from the next request of each open
+// connection, which then closes, and cannot resume its session.
 func TestMTLSScopeMatrix(t *testing.T) {
 	srv := serverCert(t, false)
 	vc, other := clientCertOf(t, "vc", nil), clientCertOf(t, "intruder", nil)
@@ -382,8 +382,8 @@ func TestMTLSScopeMatrix(t *testing.T) {
 				}
 			}
 
-			// The known client resumes; after it is removed and SIGHUP, its
-			// open connection gets 401 and its resumption is refused.
+			// The known client resumes; after it is removed and SIGHUP, each
+			// of its open connections gets 401 and its resumption is refused.
 			resumed := tlsClient(roots, &vcCert, cache)
 			before := cache.offered.Load()
 			if _, _, err := call(resumed, http.MethodGet, s.tlsBase()+"/upcheck", ""); err != nil {
@@ -391,6 +391,15 @@ func TestMTLSScopeMatrix(t *testing.T) {
 			}
 			if cache.offered.Load() == before {
 				t.Fatal("the known client offered no session ticket to resume")
+			}
+			// One open connection per route, credential-less ones included.
+			paths := []string{"/upcheck", "/healthcheck", "/api/v1/consensus/capabilities", "/no-such-route"}
+			conns := make([]*http.Client, len(paths))
+			for i := range conns {
+				conns[i] = tlsClient(roots, &vcCert, nil)
+				if code, _, err := call(conns[i], http.MethodGet, s.tlsBase()+"/upcheck", ""); err != nil || code != 200 {
+					t.Fatalf("opening connection %d: %d %v", i, code, err)
+				}
 			}
 			writeKnownClients(t, known, other)
 			s.signal(syscall.SIGHUP)
@@ -405,11 +414,18 @@ func TestMTLSScopeMatrix(t *testing.T) {
 				}
 				time.Sleep(20 * time.Millisecond)
 			}
-			// Every route of the open connection refuses it, the
-			// credential-less ones included.
-			for _, path := range []string{"/upcheck", "/healthcheck", "/api/v1/consensus/capabilities", "/no-such-route"} {
-				if code, _, err := call(withCert, http.MethodGet, s.tlsBase()+path, sign); err != nil || code != 401 {
+			// Every route refuses the removed client on a connection it
+			// already has open, the credential-less ones included, and the
+			// 401 closes that connection: its next request needs a new
+			// handshake, which is refused.
+			for i, path := range paths {
+				if code, _, err := call(conns[i], http.MethodGet, s.tlsBase()+path, sign); err != nil || code != 401 {
 					t.Errorf("the removed client's open connection: GET %s got %d %v, want 401", path, code, err)
+				}
+			}
+			for i, c := range conns {
+				if code, _, err := call(c, http.MethodGet, s.tlsBase()+"/upcheck", sign); err == nil {
+					t.Errorf("connection %d still answered %d after its 401", i, code)
 				}
 			}
 			before = cache.offered.Load()
@@ -426,9 +442,9 @@ func TestMTLSScopeMatrix(t *testing.T) {
 // Revoking the only client with SIGHUP. Emptying the known-clients file
 // (or the client CA file) is a valid reload that trusts nobody, and
 // deleting it fails closed: either way the client's new handshakes are
-// refused and the connection it already has open gets 401, and the log
-// says why. Restoring the file lets the client back in on the same
-// connection.
+// refused, each connection it already has open gets 401 from its next
+// request, which closes it, and the log says why. Restoring the file lets
+// the client open connections again.
 func TestMTLSRevokeTheOnlyClient(t *testing.T) {
 	srv := serverCert(t, false)
 	ca := newPair(t, certSpec{cn: "ca", ca: true})
@@ -453,19 +469,19 @@ func TestMTLSRevokeTheOnlyClient(t *testing.T) {
 			open := tlsClient(roots, &vcCert, nil)
 			s.waitReadyTLS(open)
 			const keys = "/api/v1/consensus/publicKeys"
-			// waitOpen polls path on the client's open connection until it
-			// answers want. A 401 can only come over that connection: a new
-			// handshake would be refused.
-			waitOpen := func(path string, want int) {
+			// waitFor polls path with client until it answers want. A 401
+			// can only come over a connection the client already has open:
+			// a new handshake would be refused.
+			waitFor := func(client *http.Client, path string, want int) {
 				t.Helper()
 				deadline := time.Now().Add(5 * time.Second)
 				for {
-					code, _, err := call(open, http.MethodGet, s.tlsBase()+path, "")
+					code, _, err := call(client, http.MethodGet, s.tlsBase()+path, "")
 					if err == nil && code == want {
 						return
 					}
 					if time.Now().After(deadline) {
-						t.Fatalf("%s on the open connection: %d %v, want %d\n%s", path, code, err, want, s.output.String())
+						t.Fatalf("%s: %d %v, want %d\n%s", path, code, err, want, s.output.String())
 					}
 					time.Sleep(20 * time.Millisecond)
 				}
@@ -494,17 +510,30 @@ func TestMTLSRevokeTheOnlyClient(t *testing.T) {
 				}, "Reloading the TLS client trust failed"},
 			}
 			for _, r := range revocations {
+				// Two connections the client holds open across the revocation.
+				first, second := tlsClient(roots, &vcCert, nil), tlsClient(roots, &vcCert, nil)
+				for _, c := range []*http.Client{first, second} {
+					if code, _, err := call(c, http.MethodGet, s.tlsBase()+"/upcheck", ""); err != nil || code != 200 {
+						t.Fatalf("%s: opening a connection: %d %v", r.name, code, err)
+					}
+				}
 				r.revoke()
 				s.signal(syscall.SIGHUP)
-				waitOpen(keys, 401)
-				waitOpen("/upcheck", 401)
+				waitFor(first, keys, 401)
+				if code, _, err := call(second, http.MethodGet, s.tlsBase()+"/upcheck", ""); err != nil || code != 401 {
+					t.Fatalf("%s: /upcheck on the open connection: %d %v, want 401", r.name, code, err)
+				}
 				waitLog(r.log)
-				if code, _, err := call(tlsClient(roots, &vcCert, nil), http.MethodGet, s.tlsBase()+keys, ""); err == nil {
-					t.Fatalf("%s: the revoked client opened a new connection: %d", r.name, code)
+				// Each 401 closed its connection, and a new one is refused at
+				// the handshake.
+				for i, c := range []*http.Client{first, second, tlsClient(roots, &vcCert, nil)} {
+					if code, _, err := call(c, http.MethodGet, s.tlsBase()+keys, ""); err == nil {
+						t.Fatalf("%s: client %d reached the signer after the revocation: %d", r.name, i, code)
+					}
 				}
 				restore()
 				s.signal(syscall.SIGHUP)
-				waitOpen(keys, 200)
+				waitFor(tlsClient(roots, &vcCert, nil), keys, 200)
 				if code, _, err := call(tlsClient(roots, &vcCert, nil), http.MethodGet, s.tlsBase()+keys, ""); err != nil || code != 200 {
 					t.Fatalf("%s, then restored: a new connection got %d %v", r.name, code, err)
 				}
@@ -670,6 +699,16 @@ func TestMetricsTokenAndNoKeyLabels(t *testing.T) {
 	s.waitReady()
 	if fi, err := os.Stat(tokenFile); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("generated metrics token: %v %v", fi, err)
+	}
+	// The startup line says that the token is required; the field is not
+	// one the redaction hook hides.
+	if !strings.Contains(s.output.String(), "token-required=true") {
+		t.Fatalf("the metrics listener line does not say a token is required:\n%s", s.output.String())
+	}
+	// On loopback the token never leaves the host, so there is no warning
+	// that it is sent in clear (runner.WarnMetricsTokenInClear).
+	if strings.Contains(s.output.String(), "metrics token in clear") {
+		t.Fatalf("a loopback metrics listener warned that the token is sent in clear:\n%s", s.output.String())
 	}
 	data, _ := os.ReadFile(tokenFile)
 	token := strings.TrimSpace(string(data))

@@ -236,7 +236,7 @@ func TestKeystoreVerifyDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, _, stderr = runCLI(t, "consensus", "keystore", "verify", "--keystores-path", dir, "--keystores-password-file", pw)
-	if code != exitStartup || !strings.Contains(stderr, "readable by group or other users") {
+	if code != exitStartup || !strings.Contains(stderr, "readable or writable by group or other users") {
 		t.Fatalf("world-readable password file: exit %d %q", code, stderr)
 	}
 	code, _, stderr = runCLI(t, "--strict-file-permissions=false", "consensus", "keystore", "verify", "--keystores-path", dir,
@@ -247,7 +247,7 @@ func TestKeystoreVerifyDirectory(t *testing.T) {
 	// The single form applies the rule too.
 	ks := filepath.Join(dir, "a.json")
 	code, _, stderr = runCLI(t, "consensus", "keystore", "verify", "--file", ks, "--password-file", pw)
-	if code != exitStartup || !strings.Contains(stderr, "readable by group or other users") {
+	if code != exitStartup || !strings.Contains(stderr, "readable or writable by group or other users") {
 		t.Fatalf("single form, world-readable password file: exit %d %q", code, stderr)
 	}
 

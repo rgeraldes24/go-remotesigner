@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/rgeraldes24/go-remotesigner/internal/config"
 	"github.com/rgeraldes24/go-remotesigner/internal/crypto/mldsa87"
 	"github.com/rgeraldes24/go-remotesigner/internal/hygiene"
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 	"github.com/rgeraldes24/go-remotesigner/internal/logging"
 	"github.com/rgeraldes24/go-remotesigner/internal/network"
 	"github.com/rgeraldes24/go-remotesigner/internal/runner"
@@ -91,8 +93,56 @@ func loadConfigFile(c *cli.Context) error {
 	if err := src.Apply(c, c.App.Flags, ""); err != nil {
 		return usageError(err)
 	}
+	if err := checkConfigFile(c, src); err != nil {
+		return err
+	}
 	c.App.Metadata[metaConfigFile] = src
 	return nil
+}
+
+// checkConfigFile applies --strict-file-permissions, as the command line,
+// the environment and the file itself set it, to the config file as it was
+// read: whoever can write it decides how the signer runs, so one that its
+// group or other users can write, or that another user than the signer's
+// and root owns, is refused (a startup failure, exit 1), or used with a
+// warning on the error stream without the strict policy. Anyone may read
+// it, unless it holds a secret (StoreCredentials). What is not a regular
+// file, such as a pipe, has no lasting mode or owner and is not checked.
+func checkConfigFile(c *cli.Context, src *config.YAMLSource) error {
+	fi := src.Info()
+	if fi == nil || !fi.Mode().IsRegular() {
+		return nil
+	}
+	w := c.App.ErrWriter
+	policy := secretfile.Policy{
+		Strict: c.Bool(flags.StrictFilePermissions),
+		Warn: func(path string, mode fs.FileMode) {
+			_, _ = fmt.Fprintf(w, "warning: --config-file %s: mode %04o: writable by group or other users, who could "+
+				"change how the signer runs\n", path, mode)
+		},
+		WarnOwner: func(path string, uid uint32) {
+			_, _ = fmt.Fprintf(w, "warning: --config-file %s: owned by uid %d, another user than the signer's and "+
+				"root, who could change how the signer runs\n", path, uid)
+		},
+	}
+	if err := policy.CheckTrusted(src.Path(), fi); err != nil {
+		return fmt.Errorf("refusing to start: --config-file %w", err)
+	}
+	return nil
+}
+
+// filePolicy is the --strict-file-permissions policy for the secret files
+// of a command that has no logger: its warnings go to w.
+func filePolicy(c *cli.Context, w io.Writer) secretfile.Policy {
+	return secretfile.Policy{
+		Strict: c.Bool(flags.StrictFilePermissions),
+		Warn: func(path string, mode fs.FileMode) {
+			_, _ = fmt.Fprintf(w, "warning: %s: mode %04o: readable or writable by group or other users\n", path, mode)
+		},
+		WarnOwner: func(path string, uid uint32) {
+			_, _ = fmt.Fprintf(w, "warning: %s: owned by uid %d, another user than the signer's and root\n", path, uid)
+		},
+	}
 }
 
 // runWithSignals runs the signer, stopping it on SIGTERM or SIGINT and
@@ -133,6 +183,10 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 		StrictFilePermissions: c.Bool(flags.StrictFilePermissions),
 		ReloadTimeout:         time.Duration(c.Uint(flags.ReloadTimeout)) * time.Minute,
 		SignerLoadParallelism: c.Int(flags.SignerLoadParallelism),
+		Signing: config.Signing{
+			MaxConcurrent: c.Int(flags.MaxConcurrentSigning),
+			MaxQueued:     c.Int(flags.MaxQueuedSigning),
+		},
 		Logging: logging.Config{
 			Level:  c.String(flags.Logging),
 			Format: c.String(flags.LoggingFormat),
@@ -233,6 +287,12 @@ func configFrom(c *cli.Context) (*config.Config, error) {
 	cfg.Metrics.Port = uint16(metricsPort)
 	if cfg.HTTP.MaxConnections < 1 {
 		return nil, fmt.Errorf("--%s must be at least 1", flags.HTTPMaxConnections)
+	}
+	if cfg.Signing.MaxConcurrent < 1 {
+		return nil, fmt.Errorf("--%s must be at least 1", flags.MaxConcurrentSigning)
+	}
+	if cfg.Signing.MaxQueued < 0 {
+		return nil, fmt.Errorf("--%s must be at least 0", flags.MaxQueuedSigning)
 	}
 	if cfg.HTTP.IdleTimeout < time.Second {
 		return nil, fmt.Errorf("--%s must be at least 1", flags.IdleConnectionTimeout)

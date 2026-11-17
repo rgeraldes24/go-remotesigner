@@ -16,6 +16,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/rgeraldes24/go-remotesigner/internal/admission"
 	"github.com/rgeraldes24/go-remotesigner/internal/api/apierr"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/policy"
 	"github.com/rgeraldes24/go-remotesigner/internal/consensus/signingroot"
@@ -48,6 +49,9 @@ type GVRPinner interface {
 //   - the response cache: a repeat of a request whose signature was released
 //     within two epochs gets the same bytes, without signing or a slashing
 //     check (the repeat of a released signature adds nothing to sign);
+//   - the signing gate (503 OVERLOADED when its slots and its queue are
+//     full), held until the signature is verified and released before the
+//     response is written;
 //   - slashing check-and-record for blocks and attestations (412), committed
 //     before anything is signed;
 //   - sign in the type's mode, verify before release (500 SIGNATURE_FAULT
@@ -62,7 +66,11 @@ type Sign struct {
 	// every listener is loopback; they are then signed unchecked.
 	Protector slashing.Protector
 	// Pinner pins a pending GVR before the first accepted request is signed.
-	Pinner  GVRPinner
+	Pinner GVRPinner
+	// Gate bounds the requests in the slashing check, the signature and its
+	// verification at once (--max-concurrent-signing-requests) and those
+	// waiting for it (--max-queued-signing-requests); nil admits all.
+	Gate    *admission.Gate
 	Metrics *metrics.Metrics
 	Log     logrus.FieldLogger
 }
@@ -137,19 +145,37 @@ func (x *exchange) serve() {
 		x.respond(sig)
 		return
 	}
-	if x.h.Protector != nil && d.Protection != policy.ProtectionNone {
-		if e := x.protect(d, pk[:]); e != nil {
-			x.fail(e)
-			return
-		}
-	}
-
-	sig, err := x.h.Signer.Sign(id, key, x.typ, d.SigningRoot)
-	if err != nil {
-		x.fail(x.signerError(err))
+	sig, e := x.sign(d, id, key, pk[:])
+	if e != nil {
+		x.fail(e)
 		return
 	}
 	x.respond(sig)
+}
+
+// sign runs the slashing check-and-record, the signature and its
+// verification in a slot of the signing gate (steps 10 to 12 of the
+// pipeline). The slot is released before the response is written, so that
+// a client slow to read its response holds none.
+func (x *exchange) sign(d *policy.Decision, id signer.ID, key signer.Key,
+	pubkey []byte) (signer.Signature, *apierr.Error) {
+	if x.h.Gate != nil {
+		release, err := x.h.Gate.Acquire(x.r.Context())
+		if err != nil {
+			return signer.Signature{}, apierr.New(apierr.Overloaded, "signing gate: "+err.Error())
+		}
+		defer release()
+	}
+	if x.h.Protector != nil && d.Protection != policy.ProtectionNone {
+		if e := x.protect(d, pubkey); e != nil {
+			return signer.Signature{}, e
+		}
+	}
+	sig, err := x.h.Signer.Sign(id, key, x.typ, d.SigningRoot)
+	if err != nil {
+		return signer.Signature{}, x.signerError(err)
+	}
+	return sig, nil
 }
 
 // pinGVR binds a pending trust-on-first-use GVR: the store first, so that

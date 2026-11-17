@@ -37,7 +37,7 @@ privateKey: "0x<96 hex characters>"
   message that says which one was found.
 - File names are free. Keys are identified by their public key, never by the file name.
 - Keep the directory readable by the signer's user only (`chmod 700`, files `0600`): the seed is the key. A key file
-  that its group or other users can read is refused unless `--strict-file-permissions=false` is given.
+  that its group or other users can read or write is refused unless `--strict-file-permissions=false` is given.
 
 A file that fails to load is logged at ERROR and counted in the `keys-check/config-files-loading` health check; the
 other files still load. On `POST /reload`, a file that now fails keeps the keys it had.
@@ -187,6 +187,12 @@ REMOTESIGNER_HTTP_LISTEN_PORT=9000 bin/remotesigner-consensus --config-file=/etc
 
 Unknown keys in the file are refused (exit code 2), so a typo never silently falls back to a default.
 
+Whoever can write the config file decides how the signer runs. With `--strict-file-permissions` (the default,
+whichever source sets it) a config file that its group or other users can write, or that another user than the
+signer's and root owns, refuses the start (exit code 1), for the offline commands too; with
+`--strict-file-permissions=false` it is used with a `warning:` line on standard error. Anyone may read it (`0644`
+owned by root is the usual choice), unless it holds a secret ([`reload.md`](reload.md#secret-files)).
+
 ## 10. Listening beyond loopback
 
 The defaults bind `127.0.0.1`. A non-loopback `--http-listen-host` turns on fail-safes, each of which refuses to start
@@ -205,8 +211,10 @@ The defaults bind `127.0.0.1`. A non-loopback `--http-listen-host` turns on fail
 Each `--X…` override, the risk it accepts and what to configure instead, is explained in
 [`../reference/flags.md`](../reference/flags.md#what-each-override-accepts). Requests are also refused whatever the
 listener: any `Origin` header (403), a `Host` outside the allowlist (403), a
-POST (or keymanager `DELETE`) that is not `application/json` (415), and bodies over the route limit (413). At most
-`--http-max-connections` (1,024) connections are open at once; further ones wait.
+POST or `DELETE` that is not `application/json` (415), and bodies over the route limit (413). At most
+`--http-max-connections` (1,024) connections are open at once; further ones wait. A request refused for its
+credential (401), its `Host` or its `Origin` (403) closes its connection, so that refused requests do not hold
+connections open.
 
 The container image and the example systemd configuration listen beyond loopback over TLS, with a generated
 certificate: see [`deploy-docker.md`](deploy-docker.md) and [`deploy-systemd.md`](deploy-systemd.md).

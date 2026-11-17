@@ -123,6 +123,9 @@ var (
 	ErrInvalidPublicKey = errors.New("slashing: public key must be 2592 bytes")
 	// ErrValidatorNotRegistered: the key was never registered.
 	ErrValidatorNotRegistered = errors.New("slashing: validator is not registered")
+	// ErrValidatorDisabled: the key is disabled, so its RANDAO frontier must not move. CompareAndSwapRandaoState
+	// returns it from inside the commit; the reveal service answers it with 412 VALIDATOR_DISABLED.
+	ErrValidatorDisabled = errors.New("slashing: validator is disabled")
 	// ErrDuplicateRecord: a block is already recorded at the slot, or an attestation at the target epoch.
 	ErrDuplicateRecord = errors.New("slashing: a record already exists at this slot or target epoch")
 	// ErrWatermarkConflict: a low watermark would exceed the high watermark, or a high watermark would not exceed
@@ -130,6 +133,9 @@ var (
 	ErrWatermarkConflict = errors.New("slashing: low watermarks must stay at or below the high watermark")
 	// ErrNoGenesisValidatorsRoot: a high watermark was set before the store was pinned to a network.
 	ErrNoGenesisValidatorsRoot = errors.New("slashing: the store has no genesis validators root yet")
+	// ErrPartialHighWatermark: a high watermark has an epoch or a slot but not both. Every store refuses to set one,
+	// and reports a store that holds one (written around it) as damaged.
+	ErrPartialHighWatermark = errors.New("slashing: a high watermark needs both an epoch and a slot")
 
 	// ErrGenesisValidatorsRootMismatch: the request's genesis validators root differs from the store's. The server
 	// rejects such a request earlier with 400 FORK_INFO_MISMATCH; if the engine sees one, it maps to the same 400.

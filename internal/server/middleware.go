@@ -71,7 +71,7 @@ func (s *Server) routeChain(rt *Route) http.Handler {
 		h = writeTimeout(rt.WriteTimeout, h)
 	}
 	h = s.limitBody(rt, h)
-	if rt.Method == http.MethodPost || rt.ReadsBody {
+	if rt.Method != http.MethodGet {
 		h = s.contentType(h)
 	}
 	return s.authenticate(rt, h)
@@ -87,8 +87,8 @@ func (s *Server) authenticate(rt *Route, next http.Handler) http.Handler {
 	})
 }
 
-// contentType refuses a POST, or a request to a route whose handler reads
-// a JSON body (DELETE /qrl/v1/keystores), whose Content-Type is not
+// contentType refuses a request to a route other than GET (every POST and
+// DELETE, those without a body included) whose Content-Type is not
 // application/json with 415 UNSUPPORTED_MEDIA_TYPE, even when the body is
 // empty: a browser cannot send that type cross-site without a CORS
 // preflight.
