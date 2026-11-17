@@ -117,7 +117,7 @@ require (
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
-// qrysm content: cyyber/qrysm 0b9cdf25 (an ancestor of rgeraldes24/qrysm main, now a3979a15), the commit
+// qrysm content: cyyber/qrysm 0b9cdf25 (an ancestor of rgeraldes24/qrysm main, now e9654013), the commit
 // PROVENANCE.md and docs/spec/network-config.md name. Nothing on a theQRL tag or branch carries the target consensus.
 replace github.com/theQRL/qrysm => github.com/cyyber/qrysm v0.2.1-0.20261012085230-0b9cdf251d1f
 

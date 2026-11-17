@@ -7,7 +7,7 @@ toolchain go1.26.9
 require (
 	github.com/prysmaticlabs/fastssz v0.0.0-20260421202104-7a6eb71e6e45
 	github.com/theQRL/go-bitfield v0.0.0-20231204084259-f3b877be8f63
-	github.com/theQRL/qrysm v0.0.0-20261026105706-47f6b65e6c58
+	github.com/theQRL/qrysm v0.0.0-20261117161652-693839886113
 )
 
 require (
@@ -111,17 +111,19 @@ require (
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
-// qrysm content: rgeraldes24/qrysm 47f6b65e, the head of #62, on a stack of three PRs on cyyber/qrysm a3979a15
-// (rgeraldes24/qrysm main): #60 (remote-signer/q1-randao-slot d5e74d9d) passes the proposal slot to
-// RandaoRevealer, #61 (remote-signer/q2-remote-keymanager 051a9a43) revives the remote-web3signer keymanager, and
-// #62 (remote-signer/q3-vc-wiring 47f6b65e) wires it into the validator: the PRs the release gate names and the
+// qrysm content: rgeraldes24/qrysm 69383988, the head of #62, on a stack of three PRs on cyyber/qrysm e9654013
+// (rgeraldes24/qrysm main): #60 (remote-signer/q1-randao-slot 2b44ce89) passes the proposal slot to
+// RandaoRevealer, #61 (remote-signer/q2-remote-keymanager 52ec8424) revives the remote-web3signer keymanager, and
+// #62 (remote-signer/q3-vc-wiring 69383988) wires it into the validator: the PRs the release gate names and the
 // branch docs/operations/requirements.md has operators build. None is on a theQRL or cyyber branch yet. See
 // ../README.md for how to bump it.
-replace github.com/theQRL/qrysm => github.com/rgeraldes24/qrysm v0.0.0-20261026105706-47f6b65e6c58
+replace github.com/theQRL/qrysm => github.com/rgeraldes24/qrysm v0.0.0-20261117161652-693839886113
 
-// The replaces below mirror qrysm's own go.mod at that commit, which has no go-qrl replace. Replace directives only
-// apply in the main module, so every one qrysm needs must be repeated here. TestReplacesMirrorQrysm checks that they
-// stay equal.
+// The replaces below mirror qrysm's own go.mod at that commit, go-qrl's included (cyyber/qrysm e9654013 added it,
+// to the head of cyyber/go-qrl#288). Replace directives only apply in the main module, so every one qrysm needs must
+// be repeated here. TestReplacesMirrorQrysm checks that they stay equal.
 replace github.com/grpc-ecosystem/grpc-gateway/v2 => github.com/theQRL/grpc-gateway/v2 v2.0.0-20250214142603-49067762c97f
 
 replace github.com/json-iterator/go => github.com/prestonvanloon/go v1.1.7-0.20190722034630-4f2e55fcf87b
+
+replace github.com/theQRL/go-qrl => github.com/rgeraldes24/go-qrl v0.0.0-20261023161232-0c124c634a28

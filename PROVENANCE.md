@@ -46,7 +46,7 @@ notice.
 | Item | Value |
 |---|---|
 | Upstream path | `pkg/go-qrl-wallet-encryptor-keystore` |
-| Source commit | `cyyber/qrysm` `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` (2026-10-12), an ancestor of `rgeraldes24/qrysm` main (`a3979a15`) |
+| Source commit | `cyyber/qrysm` `0b9cdf251d1f022957d35c4edeb6dd3ce42a617d` (2026-10-12), an ancestor of `rgeraldes24/qrysm` main (`e9654013`) |
 | Tree id | `6c97bfffa7d145c2be452fa4435c81b6c7532554` (the same tree in `theQRL/qrysm` main `e07a6007`) |
 | Copy | `third_party/qrl-keystore/go-qrl-wallet-encryptor-keystore/`, pristine; `headercheck` verifies the tree id |
 | Upstream of upstream | `wealdtech/go-eth2-wallet-encryptor-keystorev4` (https://github.com/wealdtech/go-eth2-wallet-encryptor-keystorev4), Apache-2.0, "Copyright © 2019 - 2023 Weald Technology Trading" (per-file years 2019-2023); compared against `v1.4.1` (`1067d369`, 2023-07-29), released a month before the QRL copy. Notices stripped in the QRL copy. |
@@ -146,9 +146,9 @@ and the round-trip check `vectorgen interchange-check`.
   YAMLs carry the class `new` header.
 - **Contract mode.** `tools/vectorgen/contract` is a second nested module of the same kind: class `new` sources, a
   GPL-3.0 combined work when built, never shipped, never imported by the signer module. It links qrysm at
-  `rgeraldes24/qrysm` `47f6b65e6c58bb8c268d3dfd94aca8cbd1718bcc` (2026-10-26, the head of the last of a stack of three
-  PRs on `cyyber/qrysm` `a3979a15`: rgeraldes24/qrysm#60 `remote-signer/q1-randao-slot` `d5e74d9d`, which passes the
-  proposal slot to `RandaoRevealer`; #61 `remote-signer/q2-remote-keymanager` `051a9a43`, the revived
+  `rgeraldes24/qrysm` `6938398861137c2e5bd41c00c74a2c5ff9b7efa0` (2026-11-17, the head of the last of a stack of three
+  PRs on `cyyber/qrysm` `e9654013`: rgeraldes24/qrysm#60 `remote-signer/q1-randao-slot` `2b44ce89`, which passes the
+  proposal slot to `RandaoRevealer`; #61 `remote-signer/q2-remote-keymanager` `52ec8424`, the revived
   `remote-web3signer` keymanager; and #62 `remote-signer/q3-vc-wiring`, its validator wiring), because one module
   cannot hold the golden vectors' qrysm and this one. It writes no files: it drives a running signer with qrysm's
   keymanager and checks the answers with qrysm's verifiers.
