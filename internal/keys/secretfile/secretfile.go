@@ -19,6 +19,12 @@
 // root can be read, replaced or given another mode by that user whatever
 // its mode says, so it is refused or warned about under the same policy.
 //
+// Trust files (the client CA and known-clients files, the config file)
+// hold no secret, so anyone may read them, but whoever can write one
+// decides whom the signer trusts or how it runs: CheckTrusted and
+// ReadTrusted apply the policy to one that its group or other users can
+// write, or that another user owns.
+//
 // On Windows, whose files have no POSIX mode bits (Go reports every file
 // as 0666, or 0444 when it is read-only) and no uid, these checks are not
 // made: access there is governed by the file's ACL.
@@ -50,6 +56,10 @@ var (
 	// the signer's and root.
 	ErrForeignOwner = errors.New("owned by another user than the signer's and root, who can read or replace it " +
 		"whatever its mode; chown it to the signer's user or set --strict-file-permissions=false")
+	// ErrWritable: the trust file is writable by its group or by other
+	// users.
+	ErrWritable = errors.New("writable by group or other users, who could change what the signer trusts or how " +
+		"it runs; remove their write permission (chmod go-w) or set --strict-file-permissions=false")
 	// ErrNotRegular: the path is not a regular file.
 	ErrNotRegular = errors.New("not a regular file")
 	// ErrTooLarge: the file holds more than the limit.
@@ -58,11 +68,13 @@ var (
 
 // Policy is what to do with a secret file that is readable or writable by
 // its group or by other users, with a directory that holds a token file,
-// or is to hold one, and that they can write, and with any of these that
-// another user than the signer's and root owns.
+// or is to hold one, and that they can write, with a trust file that they
+// can write, and with any of these that another user than the signer's
+// and root owns.
 type Policy struct {
-	// Strict refuses the file with ErrInsecure, the directory with
-	// ErrDirInsecure, and a foreign owner with ErrForeignOwner.
+	// Strict refuses the file with ErrInsecure (a trust file with
+	// ErrWritable), the directory with ErrDirInsecure, and a foreign owner
+	// with ErrForeignOwner.
 	Strict bool
 	// Warn is called with the path and mode of such a file when Strict is
 	// false; nil warns nobody.
@@ -78,10 +90,12 @@ type Policy struct {
 }
 
 // Modes that the policy refuses: group or other read and write for a
-// secret file, group or other write for the directory that holds it.
+// secret file, group or other write for the directory that holds it and
+// for a trust file.
 const (
-	insecureFile fs.FileMode = 0o066
-	insecureDir  fs.FileMode = 0o022
+	insecureFile  fs.FileMode = 0o066
+	insecureDir   fs.FileMode = 0o022
+	insecureTrust fs.FileMode = 0o022
 )
 
 // euid is the signer's effective uid; tests replace it.
@@ -117,6 +131,15 @@ var posixModes = runtime.GOOS != "windows"
 // and root, under the strict policy.
 func (p Policy) Check(path string, fi fs.FileInfo) error {
 	return p.checkFile(path, fi, insecureFile, ErrInsecure)
+}
+
+// CheckTrusted applies p to the trust file at path with info fi: it fails
+// for anything but a regular file, and, where file modes carry POSIX
+// permissions, for a file writable by group or others, or owned by
+// another user than the signer's and root, under the strict policy. A
+// trust file may be readable by anyone.
+func (p Policy) CheckTrusted(path string, fi fs.FileInfo) error {
+	return p.checkFile(path, fi, insecureTrust, ErrWritable)
 }
 
 // checkFile refuses anything but a regular file, and applies p to a file
@@ -189,6 +212,13 @@ func Octal(mode fs.FileMode) string {
 // the file checked. The caller wipes the result with mldsa87.Wipe.
 func Read(path string, limit int64, p Policy) ([]byte, error) {
 	data, _, err := read(path, limit, func(fi fs.FileInfo) error { return p.Check(path, fi) })
+	return data, err
+}
+
+// ReadTrusted checks and reads the trust file at path, which must hold at
+// most limit bytes. Like Read, it checks the opened file.
+func ReadTrusted(path string, limit int64, p Policy) ([]byte, error) {
+	data, _, err := read(path, limit, func(fi fs.FileInfo) error { return p.CheckTrusted(path, fi) })
 	return data, err
 }
 

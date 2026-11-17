@@ -93,7 +93,41 @@ func loadConfigFile(c *cli.Context) error {
 	if err := src.Apply(c, c.App.Flags, ""); err != nil {
 		return usageError(err)
 	}
+	if err := checkConfigFile(c, src); err != nil {
+		return err
+	}
 	c.App.Metadata[metaConfigFile] = src
+	return nil
+}
+
+// checkConfigFile applies --strict-file-permissions, as the command line,
+// the environment and the file itself set it, to the config file as it was
+// read: whoever can write it decides how the signer runs, so one that its
+// group or other users can write, or that another user than the signer's
+// and root owns, is refused (a startup failure, exit 1), or used with a
+// warning on the error stream without the strict policy. Anyone may read
+// it, unless it holds a secret (StoreCredentials). What is not a regular
+// file, such as a pipe, has no lasting mode or owner and is not checked.
+func checkConfigFile(c *cli.Context, src *config.YAMLSource) error {
+	fi := src.Info()
+	if fi == nil || !fi.Mode().IsRegular() {
+		return nil
+	}
+	w := c.App.ErrWriter
+	policy := secretfile.Policy{
+		Strict: c.Bool(flags.StrictFilePermissions),
+		Warn: func(path string, mode fs.FileMode) {
+			_, _ = fmt.Fprintf(w, "warning: --config-file %s: mode %04o: writable by group or other users, who could "+
+				"change how the signer runs\n", path, mode)
+		},
+		WarnOwner: func(path string, uid uint32) {
+			_, _ = fmt.Fprintf(w, "warning: --config-file %s: owned by uid %d, another user than the signer's and "+
+				"root, who could change how the signer runs\n", path, uid)
+		},
+	}
+	if err := policy.CheckTrusted(src.Path(), fi); err != nil {
+		return fmt.Errorf("refusing to start: --config-file %w", err)
+	}
 	return nil
 }
 

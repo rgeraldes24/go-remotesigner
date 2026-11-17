@@ -63,6 +63,13 @@ type Options struct {
 	// (--strict-file-permissions): refused under Strict, warned about
 	// otherwise, at startup and on every Reload.
 	Files secretfile.Policy
+	// TrustFiles is the policy for the client trust files
+	// (--tls-known-clients-file and --tls-client-ca-file) that their group
+	// or other users can write, or that another user than the signer's and
+	// root owns: whoever can write one chooses the clients the signer
+	// accepts. Refused under Strict, warned about otherwise, at startup
+	// and on every Reload.
+	TrustFiles secretfile.Policy
 	// Now is the clock for certificate validity; nil means time.Now.
 	Now func() time.Time
 }
@@ -305,7 +312,7 @@ func (s *Server) loadTrust(info *Info, startup bool) (*trust, error) {
 	}
 	t := &trust{now: s.opts.Now}
 	if path := s.cfg.KnownClientsFile; path != "" {
-		known, err := loadKnownClients(path)
+		known, err := loadKnownClients(path, s.opts.TrustFiles)
 		if err != nil {
 			return nil, err
 		}
@@ -315,7 +322,7 @@ func (s *Server) loadTrust(info *Info, startup bool) (*trust, error) {
 		t.known, info.KnownClients = known, len(known)
 	}
 	if path := s.cfg.ClientCAFile; path != "" {
-		pool, n, err := loadClientCAs(path)
+		pool, n, err := loadClientCAs(path, s.opts.TrustFiles)
 		if err != nil {
 			return nil, err
 		}

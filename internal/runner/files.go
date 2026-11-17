@@ -40,6 +40,25 @@ func ServerFilePolicy(cfg *config.Config, log logrus.FieldLogger) secretfile.Pol
 	}
 }
 
+// TrustFilePolicy is the --strict-file-permissions policy of the files
+// that decide whom the listener trusts: --tls-known-clients-file and
+// --tls-client-ca-file, read at startup and on SIGHUP. They hold no
+// secret, but one that its group or other users can write, or that
+// another user than the signer's and root owns, is refused under the
+// strict policy and logged at WARN otherwise.
+func TrustFilePolicy(cfg *config.Config, log logrus.FieldLogger) secretfile.Policy {
+	return secretfile.Policy{
+		Strict: cfg.StrictFilePermissions,
+		Warn: func(path string, mode fs.FileMode) {
+			log.WithFields(logrus.Fields{"file": path, "mode": fmt.Sprintf("%04o", mode)}).
+				Warn("A TLS client trust file is writable by its group or other users, who could add a client of " +
+					"their own; remove their write permission (chmod go-w)")
+		},
+		WarnOwner: warnOwner(log, "A TLS client trust file is owned by another user than the signer's and root, "+
+			"who could add a client of their own; chown it to the signer's user"),
+	}
+}
+
 // warnOwner logs msg at WARN for a file or directory that another user
 // than the signer's and root owns.
 func warnOwner(log logrus.FieldLogger, msg string) func(string, uint32) {

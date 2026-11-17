@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"software.sslmate.com/src/go-pkcs12"
+
+	"github.com/rgeraldes24/go-remotesigner/internal/keys/secretfile"
 )
 
 func TestValidate(t *testing.T) {
@@ -80,7 +82,7 @@ func TestLoadKnownClients(t *testing.T) {
 	ok := writeFile(t, filepath.Join(dir, "ok"), []byte(fmt.Sprintf(
 		"# Web3Signer format\n\nlocalhost %s\n127.0.0.1:9000 %s\n  vc-2   %s  \n",
 		strings.ToLower(a.String()), a, strings.ReplaceAll(b.String(), ":", ""))))
-	known, err := loadKnownClients(ok)
+	known, err := loadKnownClients(ok, secretfile.Policy{Strict: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,17 +103,17 @@ func TestLoadKnownClients(t *testing.T) {
 	}
 	for name, content := range bad {
 		t.Run(name, func(t *testing.T) {
-			if _, err := loadKnownClients(writeFile(t, filepath.Join(dir, "bad"), []byte(content))); err == nil {
+			if _, err := loadKnownClients(writeFile(t, filepath.Join(dir, "bad"), []byte(content)), secretfile.Policy{}); err == nil {
 				t.Fatal("accepted")
 			}
 		})
 	}
-	if _, err := loadKnownClients(filepath.Join(dir, "missing")); err == nil {
+	if _, err := loadKnownClients(filepath.Join(dir, "missing"), secretfile.Policy{}); err == nil {
 		t.Fatal("missing file accepted")
 	}
 	// A file that lists nobody parses to an empty set; New refuses it at
 	// startup (TestNewRefusesEmptyTrust), and a reload accepts it.
-	if known, err := loadKnownClients(writeFile(t, filepath.Join(dir, "nobody"), []byte("# nobody\n\n"))); err != nil || known == nil || len(known) != 0 {
+	if known, err := loadKnownClients(writeFile(t, filepath.Join(dir, "nobody"), []byte("# nobody\n\n")), secretfile.Policy{}); err != nil || known == nil || len(known) != 0 {
 		t.Fatalf("a file listing nobody: %v, %v", known, err)
 	}
 }

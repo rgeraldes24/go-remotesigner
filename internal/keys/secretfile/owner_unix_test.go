@@ -37,7 +37,7 @@ func asUID(t *testing.T, uid int) {
 	t.Cleanup(func() { euid = old })
 }
 
-// A secret file and a token directory must belong to the
+// A secret file, a trust file and a token directory must belong to the
 // signer's effective uid or to root: another user's is refused under the
 // strict policy, whatever its mode, and passes with a warning naming the
 // owner otherwise. Info without a uid is not checked.
@@ -62,6 +62,7 @@ func TestOwnerPolicy(t *testing.T) {
 		named string // how the refusal names the path
 	}{
 		{"secret file", file, fileInfo, Policy.Check, file},
+		{"trust file", file, fileInfo, Policy.CheckTrusted, file},
 		{"directory", dir, dirInfo, Policy.CheckDir, "directory " + dir},
 	}
 	for _, c := range checks {
@@ -123,12 +124,15 @@ func TestOwnerPolicy(t *testing.T) {
 	}
 }
 
-// Read checks the owner of the file it opened; a file
+// Read and ReadTrusted check the owner of the file they opened; a file
 // with both faults is refused for its mode first, and warned about for
 // both without the strict policy.
 func TestReadChecksOwner(t *testing.T) {
 	file := write(t, "hunter2\n", 0o600)
 	if _, err := Read(file, 64, Policy{Strict: true}); err != nil {
+		t.Fatalf("the test's own file: %v", err)
+	}
+	if _, err := ReadTrusted(file, 64, Policy{Strict: true}); err != nil {
 		t.Fatalf("the test's own file: %v", err)
 	}
 	asUID(t, os.Geteuid()+1)
@@ -137,6 +141,9 @@ func TestReadChecksOwner(t *testing.T) {
 	}
 	if got, err := Read(file, 64, Policy{Strict: true}); !errors.Is(err, ErrForeignOwner) || got != nil {
 		t.Fatalf("Read = %q, %v; want ErrForeignOwner", got, err)
+	}
+	if got, err := ReadTrusted(file, 64, Policy{Strict: true}); !errors.Is(err, ErrForeignOwner) || got != nil {
+		t.Fatalf("ReadTrusted = %q, %v; want ErrForeignOwner", got, err)
 	}
 	loose := write(t, "hunter2\n", 0o644)
 	if _, err := Read(loose, 64, Policy{Strict: true}); !errors.Is(err, ErrInsecure) {
@@ -161,5 +168,67 @@ func TestForeignOwnedFile(t *testing.T) {
 	}
 	if _, err := Read(file, 64, Policy{Strict: true}); !errors.Is(err, ErrForeignOwner) {
 		t.Fatalf("Read = %v, want ErrForeignOwner", err)
+	}
+	if _, err := ReadTrusted(file, 64, Policy{Strict: true}); !errors.Is(err, ErrForeignOwner) {
+		t.Fatalf("ReadTrusted = %v, want ErrForeignOwner", err)
+	}
+}
+
+// A trust file may be read by anyone, but one that its group or others
+// can write is refused under the strict policy and read with a warning
+// otherwise.
+func TestReadTrusted(t *testing.T) {
+	for _, tt := range []struct {
+		mode     fs.FileMode
+		writable bool
+	}{
+		{0o600, false},
+		{0o400, false},
+		{0o644, false},
+		{0o444, false},
+		{0o640, false},
+		{0o755, false},
+		{0o664, true},
+		{0o660, true},
+		{0o646, true},
+		{0o602, true},
+		{0o666, true},
+	} {
+		for _, strict := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%04o/strict=%v", tt.mode, strict), func(t *testing.T) {
+				p := write(t, "client 00\n", tt.mode)
+				var warned []string
+				pol := Policy{Strict: strict, Warn: func(path string, mode fs.FileMode) {
+					warned = append(warned, path)
+					if mode != tt.mode {
+						t.Errorf("warned with mode %v", mode)
+					}
+				}}
+				got, err := ReadTrusted(p, 64, pol)
+				if tt.writable && strict {
+					if !errors.Is(err, ErrWritable) || got != nil {
+						t.Fatalf("ReadTrusted = %q, %v; want ErrWritable", got, err)
+					}
+					want := fmt.Sprintf("%s: mode %04o: writable by group or other users", p, tt.mode)
+					if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "--strict-file-permissions=false") {
+						t.Errorf("error %q does not name the file, its mode and the flag", err)
+					}
+					return
+				}
+				if err != nil || string(got) != "client 00\n" {
+					t.Fatalf("ReadTrusted = %q, %v", got, err)
+				}
+				if (len(warned) == 1 && warned[0] == p) != tt.writable || len(warned) > 1 {
+					t.Fatalf("warnings %v, want warn=%v", warned, tt.writable)
+				}
+			})
+		}
+	}
+	// Anything but a regular file is refused, and so is one over the limit.
+	if _, err := ReadTrusted(t.TempDir(), 64, Policy{}); !errors.Is(err, ErrNotRegular) {
+		t.Errorf("a directory: %v", err)
+	}
+	if _, err := ReadTrusted(write(t, strings.Repeat("x", 65), 0o644), 64, Policy{}); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("65 bytes with a limit of 64: %v", err)
 	}
 }

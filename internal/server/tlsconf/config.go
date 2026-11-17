@@ -31,7 +31,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"software.sslmate.com/src/go-pkcs12"
@@ -111,6 +110,9 @@ func (c *Config) Validate(requireClientCert bool) error {
 
 // maxFile bounds a certificate, key, keystore or password file.
 const maxFile = 1 << 20
+
+// maxTrustFile bounds a known-clients or client CA file.
+const maxTrustFile = 16 << 20
 
 // loadKeyPair loads a PEM certificate chain and its private key. The key
 // is a secret file, read under p.
@@ -207,9 +209,9 @@ func withLeaf(cert tls.Certificate) (tls.Certificate, error) {
 // loadClientCAs reads a PEM bundle of client CAs into a fresh pool and
 // counts them. The pool never includes the system roots, and is never nil:
 // a bundle without a certificate gives an empty pool, which accepts no
-// client.
-func loadClientCAs(path string) (*x509.CertPool, int, error) {
-	data, err := os.ReadFile(path)
+// client. The file is read under the trust-file policy p.
+func loadClientCAs(path string, p secretfile.Policy) (*x509.CertPool, int, error) {
+	data, err := secretfile.ReadTrusted(path, maxTrustFile, p)
 	if err != nil {
 		return nil, 0, fmt.Errorf("--tls-client-ca-file: %w", err)
 	}
@@ -273,9 +275,10 @@ func ParseFingerprint(s string) (Fingerprint, error) {
 // "<label> <fingerprint>" per line, where the label (Web3Signer writes the
 // client's host, optionally with a port) is for the operator and only the
 // fingerprint is matched. Blank lines and lines starting with # are
-// skipped. A file that lists no client gives an empty, non-nil set.
-func loadKnownClients(path string) (map[Fingerprint]struct{}, error) {
-	data, err := os.ReadFile(path)
+// skipped. A file that lists no client gives an empty, non-nil set. The
+// file is read under the trust-file policy p.
+func loadKnownClients(path string, p secretfile.Policy) (map[Fingerprint]struct{}, error) {
+	data, err := secretfile.ReadTrusted(path, maxTrustFile, p)
 	if err != nil {
 		return nil, fmt.Errorf("--tls-known-clients-file: %w", err)
 	}

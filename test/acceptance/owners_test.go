@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Secret files and a token directory must
+// Secret files, trust files, the config file and a token directory must
 // belong to the signer's user or to root: another user can read, replace
 // or re-mode what it owns, whatever the mode says. Only root can give a
 // file away, so this test runs as root only; the signer it starts runs as
@@ -65,8 +65,18 @@ func TestFilesOfAnotherUser(t *testing.T) {
 	refusal("another user's data path", options{data: data}, "directory "+data)
 	take(data)
 
+	config := writeTestFile(t, filepath.Join(t.TempDir(), "config.yaml"), []byte("logging: DEBUG\n"))
+	give(config)
+	refusal("another user's config file", options{data: data, global: []string{"--config-file=" + config}},
+		"refusing to start: --config-file "+config)
+
 	dir := t.TempDir()
 	cf, kf := writePEMPair(t, dir, "server", serverCert(t, false))
+	known := writeKnownClients(t, filepath.Join(dir, "known_clients"), clientCertOf(t, "vc", nil))
+	give(known)
+	refusal("another user's known-clients file", options{data: data, global: []string{"--tls-cert-file=" + cf,
+		"--tls-key-file=" + kf, "--http-auth-mode=mtls", "--tls-known-clients-file=" + known}}, "--tls-known-clients-file: "+known)
+	take(known)
 	give(kf)
 	refusal("another user's TLS key", options{data: data, global: []string{"--tls-cert-file=" + cf, "--tls-key-file=" + kf}}, kf)
 }

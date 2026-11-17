@@ -190,6 +190,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `api/openapi/examples_test.go` | new | | | |
 | `api/openapi/golden_test.go` | new | | | |
 | `api/openapi/spec_test.go` | new | | | |
+| `cmd/remotesigner/configfile_unix_test.go` | new | | | |
 | `cmd/remotesigner/consensus.go` | new | | | |
 | `cmd/remotesigner/consensus_test.go` | new | | | |
 | `cmd/remotesigner/deploy_test.go` | new | | | |
@@ -485,6 +486,7 @@ revision: the upstream commit (7-40 hex digits, required for derived rows), `tre
 | `test/acceptance/server_test.go` | new | | | |
 | `test/acceptance/tls_test.go` | new | | | |
 | `test/acceptance/tls_w3s_test.go` | w3s-derived | Web3Signer | `acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/tls/ServerSideTlsAcceptanceTest.java`<br>`acceptance-tests/src/test/java/tech/pegasys/web3signer/tests/tls/ServerSideTlsCaClientAcceptanceTest.java` | `30af06dc975ba5b8ed0e17e53cba8683ca50ec02` |
+| `test/acceptance/trust_files_test.go` | new | | | |
 | `test/release/checks_test.go` | new | | | |
 | `test/release/helpers_test.go` | new | | | |
 | `test/release/release_test.go` | new | | | |

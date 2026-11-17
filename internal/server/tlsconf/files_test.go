@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"software.sslmate.com/src/go-pkcs12"
@@ -99,5 +100,78 @@ func TestSecretFilePermissions(t *testing.T) {
 	}
 	if info.Fingerprint != before {
 		t.Fatal("the certificate in force changed after the failed reload")
+	}
+}
+
+// The files that say whom the listener trusts (--tls-known-clients-file,
+// --tls-client-ca-file) hold no secret, so anyone may read them, but one
+// that its group or other users can write is refused under the strict
+// policy and loaded with a warning otherwise: whoever writes it adds a
+// client of their own. Loosened while the signer runs, it fails the
+// reload's client trust, which then accepts nobody.
+func TestTrustFilePermissions(t *testing.T) {
+	dir := t.TempDir()
+	certFile, keyFile := writePEM(t, dir, "server", serverPair(t))
+	ca := issue(t, nil, "client CA", true, 0)
+	known := knownClientsFile(t, filepath.Join(dir, "known"), clientPair(t, nil, "vc"))
+	caFile := writeFile(t, filepath.Join(dir, "ca.pem"), certPEM(ca.cert))
+	for _, tt := range []struct {
+		name string
+		file string
+		cfg  Config
+	}{
+		{"--tls-known-clients-file", known, Config{CertFile: certFile, KeyFile: keyFile, KnownClientsFile: known}},
+		{"--tls-client-ca-file", caFile, Config{CertFile: certFile, KeyFile: keyFile, ClientCAFile: caFile}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			strict := Options{RequireClientCert: true, Files: secretfile.Policy{Strict: true},
+				TrustFiles: secretfile.Policy{Strict: true}}
+			for _, mode := range []fs.FileMode{0o600, 0o644, 0o444} {
+				if err := os.Chmod(tt.file, mode); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := New(tt.cfg, strict); err != nil {
+					t.Fatalf("%04o, strict: %v", mode, err)
+				}
+			}
+			s, err := New(tt.cfg, strict)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(tt.file, 0o600) })
+			for _, mode := range []fs.FileMode{0o664, 0o646, 0o660} {
+				if err := os.Chmod(tt.file, mode); err != nil {
+					t.Fatal(err)
+				}
+				_, err := New(tt.cfg, strict)
+				if !errors.Is(err, secretfile.ErrWritable) || !strings.Contains(err.Error(), tt.name+": "+tt.file) {
+					t.Fatalf("%04o, strict: %v, want ErrWritable naming the flag and %s", mode, err, tt.file)
+				}
+			}
+
+			// The reload refuses it too, and refuses every client with it.
+			_, err = s.Reload()
+			var re *ReloadError
+			if !errors.As(err, &re) || !errors.Is(re.ClientTrust, secretfile.ErrWritable) || re.Certificate != nil {
+				t.Fatalf("reload with a 0660 trust file: %v, want a client-trust ReloadError of ErrWritable", err)
+			}
+
+			var warned, secrets []string
+			loose := Options{RequireClientCert: true,
+				Files:      secretfile.Policy{Strict: true, Warn: func(path string, _ fs.FileMode) { secrets = append(secrets, path) }},
+				TrustFiles: secretfile.Policy{Warn: func(path string, _ fs.FileMode) { warned = append(warned, path) }}}
+			if _, err := New(tt.cfg, loose); err != nil {
+				t.Fatalf("0660, not strict: %v", err)
+			}
+			if len(warned) != 1 || warned[0] != tt.file || len(secrets) != 0 {
+				t.Fatalf("0660, not strict: warned about %v (and %v as secret files), want %s", warned, secrets, tt.file)
+			}
+		})
+	}
+
+	// A trust file must be a regular file.
+	cfg := Config{CertFile: certFile, KeyFile: keyFile, KnownClientsFile: dir}
+	if _, err := New(cfg, Options{RequireClientCert: true}); !errors.Is(err, secretfile.ErrNotRegular) {
+		t.Fatalf("a directory as the known-clients file: %v", err)
 	}
 }
