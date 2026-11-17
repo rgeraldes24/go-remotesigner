@@ -73,6 +73,8 @@ const (
 // later cannot pass as new work on its PROVENANCE.md row alone. A file
 // written for the package is added here, in the same reviewed change.
 var qrlv1New = []string{
+	"account.go",
+	"account_test.go",
 	"bench_test.go",
 	"fuzz_test.go",
 	"golden_test.go",

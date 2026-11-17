@@ -18,7 +18,8 @@
 // Modified by The go-remotesigner Authors, 2026: a KDF is required, and its function and parameters, the salt, the
 // IV and the ciphertext are checked before Argon2id runs; the passphrase is no longer normalised here (see
 // password.go); errors are typed; the decryption key and plaintext are wiped after use; the encryptor type and its
-// options are dropped.
+// options are dropped; the plaintext size is the caller's, so that go-qrl account keystores (account.go) are checked
+// and opened by the same code.
 // Derived from qrysm pkg/go-qrl-wallet-encryptor-keystore/decrypt.go, encryptor.go and the algorithm, cipher and IV
 // size constants of encrypt.go (MIT) at commit 0b9cdf251d1f022957d35c4edeb6dd3ce42a617d, themselves derived from
 // wealdtech/go-eth2-wallet-encryptor-keystorev4 decrypt.go, encryptor.go and encrypt.go (Apache-2.0), compared
@@ -58,11 +59,11 @@ const (
 	MinP = 1      // Argon2id lanes
 	MaxP = 4      //
 
-	keySize     = 32                    // dklen: AES-256
-	minSaltSize = 16                    //
-	maxSaltSize = 64                    //
-	ivSize      = 12                    // the GCM standard nonce; cipher.AEAD.Open panics on any other length
-	messageSize = mldsa87.SeedSize + 16 // the 48-byte seed and the GCM tag
+	keySize     = 32 // dklen: AES-256
+	minSaltSize = 16 //
+	maxSaltSize = 64 //
+	ivSize      = 12 // the GCM standard nonce; cipher.AEAD.Open panics on any other length
+	tagSize     = 16 // the GCM tag that follows the plaintext in the cipher message
 )
 
 type ksKDFParams struct {
@@ -103,21 +104,23 @@ type KDF struct {
 	P int // lanes
 }
 
-// sealed is a crypto section that passed the policy, decoded.
+// sealed is a crypto section that passed the policy, decoded. The message
+// is the plaintext followed by the GCM tag.
 type sealed struct {
 	kdf     KDF
 	salt    []byte
 	iv      [ivSize]byte
-	message [messageSize]byte
+	message []byte
 }
 
 // errAuth is the GCM authentication failure: a wrong passphrase or a
 // tampered ciphertext.
 var errAuth = errors.New("failed to decrypt and authenticate ciphertext")
 
-// checkCrypto applies the policy to a keystore's crypto section. It runs no
-// KDF and allocates nothing in proportion to the parameters it checks.
-func checkCrypto(ks *keystoreV1) (*sealed, error) {
+// checkCrypto applies the policy to a keystore's crypto section, whose
+// plaintext is plaintextSize bytes. It runs no KDF and allocates nothing in
+// proportion to the parameters it checks.
+func checkCrypto(ks *keystoreV1, plaintextSize int) (*sealed, error) {
 	if ks == nil {
 		return nil, fmt.Errorf("%w: no crypto section", ErrFormat)
 	}
@@ -165,15 +168,17 @@ func checkCrypto(ks *keystoreV1) (*sealed, error) {
 	if err := decodeFixed(s.iv[:], ks.Cipher.Params.IV); err != nil {
 		return nil, fmt.Errorf("%w: invalid IV: %v", ErrFormat, err)
 	}
-	if err := decodeFixed(s.message[:], ks.Cipher.Message); err != nil {
+	s.message = make([]byte, plaintextSize+tagSize)
+	if err := decodeFixed(s.message, ks.Cipher.Message); err != nil {
 		return nil, fmt.Errorf("%w: invalid cipher message: %v", ErrFormat, err)
 	}
 	return s, nil
 }
 
 // open derives the decryption key from the normalised passphrase and opens
-// the ciphertext into seed. It returns errAuth when GCM authentication fails.
-func (s *sealed) open(normedPassphrase []byte, seed *[mldsa87.SeedSize]byte) error {
+// the ciphertext into plaintext, which is exactly the plaintext's size. It
+// returns errAuth when GCM authentication fails.
+func (s *sealed) open(normedPassphrase []byte, plaintext []byte) error {
 	decryptionKey := argon2.IDKey(
 		normedPassphrase,
 		s.salt,
@@ -192,10 +197,14 @@ func (s *sealed) open(normedPassphrase []byte, seed *[mldsa87.SeedSize]byte) err
 	if err != nil {
 		return fmt.Errorf("invalid cipher: %w", err)
 	}
-	// Open writes the plaintext into seed, whose capacity is exactly the
-	// plaintext size, so that no copy of the seed is left on the heap.
-	if _, err := block.Open(seed[:0], s.iv[:], s.message[:], nil); err != nil {
-		mldsa87.Wipe(seed[:])
+	if len(plaintext) != len(s.message)-tagSize {
+		return fmt.Errorf("plaintext buffer of %d bytes, want %d", len(plaintext), len(s.message)-tagSize)
+	}
+	// Open writes the plaintext into the caller's buffer, whose capacity is
+	// exactly the plaintext size, so that no copy of the seed is left on the
+	// heap.
+	if _, err := block.Open(plaintext[:0:len(plaintext)], s.iv[:], s.message, nil); err != nil {
+		mldsa87.Wipe(plaintext)
 		return errAuth
 	}
 	return nil

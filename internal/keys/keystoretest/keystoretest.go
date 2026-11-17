@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package keystoretest writes keystores for tests: the deposit CLI's
-// format, which qrysm's validator client and the signer load, and qrysm's
-// keystore v1. Only tests import it; the signer never writes keystores.
+// format, which qrysm's validator client and the signer load, qrysm's
+// keystore v1, and, for execution mode, go-qrl's account keystore. Only
+// tests import it; the signer never writes keystores.
 //
 // A Sealer derives its Argon2id key once and gives every keystore its own
 // random IV, so that a test can write thousands of keystores, even with
@@ -123,6 +124,11 @@ type cryptoDeposit struct {
 
 // seal builds the KDF and cipher sections of seed.
 func (s *Sealer) seal(seed *[mldsa87.SeedSize]byte) (kdfSection, cipherSection, error) {
+	return s.sealBytes(seed[:])
+}
+
+// sealBytes builds the KDF and cipher sections of a plaintext.
+func (s *Sealer) sealBytes(plaintext []byte) (kdfSection, cipherSection, error) {
 	var iv [12]byte
 	if _, err := rand.Read(iv[:]); err != nil {
 		return kdfSection{}, cipherSection{}, err
@@ -130,7 +136,7 @@ func (s *Sealer) seal(seed *[mldsa87.SeedSize]byte) (kdfSection, cipherSection, 
 	k := kdfSection{Function: "argon2id", Params: kdfParams{
 		DKLen: 32, M: s.kdf.M, P: s.kdf.P, Salt: hex.EncodeToString(s.salt[:]), T: s.kdf.T,
 	}}
-	c := cipherSection{Function: "aes-256-gcm", Message: hex.EncodeToString(s.aead.Seal(nil, iv[:], seed[:], nil))}
+	c := cipherSection{Function: "aes-256-gcm", Message: hex.EncodeToString(s.aead.Seal(nil, iv[:], plaintext, nil))}
 	c.Params.IV = hex.EncodeToString(iv[:])
 	return k, c, nil
 }
@@ -203,6 +209,56 @@ func (s *Sealer) QRLV1(seed *[mldsa87.SeedSize]byte, withPubkey bool) ([]byte, e
 		}
 		ks.Pubkey = pk
 	}
+	return json.Marshal(ks)
+}
+
+// ExtendedSeed returns the deterministic 51-byte extended seed number i of
+// a test: the descriptor 01 00 00 followed by Seed(tag, i).
+func ExtendedSeed(tag string, i int) *[mldsa87.ExtendedSeedSize]byte {
+	var ext [mldsa87.ExtendedSeedSize]byte
+	ext[0] = 0x01
+	copy(ext[3:], Seed(tag, i)[:])
+	return &ext
+}
+
+// Address returns the account address of an extended seed in go-qrl's
+// keystore form: "Q" and lowercase hex.
+func Address(ext *[mldsa87.ExtendedSeedSize]byte) (string, error) {
+	k, err := mldsa87.FromExtendedSeed51(ext)
+	if err != nil {
+		return "", err
+	}
+	defer k.Zeroize()
+	pk := k.PublicKey()
+	a := pk.Address()
+	return "Q" + hex.EncodeToString(a[:]), nil
+}
+
+// Account returns go-qrl's account keystore of an extended seed, as gqrl's
+// account manager writes it: a flat crypto section, the address in "Q" and
+// lowercase hex, an id and version 1. An empty address leaves the field out.
+func (s *Sealer) Account(ext *[mldsa87.ExtendedSeedSize]byte, address string) ([]byte, error) {
+	k, c, err := s.sealBytes(ext[:])
+	if err != nil {
+		return nil, err
+	}
+	type cryptoAccount struct {
+		Cipher       string `json:"cipher"`
+		CipherText   string `json:"ciphertext"`
+		CipherParams struct {
+			IV string `json:"iv"`
+		} `json:"cipherparams"`
+		KDF       string    `json:"kdf"`
+		KDFParams kdfParams `json:"kdfparams"`
+	}
+	ks := struct {
+		Address string        `json:"address,omitempty"`
+		Crypto  cryptoAccount `json:"crypto"`
+		ID      string        `json:"id"`
+		Version int           `json:"version"`
+	}{Address: address, ID: uuid(), Version: 1}
+	ks.Crypto = cryptoAccount{Cipher: c.Function, CipherText: c.Message, KDF: k.Function, KDFParams: k.Params}
+	ks.Crypto.CipherParams.IV = c.Params.IV
 	return json.Marshal(ks)
 }
 

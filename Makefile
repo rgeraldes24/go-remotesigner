@@ -27,7 +27,7 @@ LICENSE_SHA256 := c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0a
 
 all: build build-consensus
 
-## build: default flavour (consensus; execution mode from v1.1)
+## build: default flavour (consensus and execution mode)
 build:
 	$(BUILD) -o $(BIN_DIR)/remotesigner ./cmd/remotesigner
 
@@ -49,17 +49,20 @@ test-postgres:
 	$(GO) test -count=1 -run Postgres ./test/acceptance/
 
 ## fuzz: the CI fuzz runs, FUZZTIME each: the differential hash-tree-root fuzz against fastssz, the strict
-## request decoders, the network configuration parser, the keystore decoder and the EIP-3076 interchange
+## request decoders, the JSON-RPC request and batch decoders against encoding/json, the network configuration
+## parser, the keystore decoder and the EIP-3076 interchange
 FUZZTIME ?= 10s
 fuzz: fuzz-keystore fuzz-interchange
 	$(GO) test -run '^$$' -fuzz '^FuzzParseConfig$$' -fuzztime $(FUZZTIME) ./internal/network/
 	$(GO) test -run '^$$' -fuzz '^FuzzHashTreeRootDifferential$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeSignRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
 	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRandaoRevealRequest$$' -fuzztime $(FUZZTIME) ./internal/consensus/types/
+	$(GO) test -run '^$$' -fuzz '^FuzzDecodeRequest$$' -fuzztime $(FUZZTIME) ./internal/execution/
 
 ## fuzz-target: one fuzz target FUZZ of the package FUZZPKG, FUZZTIME long, for example
 ## `make fuzz-target FUZZ=FuzzParseConfig FUZZPKG=./internal/network/ FUZZTIME=30m`; the nightly workflow runs the
-## sign-request and RANDAO decoders, the hash-tree-root differential and the network parser this way for 30 min each
+## sign-request, RANDAO and JSON-RPC decoders, the hash-tree-root differential and the network parser this way for
+## 30 min each
 FUZZ    ?=
 FUZZPKG ?=
 fuzz-target:
