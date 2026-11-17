@@ -109,7 +109,9 @@ func repoFiles(t *testing.T) []textFile {
 				}
 				return nil
 			}
-			if !d.Type().IsRegular() || d.Name() == ".DS_Store" || strings.HasSuffix(d.Name(), ".swp") {
+			// go.sum holds module hashes, whose base64 can spell anything.
+			if !d.Type().IsRegular() || d.Name() == ".DS_Store" || strings.HasSuffix(d.Name(), ".swp") ||
+				d.Name() == "go.sum" {
 				return nil
 			}
 			b, err := os.ReadFile(p)

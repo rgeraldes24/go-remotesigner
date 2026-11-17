@@ -41,8 +41,10 @@ func TestLicenceProblemsGNUTexts(t *testing.T) {
 			if len(got) != 1 || !strings.Contains(got[0], "is a GNU GPL-family text") {
 				t.Errorf("consensus: problems %q, want one naming the GNU text", got)
 			}
-			if got := licenceProblems(fullFlavour, want, files); len(got) != 0 {
-				t.Errorf("default: problems %q, want none", got)
+			for _, problem := range licenceProblems(fullFlavour, want, files) {
+				if strings.Contains(problem, tt.name) {
+					t.Errorf("default: %q, want the default flavour to ship %s", problem, tt.name)
+				}
 			}
 		})
 	}
@@ -136,6 +138,60 @@ func TestShippedDocsProblems(t *testing.T) {
 				t.Errorf("problems %q, want one mentioning %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// The default flavour links go-qrl: its NOTICE carries the LGPL paragraph,
+// LICENSES/ both GNU texts, third_party_licenses/ go-qrl's COPYING and
+// COPYING.LESSER and none of its source; the consensus flavour carries
+// nothing of go-qrl.
+func TestLicenceProblemsGoQRL(t *testing.T) {
+	notice := "go-remotesigner\n\nThe remotesigner binary links the go-qrl library, licensed under the GNU Lesser General Public License.\n"
+	want := releaseDocs{license: []byte("Apache"), notice: []byte(notice),
+		texts: map[string][]byte{"Apache-2.0.txt": []byte("Apache"), "GPL-3.0-or-later.txt": []byte("GPL"),
+			"LGPL-3.0-or-later.txt": []byte("LGPL")}}
+	good := map[string]tarFile{
+		"LICENSE": regular("Apache"), "NOTICE": regular(notice), "LICENSES/Apache-2.0.txt": regular("Apache"),
+		"LICENSES/GPL-3.0-or-later.txt": regular("GPL"), "LICENSES/LGPL-3.0-or-later.txt": regular("LGPL"),
+		qrllibLicense: regular("MIT"), goQRLLicences + "COPYING": regular("GPL"),
+		goQRLLicences + "COPYING.LESSER": regular("LGPL"),
+	}
+	with := func(edit func(map[string]tarFile)) map[string]tarFile {
+		files := maps.Clone(good)
+		edit(files)
+		return files
+	}
+	for _, tt := range []struct {
+		name  string
+		files map[string]tarFile
+		want  string
+	}{
+		{"complete", good, ""},
+		{"no LGPL text", with(func(f map[string]tarFile) { delete(f, "LICENSES/LGPL-3.0-or-later.txt") }), "LICENSES/LGPL-3.0-or-later.txt missing"},
+		{"no COPYING.LESSER", with(func(f map[string]tarFile) { delete(f, goQRLLicences+"COPYING.LESSER") }), "COPYING.LESSER missing"},
+		{"go-qrl source", with(func(f map[string]tarFile) { f[goQRLLicences+"rlp/encode.go"] = regular("package rlp") }), "only go-qrl's licence files"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := licenceProblems(fullFlavour, want, tt.files)
+			switch {
+			case tt.want == "" && len(got) != 0:
+				t.Errorf("problems %q, want none", got)
+			case tt.want != "" && (len(got) == 0 || !strings.Contains(strings.Join(got, "|"), tt.want)):
+				t.Errorf("problems %q, want one mentioning %q", got, tt.want)
+			}
+		})
+	}
+	noLGPL := releaseDocs{license: want.license, notice: []byte("go-remotesigner\n"), texts: want.texts}
+	files := with(func(f map[string]tarFile) { f["NOTICE"] = regular("go-remotesigner\n") })
+	if got := licenceProblems(fullFlavour, noLGPL, files); !slices.Contains(got, "the default flavour's NOTICE lacks the go-qrl LGPL paragraph") {
+		t.Errorf("default NOTICE without the paragraph: %q", got)
+	}
+	consensus := releaseDocs{license: want.license, notice: []byte("go-remotesigner\n"),
+		texts: map[string][]byte{"Apache-2.0.txt": []byte("Apache")}}
+	cfiles := map[string]tarFile{"LICENSE": regular("Apache"), "NOTICE": regular("go-remotesigner\n"),
+		"LICENSES/Apache-2.0.txt": regular("Apache"), qrllibLicense: regular("MIT"), goQRLLicences + "COPYING.LESSER": regular("LGPL")}
+	if got := licenceProblems(consensusFlavour, consensus, cfiles); len(got) != 1 || !strings.Contains(got[0], "links no go-qrl") {
+		t.Errorf("consensus with go-qrl's licence: %q", got)
 	}
 }
 

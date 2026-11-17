@@ -43,6 +43,7 @@ func fakeRepo(t *testing.T, execution bool) string {
 		files[executionNotice] = "This product links go-qrl, licensed under the LGPL.\n"
 		files["LICENSES/LGPL-3.0-or-later.txt"] = "LGPL\n"
 		files["LICENSES/GPL-3.0-or-later.txt"] = "GPL\n"
+		files["LICENSES/ISC.txt"] = "ISC\n"
 	}
 	for name, content := range files {
 		p := filepath.Join(root, filepath.FromSlash(name))
@@ -114,9 +115,9 @@ func TestLicenseTexts(t *testing.T) {
 	}{
 		{"consensus", false, consensus, []string{"Apache-2.0.txt", "BSD-3-Clause.txt", "MIT.txt"}},
 		{"default", false, full, []string{"Apache-2.0.txt", "BSD-3-Clause.txt", "MIT.txt"}},
-		{"consensus leaves out the GPL texts", true, consensus, []string{"Apache-2.0.txt", "BSD-3-Clause.txt", "MIT.txt"}},
-		{"default ships the GPL texts", true, full, []string{"Apache-2.0.txt", "BSD-3-Clause.txt", "GPL-3.0-or-later.txt",
-			"LGPL-3.0-or-later.txt", "MIT.txt"}},
+		{"consensus leaves out the GPL and ISC texts", true, consensus, []string{"Apache-2.0.txt", "BSD-3-Clause.txt", "MIT.txt"}},
+		{"default ships the GPL and ISC texts", true, full, []string{"Apache-2.0.txt", "BSD-3-Clause.txt",
+			"GPL-3.0-or-later.txt", "ISC.txt", "LGPL-3.0-or-later.txt", "MIT.txt"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -198,9 +199,9 @@ func TestAssemble(t *testing.T) {
 				"deploy/systemd/remotesigner.service"}
 			if f.execution {
 				want = []string{"LICENSE", "LICENSES/Apache-2.0.txt", "LICENSES/BSD-3-Clause.txt",
-					"LICENSES/GPL-3.0-or-later.txt", "LICENSES/LGPL-3.0-or-later.txt", "LICENSES/MIT.txt", "NOTICE",
-					"README.md", "deploy/config/postgres-ha.yaml", "deploy/config/single-host.yaml",
-					"deploy/systemd/remotesigner.service"}
+					"LICENSES/GPL-3.0-or-later.txt", "LICENSES/ISC.txt", "LICENSES/LGPL-3.0-or-later.txt",
+					"LICENSES/MIT.txt", "NOTICE", "README.md", "deploy/config/postgres-ha.yaml",
+					"deploy/config/single-host.yaml", "deploy/systemd/remotesigner.service"}
 			}
 			if !slices.Equal(got, want) {
 				t.Errorf("files = %q, want %q", got, want)
@@ -293,5 +294,33 @@ func TestSPDXExpression(t *testing.T) {
 				t.Errorf("expression = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// go-licenses reports go-qrl as GPL-3.0 from its COPYING; the default
+// flavour's report says LGPL-3.0-or-later instead, and go-qrl in the
+// consensus flavour, or from another file, is an error.
+func TestGoQRLReport(t *testing.T) {
+	const gpl = "github.com/theQRL/go-qrl,https://github.com/theQRL/go-qrl/blob/b92884a3a1d5/COPYING,GPL-3.0\n"
+	const qrllib = "github.com/theQRL/go-qrllib,https://github.com/theQRL/go-qrllib/blob/v0.11.0/LICENSE,MIT\n"
+	got, err := goQRLReport([]byte(qrllib+gpl), full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := qrllib + strings.Replace(gpl, "GPL-3.0", "LGPL-3.0-or-later", 1); string(got) != want {
+		t.Fatalf("report %q, want %q", got, want)
+	}
+	if expr, err := spdxExpression(got); err != nil || expr != "Apache-2.0 AND LGPL-3.0-or-later AND MIT" {
+		t.Fatalf("expression %q (%v)", expr, err)
+	}
+	if _, err := goQRLReport([]byte(gpl), consensus); err == nil || !strings.Contains(err.Error(), "links github.com/theQRL/go-qrl") {
+		t.Fatalf("consensus: %v", err)
+	}
+	other := "github.com/theQRL/go-qrl/cmd/utils,https://github.com/theQRL/go-qrl/blob/b92884a3a1d5/cmd/utils/LICENSE,GPL-3.0\n"
+	if _, err := goQRLReport([]byte(other), full); err == nil {
+		t.Fatal("a go-qrl licence from another file was corrected")
+	}
+	if got, err := goQRLReport([]byte(qrllib), consensus); err != nil || string(got) != qrllib {
+		t.Fatalf("go-qrllib is not go-qrl: %q (%v)", got, err)
 	}
 }

@@ -38,11 +38,14 @@ const Version = "2.0"
 // MaxBatch is the largest batch served, gqrl's own batch limit.
 const MaxBatch = 1000
 
-// Error is a JSON-RPC error object.
+// Error is a JSON-RPC error object. status, when set, is the HTTP status
+// of a single response that carries it, in place of the one its code
+// selects (statusOf).
 type Error struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Data    any    `json:"data,omitempty"`
+	status  int
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("JSON-RPC error %d: %s", e.Code, e.Message) }
@@ -51,6 +54,14 @@ func (e *Error) Error() string { return fmt.Sprintf("JSON-RPC error %d: %s", e.C
 func (e *Error) with(data any) *Error {
 	c := *e
 	c.Data = data
+	return &c
+}
+
+// withStatus returns a copy of e whose single response has HTTP status
+// status.
+func (e *Error) withStatus(status int) *Error {
+	c := *e
+	c.status = status
 	return &c
 }
 
@@ -68,6 +79,9 @@ var (
 	ErrDownstreamTimeout  = &Error{Code: -32000, Message: "Connection to downstream node timed out"}
 	ErrDownstreamConnect  = &Error{Code: -32000, Message: "Failed to connect to downstream node"}
 	ErrDownstreamResponse = &Error{Code: -32000, Message: "Invalid response from downstream node"}
+	// ErrTxRejected is a transaction the signer refuses to sign: its chain,
+	// its fee or the account's policy.
+	ErrTxRejected = &Error{Code: -32003, Message: "Transaction rejected"}
 )
 
 // Request is one decoded JSON-RPC request. ID is the raw id: a string, a

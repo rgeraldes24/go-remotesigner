@@ -55,7 +55,8 @@ func execConfig(t *testing.T, nd *node) *config.Config {
 			MaxConnections: 64,
 			IdleTimeout:    server.DefaultIdleTimeout,
 		},
-		Execution: config.Execution{Downstream: downstreamOf(t, nd.Server), AllowedMethods: defaultAllow},
+		Execution: config.Execution{Downstream: downstreamOf(t, nd.Server), AllowedMethods: defaultAllow, ChainID: testChainID,
+			NonceCrosscheck: true},
 	}
 }
 
@@ -242,7 +243,7 @@ func TestRunEndpointGuards(t *testing.T) {
 			}
 		})
 	}
-	if n := len(nd.received()); n != 0 {
+	if n := len(nd.clientCalls()); n != 0 {
 		t.Fatalf("the node received %d requests", n)
 	}
 }

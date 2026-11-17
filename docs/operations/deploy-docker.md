@@ -10,7 +10,7 @@ client. Every flag is in [`../reference/flags.md`](../reference/flags.md); TLS a
 | Image | Flavour |
 |---|---|
 | `ghcr.io/rgeraldes24/remotesigner-consensus` | Consensus only (`-tags noexecution`); links permissively licensed code only. Use this one unless you need execution mode. |
-| `ghcr.io/rgeraldes24/remotesigner` | The default flavour. It behaves the same for everything on this page. |
+| `ghcr.io/rgeraldes24/remotesigner` | The default flavour, with execution mode, which links the go-qrl library (LGPL-3.0-or-later; [`execution.md`](execution.md#11-go-qrl-and-the-lgpl)). It behaves the same for everything on this page. |
 
 Each release is tagged with its version (`1.0.0`, without the `v`) and, unless it is a pre-release, `latest`, for
 `linux/amd64` and `linux/arm64`. Pin a version, or better its digest, in production. How to check an image's

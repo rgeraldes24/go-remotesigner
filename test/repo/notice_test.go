@@ -16,21 +16,27 @@ import (
 	"testing"
 )
 
-// The NOTICE layout these tests read. Under the "Third-party software in the
-// binaries" heading, a line indented by two spaces starts an entry (further
-// two-space lines continue its subject), and lines indented by four spaces
-// belong to it. The subject starts with the module path, or with "The Go
-// standard library", and may name .go files or package directories inside
-// the module. A four-space line is a notice line when it is a copyright line
-// or an "All rights reserved." line; any other four-space line is a remark.
-// Lines "--- <module> NOTICE ---" start the reproduced NOTICE file of that
-// module.
+// The NOTICE layout these tests read. NOTICE ships with both flavours;
+// the default flavour's release appends NOTICE.execution, the notices of
+// what only execution mode links. Under the "Third-party software in the
+// binaries" heading of NOTICE, and the "Third-party software in the
+// remotesigner binary only" heading of NOTICE.execution, a line indented by
+// two spaces starts an entry (further two-space lines continue its
+// subject), and lines indented by four spaces belong to it. The subject
+// starts with the module path, or with "The Go standard library", and may
+// name .go files or package directories inside the module. A four-space
+// line is a notice line when it is a copyright line or an "All rights
+// reserved." line; any other four-space line is a remark. Lines
+// "--- <module> NOTICE ---" start the reproduced NOTICE file of that module.
 const (
-	noticePath    = "NOTICE"
-	binariesTitle = "Third-party software in the binaries"
-	sourceTitle   = "Third-party code in the source repository only"
-	// defaultOnlyTitle starts the entries of the modules only the default
-	// flavour, remotesigner, links: the cloud secret stores' SDKs.
+	noticePath     = "NOTICE"
+	executionPath  = "NOTICE.execution"
+	binariesTitle  = "Third-party software in the binaries"
+	executionTitle = "Third-party software in the remotesigner binary only"
+	sourceTitle    = "Third-party code in the source repository only"
+	// defaultOnlyTitle starts the entries of NOTICE for the modules only the
+	// default flavour, remotesigner, links outside execution mode: the cloud
+	// secret stores' SDKs.
 	defaultOnlyTitle = "Linked by remotesigner only"
 	stdSubject       = "The Go standard library"
 	noticeFileHead   = "--- "
@@ -111,8 +117,11 @@ func parseNotice(text string) (*notice, error) {
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	for i, line := range lines {
 		switch {
-		case line == binariesTitle || line == sourceTitle:
+		case line == binariesTitle || line == executionTitle || line == sourceTitle:
 			section, file, inEntry = line, "", false
+			if line == executionTitle {
+				section = binariesTitle // listed the same way
+			}
 			continue
 		case section == binariesTitle && strings.HasPrefix(line, noticeFileHead) && strings.HasSuffix(line, noticeFileTail):
 			file = strings.TrimSuffix(strings.TrimPrefix(line, noticeFileHead), noticeFileTail)
@@ -162,15 +171,31 @@ func parseNotice(text string) (*notice, error) {
 	return n, nil
 }
 
-func readNotice(t *testing.T) *notice {
+func readNoticeFile(t *testing.T, name string) *notice {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(root, noticePath))
+	b, err := os.ReadFile(filepath.Join(root, name))
 	if err != nil {
 		t.Fatal(err)
 	}
 	n, err := parseNotice(string(b))
 	if err != nil {
-		t.Fatalf("%s: %v", noticePath, err)
+		t.Fatalf("%s: %v", name, err)
+	}
+	return n
+}
+
+// readNotice returns NOTICE and NOTICE.execution read together: the
+// default flavour's NOTICE.
+func readNotice(t *testing.T) *notice {
+	t.Helper()
+	n, exec := readNoticeFile(t, noticePath), readNoticeFile(t, executionPath)
+	n.entries = append(n.entries, exec.entries...)
+	n.prose = append(n.prose, exec.prose...)
+	for m, lines := range exec.files {
+		if _, dup := n.files[m]; dup {
+			t.Fatalf("both NOTICE files reproduce the NOTICE file of %s", m)
+		}
+		n.files[m] = lines
 	}
 	return n
 }
@@ -371,29 +396,39 @@ func fileExists(p string) bool {
 	return err == nil && fi.Mode().IsRegular()
 }
 
-// TestNoticeCoversLinkedModules checks that NOTICE names every module either
-// binary links on any of noticeTargets, every golang.org/x module vendored
-// into the standard library they link, and no module they do not link.
+// TestNoticeCoversLinkedModules checks that NOTICE and NOTICE.execution
+// together name every module either binary links on any of noticeTargets,
+// each in one file only, and no module they do not link, and that the
+// standard library entry names every golang.org/x module vendored into the
+// standard library they link.
 func TestNoticeCoversLinkedModules(t *testing.T) {
-	n, ls := readNotice(t), linkedSet(t)
-	named := map[string]bool{}
+	ls := linkedSet(t)
+	named := map[string]string{} // module path -> the file that names it
 	var std *noticeEntry
-	for _, e := range n.entries {
-		if e.std() {
-			std = e
-			continue
-		}
-		toks := e.tokens()
-		if _, ok := ls.modules[toks[0]]; !ok {
-			t.Errorf("NOTICE:%d: %s is not linked into either binary on any target", e.line, toks[0])
-		}
-		for _, tok := range toks {
-			named[tok] = true
+	for _, file := range []string{noticePath, executionPath} {
+		for _, e := range readNoticeFile(t, file).entries {
+			if e.std() {
+				std = e
+				continue
+			}
+			toks := e.tokens()
+			if _, ok := ls.modules[toks[0]]; !ok {
+				t.Errorf("%s:%d: %s is not linked into either binary on any target", file, e.line, toks[0])
+			}
+			for _, tok := range toks {
+				if _, ok := ls.modules[tok]; !ok {
+					continue
+				}
+				if other, dup := named[tok]; dup && other != file {
+					t.Errorf("%s:%d: %s is also named in %s", file, e.line, tok, other)
+				}
+				named[tok] = file
+			}
 		}
 	}
 	for m := range ls.modules {
-		if !named[m] {
-			t.Errorf("NOTICE does not name %s, which the binaries link", m)
+		if named[m] == "" {
+			t.Errorf("neither NOTICE file names %s, which the binaries link", m)
 		}
 	}
 	if std == nil {
@@ -407,40 +442,46 @@ func TestNoticeCoversLinkedModules(t *testing.T) {
 	}
 }
 
-// TestNoticeSplitsFlavours checks NOTICE's split by flavour: the entries
-// under "Linked by remotesigner only" name the modules that remotesigner
-// links and remotesigner-consensus does not, on any target, and every such
-// module is named there; the entries above it name modules both link.
+// TestNoticeSplitsFlavours checks the split by flavour: the entries of
+// NOTICE above "Linked by remotesigner only" name modules both binaries
+// link; the entries under it, and those of NOTICE.execution, name modules
+// that remotesigner links and remotesigner-consensus does not, on any
+// target; and every such module is named in one of those two places.
 func TestNoticeSplitsFlavours(t *testing.T) {
-	n, ls := readNotice(t), linkedSet(t)
+	n, ls := readNoticeFile(t, noticePath), linkedSet(t)
 	if n.defaultOnly == 0 {
 		t.Fatalf("NOTICE has no %q section", defaultOnlyTitle)
 	}
 	full, consensus := ls.byFlavour[""], ls.byFlavour["noexecution"]
 	defaultOnly := map[string]bool{}
-	for _, e := range n.entries {
-		if e.std() {
-			continue
-		}
-		below := e.line > n.defaultOnly
-		for _, m := range e.tokens() {
-			if _, ok := ls.modules[m]; !ok {
+	check := func(file string, entries []*noticeEntry, below func(*noticeEntry) bool) {
+		for _, e := range entries {
+			if e.std() {
 				continue
 			}
-			switch {
-			case below && consensus[m]:
-				t.Errorf("NOTICE:%d: %s is under %q, but remotesigner-consensus links it too", e.line, m, defaultOnlyTitle)
-			case below:
-				defaultOnly[m] = true
-			case !consensus[m]:
-				t.Errorf("NOTICE:%d: remotesigner-consensus does not link %s: name it under %q", e.line, m,
-					defaultOnlyTitle)
+			for _, m := range e.tokens() {
+				if _, ok := ls.modules[m]; !ok {
+					continue
+				}
+				switch {
+				case below(e) && consensus[m]:
+					t.Errorf("%s:%d: %s is listed for remotesigner only, but remotesigner-consensus links it too",
+						file, e.line, m)
+				case below(e):
+					defaultOnly[m] = true
+				case !consensus[m]:
+					t.Errorf("%s:%d: remotesigner-consensus does not link %s: name it under %q or in %s", file,
+						e.line, m, defaultOnlyTitle, executionPath)
+				}
 			}
 		}
 	}
+	check(noticePath, n.entries, func(e *noticeEntry) bool { return e.line > n.defaultOnly })
+	check(executionPath, readNoticeFile(t, executionPath).entries, func(*noticeEntry) bool { return true })
 	for m := range full {
 		if !consensus[m] && !defaultOnly[m] {
-			t.Errorf("only remotesigner links %s, but NOTICE does not name it under %q", m, defaultOnlyTitle)
+			t.Errorf("only remotesigner links %s, but it is neither under NOTICE's %q nor in %s", m,
+				defaultOnlyTitle, executionPath)
 		}
 	}
 }
@@ -545,6 +586,12 @@ func TestNoticeHasEveryCopyrightLine(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if gnuLicenceText(lines) {
+				// go-qrl's COPYING and COPYING.LESSER are the GNU licence
+				// texts, which LICENSES/ ships whole: their copyright lines
+				// are the FSF's on the text and the how-to's template.
+				continue
+			}
 			for _, l := range lines {
 				if copyrightLine.MatchString(l) && !inNotice[m][l] {
 					t.Errorf("NOTICE does not carry %q from %s of %s", l, filepath.Base(p), m)
@@ -556,6 +603,16 @@ func TestNoticeHasEveryCopyrightLine(t *testing.T) {
 	for m, dir := range ls.modules {
 		check(m, licenceFiles(dir))
 	}
+}
+
+// gnuLicenceText reports whether a licence file is a GNU GPL or LGPL text.
+func gnuLicenceText(lines []string) bool {
+	for _, l := range lines[:min(len(lines), 5)] {
+		if l == "GNU GENERAL PUBLIC LICENSE" || l == "GNU LESSER GENERAL PUBLIC LICENSE" {
+			return true
+		}
+	}
+	return false
 }
 
 // noticeFileNames are the names of a module's NOTICE file: the Apache

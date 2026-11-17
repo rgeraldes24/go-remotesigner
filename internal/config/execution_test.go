@@ -12,11 +12,13 @@ import (
 )
 
 // Execution mode applies the listener refusals of consensus mode, and none
-// of the slashing-protection or network ones.
+// of the slashing-protection or network ones; a non-loopback listener also
+// needs a policy file.
 func TestCheckExecutionFailSafes(t *testing.T) {
 	remote := func(c *Config) {
 		c.HTTP.ListenHost = "0.0.0.0"
 		c.HTTP.HostAllowlist = []string{"signer.internal"}
+		c.Execution.PolicyFile = "/policy.yaml"
 	}
 	tests := []struct {
 		name   string
@@ -40,6 +42,11 @@ func TestCheckExecutionFailSafes(t *testing.T) {
 			remote(c)
 			c.HTTP.HostAllowlist, c.AllowPlaintextTokenAuth = []string{"localhost"}, true
 		}, []error{ErrLoopbackAllowlist}},
+		{"remote without a policy file", func(c *Config) {
+			remote(c)
+			c.AllowPlaintextTokenAuth, c.Execution.PolicyFile = true, ""
+		}, []error{ErrPolicyFileNonLoopback}},
+		{"loopback without a policy file", func(c *Config) { c.Execution.PolicyFile = "" }, nil},
 		{"remote metrics with a loopback allowlist", func(c *Config) {
 			c.Metrics = Metrics{Enabled: true, Host: "0.0.0.0", HostAllowlist: []string{"127.0.0.1"}}
 		}, []error{ErrMetricsLoopbackAllowlist}},

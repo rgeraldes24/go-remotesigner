@@ -50,6 +50,7 @@ type Handler struct {
 	accounts *Accounts
 	allow    *Allowlist
 	proxy    *proxy
+	txs      *Transactions
 	table    map[string]method
 	log      logrus.FieldLogger
 	// deadline ends a request's downstream exchange and local work: the
@@ -58,8 +59,8 @@ type Handler struct {
 }
 
 // newHandler builds the endpoint's handler.
-func newHandler(accounts *Accounts, allow *Allowlist, p *proxy, log logrus.FieldLogger) *Handler {
-	h := &Handler{accounts: accounts, allow: allow, proxy: p, log: log, deadline: WriteTimeout(p.ds.timeout)}
+func newHandler(accounts *Accounts, allow *Allowlist, p *proxy, txs *Transactions, log logrus.FieldLogger) *Handler {
+	h := &Handler{accounts: accounts, allow: allow, proxy: p, txs: txs, log: log, deadline: WriteTimeout(p.ds.timeout)}
 	h.table = h.methods()
 	return h
 }
@@ -87,11 +88,15 @@ func isBatch(body []byte) bool {
 }
 
 // statusOf is the HTTP status of a single response, as Web3Signer chooses
-// it: 400 for a parse error, an invalid request and invalid params, 500
-// for an internal error, 200 otherwise.
+// it: the error's own status when it has one (a downstream failure), else
+// 400 for a parse error, an invalid request and invalid params, 500 for an
+// internal error, 200 otherwise.
 func statusOf(e *Error) int {
 	if e == nil {
 		return http.StatusOK
+	}
+	if e.status != 0 {
+		return e.status
 	}
 	switch e.Code {
 	case ErrParse.Code, ErrInvalidRequest.Code, ErrInvalidParams.Code:
@@ -255,7 +260,7 @@ func (h *Handler) forwardBatch(r *http.Request, slots []slot, forwarded []int) {
 		fail(ErrInternal)
 		return
 	}
-	data, e := h.proxy.exchange(r.Context(), r, body)
+	data, e := h.proxy.exchange(r.Context(), r.Header, body)
 	if e != nil {
 		fail(e)
 		return
