@@ -207,8 +207,9 @@ func commandLine(t *testing.T, pid int) string {
 // The plain credential flags, kept because Web3Signer has them, still work,
 // and the signer warns at startup: each is deprecated in favour of its
 // -file flag, and a value on the command line can be read by every local
-// user. A config file that sets one is a secret file: readable by its group
-// or other users, it refuses the start under --strict-file-permissions.
+// user. A config file that sets one is a secret file: readable or writable
+// by its group or other users, it refuses the start under
+// --strict-file-permissions.
 func TestPlainSecretFlags(t *testing.T) {
 	seed, pubkey := seedKey(t, 9)
 	az := secretstest.NewAzure(t)
