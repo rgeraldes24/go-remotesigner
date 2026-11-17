@@ -30,7 +30,7 @@ var errNotRead = errors.New("no record of the file that was read")
 // it in the process list. A config file that holds one is a secret file,
 // whichever source the value was taken from: under
 // --strict-file-permissions one that its group or other users could read
-// when it was read refuses the start. It then reads the first line of
+// or write when it was read refuses the start. It then reads the first line of
 // --aws-secrets-secret-access-key-file and --azure-client-secret-file
 // under the secret-file policy. Its errors refuse the start.
 func StoreCredentials(cfg *config.Config, log logrus.FieldLogger) error {

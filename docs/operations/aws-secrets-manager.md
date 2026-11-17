@@ -82,14 +82,14 @@ Every listed secret is one source, `aws-bulk:<name>`.
 
 **Give the secret access key in a file.** `--aws-secrets-secret-access-key-file` names a secret file, read once at
 startup: its first line is the key (a trailing `\r` is dropped), and under `--strict-file-permissions` (the default)
-the signer refuses to start (exit 1) when its group or other users can read it, as for every secret file
+the signer refuses to start (exit 1) when its group or other users can read or write it, as for every secret file
 ([`reload.md`](reload.md#secret-files)). Keep it at `0600`, owned by the signer's user; a new key needs a restart.
 Web3Signer's plain `--aws-secrets-secret-access-key` is still accepted, from the command line, the environment
 (`REMOTESIGNER_CONSENSUS_AWS_SECRETS_SECRET_ACCESS_KEY`) or the config file, but it is deprecated, and the signer
 logs a WARN at startup that names the `-file` flag to use instead. On the command line the key can be read by every
 local user in the process list, which a second WARN says. A `--config-file` that sets it is a secret file, even when
 the command line or the environment overrides it, with an empty value too: under `--strict-file-permissions` one that
-its group or other users can read refuses the start. Setting both flags is a usage error (exit 2), and so is the
+its group or other users can read or write refuses the start. Setting both flags is a usage error (exit 2), and so is the
 `-file` flag with a config file that sets the plain one. `ENVIRONMENT` authentication needs neither.
 
 ## 4. Credentials
