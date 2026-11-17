@@ -77,6 +77,10 @@ The rules:
   which takes any file name.
 - Seed files and password files are secret files under `--strict-file-permissions`, and reloads work as in consensus
   mode ([`reload.md`](reload.md)): `POST /reload` with the admin token, a failed source keeps its previous keys.
+- The secret-store documents (`hashicorp`, `aws-secret`, `azure-secret`, `gcp-secret`) hold validator seeds and are
+  read in consensus mode only: in execution mode a key-config file with one of them fails to load, saying so, and
+  nothing is fetched. Web3Signer's `eth1` mode reads `hashicorp` and `azure-secret` documents
+  ([`../../DEVIATIONS.md`](../../DEVIATIONS.md), X102).
 
 An account's address is `SHAKE-256(01 00 00 ‖ public key)`, the first 64 bytes, written `Q` and 128 hex characters.
 The signer reads an address in either case after the `Q` and does not check its QIP-55 checksum, as gqrl does; the

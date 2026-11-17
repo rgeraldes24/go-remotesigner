@@ -66,6 +66,31 @@ func TestParseExecution(t *testing.T) {
 
 // A file-raw document with an extended seed is a secret file in execution
 // mode too.
+// The secret-store types hold validator seeds: execution mode refuses a
+// file with one of them before it fetches anything.
+func TestSecretStoreTypesRefusedInExecution(t *testing.T) {
+	for _, doc := range []string{
+		"type: hashicorp\nserverHost: vault\nkeyPath: /v1/secret/data/k\ntoken: s.tok\n",
+		"type: aws-secret\nauthenticationMode: ENVIRONMENT\nregion: r\nsecretName: s\n",
+		"type: azure-secret\nauthenticationMode: SYSTEM_ASSIGNED_MANAGED_IDENTITY\nvaultName: v\nsecretName: s\n",
+		"type: gcp-secret\nprojectId: p\nsecretName: s\n",
+	} {
+		typ, _, _ := strings.Cut(strings.TrimPrefix(doc, "type: "), "\n")
+		t.Run(typ, func(t *testing.T) {
+			dir := t.TempDir()
+			p := writeFile(t, dir, "k.yaml", "type: file-raw\nprivateKey: "+extHex(1)+"\n---\n"+doc, 0o600)
+			stores := &fakeStores{}
+			_, err := Config{Dir: dir, Policy: strict, Secrets: stores, Execution: true}.LoadFile(context.Background(), p)
+			if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "execution mode reads none") {
+				t.Fatalf("LoadFile error = %v, want %v saying execution mode reads no secret store", err, ErrUnsupported)
+			}
+			if n := stores.n.Load(); n != 0 {
+				t.Errorf("%d fetches, want none", n)
+			}
+		})
+	}
+}
+
 func TestExecutionSeedFilePermissions(t *testing.T) {
 	dir := t.TempDir()
 	p := writeFile(t, dir, "k.yaml", "type: file-raw\nprivateKey: "+extHex(5)+"\n", 0o644)

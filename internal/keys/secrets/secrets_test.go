@@ -1,0 +1,332 @@
+// Copyright 2026 The go-remotesigner Authors.
+// SPDX-License-Identifier: Apache-2.0
+
+package secrets
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestHTTPClientRefusesRedirects(t *testing.T) {
+	var hits atomic.Int64
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1) }))
+	defer target.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	req.Header.Set("X-Vault-Token", "t")
+	_, err := HTTPClient(HTTPOptions{Timeout: time.Second}).Do(req)
+	if !errors.Is(err, ErrRedirect) {
+		t.Fatalf("error = %v, want ErrRedirect", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatal("the redirect was followed")
+	}
+}
+
+func TestHTTPClientTimeout(t *testing.T) {
+	stop := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-stop }))
+	defer srv.Close()
+	defer close(stop)
+	start := time.Now()
+	_, err := HTTPClient(HTTPOptions{Timeout: 100 * time.Millisecond}).Get(srv.URL)
+	if err == nil || time.Since(start) > 5*time.Second {
+		t.Fatalf("error = %v after %v, want a timeout", err, time.Since(start))
+	}
+}
+
+func TestHTTPClientBoundsResponses(t *testing.T) {
+	big := strings.Repeat("a", MaxResponseSize+1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/chunked" {
+			w.(http.Flusher).Flush() // no Content-Length
+		} else {
+			w.Header().Set("Content-Length", strconv.Itoa(len(big)))
+		}
+		_, _ = io.WriteString(w, big)
+	}))
+	defer srv.Close()
+	hc := HTTPClient(HTTPOptions{Timeout: 5 * time.Second})
+	if _, err := hc.Get(srv.URL + "/declared"); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("declared length: error = %v, want ErrTooLarge", err)
+	}
+	resp, err := hc.Get(srv.URL + "/chunked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.ContentLength != -1 {
+		t.Fatalf("Content-Length %d, want a chunked response", resp.ContentLength)
+	}
+	if _, err := ReadBody(resp, MaxResponseSize); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("chunked: error = %v, want ErrTooLarge", err)
+	}
+}
+
+func TestReadBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "hello")
+	}))
+	defer srv.Close()
+	resp, err := HTTPClient(HTTPOptions{Timeout: time.Second}).Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, err := ReadBody(resp, 64)
+	if err != nil || string(b) != "hello" {
+		t.Fatalf("ReadBody = %q, %v", b, err)
+	}
+}
+
+// A body of unknown length (chunked) is read into a buffer that grows with
+// it, up to the limit, rather than into one of the limit's size.
+func TestReadBodyUnknownLength(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n, _ := strconv.Atoi(r.URL.Query().Get("n"))
+		for i := 0; i < n; i += 1000 {
+			_, _ = io.WriteString(w, strings.Repeat("x", min(1000, n-i)))
+			w.(http.Flusher).Flush() // no Content-Length
+		}
+	}))
+	defer srv.Close()
+	const limit = 3 * firstBodyBuffer
+	for _, tt := range []struct {
+		n       int
+		tooLong bool
+	}{{0, false}, {5, false}, {firstBodyBuffer, false}, {firstBodyBuffer + 1, false}, {limit, false},
+		{limit + 1, true}, {10 * limit, true}} {
+		resp, err := http.Get(fmt.Sprintf("%s?n=%d", srv.URL, tt.n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tt.n > 0 && resp.ContentLength != -1 {
+			t.Fatalf("n=%d: the response declares %d bytes", tt.n, resp.ContentLength)
+		}
+		b, err := ReadBody(resp, limit)
+		_ = resp.Body.Close()
+		switch {
+		case tt.tooLong && !errors.Is(err, ErrTooLarge):
+			t.Errorf("n=%d: error = %v, want ErrTooLarge", tt.n, err)
+		case !tt.tooLong && (err != nil || len(b) != tt.n || strings.Trim(string(b), "x") != ""):
+			t.Errorf("n=%d: ReadBody = %d bytes, %v", tt.n, len(b), err)
+		case !tt.tooLong && int64(cap(b)) > max(firstBodyBuffer, 2*int64(tt.n)):
+			t.Errorf("n=%d: a buffer of %d bytes", tt.n, cap(b))
+		}
+	}
+}
+
+func TestCache(t *testing.T) {
+	var closed []string
+	c := Cache[string, string]{Max: 2, Close: func(v string) { closed = append(closed, v) }}
+	builds := 0
+	get := func(k string) (string, func()) {
+		v, release, err := c.Get(k, func() (string, error) { builds++; return "client-" + k, nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v, release
+	}
+	use := func(k string) { _, release := get(k); release() }
+	use("a")
+	use("b")
+	use("a") // a is now the most recently used
+	use("c") // evicts b
+	if builds != 3 || c.Len() != 2 || !slices.Equal(closed, []string{"client-b"}) {
+		t.Fatalf("builds %d, len %d, closed %v", builds, c.Len(), closed)
+	}
+	if _, _, err := c.Get("d", func() (string, error) { return "", errors.New("no") }); err == nil || c.Len() != 2 {
+		t.Fatal("a failed build was cached")
+	}
+	c.Purge()
+	if c.Len() != 0 || len(closed) != 3 {
+		t.Fatalf("after Purge: len %d, closed %v", c.Len(), closed)
+	}
+
+	// A client that a fetch still uses is closed when the fetch releases
+	// it, not when it is dropped: closing a GCP client cancels its calls.
+	closed = nil
+	_, releaseA := get("a")
+	_, releaseA2 := get("a")
+	use("b")
+	use("c") // evicts a, in use twice
+	if c.Len() != 2 || len(closed) != 0 {
+		t.Fatalf("an evicted client in use: len %d, closed %v", c.Len(), closed)
+	}
+	releaseA()
+	releaseA() // a second call releases nothing more
+	if len(closed) != 0 {
+		t.Fatalf("closed %v while a fetch still uses client-a", closed)
+	}
+	releaseA2()
+	if !slices.Equal(closed, []string{"client-a"}) {
+		t.Fatalf("after the last release: closed %v", closed)
+	}
+	_, releaseB := get("b")
+	c.Purge()
+	if !slices.Equal(closed, []string{"client-a", "client-c"}) {
+		t.Fatalf("Purge closed %v; client-b is in use", closed)
+	}
+	releaseB()
+	if !slices.Equal(closed, []string{"client-a", "client-c", "client-b"}) {
+		t.Fatalf("after releasing client-b: closed %v", closed)
+	}
+	if v, _ := get("b"); v != "client-b" || c.Len() != 1 {
+		t.Fatalf("after Purge the cache builds again: %q, len %d", v, c.Len())
+	}
+}
+
+func TestParseTags(t *testing.T) {
+	got, err := ParseTags([]string{"a=1|b=2", "c", "d="})
+	want := []Tag{{"a", "1"}, {"b", "2"}, {"c", ""}, {"d", ""}}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("ParseTags = %v, %v", got, err)
+	}
+	// Web3Signer's tag flags are maps: a repeated name keeps its last value.
+	got, err = ParseTags([]string{"role=a|team=blue", "role=b"})
+	want = []Tag{{"role", "b"}, {"team", "blue"}}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("a repeated tag name: ParseTags = %v, %v, want %v", got, err, want)
+	}
+	if _, err := ParseTags([]string{"=x"}); !errors.Is(err, ErrConfig) {
+		t.Fatalf("empty key: %v", err)
+	}
+}
+
+func TestCheckKubernetesAuthPath(t *testing.T) {
+	for in, want := range map[string]string{"": "kubernetes", " /k8s/ ": "k8s", "a/b": "a/b"} {
+		if got, err := CheckKubernetesAuthPath(in); err != nil || got != want {
+			t.Errorf("CheckKubernetesAuthPath(%q) = %q, %v", in, got, err)
+		}
+	}
+	for _, bad := range []string{"a//b", "a/./b", "../x"} {
+		if _, err := CheckKubernetesAuthPath(bad); err == nil {
+			t.Errorf("CheckKubernetesAuthPath(%q) accepted", bad)
+		}
+	}
+}
+
+func TestParseEnum(t *testing.T) {
+	if v, err := ParseEnum("specified", AWSSpecified, AWSEnvironment); err != nil || v != AWSSpecified {
+		t.Fatalf("ParseEnum = %q, %v", v, err)
+	}
+	if _, err := ParseEnum("IAM", AWSSpecified, AWSEnvironment); !errors.Is(err, ErrConfig) {
+		t.Fatalf("ParseEnum(IAM) = %v", err)
+	}
+}
+
+type panicky struct{}
+
+func (panicky) Fetch(context.Context, Spec) ([]byte, error) { panic("boom") }
+
+func TestStores(t *testing.T) {
+	st := Stores{KindGCP: panicky{}}
+	if _, err := st.Fetch(context.Background(), &AWS{SecretName: "s"}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("missing store: %v", err)
+	}
+	if _, err := st.Fetch(context.Background(), &GCP{ProjectID: "p", SecretName: "s"}); err == nil ||
+		!strings.Contains(err.Error(), "panicked: boom") {
+		t.Fatalf("panicking store: %v", err)
+	}
+}
+
+// fakeLister is an in-memory bulk store.
+type fakeLister struct {
+	values  map[string]string
+	order   []string
+	listErr error
+	panicOn string
+}
+
+func (f *fakeLister) List(context.Context) ([]string, error) { return f.order, f.listErr }
+
+func (f *fakeLister) Get(_ context.Context, name string) ([]byte, error) {
+	if name == f.panicOn {
+		panic("bad response")
+	}
+	v, ok := f.values[name]
+	if !ok {
+		return nil, fmt.Errorf("%s: %w", name, ErrNotFound)
+	}
+	return []byte(v), nil
+}
+
+func TestBulk(t *testing.T) {
+	s1, s2, s3 := "0x"+hexOf(1, 48), hexOf(2, 48), "0x"+hexOf(3, 48)
+	f := &fakeLister{
+		order: []string{"good", "two-lines", "bad-line", "missing", "too-large", "empty", "panics"},
+		values: map[string]string{
+			"good":      s1 + "\n",
+			"two-lines": s2 + "\r\n" + s3 + "\r\n",
+			"bad-line":  s1 + "\n0x" + hexOf(9, 32) + "\n",
+			"too-large": strings.Repeat("0", MaxValueSize+1),
+			"empty":     "\n",
+		},
+		panicOn: "panics",
+	}
+	b := Bulk{Kind: KindAWS, Store: f}
+	batches, err := b.Load(context.Background(), 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{ // source -> error substring; "" loads
+		"aws-bulk:good": "", "aws-bulk:two-lines": "", "aws-bulk:bad-line": "line 2: invalid seed: 32 bytes",
+		"aws-bulk:missing": "secret not found", "aws-bulk:too-large": "too large", "aws-bulk:empty": "holds no seed",
+		"aws-bulk:panics": "panicked",
+	}
+	if len(batches) != len(want) {
+		t.Fatalf("%d batches, want %d", len(batches), len(want))
+	}
+	for _, x := range batches {
+		w, ok := want[x.Source]
+		switch {
+		case !ok:
+			t.Errorf("unexpected source %s", x.Source)
+		case w == "" && x.Err != nil:
+			t.Errorf("%s: %v", x.Source, x.Err)
+		case w != "" && (x.Err == nil || !strings.Contains(x.Err.Error(), w) || len(x.Keys) != 0):
+			t.Errorf("%s: error %v, %d keys; want %q and none", x.Source, x.Err, len(x.Keys), w)
+		}
+		if x.Err != nil && (strings.Contains(x.Err.Error(), "0101") || strings.Contains(x.Err.Error(), "0909")) {
+			t.Errorf("%s: error quotes the value: %v", x.Source, x.Err)
+		}
+		if x.Source == "aws-bulk:two-lines" && len(x.Keys) != 2 {
+			t.Errorf("two-lines: %d keys", len(x.Keys))
+		}
+		for _, k := range x.Keys {
+			k.Zeroize()
+		}
+	}
+
+	f.listErr = errors.New("throttled")
+	if _, err := b.Load(context.Background(), 1, nil); err == nil || !strings.Contains(err.Error(), "list secrets") {
+		t.Fatalf("list failure: %v", err)
+	}
+
+	f.listErr = nil
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	batches, err = b.Load(ctx, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range batches {
+		if !errors.Is(x.Err, context.Canceled) {
+			t.Errorf("%s after cancel: %v", x.Source, x.Err)
+		}
+	}
+}
